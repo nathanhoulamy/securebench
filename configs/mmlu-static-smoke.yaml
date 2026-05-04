@@ -1,0 +1,24 @@
+schema_version: "0.1"
+
+run:
+  id: mmlu-static-smoke
+  limit: 3
+  output_path: runs/mmlu-static-smoke/results.jsonl
+
+dataset:
+  provider: huggingface
+  name: cais/mmlu
+  config: abstract_algebra
+  split: test
+  streaming: true
+
+adapter:
+  id: mmlu
+
+producer:
+  kind: static
+  config:
+    text: A
+
+runner:
+  type: multiple_choice

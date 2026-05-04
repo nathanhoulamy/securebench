@@ -1,0 +1,64 @@
+from securebench.adapters import HumanEvalAdapter, MMLUAdapter, SWEBenchVerifiedAdapter
+
+
+def test_mmlu_adapter_hides_answer_from_agent_payload():
+    row = {
+        "question": "2 + 2?",
+        "subject": "math",
+        "choices": ["1", "2", "4", "5"],
+        "answer": 2,
+    }
+
+    task = MMLUAdapter().to_task(row, split="test", row_idx=7)
+
+    assert task.id == "mmlu/math/test/7"
+    assert task.answer == 2
+    assert task.agent_payload() == {
+        "question": "2 + 2?",
+        "choices": ["1", "2", "4", "5"],
+    }
+
+
+def test_humaneval_adapter_hides_tests_and_solution():
+    row = {
+        "task_id": "HumanEval/0",
+        "prompt": "def add(a, b):",
+        "canonical_solution": "\n    return a + b",
+        "test": "def check(candidate): assert candidate(1, 2) == 3",
+        "entry_point": "add",
+    }
+
+    task = HumanEvalAdapter().to_task(row)
+
+    assert task.tests == row["test"]
+    assert task.canonical_solution == row["canonical_solution"]
+    assert "test" not in task.agent_payload()
+    assert "canonical_solution" not in task.agent_payload()
+
+
+def test_swebench_adapter_coerces_test_fields_and_formats_prediction():
+    row = {
+        "repo": "astropy/astropy",
+        "instance_id": "astropy__astropy-12907",
+        "base_commit": "abc123",
+        "patch": "gold patch",
+        "test_patch": "hidden tests",
+        "problem_statement": "Fix the bug.",
+        "hints_text": "",
+        "version": "4.3",
+        "FAIL_TO_PASS": '["tests/test_bug.py::test_fixed"]',
+        "PASS_TO_PASS": ["tests/test_existing.py::test_still_passes"],
+    }
+    adapter = SWEBenchVerifiedAdapter()
+
+    task = adapter.to_task(row)
+    prediction = adapter.format_prediction(task, "diff --git ...")
+
+    assert task.fail_to_pass == ("tests/test_bug.py::test_fixed",)
+    assert task.pass_to_pass == ("tests/test_existing.py::test_still_passes",)
+    assert "FAIL_TO_PASS" not in task.agent_payload()
+    assert prediction == {
+        "instance_id": "astropy__astropy-12907",
+        "model_name_or_path": "securebench-agent",
+        "model_patch": "diff --git ...",
+    }
