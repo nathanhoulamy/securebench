@@ -1,0 +1,28 @@
+schema_version: "0.1"
+
+run:
+  id: humaneval-openai-smoke
+  limit: 3
+  output_path: runs/humaneval-openai-smoke/results.jsonl
+
+dataset:
+  provider: huggingface
+  name: openai/openai_humaneval
+  config: openai_humaneval
+  split: test
+  streaming: true
+
+adapter:
+  id: humaneval
+
+producer:
+  type: openai_compatible
+  config:
+    model: gpt-5.4-mini
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    temperature: 0
+    system_prompt: You are completing a Python function. Return only the indented function body that should be appended after the provided prompt. Do not repeat imports, decorators, the function signature, Markdown fences, or explanation.
+
+runner:
+  type: code_generation

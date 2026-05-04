@@ -14,6 +14,9 @@ class SWEBenchVerifiedAdapter(BenchmarkAdapter):
     task_type = "github_patch"
 
     def to_task(self, row: dict[str, Any], **context: Any) -> GitHubPatchTask:
+        fail_to_pass = _coerce_test_list(row.get("FAIL_TO_PASS", ()))
+        pass_to_pass = _coerce_test_list(row.get("PASS_TO_PASS", ()))
+        test_patch = row.get("test_patch")
         return GitHubPatchTask(
             id=row["instance_id"],
             benchmark_id=self.benchmark_id,
@@ -24,10 +27,15 @@ class SWEBenchVerifiedAdapter(BenchmarkAdapter):
             hints_text=row.get("hints_text", ""),
             version=row.get("version"),
             environment_setup_commit=row.get("environment_setup_commit"),
-            fail_to_pass=_coerce_test_list(row.get("FAIL_TO_PASS", ())),
-            pass_to_pass=_coerce_test_list(row.get("PASS_TO_PASS", ())),
+            fail_to_pass=fail_to_pass,
+            pass_to_pass=pass_to_pass,
             gold_patch=row.get("patch"),
-            test_patch=row.get("test_patch"),
+            test_patch=test_patch,
+            test_groups={
+                "fail_to_pass": fail_to_pass,
+                "pass_to_pass": pass_to_pass,
+            },
+            hidden_patches={} if test_patch is None else {"tests": str(test_patch)},
             hidden_fields=("patch", "test_patch", "FAIL_TO_PASS", "PASS_TO_PASS"),
             metadata={
                 "split": context.get("split", "test"),

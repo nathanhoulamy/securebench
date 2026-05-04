@@ -8,9 +8,9 @@ scores them, and where results are written.
 The parser accepts YAML.
 
 The MVP implementation supports Hugging Face datasets, built-in adapters,
-static and OpenAI-compatible producers, and the multiple-choice runner. The
-schema is shaped so code-generation and repository patch tasks can add
-runner/producer kinds without changing the top-level layout.
+static and OpenAI-compatible text producers, a workspace-agent patch producer,
+and runners for multiple-choice, HumanEval-style code generation, and generic
+GitHub patch evaluation.
 
 ## MMLU Example
 
@@ -33,7 +33,7 @@ adapter:
   id: mmlu
 
 producer:
-  kind: openai_compatible
+  type: openai_compatible
   config:
     model: gpt-4o-mini
     base_url: https://api.openai.com/v1
@@ -43,6 +43,79 @@ producer:
 
 runner:
   type: multiple_choice
+```
+
+## HumanEval Example
+
+```yaml
+schema_version: "0.1"
+
+run:
+  id: humaneval-openai-smoke
+  limit: 3
+  output_path: runs/humaneval-openai-smoke/results.jsonl
+
+dataset:
+  provider: huggingface
+  name: openai/openai_humaneval
+  config: openai_humaneval
+  split: test
+  streaming: true
+
+adapter:
+  id: humaneval
+
+producer:
+  type: openai_compatible
+  config:
+    model: gpt-5.4-mini
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    temperature: 0
+    system_prompt: You are completing a Python function. Return only the indented function body that should be appended after the provided prompt. Do not repeat imports, decorators, the function signature, Markdown fences, or explanation.
+
+runner:
+  type: code_generation
+```
+
+## SWE-bench Verified Smoke Example
+
+```yaml
+schema_version: "0.1"
+
+run:
+  id: swebench-verified-agent-smoke
+  limit: 1
+  output_path: runs/swebench-verified-agent-smoke/results.jsonl
+
+dataset:
+  provider: huggingface
+  name: princeton-nlp/SWE-bench_Verified
+  split: test
+  streaming: true
+
+adapter:
+  id: swebench_verified
+
+producer:
+  type: workspace_agent_patch
+  config:
+    image: securebench-agent:latest
+    model: gpt-5.4-mini
+    api_key_env: OPENAI_API_KEY
+    timeout: 1800
+
+runner:
+  type: github_patch
+  config:
+    image: securebench-agent:latest
+    apply_hidden_patches:
+      - tests
+    test_group_names:
+      - fail_to_pass
+      - pass_to_pass
+    test_command_template: "python -m pytest {tests}"
+    timeout: 1800
 ```
 
 ## Fields
@@ -81,11 +154,14 @@ subsets such as `"abstract_algebra"` or `"computer_security"`.
 `adapter.id`
 : Required built-in adapter ID, such as `"mmlu"`.
 
-`producer.kind`
-: Required. Supported MVP values:
+`producer.type`
+: Required. Supported values:
 
 - `"openai_compatible"`: calls a Chat Completions compatible endpoint.
 - `"static"`: returns fixed text, useful for tests and smoke checks.
+- `"workspace_agent_patch"`: checks out a GitHub repository, runs the built-in
+  workspace agent in a Docker sandbox, and returns the resulting git diff as a
+  patch artifact.
 
 `producer.config`
 : Required producer-specific configuration.
@@ -106,14 +182,48 @@ For `"static"`:
 
 - `text`: required fixed model output.
 
+For `"workspace_agent_patch"`:
+
+- `image`: optional Docker image. Defaults to `"python:3.11-slim"`, but
+  practical runs should use an image containing SecureBench and repo tools,
+  such as `securebench-agent:latest`.
+- `model` or `replay_file`: one is required. `model` uses the OpenAI-compatible
+  tool-calling agent; `replay_file` uses deterministic recorded actions.
+- `base_url`: optional OpenAI-compatible endpoint base URL.
+- `api_key_env`: optional environment variable containing the API key.
+- `repo_dir`: optional checkout directory inside `/workspace`.
+- `task_file`: optional public task file name written into the repo.
+- `setup_commands`: optional list of setup commands run before the agent.
+- `allow_commands` / `deny_commands`: optional command policy lists for the
+  agent's `run_command` tool.
+- `max_steps`, `max_tool_output`, `command_timeout`, `request_timeout`,
+  `temperature`, `timeout`: optional agent and sandbox controls.
+
 `runner.type`
-: Required runner type. For MMLU this is `"multiple_choice"`.
+: Required runner type. Built-in values are `"multiple_choice"`,
+`"code_generation"`, and `"github_patch"`.
+
+For `runner.type: github_patch`, optional `runner.config` fields include:
+
+- `image`: Docker image for evaluation.
+- `repo_dir`: checkout directory inside `/workspace`.
+- `setup_commands`: setup commands run before tests.
+- `test_commands`: explicit test commands.
+- `apply_hidden_patches`: names of hidden patch groups to apply during
+  evaluation.
+- `test_group_names`: names of task test groups to select.
+- `test_command_template`: command template that receives selected tests through
+  `{tests}`.
+- `timeout`: per-command timeout in seconds.
 
 ## Security Invariant
 
 The producer receives only `task.agent_payload()`, never the full normalized
 task object. For MMLU, that means the hidden `answer` field remains evaluator
-data and is not sent to the model.
+data and is not sent to the model. For HumanEval, hidden tests and canonical
+solutions remain evaluator data and are not sent to the model. For GitHub patch
+tasks, hidden patches and hidden test groups stay runner-only and are not
+written into the workspace-agent task file.
 
 ## Running
 
@@ -127,6 +237,25 @@ OpenAI-compatible smoke run:
 
 ```bash
 .venv/bin/python -m securebench.cli run --config configs/mmlu-openai-smoke.yaml
+```
+
+HumanEval static smoke run:
+
+```bash
+.venv/bin/python -m securebench.cli run --config configs/humaneval-static-smoke.yaml
+```
+
+HumanEval OpenAI-compatible smoke run:
+
+```bash
+.venv/bin/python -m securebench.cli run --config configs/humaneval-openai-smoke.yaml
+```
+
+SWE-bench Verified workspace-agent smoke run:
+
+```bash
+docker build -f docker/agent.Dockerfile -t securebench-agent:latest .
+.venv/bin/python -m securebench.cli run --config configs/swebench-verified-agent-smoke.yaml --limit 1
 ```
 
 The CLI loads `.env` by default before running. Store local secrets there:

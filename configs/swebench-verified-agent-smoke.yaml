@@ -1,0 +1,68 @@
+schema_version: "0.1"
+
+run:
+  id: swebench-verified-agent-smoke
+  limit: 1
+  output_path: runs/swebench-verified-agent-smoke/results.jsonl
+
+dataset:
+  provider: huggingface
+  name: princeton-nlp/SWE-bench_Verified
+  split: test
+  streaming: true
+
+adapter:
+  id: swebench_verified
+
+producer:
+  type: workspace_agent_patch
+  config:
+    image: securebench-agent:latest
+    model: gpt-5.4-mini
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    max_steps: 40
+    max_tool_output: 12000
+    command_timeout: 120
+    request_timeout: 120
+    timeout: 1800
+    setup_commands:
+      - python -m pip install --upgrade pip 'setuptools<58' wheel
+      - python -m pip install pytest hypothesis numpy cython extension-helpers
+      - python -m pip install 'setuptools<58'
+      - python -m pip install -e . --no-build-isolation || true
+      - python -m pip install -e '.[test]' --no-build-isolation || true
+      - test ! -f requirements.txt || python -m pip install -r requirements.txt
+      - test ! -f test-requirements.txt || python -m pip install -r test-requirements.txt
+    allow_commands:
+      - git
+      - python
+      - python3
+      - pytest
+    deny_commands:
+      - curl
+      - wget
+      - ssh
+      - scp
+      - rsync
+
+runner:
+  type: github_patch
+  config:
+    image: securebench-agent:latest
+    repo_dir: eval-repo
+    apply_hidden_patches:
+      - tests
+    test_group_names:
+      - fail_to_pass
+      - pass_to_pass
+    test_command_template: "python -m pytest {tests}"
+    setup_commands:
+      - python -m pip install --upgrade pip 'setuptools<58' wheel
+      - python -m pip install pytest hypothesis numpy cython extension-helpers
+      - python -m pip install 'setuptools<58'
+      - python -m pip install -e . --no-build-isolation || true
+      - python -m pip install -e '.[test]' --no-build-isolation || true
+      - test ! -f requirements.txt || python -m pip install -r requirements.txt
+      - test ! -f test-requirements.txt || python -m pip install -r test-requirements.txt
+    timeout: 1800

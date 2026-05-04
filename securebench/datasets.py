@@ -7,6 +7,7 @@ from typing import Any, Iterator
 
 
 MMLU_DATASET_ID = "cais/mmlu"
+HUMANEVAL_DATASET_ID = "openai/openai_humaneval"
 SWEBENCH_VERIFIED_DATASET_ID = "princeton-nlp/SWE-bench_Verified"
 
 
@@ -70,6 +71,23 @@ def mmlu_ref(
     """Return a reference for a MMLU subset."""
     return HuggingFaceDatasetRef(
         name=MMLU_DATASET_ID,
+        config=config,
+        split=split,
+        revision=revision,
+        streaming=streaming,
+    )
+
+
+def humaneval_ref(
+    *,
+    config: str = "openai_humaneval",
+    split: str = "test",
+    revision: str | None = None,
+    streaming: bool = False,
+) -> HuggingFaceDatasetRef:
+    """Return a reference for OpenAI HumanEval."""
+    return HuggingFaceDatasetRef(
+        name=HUMANEVAL_DATASET_ID,
         config=config,
         split=split,
         revision=revision,

@@ -1,8 +1,8 @@
 import pytest
 
-from securebench.candidates import StaticCandidateProducer, TextCompletionProducer
+from securebench.candidates import StaticCandidateProducer, TextCompletionProducer, WorkspaceAgentPatchProducer
 from securebench.config import ConfigError, load_run_config, parse_run_config
-from securebench.datasets import MMLU_DATASET_ID
+from securebench.datasets import HUMANEVAL_DATASET_ID, MMLU_DATASET_ID, SWEBENCH_VERIFIED_DATASET_ID
 from securebench.runners import CodeGenerationRunner, GitHubPatchRunner, MultipleChoiceRunner
 
 
@@ -25,7 +25,7 @@ def valid_config(**overrides):
             "id": "mmlu",
         },
         "producer": {
-            "kind": "static",
+            "type": "static",
             "config": {
                 "text": "A",
             },
@@ -53,7 +53,7 @@ def test_parse_run_config_builds_dataset_ref_and_runtime_objects():
 def test_parse_run_config_builds_openai_compatible_producer():
     data = valid_config(
         producer={
-            "kind": "openai_compatible",
+            "type": "openai_compatible",
             "config": {
                 "model": "gpt-4o-mini",
                 "base_url": "https://api.openai.com/v1",
@@ -68,19 +68,171 @@ def test_parse_run_config_builds_openai_compatible_producer():
     assert isinstance(config.build_producer(), TextCompletionProducer)
 
 
+def test_parse_run_config_builds_workspace_agent_patch_producer():
+    data = valid_config(
+        dataset={
+            "provider": "huggingface",
+            "name": SWEBENCH_VERIFIED_DATASET_ID,
+            "split": "test",
+            "streaming": True,
+        },
+        adapter={"id": "swebench_verified"},
+        producer={
+            "type": "workspace_agent_patch",
+            "config": {
+                "image": "securebench-agent:latest",
+                "model": "test-model",
+                "base_url": "https://llm.example/v1",
+                "api_key_env": "TEST_API_KEY",
+                "repo_dir": "worktree",
+                "task_file": "TASK.md",
+                "max_steps": 3,
+                "max_tool_output": 2048,
+                "command_timeout": 9,
+                "request_timeout": 10,
+                "timeout": 11,
+                "temperature": 0,
+                "setup_commands": ["python -m pip install pytest"],
+                "allow_commands": ["git", "pytest"],
+                "deny_commands": ["curl"],
+            },
+        },
+        runner={"type": "github_patch"},
+    )
+
+    config = parse_run_config(data)
+    producer = config.build_producer()
+
+    assert isinstance(producer, WorkspaceAgentPatchProducer)
+    assert config.producer.type == "workspace_agent_patch"
+    sandbox = producer.sandbox_factory()
+    assert sandbox.env_names == ("TEST_API_KEY",)
+    sandbox.close()
+    assert producer.setup_commands == ("python -m pip install pytest",)
+
+
+def test_workspace_agent_patch_replay_config_does_not_pass_api_key_env():
+    data = valid_config(
+        dataset={
+            "provider": "huggingface",
+            "name": SWEBENCH_VERIFIED_DATASET_ID,
+            "split": "test",
+            "streaming": True,
+        },
+        adapter={"id": "swebench_verified"},
+        producer={
+            "type": "workspace_agent_patch",
+            "config": {
+                "replay_file": "/workspace/replay.json",
+            },
+        },
+        runner={"type": "github_patch"},
+    )
+
+    producer = parse_run_config(data).build_producer()
+
+    assert isinstance(producer, WorkspaceAgentPatchProducer)
+    sandbox = producer.sandbox_factory()
+    assert sandbox.env_names == ()
+    sandbox.close()
+
+
+def test_parse_run_config_builds_github_patch_runner_with_config():
+    data = valid_config(
+        dataset={
+            "provider": "huggingface",
+            "name": SWEBENCH_VERIFIED_DATASET_ID,
+            "split": "test",
+            "streaming": True,
+        },
+        adapter={"id": "swebench_verified"},
+        producer={
+            "type": "workspace_agent_patch",
+            "config": {
+                "replay_file": "/workspace/replay.json",
+            },
+        },
+        runner={
+            "type": "github_patch",
+            "config": {
+                "image": "securebench-agent:latest",
+                "repo_dir": "eval-repo",
+                "setup_commands": ["python -m pip install -e ."],
+                "test_commands": ["pytest tests"],
+                "apply_hidden_patches": ["tests"],
+                "test_group_names": ["fail_to_pass", "pass_to_pass"],
+                "test_command_template": "pytest {tests}",
+                "timeout": 45,
+            },
+        },
+    )
+
+    config = parse_run_config(data)
+    runner = config.build_runner()
+
+    assert isinstance(runner, GitHubPatchRunner)
+    assert runner.image == "securebench-agent:latest"
+    assert runner.repo_dir == "eval-repo"
+    assert runner.setup_commands == ("python -m pip install -e .",)
+    assert runner.test_commands == ("pytest tests",)
+    assert runner.apply_hidden_patches == ("tests",)
+    assert runner.test_group_names == ("fail_to_pass", "pass_to_pass")
+    assert runner.test_command_template == "pytest {tests}"
+    assert runner.timeout == 45
+
+
 def test_load_run_config_reads_yaml_file():
     config = load_run_config("configs/mmlu-static-smoke.yaml")
 
     assert config.run.id == "mmlu-static-smoke"
     assert config.dataset.name == MMLU_DATASET_ID
-    assert config.producer.kind == "static"
+    assert config.producer.type == "static"
 
 
 def test_load_openai_smoke_config_reads_yaml_file():
     config = load_run_config("configs/mmlu-openai-smoke.yaml")
 
     assert config.run.id == "mmlu-openai-smoke"
-    assert config.producer.kind == "openai_compatible"
+    assert config.producer.type == "openai_compatible"
+
+
+def test_load_humaneval_static_smoke_config_reads_yaml_file():
+    config = load_run_config("configs/humaneval-static-smoke.yaml")
+
+    assert config.run.id == "humaneval-static-smoke"
+    assert config.dataset.name == HUMANEVAL_DATASET_ID
+    assert config.dataset.config == "openai_humaneval"
+    assert config.dataset.split == "test"
+    assert config.adapter.id == "humaneval"
+    assert config.producer.type == "static"
+    assert config.runner.type == "code_generation"
+
+
+def test_load_humaneval_openai_smoke_config_reads_yaml_file():
+    config = load_run_config("configs/humaneval-openai-smoke.yaml")
+
+    assert config.run.id == "humaneval-openai-smoke"
+    assert config.dataset.name == HUMANEVAL_DATASET_ID
+    assert config.dataset.config == "openai_humaneval"
+    assert config.producer.type == "openai_compatible"
+    assert config.runner.type == "code_generation"
+
+
+def test_load_swebench_verified_agent_smoke_config_reads_yaml_file():
+    config = load_run_config("configs/swebench-verified-agent-smoke.yaml")
+
+    assert config.run.id == "swebench-verified-agent-smoke"
+    assert config.dataset.name == SWEBENCH_VERIFIED_DATASET_ID
+    assert config.adapter.id == "swebench_verified"
+    assert config.producer.type == "workspace_agent_patch"
+    assert config.runner.type == "github_patch"
+    producer = config.build_producer()
+    assert isinstance(producer, WorkspaceAgentPatchProducer)
+    assert producer.setup_commands[0] == "python -m pip install --upgrade pip 'setuptools<58' wheel"
+    runner = config.build_runner()
+    assert isinstance(runner, GitHubPatchRunner)
+    assert runner.apply_hidden_patches == ("tests",)
+    assert runner.test_group_names == ("fail_to_pass", "pass_to_pass")
 
 
 @pytest.mark.parametrize(
@@ -105,6 +257,86 @@ def test_parse_run_config_rejects_non_positive_limit():
     data["run"]["limit"] = 0
 
     with pytest.raises(ConfigError, match="run.limit"):
+        parse_run_config(data)
+
+
+def test_workspace_agent_patch_producer_rejects_invalid_command_lists():
+    data = valid_config(
+        dataset={
+            "provider": "huggingface",
+            "name": SWEBENCH_VERIFIED_DATASET_ID,
+            "split": "test",
+            "streaming": True,
+        },
+        adapter={"id": "swebench_verified"},
+        producer={
+            "type": "workspace_agent_patch",
+            "config": {
+                "model": "test-model",
+                "allow_commands": "pytest",
+            },
+        },
+        runner={"type": "github_patch"},
+    )
+
+    config = parse_run_config(data)
+    with pytest.raises(ConfigError, match="allow_commands"):
+        config.build_producer()
+
+
+def test_workspace_agent_patch_producer_requires_model_or_replay_file():
+    data = valid_config(
+        dataset={
+            "provider": "huggingface",
+            "name": SWEBENCH_VERIFIED_DATASET_ID,
+            "split": "test",
+            "streaming": True,
+        },
+        adapter={"id": "swebench_verified"},
+        producer={
+            "type": "workspace_agent_patch",
+            "config": {},
+        },
+        runner={"type": "github_patch"},
+    )
+
+    config = parse_run_config(data)
+    with pytest.raises(ConfigError, match="model or replay_file"):
+        config.build_producer()
+
+
+def test_github_patch_runner_config_rejects_invalid_command_lists():
+    data = valid_config(
+        dataset={
+            "provider": "huggingface",
+            "name": SWEBENCH_VERIFIED_DATASET_ID,
+            "split": "test",
+            "streaming": True,
+        },
+        adapter={"id": "swebench_verified"},
+        producer={
+            "type": "workspace_agent_patch",
+            "config": {
+                "replay_file": "/workspace/replay.json",
+            },
+        },
+        runner={
+            "type": "github_patch",
+            "config": {
+                "test_group_names": "fail_to_pass",
+            },
+        },
+    )
+
+    config = parse_run_config(data)
+    with pytest.raises(ConfigError, match="runner.config.test_group_names"):
+        config.build_runner()
+
+
+def test_parse_run_config_rejects_non_object_runner_config():
+    data = valid_config(runner={"type": "multiple_choice", "config": "bad"})
+
+    with pytest.raises(ConfigError, match="runner.config"):
         parse_run_config(data)
 
 

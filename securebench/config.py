@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -13,10 +13,12 @@ from securebench.candidates import (
     OpenAICompatibleChatConfig,
     StaticCandidateProducer,
     TextCompletionProducer,
+    WorkspaceAgentPatchProducer,
 )
 from securebench.adapters import get_adapter
 from securebench.datasets import HuggingFaceDatasetRef
 from securebench.runners import CodeGenerationRunner, GitHubPatchRunner, MultipleChoiceRunner, Runner
+from securebench.sandboxes import DockerSandbox
 
 
 SUPPORTED_SCHEMA_VERSION = "0.1"
@@ -50,13 +52,14 @@ class AdapterSection:
 
 @dataclass(frozen=True)
 class ProducerSection:
-    kind: Literal["openai_compatible", "static"]
+    type: Literal["openai_compatible", "static", "workspace_agent_patch"]
     config: dict[str, Any]
 
 
 @dataclass(frozen=True)
 class RunnerSection:
     type: str
+    config: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -78,10 +81,10 @@ class RunConfig:
         )
 
     def build_producer(self) -> Any:
-        if self.producer.kind == "static":
+        if self.producer.type == "static":
             return StaticCandidateProducer(_required_str(self.producer.config, "text", "producer.config"))
 
-        if self.producer.kind == "openai_compatible":
+        if self.producer.type == "openai_compatible":
             client = OpenAICompatibleChatClient(
                 OpenAICompatibleChatConfig(
                     model=_required_str(self.producer.config, "model", "producer.config"),
@@ -100,7 +103,48 @@ class RunConfig:
             )
             return TextCompletionProducer(client, name="openai-compatible")
 
-        raise ConfigError(f"Unsupported producer kind {self.producer.kind!r}")
+        if self.producer.type == "workspace_agent_patch":
+            producer_config = self.producer.config
+            model = _optional_str(producer_config.get("model"))
+            replay_file = _optional_str(producer_config.get("replay_file"))
+            if model is None and replay_file is None:
+                raise ConfigError("producer.config requires either model or replay_file")
+            api_key_env = str(producer_config.get("api_key_env", "OPENAI_API_KEY"))
+            return WorkspaceAgentPatchProducer(
+                sandbox_factory=lambda: DockerSandbox(
+                    image=str(producer_config.get("image", "python:3.11-slim")),
+                    env_names=() if replay_file is not None else (api_key_env,),
+                ),
+                model=model,
+                replay_file=replay_file,
+                repo_dir=str(producer_config.get("repo_dir", "repo")),
+                task_file=str(producer_config.get("task_file", "SECUREBENCH_TASK.md")),
+                base_url=str(producer_config.get("base_url", "https://api.openai.com/v1")),
+                api_key_env=api_key_env,
+                max_steps=_optional_positive_int(
+                    producer_config.get("max_steps"),
+                    default=40,
+                    field="producer.config.max_steps",
+                ),
+                max_tool_output=_optional_positive_int(
+                    producer_config.get("max_tool_output"),
+                    default=12_000,
+                    field="producer.config.max_tool_output",
+                ),
+                command_timeout=_optional_float_default(
+                    producer_config.get("command_timeout"),
+                    default=60.0,
+                    field="producer.config.command_timeout",
+                ),
+                request_timeout=_optional_float(producer_config.get("request_timeout", producer_config.get("timeout", 60.0))),
+                temperature=_optional_float(producer_config.get("temperature", 0.0)),
+                allow_commands=_optional_str_tuple(producer_config.get("allow_commands"), "producer.config.allow_commands"),
+                deny_commands=_optional_str_tuple(producer_config.get("deny_commands"), "producer.config.deny_commands"),
+                setup_commands=_optional_str_tuple(producer_config.get("setup_commands"), "producer.config.setup_commands"),
+                timeout=_optional_float(producer_config.get("timeout")),
+            )
+
+        raise ConfigError(f"Unsupported producer type {self.producer.type!r}")
 
     def build_runner(self) -> Runner:
         if self.runner.type == "multiple_choice":
@@ -108,7 +152,27 @@ class RunConfig:
         if self.runner.type == "code_generation":
             return CodeGenerationRunner()
         if self.runner.type == "github_patch":
-            return GitHubPatchRunner()
+            runner_config = self.runner.config or {}
+            return GitHubPatchRunner(
+                image=str(runner_config.get("image", "python:3.11-slim")),
+                repo_dir=str(runner_config.get("repo_dir", "repo")),
+                setup_commands=_optional_str_tuple(runner_config.get("setup_commands"), "runner.config.setup_commands"),
+                test_commands=_optional_str_tuple(runner_config.get("test_commands"), "runner.config.test_commands"),
+                apply_hidden_patches=_optional_str_tuple(
+                    runner_config.get("apply_hidden_patches"),
+                    "runner.config.apply_hidden_patches",
+                ),
+                test_group_names=_optional_str_tuple(
+                    runner_config.get("test_group_names"),
+                    "runner.config.test_group_names",
+                ),
+                test_command_template=_optional_str(runner_config.get("test_command_template")),
+                timeout=_optional_float_default(
+                    runner_config.get("timeout"),
+                    default=120.0,
+                    field="runner.config.timeout",
+                ),
+            )
         raise ConfigError(f"Unsupported runner type {self.runner.type!r}")
 
     def build_adapter(self) -> Any:
@@ -148,14 +212,20 @@ def parse_run_config(data: dict[str, Any]) -> RunConfig:
     _get_adapter_or_config_error(adapter.id)
 
     producer = ProducerSection(
-        kind=_expect_literal(
-            _required_str(producer_data, "kind", "producer"),
-            {"openai_compatible", "static"},
-            "producer.kind",
+        type=_expect_literal(
+            _required_str(producer_data, "type", "producer"),
+            {"openai_compatible", "static", "workspace_agent_patch"},
+            "producer.type",
         ),
         config=_required_dict(producer_data, "config", "producer"),
     )
-    runner = RunnerSection(type=_required_str(runner_data, "type", "runner"))
+    runner_config = runner_data.get("config", {})
+    if not isinstance(runner_config, dict):
+        raise ConfigError("runner.config must be an object")
+    runner = RunnerSection(
+        type=_required_str(runner_data, "type", "runner"),
+        config=runner_config,
+    )
 
     limit = run_data.get("limit")
     config = RunConfig(
@@ -208,6 +278,12 @@ def _positive_int(value: Any, field: str) -> int:
     return value
 
 
+def _optional_positive_int(value: Any, *, default: int, field: str) -> int:
+    if value is None:
+        return default
+    return _positive_int(value, field)
+
+
 def _optional_int(value: Any) -> int | None:
     if value is None:
         return None
@@ -224,12 +300,28 @@ def _optional_float(value: Any) -> float | None:
     return float(value)
 
 
+def _optional_float_default(value: Any, *, default: float, field: str) -> float:
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ConfigError(f"{field} must be a number")
+    return float(value)
+
+
 def _optional_dict(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
     if not isinstance(value, dict):
         raise ConfigError("Optional object field must be an object when provided")
     return value
+
+
+def _optional_str_tuple(value: Any, field: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+        raise ConfigError(f"{field} must be a list of non-empty strings")
+    return tuple(value)
 
 
 def _expect_literal(value: str, allowed: set[str], field: str) -> Any:

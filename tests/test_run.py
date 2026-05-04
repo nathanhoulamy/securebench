@@ -26,7 +26,7 @@ def make_config(output_path: Path, *, limit=2):
                 "id": "mmlu",
             },
             "producer": {
-                "kind": "static",
+                "type": "static",
                 "config": {
                     "text": "A",
                 },

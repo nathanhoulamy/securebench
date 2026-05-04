@@ -4,9 +4,11 @@ import types
 import pytest
 
 from securebench.datasets import (
+    HUMANEVAL_DATASET_ID,
     MMLU_DATASET_ID,
     SWEBENCH_VERIFIED_DATASET_ID,
     HuggingFaceDatasetRef,
+    humaneval_ref,
     mmlu_ref,
     swebench_verified_ref,
 )
@@ -41,6 +43,14 @@ def test_swebench_verified_ref_points_at_verified_test_split():
 
     assert ref.name == SWEBENCH_VERIFIED_DATASET_ID
     assert ref.config is None
+    assert ref.split == "test"
+
+
+def test_humaneval_ref_points_at_openai_humaneval_test_split():
+    ref = humaneval_ref()
+
+    assert ref.name == HUMANEVAL_DATASET_ID
+    assert ref.config == "openai_humaneval"
     assert ref.split == "test"
 
 

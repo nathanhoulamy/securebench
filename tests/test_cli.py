@@ -23,7 +23,7 @@ dataset:
 adapter:
   id: mmlu
 producer:
-  kind: static
+  type: static
   config:
     text: A
 runner:

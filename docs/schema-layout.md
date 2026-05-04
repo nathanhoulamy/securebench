@@ -21,8 +21,11 @@ dataset/config/split/row index when no stable ID exists.
 
 ## Runtime Contexts
 
-The MVP can collapse the agent workspace and test sandbox into one sandbox, but
-the schema should leave room for a stricter future architecture.
+Repository tasks separate patch production from evaluation. A producer owns the
+agent workspace used to inspect and edit a checkout, while a runner owns the
+test sandbox used to apply the candidate patch and execute grading commands.
+Each sandbox instance may keep state across commands for one task attempt, but
+production configs should create fresh sandbox instances at task boundaries.
 
 ```text
 agent_workspace:
@@ -31,7 +34,8 @@ agent_workspace:
 
 test_sandbox:
   The sandbox where submitted code, generated code, or patches are executed.
-  In the MVP this may be the same physical sandbox as agent_workspace.
+  For repository patch tasks, this should be a fresh sandbox that receives only
+  the candidate patch plus evaluator-controlled hidden patches and commands.
 
 evaluator:
   A trusted process that parses outputs, checks schemas, starts sandbox runs,
@@ -65,10 +69,10 @@ agent_view:
   exclude: list[string]
 
 parser:
-  kind: string
+  type: string
 
 output:
-  kind: string
+  type: string
 
 policy:
   tools:
@@ -92,7 +96,7 @@ execution:
     commands: list[string]
 
 evaluation:
-  kind: exact_match | test_command | pass_at_k | custom
+  type: exact_match | test_command | pass_at_k | custom
 ```
 
 ## Per-Task Reference
@@ -170,10 +174,10 @@ agent_view:
     - answer
 
 parser:
-  kind: multiple_choice_letter
+  type: multiple_choice_letter
 
 output:
-  kind: dataset_class_label
+  type: dataset_class_label
   label_field: answer
 
 policy:
@@ -184,7 +188,7 @@ policy:
     allow: false
 
 evaluation:
-  kind: exact_match
+  type: exact_match
   expected_field: answer
 ```
 
@@ -230,10 +234,10 @@ agent_view:
     - test
 
 parser:
-  kind: python_code
+  type: python_code
 
 output:
-  kind: source_code
+  type: source_code
   language: python
 
 policy:
@@ -254,7 +258,7 @@ execution:
     entry_point_field: entry_point
 
 evaluation:
-  kind: pass_at_k
+  type: pass_at_k
   k: 1
 ```
 
@@ -309,10 +313,10 @@ agent_view:
     - PASS_TO_PASS
 
 parser:
-  kind: git_diff
+  type: git_diff
 
 output:
-  kind: git_patch
+  type: git_patch
   format: unified_diff
   include_binary: true
 
@@ -339,7 +343,7 @@ execution:
     pass_to_pass_field: PASS_TO_PASS
 
 evaluation:
-  kind: test_command
+  type: test_command
   success:
     exit_code: 0
 ```
@@ -387,7 +391,7 @@ agent_view:
     - hidden_tests
 
 output:
-  kind: git_patch
+  type: git_patch
   format: unified_diff
   include_binary: true
 
@@ -404,7 +408,7 @@ execution:
       - pytest
 
 evaluation:
-  kind: test_command
+  type: test_command
   success:
     exit_code: 0
 ```
@@ -421,7 +425,7 @@ integrity:
     - path: tests/
       sha256: string
   post_run_assertions:
-    - kind: path_hash_equals
+    - type: path_hash_equals
       path: tests/test_example.py
       sha256: string
 
@@ -440,4 +444,6 @@ The secure future flow for repository tasks should be:
 5. SecureBench applies hidden tests, if any.
 6. SecureBench runs tests and reports results to the evaluator.
 
-The MVP may run tests directly in the agent workspace.
+The local smoke path uses separate producer and runner sandbox instances by
+default. Tests should not run directly in a reused agent workspace for real
+benchmark evaluation.

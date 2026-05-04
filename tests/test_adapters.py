@@ -32,6 +32,7 @@ def test_humaneval_adapter_hides_tests_and_solution():
 
     assert task.tests == row["test"]
     assert task.canonical_solution == row["canonical_solution"]
+    assert "id" not in task.agent_payload()
     assert "test" not in task.agent_payload()
     assert "canonical_solution" not in task.agent_payload()
 
@@ -56,7 +57,14 @@ def test_swebench_adapter_coerces_test_fields_and_formats_prediction():
 
     assert task.fail_to_pass == ("tests/test_bug.py::test_fixed",)
     assert task.pass_to_pass == ("tests/test_existing.py::test_still_passes",)
+    assert task.test_groups == {
+        "fail_to_pass": ("tests/test_bug.py::test_fixed",),
+        "pass_to_pass": ("tests/test_existing.py::test_still_passes",),
+    }
+    assert task.hidden_patches == {"tests": "hidden tests"}
     assert "FAIL_TO_PASS" not in task.agent_payload()
+    assert "test_groups" not in task.agent_payload()
+    assert "hidden_patches" not in task.agent_payload()
     assert prediction == {
         "instance_id": "astropy__astropy-12907",
         "model_name_or_path": "securebench-agent",

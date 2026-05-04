@@ -51,7 +51,6 @@ class CodeGenerationTask(SecureBenchTask):
 
     def agent_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            "id": self.id,
             "prompt": self.prompt,
             "language": self.language,
         }
@@ -72,6 +71,8 @@ class GitHubPatchTask(SecureBenchTask):
     pass_to_pass: tuple[str, ...] = ()
     gold_patch: str | None = None
     test_patch: str | None = None
+    test_groups: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    hidden_patches: dict[str, str] = field(default_factory=dict)
 
     def agent_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {

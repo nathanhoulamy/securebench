@@ -8,8 +8,13 @@ The current MVP supports:
 
 - Hugging Face dataset loading
 - MMLU multiple-choice evaluation
+- HumanEval-style Python completion evaluation
+- SWE-bench Verified row normalization
+- GitHub patch evaluation with hidden patch groups and named test groups
+- A minimal built-in workspace agent for repository patch production
 - OpenAI-compatible Chat Completions endpoints
 - Static candidate producers for smoke tests
+- Workspace-agent patch producers for GitHub repair tasks
 - YAML run configs
 - JSONL result output
 
@@ -40,6 +45,13 @@ Then run:
 .venv/bin/python -m securebench.cli run --config configs/mmlu-openai-smoke.yaml --limit 5
 ```
 
+Run the HumanEval smoke configs:
+
+```bash
+.venv/bin/python -m securebench.cli run --config configs/humaneval-static-smoke.yaml --limit 3
+.venv/bin/python -m securebench.cli run --config configs/humaneval-openai-smoke.yaml --limit 3
+```
+
 Results are written as JSONL under `runs/`.
 
 ## Configs
@@ -67,7 +79,7 @@ adapter:
   id: mmlu
 
 producer:
-  kind: openai_compatible
+  type: openai_compatible
   config:
     model: gpt-5.4-mini
     base_url: https://api.openai.com/v1
@@ -87,8 +99,31 @@ Run tests:
 .venv/bin/python -m pytest -q
 ```
 
+Build the workspace-agent Docker image:
+
+```bash
+docker build -f docker/agent.Dockerfile -t securebench-agent:latest .
+```
+
+The image includes SecureBench's built-in agent module, so producer configs can
+run `python -m securebench.agent.run` inside the sandbox.
+
+Run the SWE-bench Verified smoke config after building the image:
+
+```bash
+.venv/bin/python -m securebench.cli run --config configs/swebench-verified-agent-smoke.yaml --limit 1
+```
+
+This path is intentionally still a smoke path: it exercises dataset loading,
+the workspace agent, candidate patch collection, hidden patch application, and
+test selection, but real pass rates depend on repo-specific dependency setup
+and agent quality.
+
 ## Status
 
-This is an early MVP. The current working path is MMLU multiple-choice
-evaluation. Code-generation and GitHub patch task abstractions exist, but their
-full production run flows still need hardening.
+This is an early MVP. The current working paths are MMLU, HumanEval smoke
+evaluation, and a generic GitHub patch pipeline aimed first at SWE-bench
+Verified. The Docker sandbox now uses one persistent container per sandbox
+instance, while producers and runners create fresh sandbox instances at task
+boundaries. The GitHub patch path still needs stronger dependency strategy,
+agent traceability, and Docker hardening before broad benchmark runs.

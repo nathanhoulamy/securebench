@@ -8,7 +8,7 @@ from securebench.candidates.openai_compatible import (
 )
 from securebench.candidates.static import StaticCandidateProducer
 from securebench.candidates.text import TextCompletionProducer
-from securebench.candidates.workspace import SandboxedCommandProducer, SandboxedPatchProducer
+from securebench.candidates.workspace import SandboxedCommandProducer, SandboxedPatchProducer, WorkspaceAgentPatchProducer
 
 __all__ = [
     "CandidateArtifact",
@@ -20,4 +20,5 @@ __all__ = [
     "SandboxedPatchProducer",
     "StaticCandidateProducer",
     "TextCompletionProducer",
+    "WorkspaceAgentPatchProducer",
 ]
