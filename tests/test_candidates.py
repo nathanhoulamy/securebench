@@ -7,7 +7,7 @@ from securebench.candidates import (
     WorkspaceAgentPatchProducer,
 )
 from securebench.sandboxes import CommandResult, Sandbox
-from securebench.tasks import GitHubPatchTask, MultipleChoiceTask
+from securebench.tasks import task_from_spec
 
 
 class FakeSandbox(Sandbox):
@@ -36,29 +36,45 @@ class FakeSandbox(Sandbox):
 
 
 def make_mc_task():
-    return MultipleChoiceTask(
-        id="mmlu/math/test/7",
-        benchmark_id="mmlu",
-        task_type="multiple_choice",
-        question="2 + 2?",
-        choices=("1", "2", "4", "5"),
+    return task_from_spec(
+        {
+            "id": "mmlu/math/test/7",
+            "benchmark_id": "mmlu",
+            "task_type": "multiple_choice",
+            "resources": {
+                "question": {"value": "2 + 2?", "visibility": "public"},
+                "choices": {"value": ["1", "2", "4", "5"], "visibility": "public"},
+                "answer": {"value": 2, "visibility": "hidden"},
+            },
+        }
     )
 
 
 def make_patch_task():
-    return GitHubPatchTask(
-        id="example__repo-1",
-        benchmark_id="example",
-        task_type="github_patch",
-        repo="example/repo",
-        base_commit="abc123",
-        instructions="Fix the bug.",
-        hints_text="Look at file.py.",
-        version="1.2.3",
-        fail_to_pass=("tests/test_bug.py::test_fixed",),
-        pass_to_pass=("tests/test_existing.py::test_still_passes",),
-        gold_patch="gold patch",
-        test_patch="hidden test patch",
+    return task_from_spec(
+        {
+            "id": "example__repo-1",
+            "benchmark_id": "example",
+            "task_type": "github_patch",
+            "resources": {
+                "id": {"value": "example__repo-1", "visibility": "public"},
+                "repo": {"value": "example/repo", "visibility": "public"},
+                "base_commit": {"value": "abc123", "visibility": "public"},
+                "instructions": {"value": "Fix the bug.", "visibility": "public"},
+                "hints_text": {"value": "Look at file.py.", "visibility": "public"},
+                "version": {"value": "1.2.3", "visibility": "public"},
+                "fail_to_pass": {
+                    "value": ["tests/test_bug.py::test_fixed"],
+                    "visibility": "hidden",
+                },
+                "pass_to_pass": {
+                    "value": ["tests/test_existing.py::test_still_passes"],
+                    "visibility": "hidden",
+                },
+                "gold_patch": {"value": "gold patch", "visibility": "hidden"},
+                "test_patch": {"value": "hidden test patch", "visibility": "hidden"},
+            },
+        }
     )
 
 
@@ -89,6 +105,7 @@ def test_text_completion_producer_calls_generator_with_agent_payload():
     assert artifact.text == "C"
     assert artifact.metadata["producer"] == "test-model"
     assert seen["payload"]["question"] == "2 + 2?"
+    assert "answer" not in seen["payload"]
     assert seen["options"] == {"temperature": 0, "timeout": 8}
 
 
@@ -106,6 +123,7 @@ def test_sandboxed_command_producer_writes_task_payload_and_reads_artifact_file(
 
     assert artifact.text == "B"
     assert "securebench_task.json" in sandbox.files
+    assert "answer" not in sandbox.files["securebench_task.json"]
     assert sandbox.calls == [(["securebench-agent", "run"], None, 3)]
     assert artifact.metadata["exit_code"] == 0
 

@@ -12,6 +12,30 @@ static and OpenAI-compatible text producers, a workspace-agent patch producer,
 and runners for multiple-choice, HumanEval-style code generation, and generic
 GitHub patch evaluation.
 
+Adapters normalize rows through a plain task spec. Custom Python adapters,
+future declarative adapters, and native normalized datasets should all target
+this shape:
+
+```yaml
+id: task-id
+benchmark_id: benchmark-name
+task_type: multiple_choice
+metadata: {}
+resources:
+  question:
+    value: "2 + 2?"
+    visibility: public
+  choices:
+    value: ["1", "2", "4", "5"]
+    visibility: public
+  answer:
+    value: 2
+    visibility: hidden
+```
+
+`visibility` must be one of `public`, `evaluation_inputs`, or `hidden`.
+SecureBench converts this plain spec into internal task and resource objects.
+
 ## MMLU Example
 
 ```yaml

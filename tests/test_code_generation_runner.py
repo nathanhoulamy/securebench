@@ -3,7 +3,7 @@ import pytest
 from securebench.runners import CodeGenerationRunner
 from securebench.runners.code_generation import build_python_test_script
 from securebench.sandboxes import CommandResult, Sandbox
-from securebench.tasks import CodeGenerationTask, MultipleChoiceTask
+from securebench.tasks import MultipleChoiceTask, task_from_spec
 
 
 class FakeSandbox(Sandbox):
@@ -29,14 +29,20 @@ class FakeSandbox(Sandbox):
 
 
 def make_task():
-    return CodeGenerationTask(
-        id="HumanEval/0",
-        benchmark_id="humaneval",
-        task_type="code_generation",
-        prompt="def add(a, b):\n",
-        entry_point="add",
-        tests="def check(candidate):\n    assert candidate(1, 2) == 3\n",
-        hidden_fields=("test",),
+    return task_from_spec(
+        {
+            "id": "HumanEval/0",
+            "benchmark_id": "humaneval",
+            "task_type": "code_generation",
+            "resources": {
+                "prompt": {"value": "def add(a, b):\n", "visibility": "public"},
+                "entry_point": {"value": "add", "visibility": "public"},
+                "tests": {
+                    "value": "def check(candidate):\n    assert candidate(1, 2) == 3\n",
+                    "visibility": "hidden",
+                },
+            },
+        }
     )
 
 

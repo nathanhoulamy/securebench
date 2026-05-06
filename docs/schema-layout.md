@@ -10,10 +10,30 @@ when needed.
 SecureBench has three layers:
 
 1. `benchmark_adapter`: maps an existing benchmark dataset into SecureBench's
-   common task types.
+   plain normalized task spec.
 2. `task_ref`: points to one dataset row or benchmark instance.
 3. `task_contract`: optional per-task overrides for policy, parsing,
    execution, and evaluation.
+
+The normalized task spec is the developer-facing adapter output. It is plain
+dictionary/JSON-compatible data:
+
+```yaml
+id: task-id
+benchmark_id: benchmark-name
+task_type: multiple_choice
+metadata: {}
+resources:
+  question:
+    value: "2 + 2?"
+    visibility: public
+  answer:
+    value: 2
+    visibility: hidden
+```
+
+SecureBench converts this spec into internal task/resource objects. Custom
+adapters should not need to import those internal classes.
 
 The prompt usually belongs to the upstream dataset, not to SecureBench. A
 SecureBench task should reference a row by stable ID when possible, or by

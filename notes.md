@@ -1,5 +1,89 @@
 # SecureBench Notes
 
+## Durable Resource Visibility
+
+SecureBench now separates benchmark-specific classification from framework-wide
+enforcement. Adapters are the primary classification boundary: they understand
+the raw benchmark row and return a plain normalized task spec with resource
+visibility labels. SecureBench then converts that spec into internal
+`Resource`, `ResourceBundle`, and `SecureBenchTask` objects.
+
+The intended flow is:
+
+```text
+raw row -> adapter returns plain task spec -> framework builds resources/tasks
+  -> public view goes to candidate producers
+  -> evaluation view goes to test sandboxes
+  -> hidden view goes to evaluator-side code
+  -> result view redacts non-public values
+```
+
+This removes the need for downstream components to remember benchmark-specific
+rules such as "do not serialize `answer`" or "do not put `test_patch` in the
+workspace task file." Producers should continue using `task.agent_payload()`,
+which is now backed by the task's public resource view. Result records may
+include resource names and visibility summaries, but not hidden resource values.
+
+The built-in adapters live in `securebench/securebench/adapters/` and use the
+same path expected from third-party adapters: they return plain dictionaries
+with `id`, `benchmark_id`, `task_type`, `metadata`, and `resources`.
+Task classes are now structural containers only. They do not infer visibility
+from fields such as `answer`, `tests`, or `test_patch`; populated tasks should
+come from `task_from_spec(...)` or explicit internal `ResourceBundle`
+construction.
+
+`Resource` and `ResourceBundle` are internal framework mechanisms, not the
+custom adapter authoring interface. Declarative adapters and native normalized
+datasets should target the same plain task spec shape.
+
+`hidden_fields` has been removed. `ResourceBundle` is now the sole
+task-carried visibility mechanism.
+
+`expose` has also been removed. A resource's visibility alone determines which
+component views include it. If a future benchmark needs more precise
+materialization behavior, that should be introduced as an explicit policy
+mechanism rather than another visibility-like flag.
+
+## Future Adapter Inputs
+
+Declarative adapters should let simple benchmarks avoid writing Python adapter
+classes. The declarative form should describe how to produce the same plain
+task spec that Python adapters return today. It should support row/context field
+paths, constants, ID templates, metadata mapping, resource visibility labels,
+and a small set of built-in transforms such as JSON-list parsing. This is a fit
+for simple multiple-choice, classification, QA, and HumanEval-like field
+renaming. Benchmarks with conditional logic, unusual parsing, nested assembly,
+or benchmark-specific cleanup should continue using Python adapters.
+
+Native normalized datasets should let benchmark authors skip raw-dataset
+adaptation entirely. In that mode, each dataset row is already a valid task spec
+with `id`, `benchmark_id`, `task_type`, `metadata`, and `resources`. A future
+run config could expose this as an identity adapter or as
+`dataset.format: task_spec`. This is likely the easiest path for benchmarks
+created specifically for SecureBench.
+
+The `evaluation_inputs` visibility name is useful but a little abstract. A
+future migration could rename it to `sandbox_input`, meaning data that is not
+visible to the candidate producer but is available to the evaluation/test
+sandbox. For example, secure-native HumanEval might make public prompt text
+visible to the producer, sandbox inputs visible to the test sandbox, and
+expected outputs hidden for trusted evaluator comparison.
+
+Do not reintroduce `expose` yet, but keep the use case in mind. A future flag
+with a clearer name such as `include_in_payload` or `materialize` could be
+useful when visibility alone is too coarse. Examples include public audit
+metadata that should not be prompt material, or sandbox file resources that
+should be mounted into a container but not serialized into a JSON payload.
+
+This visibility layer prevents framework-level routing mistakes, but it is not
+an isolation boundary. A workspace agent still needs a properly isolated
+sandbox: no hidden mounts, no broad host mounts, controlled environment
+variables, no Docker socket, fresh test sandboxes, and hardened Docker options.
+
+Deferred follow-up: use the resource views to drive explicit test-sandbox
+materialization, evaluator inputs, stronger audit/replay redaction, and
+schema-level declarations for custom adapters.
+
 ## Agent Payload Task IDs
 
 `agent_payload()` does not strictly need to include the task ID for the agent to

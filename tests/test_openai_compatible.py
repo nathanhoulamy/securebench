@@ -7,17 +7,21 @@ from securebench.candidates import (
     TextCompletionProducer,
 )
 from securebench.candidates.openai_compatible import _extract_message_text
-from securebench.tasks import MultipleChoiceTask
+from securebench.tasks import task_from_spec
 
 
 def make_task():
-    return MultipleChoiceTask(
-        id="mmlu/math/test/7",
-        benchmark_id="mmlu",
-        task_type="multiple_choice",
-        question="2 + 2?",
-        choices=("1", "2", "4", "5"),
-        answer=2,
+    return task_from_spec(
+        {
+            "id": "mmlu/math/test/7",
+            "benchmark_id": "mmlu",
+            "task_type": "multiple_choice",
+            "resources": {
+                "question": {"value": "2 + 2?", "visibility": "public"},
+                "choices": {"value": ["1", "2", "4", "5"], "visibility": "public"},
+                "answer": {"value": 2, "visibility": "hidden"},
+            },
+        }
     )
 
 

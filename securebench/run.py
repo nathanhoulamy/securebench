@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
 from securebench.config import RunConfig
 from securebench.datasets import DatasetRow
 from securebench.evaluator import EvaluationResult, evaluate_row
+from securebench.resources import REDACTED
 
 
 @dataclass(frozen=True)
@@ -93,5 +94,37 @@ def result_to_record(run_id: str, result: EvaluationResult) -> dict[str, object]
         "producer_metadata": result.candidate.metadata,
         "runner_stdout": result.runner_result.stdout,
         "runner_stderr": result.runner_result.stderr,
-        "runner_metadata": result.runner_result.metadata,
+        "runner_metadata": _redact_runner_metadata(result.runner_result.metadata, result.task),
+        "resource_summary": result.task.resource_summary(),
     }
+
+
+def _redact_runner_metadata(metadata: dict[str, Any], task: object) -> dict[str, Any]:
+    hidden_values = _hidden_values(task)
+    redacted = _redact_exact_hidden_values(metadata, hidden_values)
+    if "expected_answer" in redacted:
+        redacted["expected_answer"] = REDACTED
+    return redacted
+
+
+def _hidden_values(task: object) -> tuple[Any, ...]:
+    resources = getattr(task, "resources", None)
+    if resources is None:
+        return ()
+    return tuple(
+        resource.value
+        for resource in resources.by_visibility("hidden")
+        if resource.value not in (None, "", (), [], {})
+    )
+
+
+def _redact_exact_hidden_values(value: Any, hidden_values: tuple[Any, ...]) -> Any:
+    if any(value == hidden for hidden in hidden_values):
+        return REDACTED
+    if isinstance(value, dict):
+        return {key: _redact_exact_hidden_values(item, hidden_values) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_exact_hidden_values(item, hidden_values) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_exact_hidden_values(item, hidden_values) for item in value)
+    return value

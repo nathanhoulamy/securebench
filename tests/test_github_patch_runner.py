@@ -2,7 +2,7 @@ import pytest
 
 from securebench.runners import GitHubPatchRunner
 from securebench.sandboxes import CommandResult, Sandbox
-from securebench.tasks import GitHubPatchTask, MultipleChoiceTask
+from securebench.tasks import GitHubPatchTask, MultipleChoiceTask, task_from_spec
 
 
 class FakeSandbox(Sandbox):
@@ -28,20 +28,28 @@ class FakeSandbox(Sandbox):
 
 
 def make_task():
-    return GitHubPatchTask(
-        id="example__repo-1",
-        benchmark_id="example",
-        task_type="github_patch",
-        repo="example/repo",
-        base_commit="abc123",
-        instructions="Fix the issue.",
-        test_groups={
-            "regression": ("tests/test_bug.py::test_fixed",),
-            "smoke": ("tests/test_existing.py::test_still_passes",),
-        },
-        hidden_patches={
-            "tests": "diff --git a/tests/test_hidden.py b/tests/test_hidden.py\n",
-        },
+    return task_from_spec(
+        {
+            "id": "example__repo-1",
+            "benchmark_id": "example",
+            "task_type": "github_patch",
+            "resources": {
+                "repo": {"value": "example/repo", "visibility": "public"},
+                "base_commit": {"value": "abc123", "visibility": "public"},
+                "instructions": {"value": "Fix the issue.", "visibility": "public"},
+                "test_groups": {
+                    "value": {
+                        "regression": ["tests/test_bug.py::test_fixed"],
+                        "smoke": ["tests/test_existing.py::test_still_passes"],
+                    },
+                    "visibility": "hidden",
+                },
+                "hidden_patches": {
+                    "value": {"tests": "diff --git a/tests/test_hidden.py b/tests/test_hidden.py\n"},
+                    "visibility": "hidden",
+                },
+            },
+        }
     )
 
 

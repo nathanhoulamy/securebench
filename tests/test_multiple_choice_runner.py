@@ -2,18 +2,21 @@ import pytest
 
 from securebench.runners import MultipleChoiceRunner
 from securebench.runners.multiple_choice import normalize_answer, parse_choice
-from securebench.tasks import CodeGenerationTask, MultipleChoiceTask
+from securebench.tasks import CodeGenerationTask, task_from_spec
 
 
 def make_task(answer=2):
-    return MultipleChoiceTask(
-        id="mmlu/math/test/7",
-        benchmark_id="mmlu",
-        task_type="multiple_choice",
-        question="2 + 2?",
-        choices=("1", "2", "4", "5"),
-        answer=answer,
-        hidden_fields=("answer",),
+    return task_from_spec(
+        {
+            "id": "mmlu/math/test/7",
+            "benchmark_id": "mmlu",
+            "task_type": "multiple_choice",
+            "resources": {
+                "question": {"value": "2 + 2?", "visibility": "public"},
+                "choices": {"value": ["1", "2", "4", "5"], "visibility": "public"},
+                "answer": {"value": answer, "visibility": "hidden"},
+            },
+        }
     )
 
 

@@ -76,6 +76,9 @@ def test_run_config_evaluates_rows_and_writes_jsonl(tmp_path):
     assert records[0]["task_type"] == "multiple_choice"
     assert records[0]["passed"] is True
     assert records[0]["candidate_text"] == "A"
+    assert records[0]["resource_summary"][2]["name"] == "answer"
+    assert records[0]["resource_summary"][2]["redacted"] is True
+    assert "correct" not in json.dumps(records[0]["resource_summary"][2])
     assert records[1]["passed"] is False
 
 
@@ -92,6 +95,6 @@ def test_result_to_record_includes_runner_and_producer_metadata(tmp_path):
 
     assert "producer_metadata" in record
     assert record["runner_metadata"] == {
-        "expected_answer": "A",
+        "expected_answer": "<redacted>",
         "parsed_answer": "A",
     }
