@@ -1,6 +1,13 @@
 import pytest
 
-from securebench.tasks import CodeGenerationTask, GitHubPatchTask, MultipleChoiceTask, task_from_spec
+from securebench.tasks import (
+    CodeGenerationTask,
+    GitHubPatchTask,
+    MultipleChoiceTask,
+    resource_test_groups,
+    resource_tuple,
+    task_from_spec,
+)
 
 
 def test_multiple_choice_spec_converts_to_task_with_visibility():
@@ -74,8 +81,8 @@ def test_github_patch_spec_converts_json_lists_to_runner_fields():
     )
 
     assert isinstance(task, GitHubPatchTask)
-    assert task.fail_to_pass == ("tests/test_bug.py::test_fixed",)
-    assert task.test_groups == {"fail_to_pass": ("tests/test_bug.py::test_fixed",)}
+    assert resource_tuple(task, "fail_to_pass") == ("tests/test_bug.py::test_fixed",)
+    assert resource_test_groups(task) == {"fail_to_pass": ("tests/test_bug.py::test_fixed",)}
     assert "gold_patch" not in task.agent_payload()
 
 

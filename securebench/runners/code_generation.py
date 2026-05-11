@@ -6,7 +6,12 @@ from typing import Any
 
 from securebench.runners.base import Runner, RunnerResult
 from securebench.sandboxes import DockerSandbox, Sandbox
-from securebench.tasks import CodeGenerationTask, SecureBenchTask
+from securebench.tasks import (
+    CodeGenerationTask,
+    SecureBenchTask,
+    optional_resource_text,
+    resource_text,
+)
 
 
 class CodeGenerationRunner(Runner):
@@ -19,9 +24,11 @@ class CodeGenerationRunner(Runner):
     def run(self, task: SecureBenchTask, candidate: Any, **context: Any) -> RunnerResult:
         if not isinstance(task, CodeGenerationTask):
             raise TypeError(f"CodeGenerationRunner requires CodeGenerationTask, got {type(task).__name__}")
-        if task.language != "python":
-            raise ValueError(f"CodeGenerationRunner only supports Python tasks, got {task.language!r}")
-        if task.tests is None:
+        language = resource_text(task, "language", "python")
+        tests = optional_resource_text(task, "tests")
+        if language != "python":
+            raise ValueError(f"CodeGenerationRunner only supports Python tasks, got {language!r}")
+        if tests is None:
             raise ValueError(f"CodeGenerationTask {task.id!r} has no hidden tests")
 
         sandbox = self.sandbox or DockerSandbox()
@@ -51,17 +58,19 @@ class CodeGenerationRunner(Runner):
 
 def build_python_test_script(task: CodeGenerationTask, candidate_code: str) -> str:
     """Build a single Python script containing candidate code and hidden tests."""
-    if task.tests is None:
+    tests = optional_resource_text(task, "tests")
+    if tests is None:
         raise ValueError(f"CodeGenerationTask {task.id!r} has no hidden tests")
 
+    entry_point = optional_resource_text(task, "entry_point")
     parts = [
-        _trim_trailing_newlines(task.prompt),
+        _trim_trailing_newlines(resource_text(task, "prompt")),
         _trim_trailing_newlines(candidate_code),
         "",
-        _trim_trailing_newlines(task.tests),
+        _trim_trailing_newlines(tests),
     ]
-    if task.entry_point:
-        parts.extend(["", f"check({task.entry_point})"])
+    if entry_point:
+        parts.extend(["", f"check({entry_point})"])
     return "\n".join(parts) + "\n"
 
 

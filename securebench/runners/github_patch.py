@@ -12,7 +12,13 @@ from securebench.repositories import (
 )
 from securebench.runners.base import Runner, RunnerResult
 from securebench.sandboxes import CommandResult, DockerSandbox, Sandbox
-from securebench.tasks import GitHubPatchTask, SecureBenchTask
+from securebench.tasks import (
+    GitHubPatchTask,
+    SecureBenchTask,
+    resource_test_groups,
+    resource_text,
+    resource_text_mapping,
+)
 
 
 class GitHubPatchRunner(Runner):
@@ -84,7 +90,7 @@ class GitHubPatchRunner(Runner):
                         "repository_preparation_error": str(exc),
                     },
                 )
-            sandbox.write_file(f"{repo_dir}/SECUREBENCH_TASK.md", task.instructions)
+            sandbox.write_file(f"{repo_dir}/SECUREBENCH_TASK.md", resource_text(task, "instructions"))
 
             patch_result = None
             if candidate_patch.strip():
@@ -94,7 +100,7 @@ class GitHubPatchRunner(Runner):
             hidden_patch_results = []
             applied_hidden_patch_names = []
             for patch_name in apply_hidden_patches:
-                patch = task.hidden_patches.get(patch_name)
+                patch = resource_text_mapping(task, "hidden_patches").get(patch_name)
                 if patch is None:
                     hidden_patch_results.append(
                         _missing_patch_result(patch_name)
@@ -180,8 +186,9 @@ def _join_streams(streams: Iterable[str]) -> str:
 def _select_tests(task: GitHubPatchTask, group_names: tuple[str, ...]) -> tuple[str, ...]:
     selected: list[str] = []
     seen: set[str] = set()
+    test_groups = resource_test_groups(task)
     for group_name in group_names:
-        for test_name in task.test_groups.get(group_name, ()):
+        for test_name in test_groups.get(group_name, ()):
             if test_name not in seen:
                 selected.append(test_name)
                 seen.add(test_name)

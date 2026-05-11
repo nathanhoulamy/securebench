@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from securebench.runners.base import Runner, RunnerResult
-from securebench.tasks import MultipleChoiceTask, SecureBenchTask
+from securebench.tasks import MultipleChoiceTask, SecureBenchTask, resource_tuple, resource_value
 
 
 class MultipleChoiceRunner(Runner):
@@ -16,8 +16,10 @@ class MultipleChoiceRunner(Runner):
         if not isinstance(task, MultipleChoiceTask):
             raise TypeError(f"MultipleChoiceRunner requires MultipleChoiceTask, got {type(task).__name__}")
 
-        parsed = parse_choice(candidate, task.choices)
-        expected = normalize_answer(task.answer, task.choices)
+        choices = resource_tuple(task, "choices")
+        expected_answer = resource_value(task, "answer")
+        parsed = parse_choice(candidate, choices)
+        expected = normalize_answer(expected_answer, choices)
         passed = parsed is not None and expected is not None and parsed == expected
 
         return RunnerResult(

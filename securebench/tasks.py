@@ -60,57 +60,34 @@ def task_from_spec(spec: TaskSpec) -> SecureBenchTask:
         raise ValueError("task spec metadata must be an object")
 
     resources = _resources_from_spec(_required_dict(spec, "resources", "task spec"))
-    values = {name: resource.value for name, resource in resources.resources.items()}
-
     if task_type == "multiple_choice":
-        _require_resources(values, task_type, ("question", "choices", "answer"))
+        _require_resources(resources, task_type, ("question", "choices", "answer"))
         return MultipleChoiceTask(
             id=task_id,
             benchmark_id=benchmark_id,
             task_type="multiple_choice",
             metadata=metadata,
             resources=resources,
-            question=values["question"],
-            choices=tuple(values["choices"]),
-            answer=values["answer"],
-            subject=values.get("subject"),
         )
 
     if task_type == "code_generation":
-        _require_resources(values, task_type, ("prompt",))
+        _require_resources(resources, task_type, ("prompt",))
         return CodeGenerationTask(
             id=task_id,
             benchmark_id=benchmark_id,
             task_type="code_generation",
             metadata=metadata,
             resources=resources,
-            prompt=values["prompt"],
-            language=values.get("language", "python"),
-            entry_point=values.get("entry_point"),
-            tests=values.get("tests"),
-            canonical_solution=values.get("canonical_solution"),
         )
 
     if task_type == "github_patch":
-        _require_resources(values, task_type, ("repo", "base_commit", "instructions"))
+        _require_resources(resources, task_type, ("repo", "base_commit", "instructions"))
         return GitHubPatchTask(
             id=task_id,
             benchmark_id=benchmark_id,
             task_type="github_patch",
             metadata=metadata,
             resources=resources,
-            repo=values["repo"],
-            base_commit=values["base_commit"],
-            instructions=values["instructions"],
-            hints_text=values.get("hints_text", ""),
-            version=values.get("version"),
-            environment_setup_commit=values.get("environment_setup_commit"),
-            fail_to_pass=_tuple_of_str(values.get("fail_to_pass", ())),
-            pass_to_pass=_tuple_of_str(values.get("pass_to_pass", ())),
-            gold_patch=values.get("gold_patch"),
-            test_patch=values.get("test_patch"),
-            test_groups=_test_groups(values.get("test_groups", {})),
-            hidden_patches=dict(values.get("hidden_patches", {})),
         )
 
     raise ValueError(f"unknown task_type {task_type!r}")
@@ -118,35 +95,17 @@ def task_from_spec(spec: TaskSpec) -> SecureBenchTask:
 
 @dataclass(frozen=True)
 class MultipleChoiceTask(SecureBenchTask):
-    question: str = ""
-    choices: tuple[str, ...] = ()
-    answer: int | str | None = None
-    subject: str | None = None
+    pass
 
 
 @dataclass(frozen=True)
 class CodeGenerationTask(SecureBenchTask):
-    prompt: str = ""
-    language: str = "python"
-    entry_point: str | None = None
-    tests: str | None = None
-    canonical_solution: str | None = None
+    pass
 
 
 @dataclass(frozen=True)
 class GitHubPatchTask(SecureBenchTask):
-    repo: str = ""
-    base_commit: str = ""
-    instructions: str = ""
-    hints_text: str = ""
-    version: str | None = None
-    environment_setup_commit: str | None = None
-    fail_to_pass: tuple[str, ...] = ()
-    pass_to_pass: tuple[str, ...] = ()
-    gold_patch: str | None = None
-    test_patch: str | None = None
-    test_groups: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    hidden_patches: dict[str, str] = field(default_factory=dict)
+    pass
 
 
 def _resources_from_spec(resources_data: dict[str, Any]) -> ResourceBundle:
@@ -182,8 +141,39 @@ def _required_str(data: dict[str, Any], key: str, context: str) -> str:
     return value
 
 
-def _require_resources(values: dict[str, Any], task_type: str, names: tuple[str, ...]) -> None:
-    missing = [name for name in names if name not in values]
+def resource_value(task: SecureBenchTask, name: str, default: Any = None) -> Any:
+    resource = task.resources.resources.get(name)
+    if resource is None:
+        return default
+    return resource.value
+
+
+def resource_text(task: SecureBenchTask, name: str, default: str = "") -> str:
+    return str(resource_value(task, name, default))
+
+
+def optional_resource_text(task: SecureBenchTask, name: str) -> str | None:
+    value = resource_value(task, name)
+    return None if value is None else str(value)
+
+
+def resource_tuple(task: SecureBenchTask, name: str) -> tuple[str, ...]:
+    return _tuple_of_str(resource_value(task, name, ()))
+
+
+def resource_test_groups(task: SecureBenchTask, name: str = "test_groups") -> dict[str, tuple[str, ...]]:
+    return _test_groups(resource_value(task, name, {}))
+
+
+def resource_text_mapping(task: SecureBenchTask, name: str) -> dict[str, str]:
+    value = resource_value(task, name, {})
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): str(item) for key, item in value.items()}
+
+
+def _require_resources(resources: ResourceBundle, task_type: str, names: tuple[str, ...]) -> None:
+    missing = [name for name in names if name not in resources.resources]
     if missing:
         raise ValueError(f"{task_type} task spec missing required resources: {missing}")
 

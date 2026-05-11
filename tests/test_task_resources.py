@@ -1,5 +1,12 @@
 from securebench.resources import REDACTED, Resource, ResourceBundle
-from securebench.tasks import CodeGenerationTask, GitHubPatchTask, MultipleChoiceTask, task_from_spec
+from securebench.tasks import (
+    CodeGenerationTask,
+    GitHubPatchTask,
+    MultipleChoiceTask,
+    resource_tuple,
+    resource_value,
+    task_from_spec,
+)
 
 
 def multiple_choice_spec():
@@ -40,7 +47,6 @@ def github_patch_spec():
         "benchmark_id": "example",
         "task_type": "github_patch",
         "resources": {
-            "id": {"value": "example__repo-1", "visibility": "public"},
             "repo": {"value": "example/repo", "visibility": "public"},
             "base_commit": {"value": "abc123", "visibility": "public"},
             "instructions": {"value": "Fix the issue.", "visibility": "public"},
@@ -102,7 +108,6 @@ def test_github_patch_task_hides_patch_and_test_resources_from_spec():
     assert isinstance(task, GitHubPatchTask)
     payload = task.agent_payload()
     assert payload == {
-        "id": "example__repo-1",
         "repo": "example/repo",
         "base_commit": "abc123",
         "instructions": "Fix the issue.",
@@ -134,21 +139,18 @@ def test_direct_task_construction_requires_explicit_resources_for_payloads():
         id="mmlu/math/test/7",
         benchmark_id="mmlu",
         task_type="multiple_choice",
-        question="2 + 2?",
-        choices=("1", "2", "4", "5"),
-        answer=2,
     )
 
     assert task.agent_payload() == {}
     assert task.resources.resources == {}
+    assert resource_value(task, "question", "") == ""
+    assert resource_tuple(task, "choices") == ()
+    assert resource_value(task, "answer") is None
 
     task_with_resources = MultipleChoiceTask(
         id="mmlu/math/test/7",
         benchmark_id="mmlu",
         task_type="multiple_choice",
-        question="2 + 2?",
-        choices=("1", "2", "4", "5"),
-        answer=2,
         resources=ResourceBundle(
             (
                 Resource("question", "2 + 2?", "public"),
@@ -158,6 +160,9 @@ def test_direct_task_construction_requires_explicit_resources_for_payloads():
         ),
     )
 
+    assert resource_value(task_with_resources, "question") == "2 + 2?"
+    assert resource_tuple(task_with_resources, "choices") == ("1", "2", "4", "5")
+    assert resource_value(task_with_resources, "answer") == 2
     assert task_with_resources.agent_payload() == {
         "question": "2 + 2?",
         "choices": ["1", "2", "4", "5"],

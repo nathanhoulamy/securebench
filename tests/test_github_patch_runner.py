@@ -5,6 +5,7 @@ from pathlib import Path
 from securebench.repositories import PreparedRepository
 from securebench.runners import GitHubPatchRunner
 from securebench.sandboxes import CommandResult, Sandbox
+from securebench.resources import Resource, ResourceBundle
 from securebench.tasks import GitHubPatchTask, MultipleChoiceTask, task_from_spec
 
 
@@ -143,9 +144,13 @@ def test_github_patch_runner_fails_when_configured_hidden_patch_is_missing():
         id="example__repo-1",
         benchmark_id="example",
         task_type="github_patch",
-        repo="example/repo",
-        base_commit="abc123",
-        instructions="Fix the issue.",
+        resources=ResourceBundle(
+            (
+                Resource("repo", "example/repo", "public"),
+                Resource("base_commit", "abc123", "public"),
+                Resource("instructions", "Fix the issue.", "public"),
+            )
+        ),
     )
 
     result = GitHubPatchRunner(
@@ -170,13 +175,13 @@ def test_github_patch_runner_uses_fresh_sandbox_from_factory_per_run():
     preparer = RecordingRepositoryPreparer()
     runner = GitHubPatchRunner(sandbox_factory=make_sandbox, repository_preparer=preparer)
 
-    runner.run(make_task(), "")
-    runner.run(make_task(), "")
+    runner.run(make_task(), "", test_commands=("pytest tests",))
+    runner.run(make_task(), "", test_commands=("pytest tests",))
 
     assert len(sandboxes) == 2
     assert sandboxes[0] is not sandboxes[1]
-    assert sandboxes[0].calls == []
-    assert sandboxes[1].calls == []
+    assert sandboxes[0].calls == [("pytest tests", "repo", 120.0)]
+    assert sandboxes[1].calls == [("pytest tests", "repo", 120.0)]
     assert len(preparer.calls) == 2
     assert preparer.calls[0][1] is sandboxes[0]
     assert preparer.calls[1][1] is sandboxes[1]

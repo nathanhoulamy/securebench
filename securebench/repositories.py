@@ -9,7 +9,7 @@ from pathlib import Path, PurePosixPath
 from typing import Protocol
 
 from securebench.sandboxes import Sandbox
-from securebench.tasks import GitHubPatchTask
+from securebench.tasks import GitHubPatchTask, resource_text
 
 
 class RepositoryPreparationError(ValueError):
@@ -56,11 +56,18 @@ class TrustedGitRepositoryPreparer:
                 shutil.rmtree(target)
             target.parent.mkdir(parents=True, exist_ok=True)
 
-            clone = _run_git(["git", "clone", _repo_url(task.repo), str(target)], timeout=timeout)
+            clone = _run_git(
+                ["git", "clone", _repo_url(resource_text(task, "repo")), str(target)],
+                timeout=timeout,
+            )
             if clone.returncode != 0:
                 raise RepositoryPreparationError(_format_failure("git clone", clone))
 
-            checkout = _run_git(["git", "checkout", task.base_commit], cwd=target, timeout=timeout)
+            checkout = _run_git(
+                ["git", "checkout", resource_text(task, "base_commit")],
+                cwd=target,
+                timeout=timeout,
+            )
             if checkout.returncode != 0:
                 raise RepositoryPreparationError(_format_failure("git checkout", checkout))
         except RepositoryPreparationError:

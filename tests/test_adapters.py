@@ -1,4 +1,11 @@
 from securebench.adapters import HumanEvalAdapter, MMLUAdapter, SWEBenchVerifiedAdapter
+from securebench.tasks import (
+    optional_resource_text,
+    resource_test_groups,
+    resource_text_mapping,
+    resource_tuple,
+    resource_value,
+)
 
 
 def test_mmlu_adapter_hides_answer_from_agent_payload():
@@ -15,7 +22,7 @@ def test_mmlu_adapter_hides_answer_from_agent_payload():
 
     assert task_spec["resources"]["answer"]["visibility"] == "hidden"
     assert task.id == "mmlu/math/test/7"
-    assert task.answer == 2
+    assert resource_value(task, "answer") == 2
     assert [resource.name for resource in task.resources.by_visibility("hidden")] == ["answer"]
     assert task.agent_payload() == {
         "question": "2 + 2?",
@@ -39,8 +46,8 @@ def test_humaneval_adapter_hides_tests_and_solution():
 
     assert task_spec["resources"]["tests"]["visibility"] == "hidden"
     assert task_spec["resources"]["canonical_solution"]["visibility"] == "hidden"
-    assert task.tests == row["test"]
-    assert task.canonical_solution == row["canonical_solution"]
+    assert optional_resource_text(task, "tests") == row["test"]
+    assert optional_resource_text(task, "canonical_solution") == row["canonical_solution"]
     assert {resource.name for resource in task.resources.by_visibility("hidden")} == {
         "canonical_solution",
         "tests",
@@ -72,13 +79,14 @@ def test_swebench_adapter_coerces_test_fields_and_formats_prediction():
 
     assert task_spec["resources"]["gold_patch"]["visibility"] == "hidden"
     assert task_spec["resources"]["test_patch"]["visibility"] == "hidden"
-    assert task.fail_to_pass == ("tests/test_bug.py::test_fixed",)
-    assert task.pass_to_pass == ("tests/test_existing.py::test_still_passes",)
-    assert task.test_groups == {
+    assert "id" not in task_spec["resources"]
+    assert resource_tuple(task, "fail_to_pass") == ("tests/test_bug.py::test_fixed",)
+    assert resource_tuple(task, "pass_to_pass") == ("tests/test_existing.py::test_still_passes",)
+    assert resource_test_groups(task) == {
         "fail_to_pass": ("tests/test_bug.py::test_fixed",),
         "pass_to_pass": ("tests/test_existing.py::test_still_passes",),
     }
-    assert task.hidden_patches == {"tests": "hidden tests"}
+    assert resource_text_mapping(task, "hidden_patches") == {"tests": "hidden tests"}
     assert {resource.name for resource in task.resources.by_visibility("hidden")} >= {
         "gold_patch",
         "test_patch",
@@ -88,6 +96,7 @@ def test_swebench_adapter_coerces_test_fields_and_formats_prediction():
         "hidden_patches",
     }
     assert "FAIL_TO_PASS" not in task.agent_payload()
+    assert "id" not in task.agent_payload()
     assert "fail_to_pass" not in task.agent_payload()
     assert "pass_to_pass" not in task.agent_payload()
     assert "test_groups" not in task.agent_payload()

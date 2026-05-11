@@ -70,7 +70,6 @@ def make_patch_task():
             "benchmark_id": "example",
             "task_type": "github_patch",
             "resources": {
-                "id": {"value": "example__repo-1", "visibility": "public"},
                 "repo": {"value": "example/repo", "visibility": "public"},
                 "base_commit": {"value": "abc123", "visibility": "public"},
                 "instructions": {"value": "Fix the bug.", "visibility": "public"},
