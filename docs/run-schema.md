@@ -122,7 +122,7 @@ adapter:
   id: swebench_verified
 
 environment:
-  python: "3.11"
+  python: "3.11-slim"
   network: bridge
   writable: true
   setup:
@@ -186,15 +186,17 @@ subsets such as `"abstract_algebra"` or `"computer_security"`.
 
 `environment`
 : Optional shared execution environment for Docker-backed producers and
-runners. When omitted, SecureBench uses Python `"3.11"`, network `"none"`, a
-read-only root filesystem, and no setup commands.
+runners. When omitted, SecureBench uses Python image tag `"3.11-slim"`, network
+`"none"`, a read-only root filesystem, and no setup commands.
 
 Supported `environment` fields:
 
-- `python`: Python version for the auto-built SecureBench agent image. Defaults
-  to `"3.11"`. SecureBench resolves this to a Docker tag such as
-  `securebench-agent:py3.11`, builds it from `docker/agent.Dockerfile` when the
-  tag is missing, and uses it for both producer and runner.
+- `python`: exact official Python image tag segment for the auto-built
+  SecureBench agent image, such as `"3.11-slim"` or `"3.9-slim-bullseye"`.
+  Defaults to `"3.11-slim"`. SecureBench passes this value directly to
+  `python:<value>`, derives an internal image tag such as
+  `securebench-agent:py3.11-slim`, builds it from `docker/agent.Dockerfile`
+  when the tag is missing, and uses it for both producer and runner.
 - `packages`: optional Debian package names installed into the auto-built
   image with `apt-get install`. Package names may contain only letters,
   numbers, `.`, `_`, `+`, and `-`. When packages are present, SecureBench adds a

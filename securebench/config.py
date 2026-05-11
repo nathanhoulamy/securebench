@@ -26,7 +26,7 @@ from securebench.sandboxes import DockerSandbox
 
 SUPPORTED_SCHEMA_VERSION = "0.1"
 SUPPORTED_DOCKER_NETWORKS = {"none", "bridge"}
-DEFAULT_ENVIRONMENT_PYTHON = "3.11"
+DEFAULT_ENVIRONMENT_PYTHON = "3.11-slim"
 PYTHON_VERSION_PATTERN = re.compile(r"^[0-9]+(?:\.[0-9]+){0,2}(?:-[A-Za-z0-9._-]+)?$")
 PACKAGE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+_-]*$")
 
@@ -441,7 +441,7 @@ def _environment_role(value: Any, field: str) -> EnvironmentRoleSection:
 
 def _environment_python(value: Any, field: str) -> str:
     if not isinstance(value, str) or not PYTHON_VERSION_PATTERN.fullmatch(value):
-        raise ConfigError(f"{field} must be a Python version like '3.11' or '3.11-bookworm'")
+        raise ConfigError(f"{field} must be a Python image tag like '3.11-slim' or '3.9-slim-bullseye'")
     return value
 
 

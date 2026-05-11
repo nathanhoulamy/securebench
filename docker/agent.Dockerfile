@@ -1,9 +1,10 @@
-ARG PYTHON_VERSION=3.11
-FROM python:${PYTHON_VERSION}-slim
+ARG PYTHON_VERSION=3.11-slim
+FROM python:${PYTHON_VERSION}
 ARG ENVIRONMENT_PACKAGES=""
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/opt/securebench
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -16,11 +17,7 @@ RUN apt-get update \
 
 WORKDIR /opt/securebench
 
-COPY pyproject.toml README.md ./
 COPY securebench ./securebench
-
-RUN python -m pip install --upgrade pip \
-    && python -m pip install .
 
 WORKDIR /workspace
 

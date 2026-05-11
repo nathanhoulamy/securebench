@@ -15,22 +15,20 @@ adapter:
   id: swebench_verified
 
 environment:
-  python: "3.11"
+  python: "3.9-slim-bullseye"
   network: bridge
   writable: true
   setup:
-    - python -m pip install --upgrade pip 'setuptools<58' wheel
-    - python -m pip install pytest hypothesis numpy cython extension-helpers
-    - python -m pip install 'setuptools<58'
-    - python -m pip install -e . --no-build-isolation || true
-    - python -m pip install -e '.[test]' --no-build-isolation || true
+    - python -m pip install --upgrade 'pip<24' 'setuptools<58' wheel
+    - python -m pip install 'numpy<1.23' 'cython==0.29.22' 'extension-helpers<1.0' 'setuptools_scm>=6.2,<7' 'pytest>=7,<8' 'pytest-astropy>=0.9,<0.11' hypothesis
+    - SETUPTOOLS_USE_DISTUTILS=stdlib python setup.py develop
     - test ! -f requirements.txt || python -m pip install -r requirements.txt
     - test ! -f test-requirements.txt || python -m pip install -r test-requirements.txt
 
 producer:
   type: workspace_agent_patch
   config:
-    model: gpt-5.4-mini
+    model: gpt-5.5
     base_url: https://api.openai.com/v1
     api_key_env: OPENAI_API_KEY
     max_steps: 40

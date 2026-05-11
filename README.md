@@ -105,9 +105,9 @@ Build the default workspace-agent Docker image manually if desired:
 
 ```bash
 docker build -f docker/agent.Dockerfile \
-  --build-arg PYTHON_VERSION=3.11 \
+  --build-arg PYTHON_VERSION=3.11-slim \
   --build-arg ENVIRONMENT_PACKAGES="" \
-  -t securebench-agent:py3.11 .
+  -t securebench-agent:py3.11-slim .
 ```
 
 Run configs with a Docker-backed `environment` auto-build this image when the

@@ -350,11 +350,13 @@ batch.
 
 ## Agent Image Minimality
 
-The current SecureBench agent Docker image installs the full `securebench`
-package because `docker/agent.Dockerfile` runs `pip install .` after copying the
-entire package tree. The sandbox only needs the workspace agent and its minimal
-shared helpers, not the benchmark orchestration surface such as adapters,
-runners, datasets, evaluators, or config parsing.
+The current SecureBench agent Docker image no longer installs the full
+`securebench` project package, so benchmark environments can use older Python
+versions without being blocked by the framework package metadata. It still
+copies the full package tree into the image for `PYTHONPATH` module resolution.
+The sandbox only needs the workspace agent and its minimal shared helpers, not
+the benchmark orchestration surface such as adapters, runners, datasets,
+evaluators, or config parsing.
 
 Deferred follow-up: split the agent runtime from the full framework package.
 The agent image should contain only `securebench.agent`, command policy helpers,

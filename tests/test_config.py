@@ -66,8 +66,8 @@ def test_parse_run_config_builds_dataset_ref_and_runtime_objects():
     assert config.build_adapter().benchmark_id == "mmlu"
     assert isinstance(config.build_producer(), StaticCandidateProducer)
     assert isinstance(config.build_runner(), MultipleChoiceRunner)
-    assert config.environment.python == "3.11"
-    assert config.environment.image == "securebench-agent:py3.11"
+    assert config.environment.python == "3.11-slim"
+    assert config.environment.image == "securebench-agent:py3.11-slim"
 
 
 def test_parse_run_config_builds_openai_compatible_producer():
@@ -116,7 +116,7 @@ def test_parse_run_config_builds_workspace_agent_patch_producer():
             },
         },
         environment={
-            "python": "3.9",
+            "python": "3.9-slim",
             "setup": ["python -m pip install pytest"],
             "network": "bridge",
             "writable": True,
@@ -131,7 +131,7 @@ def test_parse_run_config_builds_workspace_agent_patch_producer():
     assert config.producer.type == "workspace_agent_patch"
     sandbox = producer.sandbox_factory()
     assert sandbox.env_names == ("TEST_API_KEY",)
-    assert sandbox.image == "securebench-agent:py3.9"
+    assert sandbox.image == "securebench-agent:py3.9-slim"
     assert sandbox.network == "bridge"
     assert sandbox.cap_drop == ("ALL",)
     assert sandbox.read_only is False
@@ -205,7 +205,7 @@ def test_parse_run_config_builds_github_patch_runner_with_config():
     runner = config.build_runner()
 
     assert isinstance(runner, GitHubPatchRunner)
-    assert runner.image == "securebench-agent:py3.11"
+    assert runner.image == "securebench-agent:py3.11-slim"
     assert runner.repo_dir == "eval-repo"
     assert runner.setup_commands == ("python -m pip install wheel", "python -m pip install -e .")
     assert runner.test_commands == ("pytest tests",)
@@ -239,7 +239,7 @@ def test_environment_role_overrides_shared_defaults():
             },
         },
         environment={
-            "python": "3.10",
+            "python": "3.10-slim",
             "packages": ["gfortran", "libhdf5-dev"],
             "network": "bridge",
             "writable": True,
@@ -260,7 +260,7 @@ def test_environment_role_overrides_shared_defaults():
     runner = config.build_runner()
 
     producer_sandbox = producer.sandbox_factory()
-    assert producer_sandbox.image.startswith("securebench-agent:py3.10-")
+    assert producer_sandbox.image.startswith("securebench-agent:py3.10-slim-")
     assert producer_sandbox.network == "bridge"
     assert producer_sandbox.read_only is False
     producer_sandbox.close()
@@ -330,33 +330,63 @@ def test_environment_missing_image_triggers_docker_build(monkeypatch):
         adapter={"id": "swebench_verified"},
         producer={"type": "workspace_agent_patch", "config": {"replay_file": "/workspace/replay.json"}},
         runner={"type": "github_patch"},
-        environment={"python": "3.9", "packages": ["gfortran", "libxml2-dev"]},
+        environment={"python": "3.9-slim", "packages": ["gfortran", "libxml2-dev"]},
     )
 
     parse_run_config(data).build_producer()
 
     assert seen[0][0:3] == ["docker", "image", "inspect"]
-    assert seen[0][3].startswith("securebench-agent:py3.9-")
+    assert seen[0][3].startswith("securebench-agent:py3.9-slim-")
     assert seen[1][:2] == ["docker", "build"]
     assert "--build-arg" in seen[1]
-    assert "PYTHON_VERSION=3.9" in seen[1]
+    assert "PYTHON_VERSION=3.9-slim" in seen[1]
     assert "ENVIRONMENT_PACKAGES=gfortran libxml2-dev" in seen[1]
     assert "-t" in seen[1]
     assert seen[0][3] in seen[1]
 
 
 def test_environment_package_order_does_not_change_image_tag():
-    first = parse_run_config(valid_config(environment={"python": "3.9", "packages": ["zlib1g-dev", "gfortran"]}))
-    second = parse_run_config(valid_config(environment={"python": "3.9", "packages": ["gfortran", "zlib1g-dev"]}))
+    first = parse_run_config(valid_config(environment={"python": "3.9-slim", "packages": ["zlib1g-dev", "gfortran"]}))
+    second = parse_run_config(valid_config(environment={"python": "3.9-slim", "packages": ["gfortran", "zlib1g-dev"]}))
 
     assert first.environment.image == second.environment.image
-    assert first.environment.image.startswith("securebench-agent:py3.9-")
+    assert first.environment.image.startswith("securebench-agent:py3.9-slim-")
     assert first.environment.packages == ("gfortran", "zlib1g-dev")
+
+
+def test_environment_python_variant_uses_explicit_base_tag(monkeypatch):
+    seen = []
+
+    def fake_run(command, **kwargs):
+        seen.append(command)
+        if command[:3] == ["docker", "image", "inspect"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="missing")
+        if command[:2] == ["docker", "build"]:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(f"unexpected subprocess command: {command}")
+
+    monkeypatch.setattr("securebench.config.subprocess.run", fake_run)
+    data = valid_config(
+        dataset={
+            "provider": "huggingface",
+            "name": SWEBENCH_VERIFIED_DATASET_ID,
+            "split": "test",
+            "streaming": True,
+        },
+        adapter={"id": "swebench_verified"},
+        producer={"type": "workspace_agent_patch", "config": {"replay_file": "/workspace/replay.json"}},
+        runner={"type": "github_patch"},
+        environment={"python": "3.9-slim-bullseye"},
+    )
+
+    parse_run_config(data).build_producer()
+
+    assert "PYTHON_VERSION=3.9-slim-bullseye" in seen[1]
 
 
 def test_environment_packages_are_deduplicated_before_build():
     config = parse_run_config(
-        valid_config(environment={"python": "3.9", "packages": ["gfortran", "gfortran"]})
+        valid_config(environment={"python": "3.9-slim", "packages": ["gfortran", "gfortran"]})
     )
 
     assert config.environment.packages == ("gfortran",)
@@ -381,7 +411,7 @@ def test_environment_docker_build_failure_is_config_error(monkeypatch):
         adapter={"id": "swebench_verified"},
         producer={"type": "workspace_agent_patch", "config": {"replay_file": "/workspace/replay.json"}},
         runner={"type": "github_patch"},
-        environment={"python": "3.9"},
+        environment={"python": "3.9-slim"},
     )
 
     with pytest.raises(ConfigError, match="Failed to build environment image"):
@@ -390,10 +420,12 @@ def test_environment_docker_build_failure_is_config_error(monkeypatch):
 
 def test_agent_dockerfile_declares_python_version_build_arg():
     dockerfile = open("docker/agent.Dockerfile").read()
-    assert "ARG PYTHON_VERSION=3.11" in dockerfile
-    assert "FROM python:${PYTHON_VERSION}-slim" in dockerfile
+    assert "ARG PYTHON_VERSION=3.11-slim" in dockerfile
+    assert "FROM python:${PYTHON_VERSION}" in dockerfile
     assert 'ARG ENVIRONMENT_PACKAGES=""' in dockerfile
     assert "${ENVIRONMENT_PACKAGES}" in dockerfile
+    assert "ENV PYTHONPATH=/opt/securebench" in dockerfile
+    assert "python -m pip install ." not in dockerfile
 
 
 def test_load_run_config_reads_yaml_file():
@@ -445,7 +477,8 @@ def test_load_swebench_verified_agent_smoke_config_reads_yaml_file():
     assert config.environment.writable is True
     producer = config.build_producer()
     assert isinstance(producer, WorkspaceAgentPatchProducer)
-    assert producer.setup_commands[0] == "python -m pip install --upgrade pip 'setuptools<58' wheel"
+    assert config.environment.python == "3.9-slim-bullseye"
+    assert producer.setup_commands[0] == "python -m pip install --upgrade 'pip<24' 'setuptools<58' wheel"
     runner = config.build_runner()
     assert isinstance(runner, GitHubPatchRunner)
     assert runner.apply_hidden_patches == ("tests",)
