@@ -14,20 +14,22 @@ dataset:
 adapter:
   id: swebench_verified
 
-sandbox:
-  defaults:
-    network: none
-  agent_workspace:
-    # Hosted LLM workspace-agent runs need outbound access to the inference
-    # endpoint. Replay/offline runs can override this back to none.
-    network: bridge
-  test_sandbox:
-    network: none
+environment:
+  python: "3.11"
+  network: bridge
+  writable: true
+  setup:
+    - python -m pip install --upgrade pip 'setuptools<58' wheel
+    - python -m pip install pytest hypothesis numpy cython extension-helpers
+    - python -m pip install 'setuptools<58'
+    - python -m pip install -e . --no-build-isolation || true
+    - python -m pip install -e '.[test]' --no-build-isolation || true
+    - test ! -f requirements.txt || python -m pip install -r requirements.txt
+    - test ! -f test-requirements.txt || python -m pip install -r test-requirements.txt
 
 producer:
   type: workspace_agent_patch
   config:
-    image: securebench-agent:latest
     model: gpt-5.4-mini
     base_url: https://api.openai.com/v1
     api_key_env: OPENAI_API_KEY
@@ -36,14 +38,6 @@ producer:
     command_timeout: 120
     request_timeout: 120
     timeout: 1800
-    setup_commands:
-      - python -m pip install --upgrade pip 'setuptools<58' wheel
-      - python -m pip install pytest hypothesis numpy cython extension-helpers
-      - python -m pip install 'setuptools<58'
-      - python -m pip install -e . --no-build-isolation || true
-      - python -m pip install -e '.[test]' --no-build-isolation || true
-      - test ! -f requirements.txt || python -m pip install -r requirements.txt
-      - test ! -f test-requirements.txt || python -m pip install -r test-requirements.txt
     allow_commands:
       - git
       - python
@@ -59,7 +53,6 @@ producer:
 runner:
   type: github_patch
   config:
-    image: securebench-agent:latest
     repo_dir: eval-repo
     apply_hidden_patches:
       - tests
@@ -67,12 +60,4 @@ runner:
       - fail_to_pass
       - pass_to_pass
     test_command_template: "python -m pytest {tests}"
-    setup_commands:
-      - python -m pip install --upgrade pip 'setuptools<58' wheel
-      - python -m pip install pytest hypothesis numpy cython extension-helpers
-      - python -m pip install 'setuptools<58'
-      - python -m pip install -e . --no-build-isolation || true
-      - python -m pip install -e '.[test]' --no-build-isolation || true
-      - test ! -f requirements.txt || python -m pip install -r requirements.txt
-      - test ! -f test-requirements.txt || python -m pip install -r test-requirements.txt
     timeout: 1800

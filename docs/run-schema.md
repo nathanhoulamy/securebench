@@ -121,10 +121,17 @@ dataset:
 adapter:
   id: swebench_verified
 
+environment:
+  python: "3.11"
+  network: bridge
+  writable: true
+  setup:
+    - python -m pip install -e . --no-build-isolation || true
+    - python -m pip install -e '.[test]' --no-build-isolation || true
+
 producer:
   type: workspace_agent_patch
   config:
-    image: securebench-agent:latest
     model: gpt-5.4-mini
     api_key_env: OPENAI_API_KEY
     timeout: 1800
@@ -132,7 +139,6 @@ producer:
 runner:
   type: github_patch
   config:
-    image: securebench-agent:latest
     apply_hidden_patches:
       - tests
     test_group_names:
@@ -140,14 +146,6 @@ runner:
       - pass_to_pass
     test_command_template: "python -m pytest {tests}"
     timeout: 1800
-
-sandbox:
-  defaults:
-    network: none
-  agent_workspace:
-    network: bridge
-  test_sandbox:
-    network: none
 ```
 
 ## Fields
@@ -186,6 +184,32 @@ subsets such as `"abstract_algebra"` or `"computer_security"`.
 `adapter.id`
 : Required built-in adapter ID, such as `"mmlu"`.
 
+`environment`
+: Optional shared execution environment for Docker-backed producers and
+runners. When omitted, SecureBench uses Python `"3.11"`, network `"none"`, a
+read-only root filesystem, and no setup commands.
+
+Supported `environment` fields:
+
+- `python`: Python version for the auto-built SecureBench agent image. Defaults
+  to `"3.11"`. SecureBench resolves this to a Docker tag such as
+  `securebench-agent:py3.11`, builds it from `docker/agent.Dockerfile` when the
+  tag is missing, and uses it for both producer and runner.
+- `packages`: optional Debian package names installed into the auto-built
+  image with `apt-get install`. Package names may contain only letters,
+  numbers, `.`, `_`, `+`, and `-`. When packages are present, SecureBench adds a
+  stable hash to the image tag so distinct package sets build distinct images.
+- `network`: `"none"` or `"bridge"`. Applies to both producer and runner unless
+  overridden by `environment.producer.network` or `environment.runner.network`.
+- `writable`: boolean. When true, Docker sandboxes do not use a read-only root
+  filesystem. Defaults to `false`.
+- `setup`: shared setup commands run inside the checked-out benchmark
+  repository before producer/runner work.
+- `producer.setup` / `runner.setup`: role-specific setup commands appended
+  after shared `setup`.
+- `producer.network`, `producer.writable`, `runner.network`, `runner.writable`:
+  role-specific environment overrides.
+
 `producer.type`
 : Required. Supported values:
 
@@ -216,16 +240,12 @@ For `"static"`:
 
 For `"workspace_agent_patch"`:
 
-- `image`: optional Docker image. Defaults to `"python:3.11-slim"`, but
-  practical runs should use an image containing SecureBench and repo tools,
-  such as `securebench-agent:latest`.
 - `model` or `replay_file`: one is required. `model` uses the OpenAI-compatible
   tool-calling agent; `replay_file` uses deterministic recorded actions.
 - `base_url`: optional OpenAI-compatible endpoint base URL.
 - `api_key_env`: optional environment variable containing the API key.
 - `repo_dir`: optional checkout directory inside `/workspace`.
 - `task_file`: optional public task file name written into the repo.
-- `setup_commands`: optional list of setup commands run before the agent.
 - `allow_commands` / `deny_commands`: optional command policy lists for the
   agent's `run_command` tool.
 - `max_steps`, `max_tool_output`, `command_timeout`, `request_timeout`,
@@ -237,9 +257,7 @@ For `"workspace_agent_patch"`:
 
 For `runner.type: github_patch`, optional `runner.config` fields include:
 
-- `image`: Docker image for evaluation.
 - `repo_dir`: checkout directory inside `/workspace`.
-- `setup_commands`: setup commands run before tests.
 - `test_commands`: explicit test commands.
 - `apply_hidden_patches`: names of hidden patch groups to apply during
   evaluation.
@@ -248,28 +266,11 @@ For `runner.type: github_patch`, optional `runner.config` fields include:
   `{tests}`.
 - `timeout`: per-command timeout in seconds.
 
-`sandbox`
-: Optional Docker hardening policy. When omitted, SecureBench uses restrictive
-defaults. `sandbox.defaults` applies to all auto-created Docker sandboxes,
-`sandbox.agent_workspace` overrides defaults for workspace-agent producers, and
-`sandbox.test_sandbox` overrides defaults for runners.
-
-Supported sandbox policy fields:
-
-- `network`: `"none"` or `"bridge"`. Defaults to `"none"`.
-- `cap_drop`: list of capabilities to drop. Defaults to `["ALL"]`.
-- `read_only`: boolean read-only root filesystem. Defaults to `true`.
-- `tmpfs`: list of tmpfs mounts. Defaults to `["/tmp"]`.
-- `mem_limit`: Docker memory limit string or `null`. Defaults to `"1g"`.
-- `pids_limit`: positive integer or `null`. Defaults to `256`.
-- `security_opt`: list of Docker security options. Defaults to
-  `["no-new-privileges:true"]`.
-
 For GitHub patch tasks, repository clone/checkout is performed before Docker
 evaluation starts and the prepared checkout is placed under the sandbox
 workspace. The test sandbox therefore should not need network access merely to
-clone the repository. Network-dependent dependency setup still requires a
-prebuilt image/cache or a later prepared-environment flow.
+clone the repository. Network-dependent dependency setup should use
+`environment.network: bridge`.
 
 ## Security Invariant
 
@@ -309,9 +310,11 @@ HumanEval OpenAI-compatible smoke run:
 SWE-bench Verified workspace-agent smoke run:
 
 ```bash
-docker build -f docker/agent.Dockerfile -t securebench-agent:latest .
 .venv/bin/python -m securebench.cli run --config configs/swebench-verified-agent-smoke.yaml --limit 1
 ```
+
+Docker-backed environments auto-build the matching `securebench-agent:py...`
+image when it is not already available locally.
 
 The CLI loads `.env` by default before running. Store local secrets there:
 

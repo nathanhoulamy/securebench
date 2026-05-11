@@ -1,9 +1,27 @@
+from types import SimpleNamespace
+
 import pytest
 
 from securebench.candidates import StaticCandidateProducer, TextCompletionProducer, WorkspaceAgentPatchProducer
 from securebench.config import ConfigError, load_run_config, parse_run_config
 from securebench.datasets import HUMANEVAL_DATASET_ID, MMLU_DATASET_ID, SWEBENCH_VERIFIED_DATASET_ID
 from securebench.runners import CodeGenerationRunner, GitHubPatchRunner, MultipleChoiceRunner
+
+
+@pytest.fixture(autouse=True)
+def fake_environment_image_build(monkeypatch):
+    seen = {"commands": []}
+
+    def fake_run(command, **kwargs):
+        seen["commands"].append(command)
+        if command[:3] == ["docker", "image", "inspect"]:
+            return SimpleNamespace(returncode=0, stdout="[]", stderr="")
+        if command[:2] == ["docker", "build"]:
+            return SimpleNamespace(returncode=0, stdout="built", stderr="")
+        raise AssertionError(f"unexpected subprocess command: {command}")
+
+    monkeypatch.setattr("securebench.config.subprocess.run", fake_run)
+    return seen
 
 
 def valid_config(**overrides):
@@ -48,8 +66,8 @@ def test_parse_run_config_builds_dataset_ref_and_runtime_objects():
     assert config.build_adapter().benchmark_id == "mmlu"
     assert isinstance(config.build_producer(), StaticCandidateProducer)
     assert isinstance(config.build_runner(), MultipleChoiceRunner)
-    assert config.sandbox.defaults.network == "none"
-    assert config.sandbox.test_sandbox.read_only is True
+    assert config.environment.python == "3.11"
+    assert config.environment.image == "securebench-agent:py3.11"
 
 
 def test_parse_run_config_builds_openai_compatible_producer():
@@ -82,7 +100,6 @@ def test_parse_run_config_builds_workspace_agent_patch_producer():
         producer={
             "type": "workspace_agent_patch",
             "config": {
-                "image": "securebench-agent:latest",
                 "model": "test-model",
                 "base_url": "https://llm.example/v1",
                 "api_key_env": "TEST_API_KEY",
@@ -94,10 +111,15 @@ def test_parse_run_config_builds_workspace_agent_patch_producer():
                 "request_timeout": 10,
                 "timeout": 11,
                 "temperature": 0,
-                "setup_commands": ["python -m pip install pytest"],
                 "allow_commands": ["git", "pytest"],
                 "deny_commands": ["curl"],
             },
+        },
+        environment={
+            "python": "3.9",
+            "setup": ["python -m pip install pytest"],
+            "network": "bridge",
+            "writable": True,
         },
         runner={"type": "github_patch"},
     )
@@ -109,9 +131,10 @@ def test_parse_run_config_builds_workspace_agent_patch_producer():
     assert config.producer.type == "workspace_agent_patch"
     sandbox = producer.sandbox_factory()
     assert sandbox.env_names == ("TEST_API_KEY",)
-    assert sandbox.network == "none"
+    assert sandbox.image == "securebench-agent:py3.9"
+    assert sandbox.network == "bridge"
     assert sandbox.cap_drop == ("ALL",)
-    assert sandbox.read_only is True
+    assert sandbox.read_only is False
     sandbox.close()
     assert producer.setup_commands == ("python -m pip install pytest",)
 
@@ -160,14 +183,20 @@ def test_parse_run_config_builds_github_patch_runner_with_config():
         runner={
             "type": "github_patch",
             "config": {
-                "image": "securebench-agent:latest",
                 "repo_dir": "eval-repo",
-                "setup_commands": ["python -m pip install -e ."],
                 "test_commands": ["pytest tests"],
                 "apply_hidden_patches": ["tests"],
                 "test_group_names": ["fail_to_pass", "pass_to_pass"],
                 "test_command_template": "pytest {tests}",
                 "timeout": 45,
+            },
+        },
+        environment={
+            "setup": ["python -m pip install wheel"],
+            "runner": {
+                "setup": ["python -m pip install -e ."],
+                "network": "bridge",
+                "writable": True,
             },
         },
     )
@@ -176,15 +205,195 @@ def test_parse_run_config_builds_github_patch_runner_with_config():
     runner = config.build_runner()
 
     assert isinstance(runner, GitHubPatchRunner)
-    assert runner.image == "securebench-agent:latest"
+    assert runner.image == "securebench-agent:py3.11"
     assert runner.repo_dir == "eval-repo"
-    assert runner.setup_commands == ("python -m pip install -e .",)
+    assert runner.setup_commands == ("python -m pip install wheel", "python -m pip install -e .")
     assert runner.test_commands == ("pytest tests",)
     assert runner.apply_hidden_patches == ("tests",)
     assert runner.test_group_names == ("fail_to_pass", "pass_to_pass")
     assert runner.test_command_template == "pytest {tests}"
     assert runner.timeout == 45
+    assert runner.sandbox_kwargs["network"] == "bridge"
+    assert runner.sandbox_kwargs["read_only"] is False
+
+
+def test_environment_role_overrides_shared_defaults():
+    data = valid_config(
+        dataset={
+            "provider": "huggingface",
+            "name": SWEBENCH_VERIFIED_DATASET_ID,
+            "split": "test",
+            "streaming": True,
+        },
+        adapter={"id": "swebench_verified"},
+        producer={
+            "type": "workspace_agent_patch",
+            "config": {
+                "replay_file": "/workspace/replay.json",
+            },
+        },
+        runner={
+            "type": "github_patch",
+            "config": {
+                "test_commands": ["pytest tests"],
+            },
+        },
+        environment={
+            "python": "3.10",
+            "packages": ["gfortran", "libhdf5-dev"],
+            "network": "bridge",
+            "writable": True,
+            "setup": ["python -m pip install base"],
+            "producer": {
+                "setup": ["python -m pip install agent-tools"],
+            },
+            "runner": {
+                "network": "none",
+                "writable": False,
+                "setup": ["python -m pip install test-tools"],
+            },
+        },
+    )
+
+    config = parse_run_config(data)
+    producer = config.build_producer()
+    runner = config.build_runner()
+
+    producer_sandbox = producer.sandbox_factory()
+    assert producer_sandbox.image.startswith("securebench-agent:py3.10-")
+    assert producer_sandbox.network == "bridge"
+    assert producer_sandbox.read_only is False
+    producer_sandbox.close()
+    assert producer.setup_commands == (
+        "python -m pip install base",
+        "python -m pip install agent-tools",
+    )
+    assert runner.image == producer_sandbox.image
     assert runner.sandbox_kwargs["network"] == "none"
+    assert runner.sandbox_kwargs["read_only"] is True
+    assert runner.setup_commands == (
+        "python -m pip install base",
+        "python -m pip install test-tools",
+    )
+
+
+@pytest.mark.parametrize(
+    ("component", "config", "message"),
+    [
+        ("producer", {"image": "securebench-agent:latest", "model": "test-model"}, "producer.config.image"),
+        (
+            "producer",
+            {"setup_commands": ["python -m pip install pytest"], "model": "test-model"},
+            "producer.config.setup_commands",
+        ),
+        ("runner", {"image": "securebench-agent:latest"}, "runner.config.image"),
+        ("runner", {"setup_commands": ["python -m pip install pytest"]}, "runner.config.setup_commands"),
+    ],
+)
+def test_parse_run_config_rejects_legacy_environment_fields(component, config, message):
+    data = valid_config(
+        dataset={
+            "provider": "huggingface",
+            "name": SWEBENCH_VERIFIED_DATASET_ID,
+            "split": "test",
+            "streaming": True,
+        },
+        adapter={"id": "swebench_verified"},
+        producer={"type": "workspace_agent_patch", "config": {"model": "test-model"}},
+        runner={"type": "github_patch", "config": {}},
+    )
+    data[component]["config"].update(config)
+
+    with pytest.raises(ConfigError, match=message):
+        parse_run_config(data)
+
+
+def test_environment_missing_image_triggers_docker_build(monkeypatch):
+    seen = []
+
+    def fake_run(command, **kwargs):
+        seen.append(command)
+        if command[:3] == ["docker", "image", "inspect"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="missing")
+        if command[:2] == ["docker", "build"]:
+            return SimpleNamespace(returncode=0, stdout="built", stderr="")
+        raise AssertionError(f"unexpected subprocess command: {command}")
+
+    monkeypatch.setattr("securebench.config.subprocess.run", fake_run)
+    data = valid_config(
+        dataset={
+            "provider": "huggingface",
+            "name": SWEBENCH_VERIFIED_DATASET_ID,
+            "split": "test",
+            "streaming": True,
+        },
+        adapter={"id": "swebench_verified"},
+        producer={"type": "workspace_agent_patch", "config": {"replay_file": "/workspace/replay.json"}},
+        runner={"type": "github_patch"},
+        environment={"python": "3.9", "packages": ["gfortran", "libxml2-dev"]},
+    )
+
+    parse_run_config(data).build_producer()
+
+    assert seen[0][0:3] == ["docker", "image", "inspect"]
+    assert seen[0][3].startswith("securebench-agent:py3.9-")
+    assert seen[1][:2] == ["docker", "build"]
+    assert "--build-arg" in seen[1]
+    assert "PYTHON_VERSION=3.9" in seen[1]
+    assert "ENVIRONMENT_PACKAGES=gfortran libxml2-dev" in seen[1]
+    assert "-t" in seen[1]
+    assert seen[0][3] in seen[1]
+
+
+def test_environment_package_order_does_not_change_image_tag():
+    first = parse_run_config(valid_config(environment={"python": "3.9", "packages": ["zlib1g-dev", "gfortran"]}))
+    second = parse_run_config(valid_config(environment={"python": "3.9", "packages": ["gfortran", "zlib1g-dev"]}))
+
+    assert first.environment.image == second.environment.image
+    assert first.environment.image.startswith("securebench-agent:py3.9-")
+    assert first.environment.packages == ("gfortran", "zlib1g-dev")
+
+
+def test_environment_packages_are_deduplicated_before_build():
+    config = parse_run_config(
+        valid_config(environment={"python": "3.9", "packages": ["gfortran", "gfortran"]})
+    )
+
+    assert config.environment.packages == ("gfortran",)
+
+
+def test_environment_docker_build_failure_is_config_error(monkeypatch):
+    def fake_run(command, **kwargs):
+        if command[:3] == ["docker", "image", "inspect"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="missing")
+        if command[:2] == ["docker", "build"]:
+            return SimpleNamespace(returncode=42, stdout="", stderr="build failed")
+        raise AssertionError(f"unexpected subprocess command: {command}")
+
+    monkeypatch.setattr("securebench.config.subprocess.run", fake_run)
+    data = valid_config(
+        dataset={
+            "provider": "huggingface",
+            "name": SWEBENCH_VERIFIED_DATASET_ID,
+            "split": "test",
+            "streaming": True,
+        },
+        adapter={"id": "swebench_verified"},
+        producer={"type": "workspace_agent_patch", "config": {"replay_file": "/workspace/replay.json"}},
+        runner={"type": "github_patch"},
+        environment={"python": "3.9"},
+    )
+
+    with pytest.raises(ConfigError, match="Failed to build environment image"):
+        parse_run_config(data).build_producer()
+
+
+def test_agent_dockerfile_declares_python_version_build_arg():
+    dockerfile = open("docker/agent.Dockerfile").read()
+    assert "ARG PYTHON_VERSION=3.11" in dockerfile
+    assert "FROM python:${PYTHON_VERSION}-slim" in dockerfile
+    assert 'ARG ENVIRONMENT_PACKAGES=""' in dockerfile
+    assert "${ENVIRONMENT_PACKAGES}" in dockerfile
 
 
 def test_load_run_config_reads_yaml_file():
@@ -232,8 +441,8 @@ def test_load_swebench_verified_agent_smoke_config_reads_yaml_file():
     assert config.adapter.id == "swebench_verified"
     assert config.producer.type == "workspace_agent_patch"
     assert config.runner.type == "github_patch"
-    assert config.sandbox.agent_workspace.network == "bridge"
-    assert config.sandbox.test_sandbox.network == "none"
+    assert config.environment.network == "bridge"
+    assert config.environment.writable is True
     producer = config.build_producer()
     assert isinstance(producer, WorkspaceAgentPatchProducer)
     assert producer.setup_commands[0] == "python -m pip install --upgrade pip 'setuptools<58' wheel"
@@ -368,49 +577,32 @@ def test_parse_run_config_uses_adapter_task_type_for_runner_compatibility():
     assert isinstance(config.build_runner(), CodeGenerationRunner)
 
 
-def test_parse_run_config_applies_sandbox_policy_defaults_and_role_overrides():
-    data = valid_config(
-        sandbox={
-            "defaults": {
-                "network": "none",
-                "cap_drop": ["ALL"],
-                "read_only": True,
-                "tmpfs": ["/tmp:size=64m"],
-                "mem_limit": "512m",
-                "pids_limit": 128,
-                "security_opt": ["no-new-privileges:true"],
-            },
-            "agent_workspace": {
-                "network": "bridge",
-                "read_only": False,
-            },
-        }
-    )
+def test_parse_run_config_rejects_removed_sandbox_policy():
+    data = valid_config(sandbox={"defaults": {"network": "bridge"}})
 
-    config = parse_run_config(data)
-
-    assert config.sandbox.defaults.mem_limit == "512m"
-    assert config.sandbox.agent_workspace.network == "bridge"
-    assert config.sandbox.agent_workspace.read_only is False
-    assert config.sandbox.agent_workspace.mem_limit == "512m"
-    assert config.sandbox.test_sandbox.network == "none"
-    assert config.sandbox.test_sandbox.tmpfs == ("/tmp:size=64m",)
+    with pytest.raises(ConfigError, match="sandbox is no longer supported"):
+        parse_run_config(data)
 
 
 @pytest.mark.parametrize(
-    ("sandbox", "message"),
+    ("environment", "message"),
     [
-        ([], "sandbox must be an object"),
-        ({"defaults": {"network": "open"}}, "sandbox.defaults.network"),
-        ({"defaults": {"cap_drop": "ALL"}}, "sandbox.defaults.cap_drop"),
-        ({"defaults": {"tmpfs": ["/tmp", ""]}}, "sandbox.defaults.tmpfs"),
-        ({"defaults": {"security_opt": "no-new-privileges:true"}}, "sandbox.defaults.security_opt"),
-        ({"defaults": {"mem_limit": 1}}, "sandbox.defaults.mem_limit"),
-        ({"defaults": {"pids_limit": 0}}, "sandbox.defaults.pids_limit"),
+        ([], "environment must be an object"),
+        ({"python": ""}, "environment.python"),
+        ({"python": "3/11"}, "environment.python"),
+        ({"packages": "gfortran"}, "environment.packages"),
+        ({"packages": ["gfortran", "bad package"]}, "environment.packages"),
+        ({"packages": ["gfortran", "$(bad)"]}, "environment.packages"),
+        ({"network": "open"}, "environment.network"),
+        ({"writable": "yes"}, "environment.writable"),
+        ({"setup": ["python -m pip install pytest", ""]}, "environment.setup"),
+        ({"producer": []}, "environment.producer"),
+        ({"runner": {"network": "open"}}, "environment.runner.network"),
+        ({"runner": {"writable": "yes"}}, "environment.runner.writable"),
     ],
 )
-def test_parse_run_config_rejects_invalid_sandbox_policy(sandbox, message):
-    data = valid_config(sandbox=sandbox)
+def test_parse_run_config_rejects_invalid_environment(environment, message):
+    data = valid_config(environment=environment)
 
     with pytest.raises(ConfigError, match=message):
         parse_run_config(data)

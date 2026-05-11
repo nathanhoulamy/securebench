@@ -101,16 +101,22 @@ Run tests:
 .venv/bin/python -m pytest -q
 ```
 
-Build the workspace-agent Docker image:
+Build the default workspace-agent Docker image manually if desired:
 
 ```bash
-docker build -f docker/agent.Dockerfile -t securebench-agent:latest .
+docker build -f docker/agent.Dockerfile \
+  --build-arg PYTHON_VERSION=3.11 \
+  --build-arg ENVIRONMENT_PACKAGES="" \
+  -t securebench-agent:py3.11 .
 ```
 
-The image includes SecureBench's built-in agent module, so producer configs can
-run `python -m securebench.agent.run` inside the sandbox.
+Run configs with a Docker-backed `environment` auto-build this image when the
+tag is missing. If `environment.packages` is set, SecureBench includes those
+Debian packages in the build and uses a package-specific image tag. The image
+includes SecureBench's built-in agent module, so producer configs can run
+`python -m securebench.agent.run` inside the sandbox.
 
-Run the SWE-bench Verified smoke config after building the image:
+Run the SWE-bench Verified smoke config:
 
 ```bash
 .venv/bin/python -m securebench.cli run --config configs/swebench-verified-agent-smoke.yaml --limit 1

@@ -347,3 +347,17 @@ or auto-created sandboxes.
 Deferred follow-up: keep tightening this contract in public APIs and docs so
 future runners/producers cannot accidentally reuse one long-lived sandbox for a
 batch.
+
+## Agent Image Minimality
+
+The current SecureBench agent Docker image installs the full `securebench`
+package because `docker/agent.Dockerfile` runs `pip install .` after copying the
+entire package tree. The sandbox only needs the workspace agent and its minimal
+shared helpers, not the benchmark orchestration surface such as adapters,
+runners, datasets, evaluators, or config parsing.
+
+Deferred follow-up: split the agent runtime from the full framework package.
+The agent image should contain only `securebench.agent`, command policy helpers,
+and the minimal OpenAI-compatible client/model code needed by the agent. This
+reduces sandbox attack surface and avoids shipping trusted benchmark
+orchestration code into untrusted execution environments.

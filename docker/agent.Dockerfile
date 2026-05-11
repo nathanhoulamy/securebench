@@ -1,4 +1,6 @@
-FROM python:3.11-slim
+ARG PYTHON_VERSION=3.11
+FROM python:${PYTHON_VERSION}-slim
+ARG ENVIRONMENT_PACKAGES=""
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -9,6 +11,7 @@ RUN apt-get update \
         ca-certificates \
         git \
         ripgrep \
+        ${ENVIRONMENT_PACKAGES} \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/securebench
