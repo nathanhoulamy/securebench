@@ -5,19 +5,20 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import List, Optional
 
-from securebench.agent.core import WorkspaceAgent
-from securebench.agent.models import (
+from securebench_agent.core import WorkspaceAgent
+from securebench_agent.models import (
+    OpenAICompatibleError,
     OpenAICompatibleToolConfig,
     OpenAICompatibleToolModel,
     ReplayToolModel,
     load_replay_actions,
 )
-from securebench.candidates.openai_compatible import OpenAICompatibleError
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m securebench.agent.run")
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(prog="python -m securebench_agent.run")
     parser.add_argument("--repo-root", default=".", help="Repository root where tools execute")
     parser.add_argument("--task-file", default="SECUREBENCH_TASK.md", help="Public task file inside the repository")
     parser.add_argument("--max-steps", type=int, default=40)

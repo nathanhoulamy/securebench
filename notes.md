@@ -350,16 +350,14 @@ batch.
 
 ## Agent Image Minimality
 
-The current SecureBench agent Docker image no longer installs the full
-`securebench` project package, so benchmark environments can use older Python
-versions without being blocked by the framework package metadata. It still
-copies the full package tree into the image for `PYTHONPATH` module resolution.
-The sandbox only needs the workspace agent and its minimal shared helpers, not
-the benchmark orchestration surface such as adapters, runners, datasets,
-evaluators, or config parsing.
+The SecureBench agent Docker image should contain only the standalone
+`securebench_agent` runtime, command policy helpers, and the minimal
+OpenAI-compatible client/model code needed by the agent. It should not copy the
+host-side `securebench` framework package into untrusted benchmark sandboxes.
+This keeps the sandbox import graph independent from CLI/config/adapters,
+runners, datasets, evaluators, and Docker orchestration code.
 
-Deferred follow-up: split the agent runtime from the full framework package.
-The agent image should contain only `securebench.agent`, command policy helpers,
-and the minimal OpenAI-compatible client/model code needed by the agent. This
-reduces sandbox attack surface and avoids shipping trusted benchmark
-orchestration code into untrusted execution environments.
+Deferred follow-up: keep the standalone runtime's Python compatibility floor
+explicitly tested against old benchmark images such as `3.9-slim-bullseye`, so
+future host-framework syntax changes do not break agent startup in benchmark
+environments.

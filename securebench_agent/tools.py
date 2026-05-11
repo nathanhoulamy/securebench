@@ -5,16 +5,16 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from securebench.policy import CommandPolicy, PolicyViolation, normalize_command
+from securebench_agent.policy import CommandPolicy, PolicyViolation, normalize_command
 
 
 DEFAULT_COMMAND_ALLOW = {"git", "python", "python3", "pytest"}
 DEFAULT_COMMAND_DENY = {"curl", "wget", "ssh", "scp", "rsync"}
 
 
-TOOL_SCHEMAS: list[dict[str, Any]] = [
+TOOL_SCHEMAS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
@@ -118,12 +118,12 @@ class WorkspaceTools:
 
     def __init__(
         self,
-        repo_root: str | Path,
+        repo_root: Union[str, Path],
         *,
         max_output: int = 12_000,
         command_timeout: float = 60.0,
-        command_allow: set[str] | None = None,
-        command_deny: set[str] | None = None,
+        command_allow: Optional[Set[str]] = None,
+        command_deny: Optional[Set[str]] = None,
     ) -> None:
         self.repo_root = Path(repo_root).resolve()
         self.max_output = max_output
@@ -133,7 +133,7 @@ class WorkspaceTools:
             deny=DEFAULT_COMMAND_DENY if command_deny is None else set(command_deny),
         )
 
-    def run_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    def run_tool(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         try:
             if name == "read_file":
                 return self.read_file(**arguments)
@@ -149,7 +149,7 @@ class WorkspaceTools:
             return {"ok": False, "error": str(exc), "error_type": type(exc).__name__}
         return {"ok": False, "error": f"Unknown tool {name!r}", "error_type": "UnknownTool"}
 
-    def read_file(self, path: str, start_line: int = 1, max_lines: int = 200) -> dict[str, Any]:
+    def read_file(self, path: str, start_line: int = 1, max_lines: int = 200) -> Dict[str, Any]:
         target = self._resolve_path(path)
         max_lines = _bounded_int(max_lines, default=200, minimum=1, maximum=500)
         start_line = _bounded_int(start_line, default=1, minimum=1, maximum=10_000_000)
@@ -171,7 +171,7 @@ class WorkspaceTools:
             }
         )
 
-    def search(self, pattern: str, path: str = ".", max_matches: int = 50) -> dict[str, Any]:
+    def search(self, pattern: str, path: str = ".", max_matches: int = 50) -> Dict[str, Any]:
         if not isinstance(pattern, str) or not pattern:
             raise ValueError("pattern must be a non-empty string")
         search_root = self._resolve_path(path)
@@ -211,13 +211,13 @@ class WorkspaceTools:
             }
         )
 
-    def list_files(self, path: str = ".", glob: str = "*", max_files: int = 200) -> dict[str, Any]:
+    def list_files(self, path: str = ".", glob: str = "*", max_files: int = 200) -> Dict[str, Any]:
         root = self._resolve_path(path)
         max_files = _bounded_int(max_files, default=200, minimum=1, maximum=500)
         if not isinstance(glob, str) or not glob:
             raise ValueError("glob must be a non-empty string")
 
-        files: list[str] = []
+        files: List[str] = []
         for candidate in sorted(root.rglob(glob)):
             if len(files) >= max_files:
                 break
@@ -229,7 +229,7 @@ class WorkspaceTools:
             files.append(self._relative(candidate))
         return {"ok": True, "files": files, "truncated": len(files) >= max_files}
 
-    def apply_patch(self, patch: str) -> dict[str, Any]:
+    def apply_patch(self, patch: str) -> Dict[str, Any]:
         if not isinstance(patch, str) or not patch.strip():
             raise ValueError("patch must be a non-empty string")
         if ".env" in patch:
@@ -254,7 +254,7 @@ class WorkspaceTools:
             }
         )
 
-    def run_command(self, command: str, timeout: float | None = None) -> dict[str, Any]:
+    def run_command(self, command: str, timeout: Optional[float] = None) -> Dict[str, Any]:
         if not isinstance(command, str) or not command.strip():
             raise ValueError("command must be a non-empty string")
         if ".env" in command:
@@ -300,7 +300,7 @@ class WorkspaceTools:
     def _relative(self, path: Path) -> str:
         return str(path.relative_to(self.repo_root))
 
-    def _cap_result(self, result: dict[str, Any]) -> dict[str, Any]:
+    def _cap_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
         encoded = repr(result)
         if len(encoded) <= self.max_output:
             return result
@@ -320,11 +320,11 @@ def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int) -> int
     return max(minimum, min(maximum, value))
 
 
-def _is_env_path(parts: tuple[str, ...]) -> bool:
+def _is_env_path(parts: Tuple[str, ...]) -> bool:
     return any(part == ".env" or part.startswith(".env.") for part in parts)
 
 
-def _safe_env() -> dict[str, str]:
+def _safe_env() -> Dict[str, str]:
     allowed = {"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "VIRTUAL_ENV"}
     return {key: value for key, value in os.environ.items() if key in allowed}
 

@@ -246,7 +246,7 @@ def _agent_command(
     command = [
         "python",
         "-m",
-        "securebench.agent.run",
+        "securebench_agent.run",
         "--repo-root",
         ".",
         "--task-file",

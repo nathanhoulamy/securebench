@@ -107,14 +107,14 @@ Build the default workspace-agent Docker image manually if desired:
 docker build -f docker/agent.Dockerfile \
   --build-arg PYTHON_VERSION=3.11-slim \
   --build-arg ENVIRONMENT_PACKAGES="" \
-  -t securebench-agent:py3.11-slim .
+  -t securebench-agent-runtime:py3.11-slim .
 ```
 
 Run configs with a Docker-backed `environment` auto-build this image when the
 tag is missing. If `environment.packages` is set, SecureBench includes those
 Debian packages in the build and uses a package-specific image tag. The image
-includes SecureBench's built-in agent module, so producer configs can run
-`python -m securebench.agent.run` inside the sandbox.
+includes the standalone SecureBench agent runtime, so producer configs can run
+`python -m securebench_agent.run` inside the sandbox.
 
 Run the SWE-bench Verified smoke config:
 

@@ -3,7 +3,7 @@ import subprocess
 
 import pytest
 
-from securebench.agent import WorkspaceTools
+from securebench_agent import WorkspaceTools
 
 
 def test_workspace_tools_block_env_and_path_escape(tmp_path):

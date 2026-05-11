@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Dict, List, Optional, Protocol, Set, Tuple, Union
 
-from securebench.agent.tools import TOOL_SCHEMAS, WorkspaceTools
+from securebench_agent.tools import TOOL_SCHEMAS, WorkspaceTools
 
 
 SYSTEM_PROMPT = """You are a repository repair agent running inside a checked-out Git repository.
@@ -19,7 +19,7 @@ Prefer small, auditable patches. Call finish when the repository changes are com
 class ToolModel(Protocol):
     """Model interface used by the workspace agent."""
 
-    def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
+    def complete(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Return the next assistant message, optionally containing tool calls."""
 
 
@@ -30,7 +30,7 @@ class AgentRunResult:
     finished: bool
     steps: int
     summary: str = ""
-    messages: list[dict[str, Any]] = field(default_factory=list)
+    messages: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class WorkspaceAgent:
@@ -39,14 +39,14 @@ class WorkspaceAgent:
     def __init__(
         self,
         *,
-        repo_root: str | Path,
-        task_file: str | Path,
+        repo_root: Union[str, Path],
+        task_file: Union[str, Path],
         model: ToolModel,
         max_steps: int = 40,
         max_tool_output: int = 12_000,
         command_timeout: float = 60.0,
-        command_allow: set[str] | None = None,
-        command_deny: set[str] | None = None,
+        command_allow: Optional[Set[str]] = None,
+        command_deny: Optional[Set[str]] = None,
     ) -> None:
         self.repo_root = Path(repo_root).resolve()
         self.task_file = Path(task_file)
@@ -62,7 +62,7 @@ class WorkspaceAgent:
 
     def run(self) -> AgentRunResult:
         task_text = self.tools.read_file(str(self.task_file), max_lines=2_000)["content"]
-        messages: list[dict[str, Any]] = [
+        messages: List[Dict[str, Any]] = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": _task_prompt(task_text)},
         ]
@@ -117,7 +117,7 @@ def _task_prompt(task_text: str) -> str:
     )
 
 
-def _parse_tool_call(tool_call: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+def _parse_tool_call(tool_call: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
     function = tool_call.get("function")
     if not isinstance(function, dict):
         raise ValueError("Tool call must contain a function object")

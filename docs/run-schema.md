@@ -195,7 +195,7 @@ Supported `environment` fields:
   SecureBench agent image, such as `"3.11-slim"` or `"3.9-slim-bullseye"`.
   Defaults to `"3.11-slim"`. SecureBench passes this value directly to
   `python:<value>`, derives an internal image tag such as
-  `securebench-agent:py3.11-slim`, builds it from `docker/agent.Dockerfile`
+  `securebench-agent-runtime:py3.11-slim`, builds it from `docker/agent.Dockerfile`
   when the tag is missing, and uses it for both producer and runner.
 - `packages`: optional Debian package names installed into the auto-built
   image with `apt-get install`. Package names may contain only letters,
@@ -315,7 +315,7 @@ SWE-bench Verified workspace-agent smoke run:
 .venv/bin/python -m securebench.cli run --config configs/swebench-verified-agent-smoke.yaml --limit 1
 ```
 
-Docker-backed environments auto-build the matching `securebench-agent:py...`
+Docker-backed environments auto-build the matching `securebench-agent-runtime:py...`
 image when it is not already available locally.
 
 The CLI loads `.env` by default before running. Store local secrets there:

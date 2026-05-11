@@ -204,7 +204,7 @@ def test_workspace_agent_patch_producer_runs_builtin_agent_command_and_collects_
             [
                 "python",
                 "-m",
-                "securebench.agent.run",
+                "securebench_agent.run",
                 "--repo-root",
                 ".",
                 "--task-file",
@@ -258,7 +258,7 @@ def test_workspace_agent_patch_producer_can_run_replay_agent_without_model():
         [
             "python",
             "-m",
-            "securebench.agent.run",
+            "securebench_agent.run",
             "--repo-root",
             ".",
             "--task-file",

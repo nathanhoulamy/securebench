@@ -27,6 +27,7 @@ from securebench.sandboxes import DockerSandbox
 SUPPORTED_SCHEMA_VERSION = "0.1"
 SUPPORTED_DOCKER_NETWORKS = {"none", "bridge"}
 DEFAULT_ENVIRONMENT_PYTHON = "3.11-slim"
+ENVIRONMENT_IMAGE_REPOSITORY = "securebench-agent-runtime"
 PYTHON_VERSION_PATTERN = re.compile(r"^[0-9]+(?:\.[0-9]+){0,2}(?:-[A-Za-z0-9._-]+)?$")
 PACKAGE_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+_-]*$")
 
@@ -471,11 +472,11 @@ def _environment_sandbox_policy(
 
 def _environment_image_tag(python_version: str, packages: tuple[str, ...]) -> str:
     if not packages:
-        return f"securebench-agent:py{python_version}"
+        return f"{ENVIRONMENT_IMAGE_REPOSITORY}:py{python_version}"
     digest = hashlib.sha256(
         "\n".join((python_version, *sorted(packages))).encode("utf-8")
     ).hexdigest()[:12]
-    return f"securebench-agent:py{python_version}-{digest}"
+    return f"{ENVIRONMENT_IMAGE_REPOSITORY}:py{python_version}-{digest}"
 
 
 def _reject_legacy_environment_fields(config: dict[str, Any], field: str, names: tuple[str, ...]) -> None:

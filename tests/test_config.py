@@ -67,7 +67,7 @@ def test_parse_run_config_builds_dataset_ref_and_runtime_objects():
     assert isinstance(config.build_producer(), StaticCandidateProducer)
     assert isinstance(config.build_runner(), MultipleChoiceRunner)
     assert config.environment.python == "3.11-slim"
-    assert config.environment.image == "securebench-agent:py3.11-slim"
+    assert config.environment.image == "securebench-agent-runtime:py3.11-slim"
 
 
 def test_parse_run_config_builds_openai_compatible_producer():
@@ -131,7 +131,7 @@ def test_parse_run_config_builds_workspace_agent_patch_producer():
     assert config.producer.type == "workspace_agent_patch"
     sandbox = producer.sandbox_factory()
     assert sandbox.env_names == ("TEST_API_KEY",)
-    assert sandbox.image == "securebench-agent:py3.9-slim"
+    assert sandbox.image == "securebench-agent-runtime:py3.9-slim"
     assert sandbox.network == "bridge"
     assert sandbox.cap_drop == ("ALL",)
     assert sandbox.read_only is False
@@ -205,7 +205,7 @@ def test_parse_run_config_builds_github_patch_runner_with_config():
     runner = config.build_runner()
 
     assert isinstance(runner, GitHubPatchRunner)
-    assert runner.image == "securebench-agent:py3.11-slim"
+    assert runner.image == "securebench-agent-runtime:py3.11-slim"
     assert runner.repo_dir == "eval-repo"
     assert runner.setup_commands == ("python -m pip install wheel", "python -m pip install -e .")
     assert runner.test_commands == ("pytest tests",)
@@ -260,7 +260,7 @@ def test_environment_role_overrides_shared_defaults():
     runner = config.build_runner()
 
     producer_sandbox = producer.sandbox_factory()
-    assert producer_sandbox.image.startswith("securebench-agent:py3.10-slim-")
+    assert producer_sandbox.image.startswith("securebench-agent-runtime:py3.10-slim-")
     assert producer_sandbox.network == "bridge"
     assert producer_sandbox.read_only is False
     producer_sandbox.close()
@@ -336,7 +336,7 @@ def test_environment_missing_image_triggers_docker_build(monkeypatch):
     parse_run_config(data).build_producer()
 
     assert seen[0][0:3] == ["docker", "image", "inspect"]
-    assert seen[0][3].startswith("securebench-agent:py3.9-slim-")
+    assert seen[0][3].startswith("securebench-agent-runtime:py3.9-slim-")
     assert seen[1][:2] == ["docker", "build"]
     assert "--build-arg" in seen[1]
     assert "PYTHON_VERSION=3.9-slim" in seen[1]
@@ -350,7 +350,7 @@ def test_environment_package_order_does_not_change_image_tag():
     second = parse_run_config(valid_config(environment={"python": "3.9-slim", "packages": ["gfortran", "zlib1g-dev"]}))
 
     assert first.environment.image == second.environment.image
-    assert first.environment.image.startswith("securebench-agent:py3.9-slim-")
+    assert first.environment.image.startswith("securebench-agent-runtime:py3.9-slim-")
     assert first.environment.packages == ("gfortran", "zlib1g-dev")
 
 
@@ -424,7 +424,10 @@ def test_agent_dockerfile_declares_python_version_build_arg():
     assert "FROM python:${PYTHON_VERSION}" in dockerfile
     assert 'ARG ENVIRONMENT_PACKAGES=""' in dockerfile
     assert "${ENVIRONMENT_PACKAGES}" in dockerfile
-    assert "ENV PYTHONPATH=/opt/securebench" in dockerfile
+    assert "ENV PYTHONPATH=/opt/securebench-agent" in dockerfile
+    assert "COPY securebench_agent ./securebench_agent" in dockerfile
+    assert "COPY securebench ./securebench" not in dockerfile
+    assert 'CMD ["python", "-m", "securebench_agent.run", "--help"]' in dockerfile
     assert "python -m pip install ." not in dockerfile
 
 

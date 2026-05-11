@@ -1,8 +1,12 @@
 import pytest
 
-from securebench.agent.models import OpenAICompatibleToolConfig, OpenAICompatibleToolModel, ReplayToolModel
-from securebench.agent.tools import TOOL_SCHEMAS
-from securebench.candidates import OpenAICompatibleError
+from securebench_agent.models import (
+    OpenAICompatibleError,
+    OpenAICompatibleToolConfig,
+    OpenAICompatibleToolModel,
+    ReplayToolModel,
+)
+from securebench_agent.tools import TOOL_SCHEMAS
 
 
 def test_replay_tool_model_returns_openai_style_tool_call():

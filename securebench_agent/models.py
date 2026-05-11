@@ -7,12 +7,14 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Any, Callable
-
-from securebench.candidates.openai_compatible import OpenAICompatibleError
+from typing import Any, Callable, Optional, Union
 
 
-ToolTransport = Callable[[str, dict[str, str], dict[str, Any], float | None], dict[str, Any]]
+class OpenAICompatibleError(RuntimeError):
+    """Raised when an OpenAI-compatible endpoint request fails."""
+
+
+ToolTransport = Callable[[str, dict[str, str], dict[str, Any], Optional[float]], dict[str, Any]]
 
 
 class ReplayToolModel:
@@ -65,8 +67,8 @@ class OpenAICompatibleToolConfig:
     model: str
     base_url: str = "https://api.openai.com/v1"
     api_key_env: str = "OPENAI_API_KEY"
-    timeout: float | None = 60.0
-    temperature: float | None = 0.0
+    timeout: Optional[float] = 60.0
+    temperature: Optional[float] = 0.0
     extra_body: dict[str, Any] = field(default_factory=dict)
 
 
@@ -77,7 +79,7 @@ class OpenAICompatibleToolModel:
         self,
         config: OpenAICompatibleToolConfig,
         *,
-        transport: ToolTransport | None = None,
+        transport: Optional[ToolTransport] = None,
     ) -> None:
         self.config = config
         self.transport = transport or _default_transport
@@ -108,7 +110,7 @@ class OpenAICompatibleToolModel:
         return api_key
 
 
-def load_replay_actions(path: str | os.PathLike[str]) -> list[dict[str, Any]]:
+def load_replay_actions(path: Union[str, os.PathLike[str]]) -> list[dict[str, Any]]:
     """Load replay actions from a JSON file."""
     with open(path) as file:
         loaded = json.load(file)
@@ -134,7 +136,7 @@ def _default_transport(
     url: str,
     headers: dict[str, str],
     body: dict[str, Any],
-    timeout: float | None,
+    timeout: Optional[float],
 ) -> dict[str, Any]:
     request = urllib.request.Request(
         url,

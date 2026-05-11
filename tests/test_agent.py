@@ -1,6 +1,6 @@
 import subprocess
 
-from securebench.agent import ReplayToolModel, WorkspaceAgent
+from securebench_agent import ReplayToolModel, WorkspaceAgent
 
 
 def test_workspace_agent_executes_tool_loop_and_applies_patch(tmp_path):
