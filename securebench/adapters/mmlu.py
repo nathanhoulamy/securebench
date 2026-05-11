@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from securebench.adapters.base import BenchmarkAdapter
+from securebench.adapters.base import BenchmarkAdapter, resources_from_values
 from securebench.tasks import TaskSpec
 
 
@@ -37,18 +37,10 @@ class MMLUAdapter(BenchmarkAdapter):
             "id": task_id,
             "benchmark_id": self.benchmark_id,
             "task_type": "multiple_choice",
-            "resources": _resources(resource_values, resource_visibility),
+            "resources": resources_from_values(resource_values, resource_visibility),
             "metadata": {
                 "config": config,
                 "split": split,
                 "row_idx": row_idx,
             },
         }
-
-
-def _resources(values: dict[str, Any], visibility: dict[str, str]) -> dict[str, dict[str, Any]]:
-    return {
-        name: {"value": value, "visibility": visibility[name]}
-        for name, value in values.items()
-        if name in visibility and value is not None
-    }

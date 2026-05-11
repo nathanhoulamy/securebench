@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from securebench.adapters.base import BenchmarkAdapter
+from securebench.adapters.base import BenchmarkAdapter, resources_from_values
 from securebench.tasks import TaskSpec
 
 
@@ -23,7 +23,6 @@ class SWEBenchVerifiedAdapter(BenchmarkAdapter):
             "pass_to_pass": pass_to_pass,
         }
         resource_values = {
-            "id": row["instance_id"],
             "repo": row["repo"],
             "base_commit": row["base_commit"],
             "instructions": row["problem_statement"],
@@ -38,7 +37,6 @@ class SWEBenchVerifiedAdapter(BenchmarkAdapter):
             "hidden_patches": hidden_patches,
         }
         resource_visibility = {
-            "id": "public",
             "repo": "public",
             "base_commit": "public",
             "instructions": "public",
@@ -57,7 +55,7 @@ class SWEBenchVerifiedAdapter(BenchmarkAdapter):
             "id": row["instance_id"],
             "benchmark_id": self.benchmark_id,
             "task_type": "github_patch",
-            "resources": _resources(resource_values, resource_visibility),
+            "resources": resources_from_values(resource_values, resource_visibility, drop_empty=True),
             "metadata": {
                 "split": context.get("split", "test"),
                 "difficulty": row.get("difficulty"),
@@ -99,11 +97,3 @@ def _coerce_test_list(value: Any) -> tuple[str, ...]:
             return tuple(str(item) for item in loaded)
         return (str(loaded),)
     return (str(value),)
-
-
-def _resources(values: dict[str, Any], visibility: dict[str, str]) -> dict[str, dict[str, Any]]:
-    return {
-        name: {"value": value, "visibility": visibility[name]}
-        for name, value in values.items()
-        if name in visibility and value not in (None, "", (), [], {})
-    }

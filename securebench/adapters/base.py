@@ -8,6 +8,21 @@ from typing import Any
 from securebench.tasks import SecureBenchTask, TaskSpec, task_from_spec
 
 
+def resources_from_values(
+    values: dict[str, Any],
+    visibility: dict[str, str],
+    *,
+    drop_empty: bool = False,
+) -> dict[str, dict[str, Any]]:
+    """Build a normalized resource mapping from values and visibility labels."""
+    omitted = (None, "", (), [], {}) if drop_empty else (None,)
+    return {
+        name: {"value": value, "visibility": visibility[name]}
+        for name, value in values.items()
+        if name in visibility and value not in omitted
+    }
+
+
 class BenchmarkAdapter(ABC):
     """Translate one benchmark's raw rows into normalized SecureBench tasks.
 
