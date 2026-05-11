@@ -140,6 +140,14 @@ runner:
       - pass_to_pass
     test_command_template: "python -m pytest {tests}"
     timeout: 1800
+
+sandbox:
+  defaults:
+    network: none
+  agent_workspace:
+    network: bridge
+  test_sandbox:
+    network: none
 ```
 
 ## Fields
@@ -239,6 +247,29 @@ For `runner.type: github_patch`, optional `runner.config` fields include:
 - `test_command_template`: command template that receives selected tests through
   `{tests}`.
 - `timeout`: per-command timeout in seconds.
+
+`sandbox`
+: Optional Docker hardening policy. When omitted, SecureBench uses restrictive
+defaults. `sandbox.defaults` applies to all auto-created Docker sandboxes,
+`sandbox.agent_workspace` overrides defaults for workspace-agent producers, and
+`sandbox.test_sandbox` overrides defaults for runners.
+
+Supported sandbox policy fields:
+
+- `network`: `"none"` or `"bridge"`. Defaults to `"none"`.
+- `cap_drop`: list of capabilities to drop. Defaults to `["ALL"]`.
+- `read_only`: boolean read-only root filesystem. Defaults to `true`.
+- `tmpfs`: list of tmpfs mounts. Defaults to `["/tmp"]`.
+- `mem_limit`: Docker memory limit string or `null`. Defaults to `"1g"`.
+- `pids_limit`: positive integer or `null`. Defaults to `256`.
+- `security_opt`: list of Docker security options. Defaults to
+  `["no-new-privileges:true"]`.
+
+For GitHub patch tasks, repository clone/checkout is performed before Docker
+evaluation starts and the prepared checkout is placed under the sandbox
+workspace. The test sandbox therefore should not need network access merely to
+clone the repository. Network-dependent dependency setup still requires a
+prebuilt image/cache or a later prepared-environment flow.
 
 ## Security Invariant
 

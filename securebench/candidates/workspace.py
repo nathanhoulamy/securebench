@@ -6,6 +6,11 @@ import json
 from typing import Any, Callable
 
 from securebench.candidates.base import CandidateArtifact, CandidateProducer
+from securebench.repositories import (
+    RepositoryPreparationError,
+    RepositoryPreparer,
+    TrustedGitRepositoryPreparer,
+)
 from securebench.sandboxes import Sandbox
 from securebench.tasks import GitHubPatchTask, SecureBenchTask
 
@@ -59,6 +64,7 @@ class SandboxedPatchProducer(CandidateProducer):
         agent_command: str | list[str] | tuple[str, ...],
         repo_dir: str = "repo",
         task_file: str = "SECUREBENCH_TASK.md",
+        repository_preparer: RepositoryPreparer | None = None,
         setup_commands: tuple[str, ...] = (),
         timeout: float | None = None,
     ) -> None:
@@ -71,6 +77,7 @@ class SandboxedPatchProducer(CandidateProducer):
         self.agent_command = agent_command
         self.repo_dir = repo_dir
         self.task_file = task_file
+        self.repository_preparer = repository_preparer or TrustedGitRepositoryPreparer()
         self.setup_commands = tuple(setup_commands)
         self.timeout = timeout
 
@@ -81,8 +88,18 @@ class SandboxedPatchProducer(CandidateProducer):
         sandbox = self._new_sandbox()
         timeout = context.get("timeout", self.timeout)
         try:
-            clone_result = sandbox.run(["git", "clone", _repo_url(task.repo), self.repo_dir], timeout=timeout)
-            checkout_result = sandbox.run(["git", "checkout", task.base_commit], workdir=self.repo_dir, timeout=timeout)
+            try:
+                self.repository_preparer.prepare(task, sandbox, repo_dir=self.repo_dir, timeout=timeout)
+            except RepositoryPreparationError as exc:
+                return CandidateArtifact(
+                    patch="",
+                    stderr=str(exc),
+                    metadata={
+                        "repo_dir": self.repo_dir,
+                        "task_file": self.task_file,
+                        "repository_preparation_error": str(exc),
+                    },
+                )
             setup_results = [
                 sandbox.run(command, workdir=self.repo_dir, timeout=timeout)
                 for command in self.setup_commands
@@ -96,8 +113,6 @@ class SandboxedPatchProducer(CandidateProducer):
                 patch=diff_result.stdout,
                 stdout=_join_streams(
                     (
-                        clone_result.stdout,
-                        checkout_result.stdout,
                         *[result.stdout for result in setup_results],
                         agent_result.stdout,
                         diff_result.stdout,
@@ -105,8 +120,6 @@ class SandboxedPatchProducer(CandidateProducer):
                 ),
                 stderr=_join_streams(
                     (
-                        clone_result.stderr,
-                        checkout_result.stderr,
                         *[result.stderr for result in setup_results],
                         agent_result.stderr,
                         diff_result.stderr,
@@ -116,8 +129,6 @@ class SandboxedPatchProducer(CandidateProducer):
                     "repo_dir": self.repo_dir,
                     "task_file": self.task_file,
                     "exit_codes": [
-                        clone_result.exit_code,
-                        checkout_result.exit_code,
                         *[result.exit_code for result in setup_results],
                         agent_result.exit_code,
                         diff_result.exit_code,
@@ -150,6 +161,7 @@ class WorkspaceAgentPatchProducer(SandboxedPatchProducer):
         replay_file: str | None = None,
         repo_dir: str = "repo",
         task_file: str = "SECUREBENCH_TASK.md",
+        repository_preparer: RepositoryPreparer | None = None,
         base_url: str = "https://api.openai.com/v1",
         api_key_env: str = "OPENAI_API_KEY",
         max_steps: int = 40,
@@ -181,15 +193,10 @@ class WorkspaceAgentPatchProducer(SandboxedPatchProducer):
             ),
             repo_dir=repo_dir,
             task_file=task_file,
+            repository_preparer=repository_preparer,
             setup_commands=setup_commands,
             timeout=timeout,
         )
-
-
-def _repo_url(repo: str) -> str:
-    if repo.startswith(("http://", "https://", "git@")):
-        return repo
-    return f"https://github.com/{repo}.git"
 
 
 def _task_markdown(task: GitHubPatchTask) -> str:

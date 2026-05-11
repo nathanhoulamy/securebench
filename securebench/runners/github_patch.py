@@ -5,13 +5,18 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any, Callable
 
+from securebench.repositories import (
+    RepositoryPreparationError,
+    RepositoryPreparer,
+    TrustedGitRepositoryPreparer,
+)
 from securebench.runners.base import Runner, RunnerResult
 from securebench.sandboxes import CommandResult, DockerSandbox, Sandbox
 from securebench.tasks import GitHubPatchTask, SecureBenchTask
 
 
 class GitHubPatchRunner(Runner):
-    """Clone a repository, apply a candidate patch, run tests, and collect a diff."""
+    """Apply a candidate patch in a prepared repository and run tests."""
 
     def __init__(
         self,
@@ -19,6 +24,8 @@ class GitHubPatchRunner(Runner):
         sandbox: Sandbox | None = None,
         sandbox_factory: Callable[[], Sandbox] | None = None,
         image: str = "python:3.11-slim",
+        sandbox_kwargs: dict[str, Any] | None = None,
+        repository_preparer: RepositoryPreparer | None = None,
         repo_dir: str = "repo",
         setup_commands: Iterable[str] = (),
         test_commands: Iterable[str] = (),
@@ -32,6 +39,8 @@ class GitHubPatchRunner(Runner):
         self.sandbox = sandbox
         self.sandbox_factory = sandbox_factory
         self.image = image
+        self.sandbox_kwargs = dict(sandbox_kwargs or {})
+        self.repository_preparer = repository_preparer or TrustedGitRepositoryPreparer()
         self.repo_dir = repo_dir
         self.setup_commands = tuple(setup_commands)
         self.test_commands = tuple(test_commands)
@@ -60,10 +69,21 @@ class GitHubPatchRunner(Runner):
         candidate_patch = "" if candidate is None else str(candidate)
 
         try:
-            setup_results = [
-                sandbox.run(["git", "clone", _repo_url(task.repo), repo_dir], timeout=timeout),
-                sandbox.run(["git", "checkout", task.base_commit], workdir=repo_dir, timeout=timeout),
-            ]
+            try:
+                self.repository_preparer.prepare(task, sandbox, repo_dir=repo_dir, timeout=timeout)
+            except RepositoryPreparationError as exc:
+                return RunnerResult(
+                    task_id=task.id,
+                    passed=False,
+                    score=0.0,
+                    stderr=str(exc),
+                    metadata={
+                        "model_patch": candidate_patch,
+                        "repo_dir": repo_dir,
+                        "exit_codes": [],
+                        "repository_preparation_error": str(exc),
+                    },
+                )
             sandbox.write_file(f"{repo_dir}/SECUREBENCH_TASK.md", task.instructions)
 
             patch_result = None
@@ -96,7 +116,7 @@ class GitHubPatchRunner(Runner):
                 for command in test_commands
             ]
 
-            command_results = [*setup_results]
+            command_results = []
             if patch_result is not None:
                 command_results.append(patch_result)
             command_results.extend(hidden_patch_results)
@@ -132,13 +152,7 @@ class GitHubPatchRunner(Runner):
             return self.sandbox
         if self.sandbox_factory is not None:
             return self.sandbox_factory()
-        return DockerSandbox(image=context.get("image", self.image))
-
-
-def _repo_url(repo: str) -> str:
-    if repo.startswith(("http://", "https://", "git@")):
-        return repo
-    return f"https://github.com/{repo}.git"
+        return DockerSandbox(image=context.get("image", self.image), **self.sandbox_kwargs)
 
 
 def _join_streams(streams: Iterable[str]) -> str:

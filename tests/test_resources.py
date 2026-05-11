@@ -27,6 +27,9 @@ def test_resource_rejects_invalid_visibility_and_duplicates():
     with pytest.raises(ValueError, match="visibility"):
         Resource("x", 1, "private")  # type: ignore[arg-type]
 
+    with pytest.raises(ValueError, match="kind"):
+        Resource("x", 1, "public", kind="unknown")  # type: ignore[arg-type]
+
     with pytest.raises(ValueError, match="duplicate"):
         ResourceBundle((Resource("x", 1, "public"), Resource("x", 2, "hidden")))
 

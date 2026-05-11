@@ -48,6 +48,8 @@ def test_parse_run_config_builds_dataset_ref_and_runtime_objects():
     assert config.build_adapter().benchmark_id == "mmlu"
     assert isinstance(config.build_producer(), StaticCandidateProducer)
     assert isinstance(config.build_runner(), MultipleChoiceRunner)
+    assert config.sandbox.defaults.network == "none"
+    assert config.sandbox.test_sandbox.read_only is True
 
 
 def test_parse_run_config_builds_openai_compatible_producer():
@@ -107,6 +109,9 @@ def test_parse_run_config_builds_workspace_agent_patch_producer():
     assert config.producer.type == "workspace_agent_patch"
     sandbox = producer.sandbox_factory()
     assert sandbox.env_names == ("TEST_API_KEY",)
+    assert sandbox.network == "none"
+    assert sandbox.cap_drop == ("ALL",)
+    assert sandbox.read_only is True
     sandbox.close()
     assert producer.setup_commands == ("python -m pip install pytest",)
 
@@ -179,6 +184,7 @@ def test_parse_run_config_builds_github_patch_runner_with_config():
     assert runner.test_group_names == ("fail_to_pass", "pass_to_pass")
     assert runner.test_command_template == "pytest {tests}"
     assert runner.timeout == 45
+    assert runner.sandbox_kwargs["network"] == "none"
 
 
 def test_load_run_config_reads_yaml_file():
@@ -226,6 +232,8 @@ def test_load_swebench_verified_agent_smoke_config_reads_yaml_file():
     assert config.adapter.id == "swebench_verified"
     assert config.producer.type == "workspace_agent_patch"
     assert config.runner.type == "github_patch"
+    assert config.sandbox.agent_workspace.network == "bridge"
+    assert config.sandbox.test_sandbox.network == "none"
     producer = config.build_producer()
     assert isinstance(producer, WorkspaceAgentPatchProducer)
     assert producer.setup_commands[0] == "python -m pip install --upgrade pip 'setuptools<58' wheel"
@@ -358,6 +366,54 @@ def test_parse_run_config_uses_adapter_task_type_for_runner_compatibility():
 
     assert config.adapter.id == "humaneval"
     assert isinstance(config.build_runner(), CodeGenerationRunner)
+
+
+def test_parse_run_config_applies_sandbox_policy_defaults_and_role_overrides():
+    data = valid_config(
+        sandbox={
+            "defaults": {
+                "network": "none",
+                "cap_drop": ["ALL"],
+                "read_only": True,
+                "tmpfs": ["/tmp:size=64m"],
+                "mem_limit": "512m",
+                "pids_limit": 128,
+                "security_opt": ["no-new-privileges:true"],
+            },
+            "agent_workspace": {
+                "network": "bridge",
+                "read_only": False,
+            },
+        }
+    )
+
+    config = parse_run_config(data)
+
+    assert config.sandbox.defaults.mem_limit == "512m"
+    assert config.sandbox.agent_workspace.network == "bridge"
+    assert config.sandbox.agent_workspace.read_only is False
+    assert config.sandbox.agent_workspace.mem_limit == "512m"
+    assert config.sandbox.test_sandbox.network == "none"
+    assert config.sandbox.test_sandbox.tmpfs == ("/tmp:size=64m",)
+
+
+@pytest.mark.parametrize(
+    ("sandbox", "message"),
+    [
+        ([], "sandbox must be an object"),
+        ({"defaults": {"network": "open"}}, "sandbox.defaults.network"),
+        ({"defaults": {"cap_drop": "ALL"}}, "sandbox.defaults.cap_drop"),
+        ({"defaults": {"tmpfs": ["/tmp", ""]}}, "sandbox.defaults.tmpfs"),
+        ({"defaults": {"security_opt": "no-new-privileges:true"}}, "sandbox.defaults.security_opt"),
+        ({"defaults": {"mem_limit": 1}}, "sandbox.defaults.mem_limit"),
+        ({"defaults": {"pids_limit": 0}}, "sandbox.defaults.pids_limit"),
+    ],
+)
+def test_parse_run_config_rejects_invalid_sandbox_policy(sandbox, message):
+    data = valid_config(sandbox=sandbox)
+
+    with pytest.raises(ConfigError, match=message):
+        parse_run_config(data)
 
 
 def test_parse_run_config_supports_github_patch_runner_type():

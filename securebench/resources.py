@@ -13,6 +13,7 @@ ResourceKind = Literal["text", "json", "file", "directory", "artifact", "scratch
 
 VISIBILITIES = {"public", "evaluation_inputs", "hidden"}
 COMPONENTS = {"agent", "test_sandbox", "evaluator", "result"}
+RESOURCE_KINDS = {"text", "json", "file", "directory", "artifact", "scratch"}
 COMPONENT_VISIBILITIES: dict[str, tuple[str, ...]] = {
     "agent": ("public",),
     "test_sandbox": ("public", "evaluation_inputs"),
@@ -36,6 +37,8 @@ class Resource:
             raise ValueError("resource.name is required")
         if self.visibility not in VISIBILITIES:
             raise ValueError(f"resource.visibility must be one of {sorted(VISIBILITIES)}")
+        if self.kind not in RESOURCE_KINDS:
+            raise ValueError(f"resource.kind must be one of {sorted(RESOURCE_KINDS)}")
 
 
 @dataclass(frozen=True)

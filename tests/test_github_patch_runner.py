@@ -1,5 +1,8 @@
 import pytest
 
+from pathlib import Path
+
+from securebench.repositories import PreparedRepository
 from securebench.runners import GitHubPatchRunner
 from securebench.sandboxes import CommandResult, Sandbox
 from securebench.tasks import GitHubPatchTask, MultipleChoiceTask, task_from_spec
@@ -25,6 +28,16 @@ class FakeSandbox(Sandbox):
 
     def extract_file(self, path):
         return self.files[str(path)].encode()
+
+
+class RecordingRepositoryPreparer:
+    def __init__(self):
+        self.calls = []
+
+    def prepare(self, task, sandbox, *, repo_dir, timeout=None):
+        self.calls.append((task.id, sandbox, repo_dir, timeout))
+        sandbox.write_file(f"{repo_dir}/prepared.txt", "prepared")
+        return PreparedRepository(path=Path(repo_dir), repo_dir=repo_dir)
 
 
 def make_task():
@@ -53,20 +66,21 @@ def make_task():
     )
 
 
-def test_github_patch_runner_clones_applies_patch_runs_tests_and_records_candidate_patch():
+def test_github_patch_runner_prepares_repo_applies_patch_runs_tests_and_records_candidate_patch():
     sandbox = FakeSandbox()
-    result = GitHubPatchRunner(sandbox=sandbox, timeout=5).run(
+    preparer = RecordingRepositoryPreparer()
+    result = GitHubPatchRunner(sandbox=sandbox, repository_preparer=preparer, timeout=5).run(
         make_task(),
         "diff --git ...",
         test_commands=("pytest tests/test_bug.py",),
     )
 
     assert sandbox.calls == [
-        (["git", "clone", "https://github.com/example/repo.git", "repo"], None, 5),
-        (["git", "checkout", "abc123"], "repo", 5),
         (["git", "apply", "/workspace/candidate.patch"], "repo", 5),
         ("pytest tests/test_bug.py", "repo", 5),
     ]
+    assert preparer.calls == [("example__repo-1", sandbox, "repo", 5)]
+    assert sandbox.files["repo/prepared.txt"] == "prepared"
     assert sandbox.files["repo/SECUREBENCH_TASK.md"] == "Fix the issue."
     assert sandbox.files["candidate.patch"] == "diff --git ..."
     assert result.passed is True
@@ -75,8 +89,10 @@ def test_github_patch_runner_clones_applies_patch_runs_tests_and_records_candida
 
 def test_github_patch_runner_uses_configured_setup_and_test_commands():
     sandbox = FakeSandbox()
+    preparer = RecordingRepositoryPreparer()
     result = GitHubPatchRunner(
         sandbox=sandbox,
+        repository_preparer=preparer,
         repo_dir="worktree",
         setup_commands=("python -m pip install -e .",),
         test_commands=("pytest tests",),
@@ -84,12 +100,11 @@ def test_github_patch_runner_uses_configured_setup_and_test_commands():
     ).run(make_task(), "diff --git ...")
 
     assert sandbox.calls == [
-        (["git", "clone", "https://github.com/example/repo.git", "worktree"], None, 9),
-        (["git", "checkout", "abc123"], "worktree", 9),
         (["git", "apply", "/workspace/candidate.patch"], "worktree", 9),
         ("python -m pip install -e .", "worktree", 9),
         ("pytest tests", "worktree", 9),
     ]
+    assert preparer.calls == [("example__repo-1", sandbox, "worktree", 9)]
     assert result.metadata["repo_dir"] == "worktree"
     assert result.metadata["setup_command_count"] == 1
     assert result.metadata["test_command_count"] == 1
@@ -97,8 +112,10 @@ def test_github_patch_runner_uses_configured_setup_and_test_commands():
 
 def test_github_patch_runner_applies_hidden_patches_and_generates_test_command_from_groups():
     sandbox = FakeSandbox()
+    preparer = RecordingRepositoryPreparer()
     result = GitHubPatchRunner(
         sandbox=sandbox,
+        repository_preparer=preparer,
         apply_hidden_patches=("tests",),
         test_group_names=("regression", "smoke"),
         test_command_template="pytest {tests}",
@@ -106,8 +123,6 @@ def test_github_patch_runner_applies_hidden_patches_and_generates_test_command_f
     ).run(make_task(), "candidate patch")
 
     assert sandbox.calls == [
-        (["git", "clone", "https://github.com/example/repo.git", "repo"], None, 6),
-        (["git", "checkout", "abc123"], "repo", 6),
         (["git", "apply", "/workspace/candidate.patch"], "repo", 6),
         (["git", "apply", "/workspace/hidden-tests.patch"], "repo", 6),
         ("pytest tests/test_bug.py::test_fixed tests/test_existing.py::test_still_passes", "repo", 6),
@@ -123,6 +138,7 @@ def test_github_patch_runner_applies_hidden_patches_and_generates_test_command_f
 
 def test_github_patch_runner_fails_when_configured_hidden_patch_is_missing():
     sandbox = FakeSandbox()
+    preparer = RecordingRepositoryPreparer()
     task = GitHubPatchTask(
         id="example__repo-1",
         benchmark_id="example",
@@ -132,10 +148,14 @@ def test_github_patch_runner_fails_when_configured_hidden_patch_is_missing():
         instructions="Fix the issue.",
     )
 
-    result = GitHubPatchRunner(sandbox=sandbox, apply_hidden_patches=("tests",)).run(task, "")
+    result = GitHubPatchRunner(
+        sandbox=sandbox,
+        repository_preparer=preparer,
+        apply_hidden_patches=("tests",),
+    ).run(task, "")
 
     assert result.passed is False
-    assert result.metadata["exit_codes"] == [0, 0, 1]
+    assert result.metadata["exit_codes"] == [1]
     assert "Hidden patch 'tests' is not available" in result.stderr
 
 
@@ -147,21 +167,19 @@ def test_github_patch_runner_uses_fresh_sandbox_from_factory_per_run():
         sandboxes.append(sandbox)
         return sandbox
 
-    runner = GitHubPatchRunner(sandbox_factory=make_sandbox)
+    preparer = RecordingRepositoryPreparer()
+    runner = GitHubPatchRunner(sandbox_factory=make_sandbox, repository_preparer=preparer)
 
     runner.run(make_task(), "")
     runner.run(make_task(), "")
 
     assert len(sandboxes) == 2
     assert sandboxes[0] is not sandboxes[1]
-    assert sandboxes[0].calls == [
-        (["git", "clone", "https://github.com/example/repo.git", "repo"], None, 120.0),
-        (["git", "checkout", "abc123"], "repo", 120.0),
-    ]
-    assert sandboxes[1].calls == [
-        (["git", "clone", "https://github.com/example/repo.git", "repo"], None, 120.0),
-        (["git", "checkout", "abc123"], "repo", 120.0),
-    ]
+    assert sandboxes[0].calls == []
+    assert sandboxes[1].calls == []
+    assert len(preparer.calls) == 2
+    assert preparer.calls[0][1] is sandboxes[0]
+    assert preparer.calls[1][1] is sandboxes[1]
 
 
 def test_github_patch_runner_rejects_both_sandbox_and_factory():
@@ -170,12 +188,15 @@ def test_github_patch_runner_rejects_both_sandbox_and_factory():
 
 
 def test_github_patch_runner_reports_failure_from_command_exit_code():
-    sandbox = FakeSandbox(exit_codes=[0, 0, 1, 0])
-    result = GitHubPatchRunner(sandbox=sandbox).run(make_task(), "bad patch")
+    sandbox = FakeSandbox(exit_codes=[1])
+    result = GitHubPatchRunner(
+        sandbox=sandbox,
+        repository_preparer=RecordingRepositoryPreparer(),
+    ).run(make_task(), "bad patch")
 
     assert result.passed is False
     assert result.score == 0.0
-    assert result.metadata["exit_codes"] == [0, 0, 1]
+    assert result.metadata["exit_codes"] == [1]
 
 
 def test_github_patch_runner_requires_patch_task():

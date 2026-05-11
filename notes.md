@@ -80,9 +80,117 @@ an isolation boundary. A workspace agent still needs a properly isolated
 sandbox: no hidden mounts, no broad host mounts, controlled environment
 variables, no Docker socket, fresh test sandboxes, and hardened Docker options.
 
-Deferred follow-up: use the resource views to drive explicit test-sandbox
-materialization, evaluator inputs, stronger audit/replay redaction, and
-schema-level declarations for custom adapters.
+Deferred follow-up: wire materialization into runtime test-sandbox and
+evaluator flows, strengthen audit/replay redaction, and add schema-level
+declarations for custom adapters.
+
+## Resource Materialization
+
+Road B Option 1 adds internal materialization primitives without changing the
+public run schema. `MaterializedResource` records the resource name,
+visibility, kind, target component, framework-owned relative path, and
+serialization format. `MaterializationPlan` groups those resources by target
+component, and `ResourceMaterializer` can write the plan through the existing
+sandbox-style `write_file` interface.
+
+The immediate value is centralization rather than new benchmark capability.
+Before this layer, each producer or runner had to invent its own files and
+paths: task markdown for a workspace agent, candidate patches for a repository
+runner, generated test scripts for code-generation tasks, hidden patch files,
+and future fixture or input files. That pattern works for smoke paths, but it
+spreads security-sensitive decisions across many modules. Materialization gives
+SecureBench one framework-owned place to decide which resources can become
+files, which component receives them, how names are made path-safe, how values
+are serialized, and where future path policy should be enforced.
+
+The current materializer uses only framework-owned paths:
+
+- `securebench/public/<resource_name>.json` for public resources materialized
+  for the agent or test sandbox
+- `securebench/evaluation_inputs/<resource_name>.json` for evaluation inputs
+  materialized for the test sandbox
+- `securebench/evaluator/<resource_name>.json` for trusted evaluator-side
+  materialization plans
+
+This phase intentionally does not define public schema fields for `path`,
+`source`, `mode`, or component overrides. Those fields remain the Option 3
+possibility rather than being rejected in principle. Future schema-declared
+paths could be validated against the same materialization model, and should be
+allowed only to narrow physical placement within what resource visibility
+already permits.
+
+Option 3 path configurability might still be useful because not every benchmark can
+consume framework-owned JSON files directly. Some existing tools expect inputs
+at conventional paths, such as `tests/fixtures/input.json`, `data/questions.json`,
+`cases/private.json`, or a package-specific config file. Some benchmark authors
+may provide local fixture directories rather than Git repositories. Browser,
+GUI, and simulation benchmarks may also expect static assets, scenario files,
+or environment manifests in specific directory layouts. In those cases, schema
+paths should let a benchmark request placement compatible with its runner, but
+not widen access: visibility must still decide the component, path traversal
+must be rejected, mandatory denied paths must win, and collisions with
+framework files or repository files must be handled explicitly.
+
+Only current value-backed `text` and `json` resources are materialized, and both
+are serialized as deterministic JSON for now. Future internal resource kinds
+such as `file`, `directory`, `artifact`, and `scratch` fail clearly until file
+and directory materialization semantics are designed.
+
+`result` remains a redacted serialization view, not a materialization target.
+Current evaluator views include `public` and `hidden`, but not
+`evaluation_inputs`. That is compatible with today's trusted scoring flow. A
+future evaluator-side replay or reconstruction mode may need evaluator
+materialization to include `evaluation_inputs` as well, if the trusted
+evaluator context should reproduce the full task state.
+
+Hidden-resource materialization should remain evaluator/trusted-side only.
+Current runners generally access hidden resources directly through trusted task
+objects, so there is no need to write hidden files for normal agent or test
+sandbox execution. Future hidden materialization may be useful when a trusted
+scorer process expects file inputs, when an evaluator sandbox needs hidden
+expected answers or rubrics, when LLM-judge verification needs private reference
+answers and grading criteria, or when SecureBench needs a verifier-only replay
+bundle for audit and reproducibility. These uses should produce trusted-side
+files such as evaluator inputs, never agent-visible or ordinary test-sandbox
+mounts.
+
+## Materialization Path Policy
+
+Road C adds an internal path policy layer between materialization planning and
+sandbox writes. Road B decides which resources can become files for a
+component; Road C validates that the planned paths are allowed for that
+component before any files are written.
+
+The current policy is intentionally small and internal. It validates only
+framework-owned paths, with fixed allowed roots:
+
+- `agent`: `securebench/public`
+- `test_sandbox`: `securebench/public` and `securebench/evaluation_inputs`
+- `evaluator`: `securebench/evaluator`
+
+Mandatory denied paths are rejected independently of allowed roots:
+`/ground_truth`, `/scorer`, `/eval`, `/task/hidden.json`,
+`/task/evaluation_inputs.json`, `/input/hidden.json`, and
+`/output/score.json`. These paths come from the older prototype's access-policy
+direction and serve as a global floor for future schema-declared placement.
+
+Dynamic denies are intentionally deferred. With the current framework-owned
+roots, they are mostly redundant because evaluator-owned paths are already
+outside the agent and test-sandbox allowed roots. They should become useful
+when future work introduces broader roots, runner-generated control files,
+evaluator-only files, hidden patch artifacts, or Option 3 schema-declared paths.
+Developer-provided allowlists or denylists are also deferred. If added, they
+should only narrow access and must remain subordinate to mandatory denies,
+future dynamic denies, and visibility-derived component access.
+
+Patch-style benchmarks need an additional hardening note. A fresh test sandbox
+prevents the workspace agent from seeing hidden tests while producing a patch,
+but candidate code may still tamper with hidden tests or evaluator-controlled
+files once those files are present in the test sandbox. Future mitigations
+include materializing hidden test assets read-only where possible, keeping
+hidden tests outside candidate-writable repository trees, applying hidden tests
+immediately before test commands, verifying hashes before execution, and
+recording explicit audit metadata when a benchmark cannot avoid this risk.
 
 ## Agent Payload Task IDs
 
@@ -140,18 +248,45 @@ other evaluation styles.
 
 ## Docker Sandbox Hardening
 
-For the first HumanEval and GitHub patch smoke runs, the existing
-`DockerSandbox` is acceptable as a local execution environment. A
-`DockerSandbox` instance now owns one persistent container so setup commands,
-installed packages, and command-side effects persist within a single task
-attempt. Producers and runners are responsible for creating fresh sandbox
-instances at task boundaries.
+`DockerSandbox` now applies restrictive Docker options by default. Container
+creation uses no-network mode, drops Linux capabilities, sets a read-only root
+filesystem, mounts tmpfs for `/tmp`, applies memory and PID limits, and enables
+`no-new-privileges:true`. The `/workspace` bind mount remains writable so
+SecureBench can materialize task files, candidate artifacts, repository
+checkouts, and test outputs without requiring a writable container root.
 
-Deferred follow-up: harden `DockerSandbox` before using it as a stronger
-untrusted-code boundary. At minimum, add no-network execution, memory and CPU
-limits, PID limits, dropped capabilities, a read-only root filesystem where
-possible, and explicit tests that verify the Docker command includes those
-controls.
+Run configs can override these defaults through a small `sandbox` section with
+`defaults`, `agent_workspace`, and `test_sandbox` policies. Existing configs
+that omit this section inherit the restrictive defaults. These controls are
+still a practical Docker hardening layer, not a formal isolation proof: a real
+deployment still needs careful image selection, no Docker socket mounts,
+explicit secret allowlists, and host-level containment.
+
+GitHub patch tasks now split repository clone/checkout from sandboxed patch
+production and evaluation. SecureBench prepares the repository checkout from
+the trusted host side, places a fresh copy under the sandbox workspace root,
+and then starts the sandbox with the prepared repository already present. This
+means the test sandbox does not need network access merely to clone the
+repository. Candidate patch application, hidden patch application, setup
+commands, and test commands still run inside the sandbox.
+
+Dependency setup remains intentionally conservative in this phase. The chosen
+Option A moves only clone/checkout into trusted preparation; setup commands
+still execute in the sandbox. This keeps setup failures part of the evaluation
+attempt and avoids trusting arbitrary benchmark setup commands on the host, but
+it means network-dependent setup requires a prebuilt image, local cache, or a
+future prepared-environment phase. Option B would also run dependency setup in
+trusted preparation, giving a stronger no-network test-sandbox story but
+blurring whether setup is part of evaluation and risking host-side execution of
+benchmark commands. Option C would build a full task image or snapshot with
+repo and dependencies already prepared; this is closest to large-scale
+SWE-bench-style evaluation, but it adds image lifecycle, caching, invalidation,
+cleanup, and storage complexity.
+
+Deferred follow-up: separate dependency/environment preparation from test
+execution more explicitly. A future prepared-environment layer should let the
+framework build or select benchmark/task images before evaluation, then run
+candidate patch application and tests in a fresh no-network sandbox.
 
 ## Workspace Agent Command Policy
 

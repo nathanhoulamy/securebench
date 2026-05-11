@@ -14,6 +14,16 @@ dataset:
 adapter:
   id: swebench_verified
 
+sandbox:
+  defaults:
+    network: none
+  agent_workspace:
+    # Hosted LLM workspace-agent runs need outbound access to the inference
+    # endpoint. Replay/offline runs can override this back to none.
+    network: bridge
+  test_sandbox:
+    network: none
+
 producer:
   type: workspace_agent_patch
   config:

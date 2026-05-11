@@ -15,6 +15,8 @@ The current MVP supports:
 - OpenAI-compatible Chat Completions endpoints
 - Static candidate producers for smoke tests
 - Workspace-agent patch producers for GitHub repair tasks
+- Internal resource materialization primitives with framework-owned paths
+- Internal path policy validation for materialized resources
 - YAML run configs
 - JSONL result output
 
@@ -125,5 +127,13 @@ This is an early MVP. The current working paths are MMLU, HumanEval smoke
 evaluation, and a generic GitHub patch pipeline aimed first at SWE-bench
 Verified. The Docker sandbox now uses one persistent container per sandbox
 instance, while producers and runners create fresh sandbox instances at task
-boundaries. The GitHub patch path still needs stronger dependency strategy,
-agent traceability, and Docker hardening before broad benchmark runs.
+boundaries. Restrictive Docker hardening defaults are now in place, including
+no-network mode, dropped capabilities, read-only container roots, tmpfs for
+`/tmp`, memory and PID limits, and `no-new-privileges`.
+
+Resource materialization currently exists as internal framework plumbing with
+framework-owned paths, guarded by internal path-policy validation. Producers
+and runners still use the existing task payload and typed-field flow. The
+GitHub patch path still needs materialization integration, schema-declared
+paths, developer path policies, a stronger dependency strategy, and agent
+traceability before broad benchmark runs.

@@ -22,6 +22,7 @@ from securebench.sandboxes import DockerSandbox
 
 
 SUPPORTED_SCHEMA_VERSION = "0.1"
+SUPPORTED_DOCKER_NETWORKS = {"none", "bridge"}
 
 
 class ConfigError(ValueError):
@@ -63,6 +64,35 @@ class RunnerSection:
 
 
 @dataclass(frozen=True)
+class SandboxPolicySection:
+    network: str = "none"
+    cap_drop: tuple[str, ...] = ("ALL",)
+    read_only: bool = True
+    tmpfs: tuple[str, ...] = ("/tmp",)
+    mem_limit: str | None = "1g"
+    pids_limit: int | None = 256
+    security_opt: tuple[str, ...] = ("no-new-privileges:true",)
+
+    def docker_kwargs(self) -> dict[str, Any]:
+        return {
+            "network": self.network,
+            "cap_drop": self.cap_drop,
+            "read_only": self.read_only,
+            "tmpfs": self.tmpfs,
+            "mem_limit": self.mem_limit,
+            "pids_limit": self.pids_limit,
+            "security_opt": self.security_opt,
+        }
+
+
+@dataclass(frozen=True)
+class SandboxSection:
+    defaults: SandboxPolicySection = field(default_factory=SandboxPolicySection)
+    agent_workspace: SandboxPolicySection = field(default_factory=SandboxPolicySection)
+    test_sandbox: SandboxPolicySection = field(default_factory=SandboxPolicySection)
+
+
+@dataclass(frozen=True)
 class RunConfig:
     schema_version: str
     run: RunSection
@@ -70,6 +100,7 @@ class RunConfig:
     adapter: AdapterSection
     producer: ProducerSection
     runner: RunnerSection
+    sandbox: SandboxSection = field(default_factory=SandboxSection)
 
     def dataset_ref(self) -> HuggingFaceDatasetRef:
         return HuggingFaceDatasetRef(
@@ -114,6 +145,7 @@ class RunConfig:
                 sandbox_factory=lambda: DockerSandbox(
                     image=str(producer_config.get("image", "python:3.11-slim")),
                     env_names=() if replay_file is not None else (api_key_env,),
+                    **self.sandbox.agent_workspace.docker_kwargs(),
                 ),
                 model=model,
                 replay_file=replay_file,
@@ -156,6 +188,7 @@ class RunConfig:
             return GitHubPatchRunner(
                 image=str(runner_config.get("image", "python:3.11-slim")),
                 repo_dir=str(runner_config.get("repo_dir", "repo")),
+                sandbox_kwargs=self.sandbox.test_sandbox.docker_kwargs(),
                 setup_commands=_optional_str_tuple(runner_config.get("setup_commands"), "runner.config.setup_commands"),
                 test_commands=_optional_str_tuple(runner_config.get("test_commands"), "runner.config.test_commands"),
                 apply_hidden_patches=_optional_str_tuple(
@@ -198,6 +231,7 @@ def parse_run_config(data: dict[str, Any]) -> RunConfig:
     adapter_data = _required_dict(data, "adapter", "root")
     producer_data = _required_dict(data, "producer", "root")
     runner_data = _required_dict(data, "runner", "root")
+    sandbox = _sandbox_section(data.get("sandbox"))
 
     dataset = DatasetSection(
         provider=_expect_literal(_required_str(dataset_data, "provider", "dataset"), {"huggingface"}, "dataset.provider"),
@@ -239,6 +273,7 @@ def parse_run_config(data: dict[str, Any]) -> RunConfig:
         adapter=adapter,
         producer=producer,
         runner=runner,
+        sandbox=sandbox,
     )
     _validate_adapter_runner_compatibility(config)
     return config
@@ -322,6 +357,64 @@ def _optional_str_tuple(value: Any, field: str) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise ConfigError(f"{field} must be a list of non-empty strings")
     return tuple(value)
+
+
+def _sandbox_section(value: Any) -> SandboxSection:
+    if value is None:
+        return SandboxSection()
+    if not isinstance(value, dict):
+        raise ConfigError("sandbox must be an object")
+    defaults = _sandbox_policy(value.get("defaults"), SandboxPolicySection(), "sandbox.defaults")
+    return SandboxSection(
+        defaults=defaults,
+        agent_workspace=_sandbox_policy(value.get("agent_workspace"), defaults, "sandbox.agent_workspace"),
+        test_sandbox=_sandbox_policy(value.get("test_sandbox"), defaults, "sandbox.test_sandbox"),
+    )
+
+
+def _sandbox_policy(value: Any, base: SandboxPolicySection, field: str) -> SandboxPolicySection:
+    if value is None:
+        return base
+    if not isinstance(value, dict):
+        raise ConfigError(f"{field} must be an object")
+    return SandboxPolicySection(
+        network=_sandbox_network(value.get("network", base.network), f"{field}.network"),
+        cap_drop=_non_empty_str_tuple(value.get("cap_drop", list(base.cap_drop)), f"{field}.cap_drop"),
+        read_only=_optional_bool(value.get("read_only", base.read_only), f"{field}.read_only"),
+        tmpfs=_non_empty_str_tuple(value.get("tmpfs", list(base.tmpfs)), f"{field}.tmpfs"),
+        mem_limit=_optional_mem_limit(value.get("mem_limit", base.mem_limit), f"{field}.mem_limit"),
+        pids_limit=_optional_positive_int_or_none(value.get("pids_limit", base.pids_limit), f"{field}.pids_limit"),
+        security_opt=_non_empty_str_tuple(
+            value.get("security_opt", list(base.security_opt)),
+            f"{field}.security_opt",
+        ),
+    )
+
+
+def _sandbox_network(value: Any, field: str) -> str:
+    if not isinstance(value, str):
+        raise ConfigError(f"{field} must be a string")
+    return _expect_literal(value, SUPPORTED_DOCKER_NETWORKS, field)
+
+
+def _non_empty_str_tuple(value: Any, field: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+        raise ConfigError(f"{field} must be a list of non-empty strings")
+    return tuple(value)
+
+
+def _optional_mem_limit(value: Any, field: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ConfigError(f"{field} must be a non-empty string or null")
+    return value
+
+
+def _optional_positive_int_or_none(value: Any, field: str) -> int | None:
+    if value is None:
+        return None
+    return _positive_int(value, field)
 
 
 def _expect_literal(value: str, allowed: set[str], field: str) -> Any:

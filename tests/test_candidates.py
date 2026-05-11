@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from securebench.candidates import (
     CandidateArtifact,
     SandboxedCommandProducer,
@@ -6,6 +8,7 @@ from securebench.candidates import (
     TextCompletionProducer,
     WorkspaceAgentPatchProducer,
 )
+from securebench.repositories import PreparedRepository
 from securebench.sandboxes import CommandResult, Sandbox
 from securebench.tasks import task_from_spec
 
@@ -33,6 +36,16 @@ class FakeSandbox(Sandbox):
 
     def close(self):
         self.closed = True
+
+
+class RecordingRepositoryPreparer:
+    def __init__(self):
+        self.calls = []
+
+    def prepare(self, task, sandbox, *, repo_dir, timeout=None):
+        self.calls.append((task.id, sandbox, repo_dir, timeout))
+        sandbox.write_file(f"{repo_dir}/prepared.txt", "prepared")
+        return PreparedRepository(path=Path(repo_dir), repo_dir=repo_dir)
 
 
 def make_mc_task():
@@ -130,9 +143,11 @@ def test_sandboxed_command_producer_writes_task_payload_and_reads_artifact_file(
 
 def test_sandboxed_patch_producer_uses_agent_process_exit_as_done_signal_then_collects_diff():
     sandbox = FakeSandbox()
+    preparer = RecordingRepositoryPreparer()
     producer = SandboxedPatchProducer(
         sandbox=sandbox,
         agent_command=["securebench-agent", "run"],
+        repository_preparer=preparer,
         setup_commands=("python -m pip install -e . || true",),
         timeout=5,
     )
@@ -140,12 +155,12 @@ def test_sandboxed_patch_producer_uses_agent_process_exit_as_done_signal_then_co
     artifact = producer.produce(make_patch_task())
 
     assert sandbox.calls == [
-        (["git", "clone", "https://github.com/example/repo.git", "repo"], None, 5),
-        (["git", "checkout", "abc123"], "repo", 5),
         ("python -m pip install -e . || true", "repo", 5),
         (["securebench-agent", "run"], "repo", 5),
         (["git", "diff", "--binary"], "repo", 5),
     ]
+    assert preparer.calls == [("example__repo-1", sandbox, "repo", 5)]
+    assert sandbox.files["repo/prepared.txt"] == "prepared"
     task_file = sandbox.files["repo/SECUREBENCH_TASK.md"]
     assert "repo: example/repo" in task_file
     assert "base_commit: abc123" in task_file
@@ -163,6 +178,7 @@ def test_sandboxed_patch_producer_uses_agent_process_exit_as_done_signal_then_co
 
 def test_workspace_agent_patch_producer_runs_builtin_agent_command_and_collects_diff():
     sandbox = FakeSandbox()
+    preparer = RecordingRepositoryPreparer()
     producer = WorkspaceAgentPatchProducer(
         sandbox=sandbox,
         model="test-model",
@@ -175,6 +191,7 @@ def test_workspace_agent_patch_producer_runs_builtin_agent_command_and_collects_
         temperature=0,
         allow_commands=("git", "pytest"),
         deny_commands=("curl",),
+        repository_preparer=preparer,
         setup_commands=("python -m pip install pytest",),
         timeout=17,
     )
@@ -182,8 +199,6 @@ def test_workspace_agent_patch_producer_runs_builtin_agent_command_and_collects_
     artifact = producer.produce(make_patch_task())
 
     assert sandbox.calls == [
-        (["git", "clone", "https://github.com/example/repo.git", "repo"], None, 17),
-        (["git", "checkout", "abc123"], "repo", 17),
         ("python -m pip install pytest", "repo", 17),
         (
             [
@@ -222,13 +237,16 @@ def test_workspace_agent_patch_producer_runs_builtin_agent_command_and_collects_
         ),
         (["git", "diff", "--binary"], "repo", 17),
     ]
+    assert preparer.calls == [("example__repo-1", sandbox, "repo", 17)]
     assert artifact.patch == "diff --git a/file.py b/file.py\n"
 
 
 def test_workspace_agent_patch_producer_can_run_replay_agent_without_model():
     sandbox = FakeSandbox()
+    preparer = RecordingRepositoryPreparer()
     producer = WorkspaceAgentPatchProducer(
         sandbox=sandbox,
+        repository_preparer=preparer,
         replay_file="/workspace/replay.json",
         max_steps=2,
         timeout=3,
@@ -236,7 +254,7 @@ def test_workspace_agent_patch_producer_can_run_replay_agent_without_model():
 
     producer.produce(make_patch_task())
 
-    assert sandbox.calls[2] == (
+    assert sandbox.calls[0] == (
         [
             "python",
             "-m",
@@ -265,6 +283,7 @@ def test_workspace_agent_patch_producer_can_run_replay_agent_without_model():
 
 def test_sandboxed_patch_producer_uses_fresh_factory_sandbox_per_task_and_closes_it():
     sandboxes = []
+    preparer = RecordingRepositoryPreparer()
 
     def make_sandbox():
         sandbox = FakeSandbox()
@@ -274,6 +293,7 @@ def test_sandboxed_patch_producer_uses_fresh_factory_sandbox_per_task_and_closes
     producer = SandboxedPatchProducer(
         sandbox_factory=make_sandbox,
         agent_command=["securebench-agent", "run"],
+        repository_preparer=preparer,
     )
 
     producer.produce(make_patch_task())
@@ -283,7 +303,6 @@ def test_sandboxed_patch_producer_uses_fresh_factory_sandbox_per_task_and_closes
     assert sandboxes[0] is not sandboxes[1]
     assert sandboxes[0].closed is True
     assert sandboxes[1].closed is True
-    assert sandboxes[0].calls[:2] == [
-        (["git", "clone", "https://github.com/example/repo.git", "repo"], None, None),
-        (["git", "checkout", "abc123"], "repo", None),
-    ]
+    assert len(preparer.calls) == 2
+    assert preparer.calls[0][1] is sandboxes[0]
+    assert preparer.calls[1][1] is sandboxes[1]

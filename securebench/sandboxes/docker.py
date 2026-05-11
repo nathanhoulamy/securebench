@@ -20,10 +20,24 @@ class DockerSandbox(Sandbox):
         root: str | Path | None = None,
         env_names: tuple[str, ...] = (),
         persistent: bool = True,
+        network: str = "none",
+        cap_drop: tuple[str, ...] = ("ALL",),
+        read_only: bool = True,
+        tmpfs: tuple[str, ...] = ("/tmp",),
+        mem_limit: str | None = "1g",
+        pids_limit: int | None = 256,
+        security_opt: tuple[str, ...] = ("no-new-privileges:true",),
     ) -> None:
         self.image = image
         self.env_names = tuple(env_names)
         self.persistent = persistent
+        self.network = network
+        self.cap_drop = tuple(cap_drop)
+        self.read_only = read_only
+        self.tmpfs = tuple(tmpfs)
+        self.mem_limit = mem_limit
+        self.pids_limit = pids_limit
+        self.security_opt = tuple(security_opt)
         self._container_name: str | None = None
         self._tempdir = None if root is not None else tempfile.TemporaryDirectory(prefix="securebench-")
         self.root = Path(root) if root is not None else Path(self._tempdir.name)
@@ -64,6 +78,15 @@ class DockerSandbox(Sandbox):
                 f"{self.root}:/workspace",
                 "-w",
                 docker_workdir,
+                *_docker_hardening_args(
+                    network=self.network,
+                    cap_drop=self.cap_drop,
+                    read_only=self.read_only,
+                    tmpfs=self.tmpfs,
+                    mem_limit=self.mem_limit,
+                    pids_limit=self.pids_limit,
+                    security_opt=self.security_opt,
+                ),
                 *_docker_env_args(self.env_names),
                 self.image,
                 *normalized,
@@ -143,6 +166,15 @@ class DockerSandbox(Sandbox):
                 f"{self.root}:/workspace",
                 "-w",
                 "/workspace",
+                *_docker_hardening_args(
+                    network=self.network,
+                    cap_drop=self.cap_drop,
+                    read_only=self.read_only,
+                    tmpfs=self.tmpfs,
+                    mem_limit=self.mem_limit,
+                    pids_limit=self.pids_limit,
+                    security_opt=self.security_opt,
+                ),
                 *_docker_env_args(self.env_names),
                 self.image,
                 "sleep",
@@ -186,4 +218,30 @@ def _docker_env_args(env_names: tuple[str, ...]) -> tuple[str, ...]:
         if not name or "=" in name:
             raise ValueError(f"Docker environment variable name is invalid: {name!r}")
         args.extend(["-e", name])
+    return tuple(args)
+
+
+def _docker_hardening_args(
+    *,
+    network: str,
+    cap_drop: tuple[str, ...],
+    read_only: bool,
+    tmpfs: tuple[str, ...],
+    mem_limit: str | None,
+    pids_limit: int | None,
+    security_opt: tuple[str, ...],
+) -> tuple[str, ...]:
+    args: list[str] = ["--network", network]
+    for capability in cap_drop:
+        args.extend(["--cap-drop", capability])
+    if read_only:
+        args.append("--read-only")
+    for mount in tmpfs:
+        args.extend(["--tmpfs", mount])
+    if mem_limit is not None:
+        args.extend(["--memory", mem_limit])
+    if pids_limit is not None:
+        args.extend(["--pids-limit", str(pids_limit)])
+    for option in security_opt:
+        args.extend(["--security-opt", option])
     return tuple(args)
