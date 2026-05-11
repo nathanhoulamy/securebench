@@ -124,6 +124,24 @@ class GitHubPatchRunner(Runner):
             command_results.extend(test_results)
 
             all_results = command_results
+            if not all_results:
+                return RunnerResult(
+                    task_id=task.id,
+                    passed=False,
+                    score=0.0,
+                    stderr="No patch, setup, hidden patch, or test commands were run.",
+                    metadata={
+                        "model_patch": candidate_patch,
+                        "repo_dir": repo_dir,
+                        "exit_codes": [],
+                        "setup_command_count": len(setup_commands),
+                        "test_command_count": len(test_commands),
+                        "selected_test_count": len(selected_tests),
+                        "test_group_names": list(test_group_names),
+                        "applied_hidden_patch_names": applied_hidden_patch_names,
+                        "error": "no_commands_run",
+                    },
+                )
             passed = all(result.exit_code == 0 for result in all_results)
 
             return RunnerResult(

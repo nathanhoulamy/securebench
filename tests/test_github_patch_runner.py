@@ -182,6 +182,20 @@ def test_github_patch_runner_uses_fresh_sandbox_from_factory_per_run():
     assert preparer.calls[1][1] is sandboxes[1]
 
 
+def test_github_patch_runner_fails_when_no_commands_run():
+    sandbox = FakeSandbox()
+    result = GitHubPatchRunner(
+        sandbox=sandbox,
+        repository_preparer=RecordingRepositoryPreparer(),
+    ).run(make_task(), "")
+
+    assert result.passed is False
+    assert result.score == 0.0
+    assert result.metadata["exit_codes"] == []
+    assert result.metadata["error"] == "no_commands_run"
+    assert "No patch, setup, hidden patch, or test commands were run" in result.stderr
+
+
 def test_github_patch_runner_rejects_both_sandbox_and_factory():
     with pytest.raises(ValueError, match="either sandbox or sandbox_factory"):
         GitHubPatchRunner(sandbox=FakeSandbox(), sandbox_factory=FakeSandbox)
