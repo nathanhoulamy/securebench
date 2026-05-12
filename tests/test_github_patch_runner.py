@@ -67,7 +67,7 @@ def make_task():
     )
 
 
-def test_github_patch_runner_prepares_repo_applies_patch_runs_tests_and_records_candidate_patch():
+def test_github_patch_runner_prepares_repo_applies_patch_runs_tests_and_records_patch_metadata():
     sandbox = FakeSandbox()
     preparer = RecordingRepositoryPreparer()
     result = GitHubPatchRunner(sandbox=sandbox, repository_preparer=preparer, timeout=5).run(
@@ -85,7 +85,9 @@ def test_github_patch_runner_prepares_repo_applies_patch_runs_tests_and_records_
     assert sandbox.files["repo/SECUREBENCH_TASK.md"] == "Fix the issue."
     assert sandbox.files["candidate.patch"] == "diff --git ..."
     assert result.passed is True
-    assert result.metadata["model_patch"] == "diff --git ..."
+    assert result.metadata["candidate_patch_present"] is True
+    assert result.metadata["candidate_patch_bytes"] == len("diff --git ...".encode("utf-8"))
+    assert "model_patch" not in result.metadata
 
 
 def test_github_patch_runner_uses_configured_setup_and_test_commands():
@@ -198,6 +200,8 @@ def test_github_patch_runner_fails_when_no_commands_run():
     assert result.score == 0.0
     assert result.metadata["exit_codes"] == []
     assert result.metadata["error"] == "no_commands_run"
+    assert result.metadata["candidate_patch_present"] is False
+    assert result.metadata["candidate_patch_bytes"] == 0
     assert "No patch, setup, hidden patch, or test commands were run" in result.stderr
 
 

@@ -73,6 +73,7 @@ class GitHubPatchRunner(Runner):
         )
         apply_hidden_patches = tuple(context.get("apply_hidden_patches", self.apply_hidden_patches))
         candidate_patch = "" if candidate is None else str(candidate)
+        patch_metadata = _patch_metadata(candidate_patch)
 
         try:
             try:
@@ -84,7 +85,7 @@ class GitHubPatchRunner(Runner):
                     score=0.0,
                     stderr=str(exc),
                     metadata={
-                        "model_patch": candidate_patch,
+                        **patch_metadata,
                         "repo_dir": repo_dir,
                         "exit_codes": [],
                         "repository_preparation_error": str(exc),
@@ -137,7 +138,7 @@ class GitHubPatchRunner(Runner):
                     score=0.0,
                     stderr="No patch, setup, hidden patch, or test commands were run.",
                     metadata={
-                        "model_patch": candidate_patch,
+                        **patch_metadata,
                         "repo_dir": repo_dir,
                         "exit_codes": [],
                         "setup_command_count": len(setup_commands),
@@ -157,7 +158,7 @@ class GitHubPatchRunner(Runner):
                 stdout=_join_streams(result.stdout for result in all_results),
                 stderr=_join_streams(result.stderr for result in all_results),
                 metadata={
-                    "model_patch": candidate_patch,
+                    **patch_metadata,
                     "repo_dir": repo_dir,
                     "exit_codes": [result.exit_code for result in all_results],
                     "setup_command_count": len(setup_commands),
@@ -200,6 +201,13 @@ def _build_test_commands(template: str | None, selected_tests: tuple[str, ...]) 
         return ()
     tests = " ".join(selected_tests)
     return (template.format(tests=tests),)
+
+
+def _patch_metadata(candidate_patch: str) -> dict[str, Any]:
+    return {
+        "candidate_patch_present": bool(candidate_patch.strip()),
+        "candidate_patch_bytes": len(candidate_patch.encode("utf-8")),
+    }
 
 
 def _safe_patch_name(name: str) -> str:
