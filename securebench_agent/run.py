@@ -31,7 +31,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--base-url", default="https://api.openai.com/v1")
     parser.add_argument("--api-key-env", default="OPENAI_API_KEY")
     parser.add_argument("--timeout", type=float, default=60.0, help="OpenAI-compatible request timeout")
-    parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument("--temperature", type=float, default=None)
     args = parser.parse_args(argv)
 
     try:

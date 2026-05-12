@@ -35,6 +35,7 @@ producer:
     max_tool_output: 12000
     command_timeout: 120
     request_timeout: 120
+    temperature: null
     timeout: 1800
     allow_commands:
       - git
