@@ -20,7 +20,7 @@ def fake_environment_image_build(monkeypatch):
             return SimpleNamespace(returncode=0, stdout="built", stderr="")
         raise AssertionError(f"unexpected subprocess command: {command}")
 
-    monkeypatch.setattr("securebench.config.subprocess.run", fake_run)
+    monkeypatch.setattr("securebench.environment.subprocess.run", fake_run)
     return seen
 
 
@@ -319,7 +319,7 @@ def test_environment_missing_image_triggers_docker_build(monkeypatch):
             return SimpleNamespace(returncode=0, stdout="built", stderr="")
         raise AssertionError(f"unexpected subprocess command: {command}")
 
-    monkeypatch.setattr("securebench.config.subprocess.run", fake_run)
+    monkeypatch.setattr("securebench.environment.subprocess.run", fake_run)
     data = valid_config(
         dataset={
             "provider": "huggingface",
@@ -365,7 +365,7 @@ def test_environment_python_variant_uses_explicit_base_tag(monkeypatch):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
         raise AssertionError(f"unexpected subprocess command: {command}")
 
-    monkeypatch.setattr("securebench.config.subprocess.run", fake_run)
+    monkeypatch.setattr("securebench.environment.subprocess.run", fake_run)
     data = valid_config(
         dataset={
             "provider": "huggingface",
@@ -400,7 +400,7 @@ def test_environment_docker_build_failure_is_config_error(monkeypatch):
             return SimpleNamespace(returncode=42, stdout="", stderr="build failed")
         raise AssertionError(f"unexpected subprocess command: {command}")
 
-    monkeypatch.setattr("securebench.config.subprocess.run", fake_run)
+    monkeypatch.setattr("securebench.environment.subprocess.run", fake_run)
     data = valid_config(
         dataset={
             "provider": "huggingface",
