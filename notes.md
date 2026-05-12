@@ -361,3 +361,20 @@ Deferred follow-up: keep the standalone runtime's Python compatibility floor
 explicitly tested against old benchmark images such as `3.9-slim-bullseye`, so
 future host-framework syntax changes do not break agent startup in benchmark
 environments.
+
+## Host-Agent Runtime Duplication
+
+Some small pieces are intentionally duplicated between the host framework and
+the standalone agent runtime for now. In particular, OpenAI-compatible request
+handling and command-policy helpers exist on both sides because the agent image
+should remain independent from the host-side `securebench` package. Pulling the
+host framework into the sandbox would blur the boundary between evaluator
+orchestration code and untrusted agent execution.
+
+This duplication should stay small and boring. If either copy grows more
+complex, starts drifting in behavior, or needs repeated fixes in both places,
+revisit a tiny shared dependency-free package such as `securebench_shared`.
+That package could contain only pure Python helpers for command policy and
+OpenAI-compatible transport/response parsing, and the Docker image could copy
+`securebench_shared` alongside `securebench_agent` without copying the full
+host framework.
