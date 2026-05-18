@@ -243,9 +243,13 @@ benchmark:
 
 harness:
   type: codex
-  mode: container
+  mode: mounted
   env:
-    - OPENAI_API_KEY</pre>
+    - CODEX_API_KEY
+  config:
+    version: latest
+    task_file: task.json
+    timeout_seconds: 900</pre>
       <div class="note">Tester YAML cannot relax benchmark security constraints. SecureBench should fail preflight if the selected harness mode cannot satisfy the benchmark requirements.</div>
     </section>
 
@@ -262,21 +266,29 @@ harness:
       <div class="grid">
         <div class="mini-card"><h3>host</h3><p>The tester has the harness installed locally. SecureBench creates a public temporary workspace and invokes the harness. Convenient for smoke runs, weaker as a host-process isolation boundary.</p></div>
         <div class="mini-card"><h3>container</h3><p>SecureBench runs the harness inside the benchmark environment image with only public workspace data and allowlisted credentials. Agent tooling overlays are a future layer.</p></div>
+        <div class="mini-card"><h3>mounted</h3><p>SecureBench runs a named agent inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state.</p></div>
         <div class="mini-card"><h3>submission</h3><p>SecureBench does not run an agent. It evaluates precomputed predictions or artifacts against the benchmark family runner.</p></div>
       </div>
       <pre class="schema"># Host-installed convenience mode
 harness:
-  type: codex
+  type: command
   mode: host
   env:
-    - OPENAI_API_KEY
+    - CUSTOM_API_KEY
 
-# Containerized preferred mode
+# Mounted Codex tooling mode
 harness:
-  type: claude_code
+  type: codex
+  mode: mounted
+  env:
+    - CODEX_API_KEY
+
+# Containerized command mode
+harness:
+  type: command
   mode: container
   env:
-    - ANTHROPIC_API_KEY
+    - CUSTOM_API_KEY
 
 # Precomputed artifacts or predictions
 harness:
@@ -288,9 +300,9 @@ harness:
       <h2>Harness Types</h2>
       <article class="family">
         <div class="family-head"><div><h3>Supported and Planned Types</h3><p>Common harnesses should not expose raw commands. SecureBench owns the adapter behavior.</p></div><div class="examples">Agent-agnostic execution</div></div>
-        <div class="table-wrap"><table><thead><tr><th>Type</th><th>Mode support</th><th>Meaning</th></tr></thead><tbody><tr><td class="field">codex</td><td class="">host or container</td><td class="">Run the Codex CLI harness. SecureBench performs preflight checks for command/tooling and env vars.</td></tr><tr><td class="field">claude_code</td><td class="">host or container</td><td class="">Run the Claude Code harness. Container mode should use the benchmark environment image plus a future tooling overlay.</td></tr><tr><td class="field">command</td><td class="">host or container</td><td class="">Advanced escape hatch for custom harnesses. Requires explicit command and is not needed for common named harnesses.</td></tr><tr><td class="field">submission</td><td class="">submission only</td><td class="">Read candidate outputs from a file and skip harness execution.</td></tr><tr><td class="field">acp</td><td class="">future host or container</td><td class="">Potential future adapter where SecureBench acts as an Agent Client Protocol client.</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Type</th><th>Mode support</th><th>Meaning</th></tr></thead><tbody><tr><td class="field">codex</td><td class="">mounted</td><td class="">Run the Codex CLI harness inside the benchmark environment image with a read-only mounted tooling overlay.</td></tr><tr><td class="field">claude_code</td><td class="">future host or mounted</td><td class="">Planned Claude Code harness. Container execution should use the benchmark environment image plus a tooling overlay.</td></tr><tr><td class="field">command</td><td class="">host or container</td><td class="">Advanced escape hatch for custom harnesses. Requires explicit command and is not needed for common named harnesses.</td></tr><tr><td class="field">submission</td><td class="">submission only</td><td class="">Read candidate outputs from a file and skip harness execution.</td></tr><tr><td class="field">acp</td><td class="">future host or container</td><td class="">Potential future adapter where SecureBench acts as an Agent Client Protocol client.</td></tr></tbody></table></div>
       </article>
-      <div class="warning"><strong>Installation policy:</strong> SecureBench should not install third-party harnesses by default. Testers install host harnesses themselves. Container harnesses run on the benchmark environment image; named harness tooling overlays are deferred. SecureBench checks availability, versions when possible, required env vars, and whether the benchmark constraints can be satisfied.</div>
+      <div class="warning"><strong>Installation policy:</strong> SecureBench should not install third-party harnesses inside benchmark containers by default. The Codex mounted harness prepares a reusable read-only CLI overlay outside the benchmark run and mounts fresh writable agent state per row. SecureBench checks availability, versions when possible, required env vars, and whether the benchmark constraints can be satisfied.</div>
     </section>
 
     <section>

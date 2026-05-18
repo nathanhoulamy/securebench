@@ -194,9 +194,13 @@ benchmark:
 
 harness:
   type: codex
-  mode: container
+  mode: mounted
   env:
-    - OPENAI_API_KEY
+    - CODEX_API_KEY
+  config:
+    version: latest
+    task_file: task.json
+    timeout_seconds: 900
 ```
 
 Relative `run.output_dir`, `benchmark.manifest`, `benchmark.tasks`, and
@@ -207,9 +211,10 @@ explicit `base_dir`.
 Harness validation is deliberately minimal:
 
 - allowed types are `codex`, `claude_code`, `command`, and `submission`.
-- allowed modes are `host`, `container`, and `submission`.
+- allowed modes are `host`, `container`, `mounted`, and `submission`.
 - `submission` type must use `mode: submission` and provide `path`.
-- non-submission types must use `host` or `container`.
+- non-submission types must use `host`, `container`, or the named-agent
+  `mounted` mode.
 - `env` is optional and contains environment variable names only, never
   `NAME=value` assignments.
 - optional `harness.config` is preserved for Step 6 adapter-specific details.
@@ -354,8 +359,8 @@ but fail clearly when a harness tries to execute them.
 Host mode uses a rooted local workspace and is convenient for local tools, but
 it is weaker isolation. Container mode uses `DockerSandbox` with the benchmark
 environment image, the tester environment-variable allowlist, and existing
-Docker hardening defaults. Agent/tooling overlays for named harnesses are
-deferred.
+Docker hardening defaults. Named agent harnesses can use mounted tooling
+overlays while still preserving the benchmark environment image as the runtime.
 
 Deferred `submission` note: a future submission harness should read a file
 keyed by task id, validate missing and duplicate task ids, preserve optional
@@ -363,12 +368,10 @@ candidate metadata, and ensure each submitted value matches the family
 contract. This remains deferred because command-mode covers the important
 agentic harness path first.
 
-Deferred named-wrapper note: `codex` and `claude_code` should become stable
-presets rather than raw command passthroughs. Implementing them needs fixed CLI
-invocation conventions, expected working-directory behavior, artifact
-extraction rules, and an overlay strategy for installing agent tooling on top
-of benchmark environment images. Until then, testers can use `type: command`
-for their own installed or containerized harnesses.
+Named-wrapper note: `codex` now has a first mounted container harness that runs
+inside the benchmark environment image and mounts a read-only Codex CLI overlay.
+Candidate extraction remains deferred. `claude_code` and other agent wrappers
+remain future work.
 
 ACP can remain a future adapter path rather than a core dependency.
 

@@ -1,12 +1,14 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+import securebench.harnesses as harnesses
 from securebench.benchmark_compiler import compile_benchmark_row
 from securebench.benchmark_pack import AssetDefaults, BenchmarkPackManifest, BenchmarkRow
 from securebench.errors import ConfigError
-from securebench.harnesses import build_harness_producer
+from securebench.harnesses import CodexOverlay, DockerPlatform, build_harness_producer
 from securebench.sandboxes import CommandResult
 from securebench.tester_config import TesterHarnessSection as HarnessSection
 
@@ -249,6 +251,184 @@ def test_command_harness_container_mode_requires_benchmark_environment_image(mon
         producer.produce(mc_task())
 
 
+def test_codex_mounted_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_path):
+    monkeypatch.setenv("CODEX_API_KEY", "secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
+    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.DockerSandbox", FakeDockerSandbox)
+    overlay_path = tmp_path / "codex-overlay"
+    overlay_path.mkdir()
+    monkeypatch.setattr(
+        "securebench.harnesses._codex_overlay_for_image",
+        lambda image, version: CodexOverlay(
+            path=overlay_path,
+            platform=DockerPlatform(os="linux", architecture="arm64"),
+            version=version,
+        ),
+    )
+    task = mc_task(environment={"image": "python:3.11-slim"})
+    producer = build_harness_producer(
+        harness_section(
+            mode="mounted",
+            harness_type="codex",
+            config={"version": "0.30.0", "timeout_seconds": 11},
+        ),
+        workspace_root=tmp_path / "runs",
+    )
+
+    artifact = producer.produce(task)
+
+    docker = FakeDockerSandbox.instances[-1]
+    assert docker.image == "python:3.11-slim"
+    assert docker.env_names == ("OPENAI_API_KEY", "CODEX_API_KEY")
+    assert docker.kwargs["network"] == "bridge"
+    assert len(docker.mounts) == 2
+    assert docker.mounts[0].source == overlay_path
+    assert docker.mounts[0].target == "/opt/securebench/codex"
+    assert docker.mounts[0].read_only is True
+    assert docker.mounts[1].target == "/opt/securebench/codex-home"
+    assert docker.mounts[1].read_only is False
+    assert docker.commands[0][0].startswith("export HOME=")
+    assert "codex --version" in docker.commands[0][0]
+    assert "codex exec --json" in docker.commands[1][0]
+    assert "--skip-git-repo-check" in docker.commands[1][0]
+    assert "--dangerously-bypass-approvals-and-sandbox" in docker.commands[1][0]
+    assert docker.commands[0][2] == 11.0
+    assert docker.commands[1][2] == 11.0
+    assert (tmp_path / "runs" / "mc-1" / "task.json").exists()
+    assert artifact.text is None
+    assert artifact.patch is None
+    assert artifact.metadata["harness"] == "codex"
+    assert artifact.metadata["mode"] == "mounted"
+    assert artifact.metadata["overlay_platform"] == "linux/arm64"
+    assert artifact.metadata["candidate_extraction"] == "todo"
+
+
+def test_codex_mounted_harness_defaults_to_codex_api_key(monkeypatch, tmp_path):
+    monkeypatch.setenv("CODEX_API_KEY", "secret")
+    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.DockerSandbox", FakeDockerSandbox)
+    overlay_path = tmp_path / "codex-overlay"
+    overlay_path.mkdir()
+    monkeypatch.setattr(
+        "securebench.harnesses._codex_overlay_for_image",
+        lambda image, version: CodexOverlay(
+            path=overlay_path,
+            platform=DockerPlatform(os="linux", architecture="amd64"),
+            version=version,
+        ),
+    )
+    task = mc_task(environment={"image": "python:3.11-slim"})
+    harness = HarnessSection(type="codex", mode="mounted", config={})
+
+    producer = build_harness_producer(harness, workspace_root=tmp_path / "runs")
+    producer.produce(task)
+
+    assert FakeDockerSandbox.instances[-1].env_names == ("CODEX_API_KEY",)
+
+
+@pytest.mark.parametrize("mode", ["host", "container"])
+def test_codex_harness_rejects_non_mounted_modes(mode):
+    harness = HarnessSection(type="codex", mode=mode)
+
+    with pytest.raises(ConfigError, match="codex harness mode must be 'mounted'"):
+        build_harness_producer(harness)
+
+
+def test_codex_mounted_harness_requires_benchmark_environment_image(monkeypatch, tmp_path):
+    monkeypatch.setenv("CODEX_API_KEY", "secret")
+    producer = build_harness_producer(
+        HarnessSection(type="codex", mode="mounted"),
+        workspace_root=tmp_path / "runs",
+    )
+
+    with pytest.raises(ConfigError, match="benchmark environment.image"):
+        producer.produce(mc_task())
+
+
+def test_codex_mounted_harness_requires_codex_api_key(monkeypatch, tmp_path):
+    monkeypatch.delenv("CODEX_API_KEY", raising=False)
+    producer = build_harness_producer(
+        HarnessSection(type="codex", mode="mounted"),
+        workspace_root=tmp_path / "runs",
+    )
+
+    with pytest.raises(ConfigError, match="CODEX_API_KEY"):
+        producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
+
+
+def test_codex_mounted_harness_reports_preflight_failure(monkeypatch, tmp_path):
+    class FailingPreflightDockerSandbox(FakeDockerSandbox):
+        instances = []
+
+        def run(self, command, *, workdir=None, timeout=None):
+            self.commands.append((command, workdir, timeout))
+            return CommandResult(("sh", "-lc", command), 127, "", "codex: not found")
+
+    monkeypatch.setenv("CODEX_API_KEY", "secret")
+    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.DockerSandbox", FailingPreflightDockerSandbox)
+    overlay_path = tmp_path / "codex-overlay"
+    overlay_path.mkdir()
+    monkeypatch.setattr(
+        "securebench.harnesses._codex_overlay_for_image",
+        lambda image, version: CodexOverlay(
+            path=overlay_path,
+            platform=DockerPlatform(os="linux", architecture="amd64"),
+            version=version,
+        ),
+    )
+    producer = build_harness_producer(
+        HarnessSection(type="codex", mode="mounted"),
+        workspace_root=tmp_path / "runs",
+    )
+
+    with pytest.raises(ConfigError, match="codex --version failed"):
+        producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
+
+
+@pytest.mark.parametrize(
+    ("inspect_payload", "cache_key", "docker_platform"),
+    [
+        ([{"Os": "linux", "Architecture": "amd64"}], "linux-amd64", "linux/amd64"),
+        ([{"Os": "linux", "Architecture": "arm64"}], "linux-arm64", "linux/arm64"),
+        ([{"Os": "linux", "Architecture": "arm", "Variant": "v7"}], "linux-arm-v7", "linux/arm/v7"),
+    ],
+)
+def test_codex_platform_resolver_maps_docker_inspect(monkeypatch, inspect_payload, cache_key, docker_platform):
+    def fake_run(command, **kwargs):
+        assert command == ["docker", "image", "inspect", "benchmark-image"]
+        return SimpleNamespace(returncode=0, stdout=json.dumps(inspect_payload), stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    platform = harnesses._docker_image_platform("benchmark-image")
+
+    assert platform.cache_key == cache_key
+    assert platform.docker_platform == docker_platform
+
+
+def test_codex_overlay_cache_key_includes_version_and_platform(monkeypatch, tmp_path):
+    monkeypatch.setenv("SECUREBENCH_AGENT_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(
+        harnesses,
+        "_docker_image_platform",
+        lambda image: DockerPlatform(os="linux", architecture="arm64"),
+    )
+
+    def fake_populate(path, version, platform):
+        (path / "bin").mkdir(parents=True)
+        (path / "bin" / "codex").write_text("binary")
+
+    monkeypatch.setattr(harnesses, "_populate_codex_overlay_cache", fake_populate)
+
+    overlay = harnesses._codex_overlay_for_image("benchmark-image", "0.30.0")
+
+    assert overlay.path == tmp_path / "cache" / "codex" / "0.30.0" / "linux-arm64"
+    assert overlay.platform.docker_platform == "linux/arm64"
+    assert overlay.version == "0.30.0"
+
+
 @pytest.mark.parametrize(
     ("config", "match"),
     [
@@ -269,7 +449,7 @@ def test_command_harness_rejects_invalid_config(config, match):
         build_harness_producer(harness_section(config=config))
 
 
-@pytest.mark.parametrize("harness_type", ["submission", "codex", "claude_code"])
+@pytest.mark.parametrize("harness_type", ["submission", "claude_code"])
 def test_deferred_harness_types_fail_clearly(harness_type):
     mode = "submission" if harness_type == "submission" else "host"
     path = Path("submission.jsonl") if harness_type == "submission" else None

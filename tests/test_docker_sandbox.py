@@ -163,6 +163,29 @@ def test_docker_sandbox_accepts_writable_bind_mounts(monkeypatch, tmp_path):
     assert seen["command"][mount_index + 1] == f"type=bind,source={tmp_path / 'output'},target=/workspace/output"
 
 
+def test_docker_sandbox_accepts_agent_overlay_bind_mounts(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    overlay = tmp_path / "overlay"
+    overlay.mkdir()
+
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path / "workspace",
+        persistent=False,
+        mounts=(DockerBindMount(source=overlay, target="/opt/securebench/codex", read_only=True),),
+    )
+    sandbox.run(["codex", "--version"])
+
+    mount_index = seen["command"].index("--mount")
+    assert seen["command"][mount_index + 1] == f"type=bind,source={overlay},target=/opt/securebench/codex,readonly"
+
+
 def test_docker_sandbox_rejects_invalid_bind_mount_targets(tmp_path):
     sandbox = DockerSandbox(
         image="agent-image",

@@ -238,7 +238,7 @@ def _docker_bind_mount_args(mounts: tuple[DockerBindMount, ...]) -> tuple[str, .
         source = str(Path(mount.source))
         if not source:
             raise ValueError("Docker bind mount source must be non-empty")
-        target = _docker_workspace_mount_path(mount.target)
+        target = _docker_bind_mount_target(mount.target)
         option = f"type=bind,source={source},target={target}"
         if mount.read_only:
             option += ",readonly"
@@ -246,7 +246,7 @@ def _docker_bind_mount_args(mounts: tuple[DockerBindMount, ...]) -> tuple[str, .
     return tuple(args)
 
 
-def _docker_workspace_mount_path(path: str) -> str:
+def _docker_bind_mount_target(path: str) -> str:
     if not isinstance(path, str) or not path:
         raise ValueError("Docker bind mount target must be a non-empty workspace path")
     if "\\" in path:
@@ -254,15 +254,25 @@ def _docker_workspace_mount_path(path: str) -> str:
     candidate = PurePosixPath(path)
     if candidate.is_absolute():
         workspace_root = PurePosixPath("/workspace")
-        if not (candidate == workspace_root or candidate.is_relative_to(workspace_root)):
-            raise ValueError(f"Docker bind mount target must be under /workspace: {path!r}")
-        relative = PurePosixPath(*candidate.parts[2:])
+        allowed_external_roots = (PurePosixPath("/opt/securebench"), PurePosixPath("/tmp"))
+        if candidate == workspace_root or candidate.is_relative_to(workspace_root):
+            relative = PurePosixPath(*candidate.parts[2:])
+            if ".." in relative.parts:
+                raise ValueError(f"Docker bind mount target may not contain '..': {path!r}")
+            if str(relative) in ("", "."):
+                raise ValueError("Docker bind mount target must not be the workspace root")
+            return str(workspace_root / relative)
+        if not any(candidate == root or candidate.is_relative_to(root) for root in allowed_external_roots):
+            raise ValueError(f"Docker bind mount target must be under /workspace, /opt/securebench, or /tmp: {path!r}")
+        relative = candidate
     else:
         relative = candidate
     if ".." in relative.parts:
         raise ValueError(f"Docker bind mount target may not contain '..': {path!r}")
     if str(relative) in ("", "."):
         raise ValueError("Docker bind mount target must not be the workspace root")
+    if candidate.is_absolute():
+        return str(relative)
     return str(PurePosixPath("/workspace") / relative)
 
 

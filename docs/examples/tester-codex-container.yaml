@@ -12,6 +12,10 @@ benchmark:
 
 harness:
   type: codex
-  mode: container
+  mode: mounted
   env:
-    - OPENAI_API_KEY
+    - CODEX_API_KEY
+  config:
+    version: latest
+    task_file: task.json
+    timeout_seconds: 900

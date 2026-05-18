@@ -69,21 +69,21 @@ until equivalent standard-family coverage exists.
 
 ## 4. Deferred Harness Work
 
-After command harness integration is exercised end to end, implement the
-deferred harness types:
+After command harness integration is exercised end to end, continue the
+remaining harness work:
 
 - `submission`: read task-id-keyed candidate records, reject missing or
   duplicate task ids, preserve metadata, and validate candidate value shape
   against family contracts.
-- `codex`: define a stable preset around command/container execution once CLI,
-  working-directory, artifact extraction, and image conventions are known.
+- `codex`: mounted container execution is the first named-agent preset;
+  candidate extraction remains to be defined.
 - `claude_code`: same as `codex`; avoid exposing raw commands for named common
   harnesses.
 - optional future `acp`: keep outside the parser until a real adapter path is
   chosen.
 
-Until named wrappers exist, use `harness.type: command` for installed or
-containerized agentic systems.
+Until additional named wrappers exist, use `harness.type: command` for custom
+installed or containerized agentic systems.
 
 ## 5. Schema and Materialization Tightening
 

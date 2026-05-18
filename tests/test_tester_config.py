@@ -19,15 +19,15 @@ def valid_tester_config(**overrides):
         },
         "harness": {
             "type": "codex",
-            "mode": "container",
-            "env": ["OPENAI_API_KEY"],
+            "mode": "mounted",
+            "env": ["CODEX_API_KEY"],
         },
     }
     data.update(overrides)
     return data
 
 
-def test_parse_tester_config_accepts_container_harness():
+def test_parse_tester_config_accepts_mounted_codex_harness():
     config = parse_tester_config(valid_tester_config())
 
     assert config.schema_version == "0.2"
@@ -36,26 +36,26 @@ def test_parse_tester_config_accepts_container_harness():
     assert config.benchmark.manifest == Path("benchmarks/repo-repair/manifest.yaml")
     assert config.benchmark.tasks == Path("benchmarks/repo-repair/tasks.jsonl")
     assert config.harness.type == "codex"
-    assert config.harness.mode == "container"
-    assert config.harness.env == ("OPENAI_API_KEY",)
+    assert config.harness.mode == "mounted"
+    assert config.harness.env == ("CODEX_API_KEY",)
     assert config.harness.path is None
     assert config.harness.config == {}
 
 
-def test_parse_tester_config_accepts_container_harness_without_image():
+def test_parse_tester_config_accepts_mounted_codex_harness_without_image():
     config = parse_tester_config(
         valid_tester_config(
             harness={
                 "type": "codex",
-                "mode": "container",
-                "env": ["OPENAI_API_KEY"],
+                "mode": "mounted",
+                "env": ["CODEX_API_KEY"],
             }
         )
     )
 
     assert config.harness.type == "codex"
-    assert config.harness.mode == "container"
-    assert config.harness.env == ("OPENAI_API_KEY",)
+    assert config.harness.mode == "mounted"
+    assert config.harness.env == ("CODEX_API_KEY",)
 
 
 def test_parse_tester_config_accepts_host_harness_without_image():
@@ -138,7 +138,7 @@ harness:
             "harness contains unsupported field",
         ),
         (
-            {"harness": {"type": "codex", "mode": "container", "image": "securebench-codex:0.1"}},
+            {"harness": {"type": "codex", "mode": "mounted", "image": "securebench-codex:0.1"}},
             "harness contains unsupported field",
         ),
     ],
@@ -153,6 +153,7 @@ def test_tester_config_rejects_invalid_shape(override, match):
     [
         ({"type": "unknown", "mode": "host"}, "harness.type must be one of"),
         ({"type": "codex", "mode": "unknown"}, "harness.mode must be one of"),
+        ({"type": "command", "mode": "mounted"}, "requires harness.type 'codex'"),
         ({"type": "submission", "mode": "host", "path": "results.jsonl"}, "requires mode 'submission'"),
         ({"type": "codex", "mode": "submission"}, "requires harness.type 'submission'"),
         ({"type": "submission", "mode": "submission"}, "harness.path is required for submission"),

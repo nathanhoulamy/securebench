@@ -13,14 +13,14 @@ from securebench.errors import ConfigError
 
 SUPPORTED_TESTER_SCHEMA_VERSION = "0.2"
 HarnessType = Literal["codex", "claude_code", "command", "submission"]
-HarnessMode = Literal["host", "container", "submission"]
+HarnessMode = Literal["host", "container", "mounted", "submission"]
 
 ROOT_FIELDS = {"schema_version", "run", "benchmark", "harness"}
 RUN_FIELDS = {"id", "output_dir"}
 BENCHMARK_FIELDS = {"manifest", "tasks"}
 HARNESS_FIELDS = {"type", "mode", "env", "path", "config"}
 HARNESS_TYPES = {"codex", "claude_code", "command", "submission"}
-HARNESS_MODES = {"host", "container", "submission"}
+HARNESS_MODES = {"host", "container", "mounted", "submission"}
 
 
 @dataclass(frozen=True)
@@ -118,6 +118,8 @@ def _harness_section(data: dict[str, Any], base_dir: Path | None) -> TesterHarne
     else:
         if mode == "submission":
             raise ConfigError("harness.mode 'submission' requires harness.type 'submission'")
+        if mode == "mounted" and harness_type != "codex":
+            raise ConfigError("harness.mode 'mounted' requires harness.type 'codex'")
         if path is not None:
             raise ConfigError("harness.path is only supported for submission harnesses")
 
