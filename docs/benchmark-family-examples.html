@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SecureBench Practical Family Examples (Revised)</title>
+  <style>
+
+    :root {
+      --bg: #f7f8fb;
+      --surface: #ffffff;
+      --surface-2: #f1f4f8;
+      --text: #172033;
+      --muted: #5f6c80;
+      --border: #d8dee9;
+      --public: #edf7f1;
+      --public-border: #bbdfc8;
+      --eval: #fff8e8;
+      --eval-border: #edd18a;
+      --hidden: #fff0f0;
+      --hidden-border: #efb8b8;
+      --code: #eef2f7;
+      --accent: #155eef;
+      --success: #ecfdf3;
+      --success-border: #abefc6;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 34px 32px 24px;
+    }
+
+    main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 28px 24px 56px;
+    }
+
+    h1, h2, h3 { margin: 0; letter-spacing: 0; }
+    h1 { font-size: 34px; line-height: 1.15; }
+    h2 { font-size: 23px; margin-top: 38px; margin-bottom: 12px; }
+    h3 { font-size: 18px; margin: 0 0 12px; }
+
+    p { color: var(--muted); margin: 10px 0 0; max-width: 920px; }
+
+    code {
+      background: var(--code);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+
+    .legend, .page-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 13px;
+      color: var(--text);
+      background: var(--surface);
+    }
+
+    .pill.public { background: var(--public); border-color: var(--public-border); }
+    .pill.eval { background: var(--eval); border-color: var(--eval-border); }
+    .pill.hidden { background: var(--hidden); border-color: var(--hidden-border); }
+    .pill.success { background: var(--success); border-color: var(--success-border); }
+
+    .page-link {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--accent);
+      padding: 6px 10px;
+      font-size: 14px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    .page-link:hover { background: var(--surface-2); }
+
+    .family, .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+      margin-top: 18px;
+      overflow: hidden;
+    }
+
+    .family-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 20px;
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .family-head p { margin-top: 4px; font-size: 14px; }
+    .examples { color: var(--muted); font-size: 14px; text-align: right; min-width: 220px; }
+    .table-wrap { overflow-x: auto; }
+
+    table { width: 100%; border-collapse: collapse; min-width: 900px; }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+      font-size: 14px;
+    }
+    th {
+      background: #fbfcfe;
+      color: #39465b;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+    tr:last-child td { border-bottom: 0; }
+
+    td.field, td.id, .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      color: #24324a;
+    }
+    td.field, td.id { white-space: nowrap; }
+    .mono { font-size: 12px; white-space: pre-wrap; }
+
+    td.public { background: var(--public); }
+    td.eval { background: var(--eval); }
+    td.hidden { background: var(--hidden); }
+
+    .required { font-weight: 700; color: #1d2738; }
+    .optional { color: var(--muted); }
+
+    .note {
+      background: #eef4ff;
+      border: 1px solid #c5d7ff;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin: 18px 0 4px;
+      color: #24324a;
+    }
+
+    .warning {
+      background: #fff8e8;
+      border: 1px solid #edd18a;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin: 18px 0 4px;
+      color: #3d2f00;
+    }
+
+    .schema {
+      background: #111827;
+      color: #e5e7eb;
+      border-radius: 8px;
+      padding: 16px;
+      overflow-x: auto;
+      margin-top: 16px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .mini-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .mini-card h3 { font-size: 16px; }
+    .mini-card p { font-size: 14px; margin-top: 6px; }
+
+    @media (max-width: 900px) {
+      header { padding: 26px 20px 20px; }
+      main { padding: 20px 14px 44px; }
+      h1 { font-size: 27px; }
+      .family-head { display: block; }
+      .examples { text-align: left; margin-top: 10px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SecureBench Practical Family Examples (Revised)</h1>
+    <p>Concrete example rows for each benchmark family, updated to keep public assets separate from evaluator inputs and hidden scoring data.</p>
+    <div class="legend">
+      <span class="pill public">Public: visible to harness/agent</span>
+<span class="pill eval">evaluation_inputs: verifier/runtime only</span>
+<span class="pill hidden">hidden: trusted scorer only</span>
+<span class="pill ">Blank means inherited or unused</span>
+    </div>
+    <nav class="page-links" aria-label="Related pages">
+      <a class="page-link" href="benchmark-family-standard.html">Back to Revised Standard</a>
+<a class="page-link" href="tester-yaml-standard.html">Open Tester YAML Standard</a>
+    </nav>
+  </header>
+  <main>
+
+    <section>
+      <h2>Example Assumption</h2>
+      <div class="note">Each table is a flattened view of rows normally stored as JSONL or Parquet. Top-level <code>assets[]</code> are public. Checker files, hidden tests, expected state, reference artifacts, and rubrics live under <code>eval.*</code> and are compiled by SecureBench into <code>evaluation_inputs</code> or <code>hidden</code>.</div>
+    </section>
+
+    <section class="family">
+      <div class="family-head"><div><h3>multiple_choice</h3><p>Question plus ordered choices. Hidden answer is a scorer-only label or index.</p></div><div class="examples">MMLU-Pro, GPQA, MMMU MC</div></div>
+      <div class="table-wrap"><table style="min-width: 1050px"><thead><tr><th>id</th><th>family</th><th>input.question</th><th>input.choices</th><th>assets</th><th>eval.answer</th></tr></thead><tbody><tr><td class="id">mmlu-pro/math/001</td><td class="public">multiple_choice</td><td class="public">Which matrix has determinant zero?</td><td class="public mono">[&quot;A&quot;, &quot;B&quot;, &quot;C&quot;, &quot;D&quot;]</td><td class="public"></td><td class="hidden">C</td></tr><tr><td class="id">gpqa/diamond/018</td><td class="public">multiple_choice</td><td class="public">Which reagent favors the product?</td><td class="public mono">[&quot;NaBH4&quot;, &quot;LiAlH4&quot;, &quot;H2/Pd&quot;, &quot;None&quot;]</td><td class="public"></td><td class="hidden">B</td></tr><tr><td class="id">mmmu/physics/044</td><td class="public">multiple_choice</td><td class="public">What does the circuit meter read?</td><td class="public mono">[&quot;0.2 A&quot;, &quot;1.0 A&quot;, &quot;2.0 A&quot;, &quot;5.0 A&quot;]</td><td class="public mono">[{type:&quot;image&quot;, path:&quot;circuit.png&quot;}]</td><td class="hidden">A</td></tr></tbody></table></div>
+    </section>
+
+    <section class="family">
+      <div class="family-head"><div><h3>short_answer</h3><p>Final answer can be normalized as text, number, regex, or symbolic expression.</p></div><div class="examples">AIME, SimpleQA, math final answers</div></div>
+      <div class="table-wrap"><table style="min-width: 1050px"><thead><tr><th>id</th><th>family</th><th>input.question</th><th>input.answer_format</th><th>eval.accepted_answers</th><th>eval.tolerance</th></tr></thead><tbody><tr><td class="id">aime/2026/07</td><td class="public">short_answer</td><td class="public">Find the integer n satisfying...</td><td class="public">integer</td><td class="hidden mono">[&quot;144&quot;]</td><td class="hidden"></td></tr><tr><td class="id">simpleqa/history/211</td><td class="public">short_answer</td><td class="public">Who was the first person to...</td><td class="public">name</td><td class="hidden mono">[&quot;Ada Lovelace&quot;, &quot;Augusta Ada King&quot;]</td><td class="hidden"></td></tr><tr><td class="id">math/numeric/032</td><td class="public">short_answer</td><td class="public">Compute sqrt(2) to three decimals.</td><td class="public">decimal</td><td class="hidden mono">[&quot;1.414&quot;]</td><td class="hidden">0.001</td></tr></tbody></table></div>
+    </section>
+
+    <section class="family">
+      <div class="family-head"><div><h3>free_response</h3><p>Open-ended answer graded against hidden rubric or reference answer.</p></div><div class="examples">HLE, GAIA text tasks</div></div>
+      <div class="table-wrap"><table style="min-width: 1050px"><thead><tr><th>id</th><th>family</th><th>input.prompt</th><th>input.context</th><th>assets</th><th>eval.reference_answer</th><th>eval.rubric</th></tr></thead><tbody><tr><td class="id">hle/bio/009</td><td class="public">free_response</td><td class="public">Explain why the mutation changes binding.</td><td class="public">protein excerpt</td><td class="public"></td><td class="hidden">Binding pocket polarity changes...</td><td class="hidden">Must identify site and mechanism.</td></tr><tr><td class="id">gaia/l1/031</td><td class="public">free_response</td><td class="public">Find the city and explain the clue chain.</td><td class="public">short clues</td><td class="public mono">[{type:&quot;pdf&quot;, path:&quot;clues.pdf&quot;}]</td><td class="hidden">Turin...</td><td class="hidden">Accept city plus two supporting facts.</td></tr><tr><td class="id">history/explain/015</td><td class="public">free_response</td><td class="public">Compare the two policy outcomes.</td><td class="public">two paragraphs</td><td class="public"></td><td class="hidden"></td><td class="hidden">Score 0-3 for factuality and causal link.</td></tr></tbody></table></div>
+    </section>
+
+    <section class="family">
+      <div class="family-head"><div><h3>code_generation</h3><p>Candidate code is run against evaluation tests; reference solutions stay hidden.</p></div><div class="examples">HumanEval, LiveCodeBench, BigCodeBench</div></div>
+      <div class="table-wrap"><table style="min-width: 1050px"><thead><tr><th>id</th><th>family</th><th>input.language</th><th>input.prompt</th><th>input.starter_code</th><th>eval.tests</th><th>environment override</th></tr></thead><tbody><tr><td class="id">humaneval/017</td><td class="public">code_generation</td><td class="public">python</td><td class="public">Complete has_close_elements.</td><td class="public">def has_close_elements(...):</td><td class="eval mono">{type:&quot;inline&quot;, content:&quot;def check(candidate): ...&quot;, read_only:true}</td><td class="eval"></td></tr><tr><td class="id">livecodebench/402</td><td class="public">code_generation</td><td class="public">python</td><td class="public">Solve from stdin and print result.</td><td class="public"></td><td class="eval mono">{type:&quot;io&quot;, cases:[{stdin:&quot;2 3\n&quot;, stdout:&quot;5\n&quot;}]}</td><td class="eval mono">{timeout_seconds:2}</td></tr><tr><td class="id">bigcodebench/071</td><td class="public">code_generation</td><td class="public">python</td><td class="public">Implement the parser API.</td><td class="public">class Parser: ...</td><td class="eval mono">{type:&quot;files&quot;, files:[{path:&quot;test_parser.py&quot;, mount:&quot;tests/test_parser.py&quot;}], command:&quot;pytest tests&quot;}</td><td class="eval mono">{packages:[&quot;git&quot;]}</td></tr></tbody></table></div>
+    </section>
+
+    <section class="family">
+      <div class="family-head"><div><h3>repo_patch</h3><p>Agent edits a repo. Verifier applies candidate patch and runs evaluation tests.</p></div><div class="examples">SWE-bench Verified, SWE-bench Pro</div></div>
+      <div class="table-wrap"><table style="min-width: 1050px"><thead><tr><th>id</th><th>family</th><th>input.repo</th><th>input.base_commit</th><th>input.instructions</th><th>eval.tests</th><th>environment override</th></tr></thead><tbody><tr><td class="id">django__django-14534</td><td class="public">repo_patch</td><td class="public">django/django</td><td class="public">abc123</td><td class="public">Fix queryset regression.</td><td class="eval mono">{type:&quot;repo&quot;, hidden_patches:[&quot;tests&quot;], selected:[&quot;tests/model_tests/...&quot;], command:&quot;pytest {selected_tests}&quot;}</td><td class="eval mono">{workdir:&quot;/workspace/repo&quot;}</td></tr><tr><td class="id">sympy__sympy-23031</td><td class="public">repo_patch</td><td class="public">sympy/sympy</td><td class="public">def456</td><td class="public">Correct simplify behavior.</td><td class="eval mono">{type:&quot;repo&quot;, selected:[&quot;sympy/simplify/tests/test...py&quot;], command:&quot;pytest {selected_tests}&quot;}</td><td class="eval mono">{timeout_seconds:900}</td></tr><tr><td class="id">astropy__astropy-8872</td><td class="public">repo_patch</td><td class="public">astropy/astropy</td><td class="public">789abc</td><td class="public">Handle units conversion edge case.</td><td class="eval mono">{type:&quot;repo&quot;, hidden_patches:[&quot;tests&quot;], command:&quot;pytest {selected_tests}&quot;}</td><td class="eval mono">{setup:[&quot;pip install -e .&quot;]}</td></tr></tbody></table></div>
+    </section>
+
+    <section class="family">
+      <div class="family-head"><div><h3>terminal_task</h3><p>Agent works in a shell workspace. Private checker validates final state.</p></div><div class="examples">Terminal-Bench, ops/data tasks</div></div>
+      <div class="table-wrap"><table style="min-width: 1050px"><thead><tr><th>id</th><th>family</th><th>input.instructions</th><th>assets</th><th>eval.checker</th><th>eval.expected_state</th><th>environment override</th></tr></thead><tbody><tr><td class="id">terminal/logs/001</td><td class="public">terminal_task</td><td class="public">Extract failed login IPs into output.txt.</td><td class="public mono">[{path:&quot;task-001/auth.log&quot;, mount:&quot;auth.log&quot;}]</td><td class="eval mono">{type:&quot;files&quot;, files:[{path:&quot;checks/logs_check.py&quot;, mount:&quot;checks/check.py&quot;}], command:&quot;python checks/check.py&quot;}</td><td class="hidden">output.txt contains 12 unique IPs</td><td class="eval mono">{image:&quot;python:3.11-slim&quot;}</td></tr><tr><td class="id">terminal/ml/014</td><td class="public">terminal_task</td><td class="public">Train a small model and save metrics.json.</td><td class="public mono">[{path:&quot;train.csv&quot;, mount:&quot;data/train.csv&quot;}]</td><td class="eval mono">{type:&quot;files&quot;, files:[{path:&quot;checks/test_metrics.py&quot;, mount:&quot;checks/test_metrics.py&quot;}], command:&quot;pytest checks&quot;}</td><td class="hidden">accuracy &gt;= 0.8</td><td class="eval mono">{timeout_seconds:300}</td></tr><tr><td class="id">terminal/config/032</td><td class="public">terminal_task</td><td class="public">Make the app health check pass.</td><td class="public mono">[{path:&quot;app-template.zip&quot;, mount:&quot;app/&quot;, mode:&quot;extract&quot;, read_only:false}]</td><td class="eval mono">{type:&quot;command&quot;, command:&quot;bash checks/health.sh&quot;}</td><td class="hidden">HTTP 200 on /health</td><td class="eval mono">{network:&quot;none&quot;}</td></tr></tbody></table></div>
+    </section>
+
+    <section class="family">
+      <div class="family-head"><div><h3>tool_call</h3><p>Model calls structured tools. Hidden expectations check calls or resulting world state.</p></div><div class="examples">BFCL, tau-bench</div></div>
+      <div class="table-wrap"><table style="min-width: 1050px"><thead><tr><th>id</th><th>family</th><th>input.prompt</th><th>input.tools</th><th>eval.initial_state</th><th>eval.expected_calls</th><th>eval.expected_final_state</th></tr></thead><tbody><tr><td class="id">bfcl/simple/022</td><td class="public">tool_call</td><td class="public">Get weather for Rome tomorrow.</td><td class="public mono">[get_weather(city,date)]</td><td class="eval"></td><td class="hidden mono">[{name:&quot;get_weather&quot;, args:{city:&quot;Rome&quot;}}]</td><td class="hidden"></td></tr><tr><td class="id">bfcl/parallel/017</td><td class="public">tool_call</td><td class="public">Compare flights from two airports.</td><td class="public mono">[search_flights]</td><td class="eval"></td><td class="hidden">two search_flights calls</td><td class="hidden"></td></tr><tr><td class="id">tau/retail/041</td><td class="public">tool_call</td><td class="public">Help the user exchange an order.</td><td class="public mono">[get_order, create_exchange]</td><td class="eval mono">{orders:[...]}</td><td class="hidden">create_exchange with matching SKU</td><td class="hidden mono">{exchange_created:true}</td></tr></tbody></table></div>
+    </section>
+
+    <section class="family">
+      <div class="family-head"><div><h3>browser_task</h3><p>Agent controls a browser. Hidden success checks inspect page or backend state.</p></div><div class="examples">WebArena, BrowserGym</div></div>
+      <div class="table-wrap"><table style="min-width: 1050px"><thead><tr><th>id</th><th>family</th><th>input.goal</th><th>input.start_url</th><th>assets</th><th>eval.credentials</th><th>eval.success_check</th></tr></thead><tbody><tr><td class="id">webarena/shop/003</td><td class="public">browser_task</td><td class="public">Find the cheapest compatible charger.</td><td class="public">https://shop.local</td><td class="public"></td><td class="eval mono">{user:&quot;bench-user&quot;}</td><td class="hidden mono">{type:&quot;db&quot;, assertion:&quot;cart contains sku_123&quot;}</td></tr><tr><td class="id">webarena/gitlab/081</td><td class="public">browser_task</td><td class="public">Create an issue with the requested title.</td><td class="public">https://gitlab.local</td><td class="public"></td><td class="eval mono">{token:&quot;...&quot;}</td><td class="hidden mono">{type:&quot;api&quot;, assertion:&quot;issue exists&quot;}</td></tr><tr><td class="id">browsergym/forms/019</td><td class="public">browser_task</td><td class="public">Submit the tax form correctly.</td><td class="public">https://forms.local</td><td class="public mono">[{path:&quot;w2.pdf&quot;, mount:&quot;uploads/w2.pdf&quot;}]</td><td class="eval"></td><td class="hidden mono">{type:&quot;dom&quot;, selector:&quot;#success&quot;}</td></tr></tbody></table></div>
+    </section>
+
+    <section class="family">
+      <div class="family-head"><div><h3>desktop_task</h3><p>Agent controls a desktop app. Private checks validate saved files or app state.</p></div><div class="examples">OSWorld, app automation tasks</div></div>
+      <div class="table-wrap"><table style="min-width: 1050px"><thead><tr><th>id</th><th>family</th><th>input.goal</th><th>input.app</th><th>assets</th><th>eval.success_check</th><th>environment override</th></tr></thead><tbody><tr><td class="id">osworld/calc/008</td><td class="public">desktop_task</td><td class="public">Add a chart from the sales table.</td><td class="public">LibreOffice Calc</td><td class="public mono">[{path:&quot;sales.ods&quot;}]</td><td class="hidden mono">{type:&quot;file&quot;, command:&quot;python checks/chart.py&quot;}</td><td class="eval mono">{image:&quot;desktop-libreoffice&quot;}</td></tr><tr><td class="id">osworld/browser/021</td><td class="public">desktop_task</td><td class="public">Download the invoice PDF.</td><td class="public">Firefox</td><td class="public"></td><td class="hidden mono">{type:&quot;filesystem&quot;, path:&quot;Downloads/invoice.pdf&quot;}</td><td class="eval"></td></tr><tr><td class="id">desktop/gimp/011</td><td class="public">desktop_task</td><td class="public">Crop image to the marked region.</td><td class="public">GIMP</td><td class="public mono">[{path:&quot;photo.png&quot;, mount:&quot;input/photo.png&quot;}]</td><td class="hidden mono">{type:&quot;image&quot;, expected:&quot;expected/crop.png&quot;}</td><td class="eval mono">{timeout_seconds:600}</td></tr></tbody></table></div>
+    </section>
+
+    <section class="family">
+      <div class="family-head"><div><h3>artifact_task</h3><p>Agent produces a deliverable file. Hidden rubric or checker grades the artifact.</p></div><div class="examples">GDPval, spreadsheet/report tasks</div></div>
+      <div class="table-wrap"><table style="min-width: 1050px"><thead><tr><th>id</th><th>family</th><th>input.brief</th><th>input.output_spec</th><th>assets</th><th>eval.reference_artifact</th><th>eval.rubric</th></tr></thead><tbody><tr><td class="id">gdpval/analyst/004</td><td class="public">artifact_task</td><td class="public">Build a forecast workbook.</td><td class="public mono">{type:&quot;xlsx&quot;, path:&quot;output.xlsx&quot;}</td><td class="public mono">[{path:&quot;revenue.csv&quot;, mount:&quot;data/revenue.csv&quot;}]</td><td class="hidden">reference.xlsx</td><td class="hidden">Correct formulas and chart.</td></tr><tr><td class="id">artifact/report/017</td><td class="public">artifact_task</td><td class="public">Write a two-page market memo.</td><td class="public mono">{type:&quot;docx&quot;, path:&quot;memo.docx&quot;}</td><td class="public mono">[{path:&quot;sources.zip&quot;, mount:&quot;sources/&quot;, mode:&quot;extract&quot;}]</td><td class="hidden"></td><td class="hidden">Cites all sources and includes recommendation.</td></tr><tr><td class="id">artifact/slides/029</td><td class="public">artifact_task</td><td class="public">Create an executive deck.</td><td class="public mono">{type:&quot;pptx&quot;, path:&quot;deck.pptx&quot;}</td><td class="public mono">[{path:&quot;metrics.csv&quot;}]</td><td class="hidden">gold_deck.pptx</td><td class="hidden">No missing charts, concise narrative.</td></tr></tbody></table></div>
+    </section>
+
+    <section class="family">
+      <div class="family-head"><div><h3>multimodal_qa</h3><p>Question depends on one or more typed public assets.</p></div><div class="examples">MMMU-Pro, MathVista, Video-MME</div></div>
+      <div class="table-wrap"><table style="min-width: 1050px"><thead><tr><th>id</th><th>family</th><th>input.question</th><th>input.choices</th><th>assets</th><th>eval.answer</th><th>eval.rubric</th></tr></thead><tbody><tr><td class="id">mathvista/chart/012</td><td class="public">multimodal_qa</td><td class="public">What is the slope of the line?</td><td class="public"></td><td class="public mono">[{type:&quot;image&quot;, path:&quot;line.png&quot;}]</td><td class="hidden">2</td><td class="hidden"></td></tr><tr><td class="id">mmmu/medicine/088</td><td class="public">multimodal_qa</td><td class="public">Which diagnosis is most likely?</td><td class="public mono">[&quot;A&quot;, &quot;B&quot;, &quot;C&quot;, &quot;D&quot;]</td><td class="public mono">[{type:&quot;image&quot;, path:&quot;scan.jpg&quot;}]</td><td class="hidden">D</td><td class="hidden"></td></tr><tr><td class="id">videomme/scene/023</td><td class="public">multimodal_qa</td><td class="public">What object is moved after the cut?</td><td class="public"></td><td class="public mono">[{type:&quot;video&quot;, path:&quot;clip.mp4&quot;, time_bounds:[12,34]}]</td><td class="hidden">the red cup</td><td class="hidden">Accept equivalent object description.</td></tr></tbody></table></div>
+    </section>
+
+    <section class="family">
+      <div class="family-head"><div><h3>preference_pair</h3><p>Two candidate outputs are compared under hidden labels or a private judging rubric.</p></div><div class="examples">Arena-style preference data</div></div>
+      <div class="table-wrap"><table style="min-width: 1050px"><thead><tr><th>id</th><th>family</th><th>input.prompt</th><th>input.candidate_a</th><th>input.candidate_b</th><th>eval.preference</th><th>eval.rubric</th></tr></thead><tbody><tr><td class="id">arena/helpful/001</td><td class="public">preference_pair</td><td class="public">Explain recursion simply.</td><td class="public">Response A...</td><td class="public">Response B...</td><td class="hidden">B</td><td class="hidden">Prefer clarity and correctness.</td></tr><tr><td class="id">arena/coding/044</td><td class="public">preference_pair</td><td class="public">Debug this Python error.</td><td class="public">Response A...</td><td class="public">Response B...</td><td class="hidden">A</td><td class="hidden">Must identify root cause.</td></tr><tr><td class="id">arena/tie/019</td><td class="public">preference_pair</td><td class="public">Summarize the paragraph.</td><td class="public">Response A...</td><td class="public">Response B...</td><td class="hidden">tie</td><td class="hidden">Both faithful and concise.</td></tr></tbody></table></div>
+    </section>
+
+  </main>
+</body>
+</html>
