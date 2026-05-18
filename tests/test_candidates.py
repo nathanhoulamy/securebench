@@ -90,7 +90,7 @@ def make_patch_task():
     )
 
 
-def test_candidate_artifact_returns_runner_value_by_task_type():
+def test_candidate_artifact_returns_verifier_value_by_task_type():
     assert CandidateArtifact(text="C", patch="diff").for_task(make_mc_task()) == "C"
     assert CandidateArtifact(text="C", patch="diff").for_task(make_patch_task()) == "diff"
 

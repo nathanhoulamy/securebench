@@ -61,7 +61,7 @@ def test_code_completion_spec_converts_to_task_with_hidden_tests():
     }
 
 
-def test_github_patch_spec_converts_json_lists_to_runner_fields():
+def test_github_patch_spec_converts_json_lists_to_task_resources():
     task = task_from_spec(
         {
             "id": "example__repo-1",

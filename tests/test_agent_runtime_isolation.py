@@ -11,7 +11,7 @@ import sys
 import securebench_agent.run
 blocked = [
     name for name in sys.modules
-    if name == "securebench" or name.startswith(("securebench.config", "securebench.evaluator", "securebench.runners", "securebench.candidates"))
+    if name == "securebench" or name.startswith(("securebench.candidates", "securebench.verifiers"))
 ]
 print(json.dumps(blocked))
 """
