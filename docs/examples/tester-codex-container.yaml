@@ -1,0 +1,18 @@
+# Example tester YAML for the benchmark-pack execution path.
+# This is a parser/example file; CLI execution wiring comes later.
+schema_version: "0.2"
+
+run:
+  id: repo-repair-codex
+  output_dir: ../../runs/repo-repair-codex
+
+benchmark:
+  manifest: ../../benchmarks/repo-repair/manifest.yaml
+  tasks: ../../benchmarks/repo-repair/tasks.jsonl
+
+harness:
+  type: codex
+  mode: container
+  image: securebench-codex:0.1
+  env:
+    - OPENAI_API_KEY
