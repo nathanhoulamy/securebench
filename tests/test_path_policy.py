@@ -6,6 +6,7 @@ from securebench.path_policy import (
     PathPolicyError,
     validate_materialization_plan,
     validate_path_for_component,
+    validate_workspace_mount_for_component,
 )
 
 
@@ -108,3 +109,26 @@ def test_materialization_plan_validation_rejects_resource_component_mismatch():
 
     with pytest.raises(PathPolicyError, match="does not match plan component"):
         validate_materialization_plan(plan)
+
+
+@pytest.mark.parametrize("path", ["input.txt", "repo/data/sample.json", "securebench/public/fixture.txt"])
+def test_workspace_mount_policy_accepts_public_workspace_paths(path):
+    assert validate_workspace_mount_for_component("agent", path).allowed is True
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "",
+        ".",
+        "/input.txt",
+        "../input.txt",
+        r"repo\data.json",
+        "ground_truth/answer.json",
+        "securebench/evaluation_inputs/check.py",
+        "securebench/evaluator/answer.json",
+    ],
+)
+def test_workspace_mount_policy_rejects_unsafe_or_reserved_paths(path):
+    with pytest.raises(PathPolicyError):
+        validate_workspace_mount_for_component("agent", path)

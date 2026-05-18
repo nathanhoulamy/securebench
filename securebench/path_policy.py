@@ -1,4 +1,4 @@
-"""Internal path policy validation for materialized resources."""
+"""Internal path policy validation for materialized resources and mounts."""
 
 from __future__ import annotations
 
@@ -22,6 +22,12 @@ COMPONENT_ALLOWED_ROOTS: dict[str, tuple[str, ...]] = {
     "agent": ("securebench/public",),
     "test_sandbox": ("securebench/public", "securebench/evaluation_inputs"),
     "evaluator": ("securebench/evaluator",),
+}
+
+WORKSPACE_MOUNT_RESERVED_ROOTS: dict[str, tuple[str, ...]] = {
+    "agent": ("securebench/evaluation_inputs", "securebench/evaluator"),
+    "test_sandbox": ("securebench/evaluation_inputs", "securebench/evaluator"),
+    "evaluator": (),
 }
 
 
@@ -96,11 +102,36 @@ def validate_path_for_component(component: Component, path: str | PurePosixPath)
     return PathPolicy.for_component(component).validate(path)
 
 
+def validate_workspace_mount_for_component(component: Component, path: str | PurePosixPath) -> PathPolicyDecision:
+    """Validate a benchmark-defined workspace mount path for one component."""
+    if component == "result":
+        raise PathPolicyError("result is not a workspace-mount target")
+    if component not in WORKSPACE_MOUNT_RESERVED_ROOTS:
+        raise PathPolicyError(f"unsupported workspace-mount component: {component!r}")
+
+    try:
+        candidate = _safe_relative_path(path)
+    except PathPolicyError as exc:
+        raise PathPolicyError(str(exc)) from exc
+
+    for denied in MANDATORY_DENIED_PATHS:
+        denied_path = _policy_path(denied)
+        if _same_or_parent(denied_path, candidate):
+            raise PathPolicyError(f"path is denied by policy: {candidate}")
+
+    for reserved in WORKSPACE_MOUNT_RESERVED_ROOTS[component]:
+        reserved_path = _policy_path(reserved)
+        if _same_or_parent(reserved_path, candidate):
+            raise PathPolicyError(f"path is reserved for non-public materialization: {candidate}")
+
+    return PathPolicyDecision(component, str(candidate), True)
+
+
 def validate_materialization_plan(plan: object) -> None:
     """Validate all paths in a materialization plan and reject collisions."""
     component = getattr(plan, "component", None)
     policy = PathPolicy.for_component(component)
-    seen: set[str] = set()
+    seen: set[PurePosixPath] = set()
 
     for resource in getattr(plan, "resources", ()):
         resource_component = getattr(resource, "component", None)
@@ -109,10 +140,17 @@ def validate_materialization_plan(plan: object) -> None:
                 f"materialized resource component {resource_component!r} does not match plan component {component!r}"
             )
         path = getattr(resource, "relative_path", None)
-        decision = policy.validate(path)
-        if decision.path in seen:
+        placement = getattr(resource, "placement", "internal")
+        if placement == "internal":
+            decision = policy.validate(path)
+        elif placement == "workspace":
+            decision = validate_workspace_mount_for_component(component, path)
+        else:
+            raise PathPolicyError(f"unsupported materialized resource placement: {placement!r}")
+        candidate = _policy_path(decision.path)
+        if any(_same_or_parent(existing, candidate) or _same_or_parent(candidate, existing) for existing in seen):
             raise PathPolicyError(f"duplicate materialized path: {decision.path}")
-        seen.add(decision.path)
+        seen.add(candidate)
 
 
 def _safe_relative_path(path: str | PurePosixPath) -> PurePosixPath:

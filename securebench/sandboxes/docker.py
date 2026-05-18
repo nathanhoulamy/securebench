@@ -5,9 +5,19 @@ from __future__ import annotations
 import subprocess
 import tempfile
 import uuid
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from securebench.sandboxes.base import CommandResult, Sandbox
+from securebench.sandboxes.base import CommandResult, Sandbox, resolve_sandbox_host_path
+
+
+@dataclass(frozen=True)
+class DockerBindMount:
+    """Extra Docker bind mount for a workspace path."""
+
+    source: str | Path
+    target: str
+    read_only: bool = True
 
 
 class DockerSandbox(Sandbox):
@@ -27,6 +37,7 @@ class DockerSandbox(Sandbox):
         mem_limit: str | None = "1g",
         pids_limit: int | None = 256,
         security_opt: tuple[str, ...] = ("no-new-privileges:true",),
+        mounts: tuple[DockerBindMount, ...] = (),
     ) -> None:
         self.image = image
         self.env_names = tuple(env_names)
@@ -38,6 +49,7 @@ class DockerSandbox(Sandbox):
         self.mem_limit = mem_limit
         self.pids_limit = pids_limit
         self.security_opt = tuple(security_opt)
+        self.mounts = tuple(mounts)
         self._container_name: str | None = None
         self._tempdir = None if root is not None else tempfile.TemporaryDirectory(prefix="securebench-")
         self.root = Path(root) if root is not None else Path(self._tempdir.name)
@@ -76,6 +88,7 @@ class DockerSandbox(Sandbox):
                 "--rm",
                 "-v",
                 f"{self.root}:/workspace",
+                *_docker_bind_mount_args(self.mounts),
                 "-w",
                 docker_workdir,
                 *_docker_hardening_args(
@@ -164,6 +177,7 @@ class DockerSandbox(Sandbox):
                 self._container_name,
                 "-v",
                 f"{self.root}:/workspace",
+                *_docker_bind_mount_args(self.mounts),
                 "-w",
                 "/workspace",
                 *_docker_hardening_args(
@@ -219,6 +233,42 @@ def _docker_env_args(env_names: tuple[str, ...]) -> tuple[str, ...]:
             raise ValueError(f"Docker environment variable name is invalid: {name!r}")
         args.extend(["-e", name])
     return tuple(args)
+
+
+def _docker_bind_mount_args(mounts: tuple[DockerBindMount, ...]) -> tuple[str, ...]:
+    args: list[str] = []
+    for mount in mounts:
+        if not isinstance(mount, DockerBindMount):
+            raise ValueError("Docker mounts must be DockerBindMount instances")
+        source = str(Path(mount.source))
+        if not source:
+            raise ValueError("Docker bind mount source must be non-empty")
+        target = _docker_workspace_mount_path(mount.target)
+        option = f"type=bind,source={source},target={target}"
+        if mount.read_only:
+            option += ",readonly"
+        args.extend(["--mount", option])
+    return tuple(args)
+
+
+def _docker_workspace_mount_path(path: str) -> str:
+    if not isinstance(path, str) or not path:
+        raise ValueError("Docker bind mount target must be a non-empty workspace path")
+    if "\\" in path:
+        raise ValueError(f"Docker bind mount target may not contain backslashes: {path!r}")
+    candidate = PurePosixPath(path)
+    if candidate.is_absolute():
+        workspace_root = PurePosixPath("/workspace")
+        if not (candidate == workspace_root or candidate.is_relative_to(workspace_root)):
+            raise ValueError(f"Docker bind mount target must be under /workspace: {path!r}")
+        relative = PurePosixPath(*candidate.parts[2:])
+    else:
+        relative = candidate
+    if ".." in relative.parts:
+        raise ValueError(f"Docker bind mount target may not contain '..': {path!r}")
+    if str(relative) in ("", "."):
+        raise ValueError("Docker bind mount target must not be the workspace root")
+    return str(PurePosixPath("/workspace") / relative)
 
 
 def _docker_hardening_args(

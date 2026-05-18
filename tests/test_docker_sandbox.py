@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from securebench.sandboxes import DockerSandbox
+from securebench.sandboxes import DockerBindMount, DockerSandbox
 
 
 def test_docker_sandbox_reuses_persistent_container_and_passes_env_names(monkeypatch, tmp_path):
@@ -34,6 +34,7 @@ def test_docker_sandbox_reuses_persistent_container_and_passes_env_names(monkeyp
     assert ["--tmpfs", "/tmp"] == seen["commands"][0][
         seen["commands"][0].index("--tmpfs") : seen["commands"][0].index("--tmpfs") + 2
     ]
+    assert "--mount" not in seen["commands"][0]
     assert ["--memory", "1g"] == seen["commands"][0][
         seen["commands"][0].index("--memory") : seen["commands"][0].index("--memory") + 2
     ]
@@ -70,6 +71,7 @@ def test_docker_sandbox_can_use_disposable_container_per_command(monkeypatch, tm
     assert "--network" in seen["command"]
     assert "none" in seen["command"]
     assert "--read-only" in seen["command"]
+    assert "--mount" not in seen["command"]
     assert seen["command"][-2:] == ["python", "--version"]
 
 
@@ -112,3 +114,51 @@ def test_docker_sandbox_rejects_invalid_env_names(tmp_path):
 
     with pytest.raises(ValueError, match="environment variable name"):
         sandbox.run(["python", "--version"])
+
+
+def test_docker_sandbox_adds_read_only_bind_mounts(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    source = tmp_path / "input.txt"
+    source.write_text("data")
+
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path / "workspace",
+        persistent=False,
+        mounts=(DockerBindMount(source=source, target="input.txt", read_only=True),),
+    )
+    sandbox.run(["python", "--version"])
+
+    mount_index = seen["command"].index("--mount")
+    assert seen["command"][mount_index + 1] == f"type=bind,source={source},target=/workspace/input.txt,readonly"
+    assert ["-v", f"{sandbox.root}:/workspace"] == seen["command"][
+        seen["command"].index("-v") : seen["command"].index("-v") + 2
+    ]
+
+
+def test_docker_sandbox_accepts_writable_bind_mounts(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path / "workspace",
+        persistent=False,
+        mounts=(DockerBindMount(source=tmp_path / "output", target="/workspace/output", read_only=False),),
+    )
+    sandbox.run(["python", "--version"])
+
+    mount_index = seen["command"].index("--mount")
+    assert seen["command"][mount_index + 1] == f"type=bind,source={tmp_path / 'output'},target=/workspace/output"
+
