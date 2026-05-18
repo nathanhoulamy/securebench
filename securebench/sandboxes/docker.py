@@ -143,7 +143,7 @@ class DockerSandbox(Sandbox):
             pass
 
     def write_file(self, path: str | PurePosixPath, content: str | bytes) -> None:
-        target = self._host_path(path)
+        target = self._host_path(path, for_write=True)
         target.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(content, bytes):
             target.write_bytes(content)
@@ -156,13 +156,8 @@ class DockerSandbox(Sandbox):
     def extract_file(self, path: str | PurePosixPath) -> bytes:
         return self._host_path(path).read_bytes()
 
-    def _host_path(self, path: str | PurePosixPath) -> Path:
-        sandbox_path = PurePosixPath(path)
-        if sandbox_path.is_absolute():
-            sandbox_path = PurePosixPath(*sandbox_path.parts[1:])
-        if ".." in sandbox_path.parts:
-            raise ValueError(f"Sandbox path may not escape root: {path}")
-        return self.root.joinpath(*sandbox_path.parts)
+    def _host_path(self, path: str | PurePosixPath, *, for_write: bool = False) -> Path:
+        return resolve_sandbox_host_path(self.root, path, for_write=for_write)
 
     def _ensure_container(self) -> CommandResult | None:
         if self._container_name is not None:

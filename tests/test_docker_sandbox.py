@@ -162,3 +162,51 @@ def test_docker_sandbox_accepts_writable_bind_mounts(monkeypatch, tmp_path):
     mount_index = seen["command"].index("--mount")
     assert seen["command"][mount_index + 1] == f"type=bind,source={tmp_path / 'output'},target=/workspace/output"
 
+
+def test_docker_sandbox_rejects_invalid_bind_mount_targets(tmp_path):
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path,
+        mounts=(DockerBindMount(source=tmp_path / "input.txt", target="../input.txt"),),
+    )
+
+    with pytest.raises(ValueError, match="bind mount target"):
+        sandbox.run(["python", "--version"])
+
+
+def test_docker_sandbox_read_file_rejects_symlink_escape(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("host secret")
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / "candidate.txt").symlink_to(outside)
+    sandbox = DockerSandbox(image="agent-image", root=root)
+
+    with pytest.raises(ValueError, match="escape root"):
+        sandbox.read_file("candidate.txt")
+
+
+def test_docker_sandbox_extract_file_rejects_symlink_escape(tmp_path):
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"host secret")
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / "candidate.bin").symlink_to(outside)
+    sandbox = DockerSandbox(image="agent-image", root=root)
+
+    with pytest.raises(ValueError, match="escape root"):
+        sandbox.extract_file("candidate.bin")
+
+
+def test_docker_sandbox_write_file_rejects_symlink_escape(tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("original")
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / "candidate.txt").symlink_to(outside)
+    sandbox = DockerSandbox(image="agent-image", root=root)
+
+    with pytest.raises(ValueError, match="escape root"):
+        sandbox.write_file("candidate.txt", "modified")
+
+    assert outside.read_text() == "original"

@@ -1,0 +1,108 @@
+"""Host-backed sandbox rooted at a workspace directory."""
+
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path, PurePosixPath
+
+from securebench.sandboxes.base import CommandResult, Sandbox, resolve_sandbox_host_path
+
+
+class HostSandbox(Sandbox):
+    """Run commands on the host with all file access rooted in a workspace.
+
+    This is a convenience harness mode, not a strong isolation boundary.
+    """
+
+    def __init__(
+        self,
+        *,
+        root: str | Path | None = None,
+        env_names: tuple[str, ...] = (),
+    ) -> None:
+        self.env_names = tuple(env_names)
+        self._tempdir = None if root is not None else tempfile.TemporaryDirectory(prefix="securebench-host-")
+        self.root = Path(root) if root is not None else Path(self._tempdir.name)
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def run(
+        self,
+        command: str | list[str] | tuple[str, ...],
+        *,
+        workdir: str | None = None,
+        timeout: float | None = None,
+    ) -> CommandResult:
+        normalized = _normalize_command(command)
+        completed = subprocess.run(
+            normalized,
+            cwd=self._host_path(workdir or "."),
+            env=_host_env(self.env_names),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return CommandResult(
+            command=normalized,
+            exit_code=completed.returncode,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+        )
+
+    def write_file(self, path: str | PurePosixPath, content: str | bytes) -> None:
+        target = self._host_path(path, for_write=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, bytes):
+            target.write_bytes(content)
+        else:
+            target.write_text(content)
+
+    def read_file(self, path: str | PurePosixPath) -> str:
+        return self._host_path(path).read_text()
+
+    def extract_file(self, path: str | PurePosixPath) -> bytes:
+        return self._host_path(path).read_bytes()
+
+    def close(self) -> None:
+        if self._tempdir is not None:
+            self._tempdir.cleanup()
+            self._tempdir = None
+
+    def __enter__(self) -> "HostSandbox":
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def _host_path(self, path: str | PurePosixPath, *, for_write: bool = False) -> Path:
+        return resolve_sandbox_host_path(self.root, path, for_write=for_write)
+
+
+def _normalize_command(command: str | list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    if isinstance(command, str):
+        shell = shutil.which("sh") or "/bin/sh"
+        return (shell, "-lc", command)
+    if not command:
+        raise ValueError("Command must not be empty")
+    return tuple(str(part) for part in command)
+
+
+def _host_env(env_names: tuple[str, ...]) -> dict[str, str]:
+    env: dict[str, str] = {}
+    if "PATH" in os.environ:
+        env["PATH"] = os.environ["PATH"]
+    for name in env_names:
+        if not name or "=" in name:
+            raise ValueError(f"Invalid environment variable name: {name!r}")
+        if name in os.environ:
+            env[name] = os.environ[name]
+    return env
