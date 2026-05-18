@@ -296,9 +296,9 @@ command harness because the command path is the main bridge to agentic systems.
 
 Deferred `codex` / `claude_code` wrappers: named wrappers should be stable
 presets, not broad raw-command escape hatches. They need fixed CLI invocation,
-working-directory behavior, artifact extraction conventions, and recommended
-container image shapes before being added. Until then, testers can express
-those harnesses through `type: command`.
+working-directory behavior, artifact extraction conventions, and a tooling
+overlay strategy on top of benchmark environment images before being added.
+Until then, testers can express those harnesses through `type: command`.
 
 The full working-sandbox/test-sandbox lifecycle is runner-integration work.
 The command harness creates the public working sandbox only. Step 7 should

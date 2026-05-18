@@ -20,7 +20,6 @@ def valid_tester_config(**overrides):
         "harness": {
             "type": "codex",
             "mode": "container",
-            "image": "securebench-codex:0.1",
             "env": ["OPENAI_API_KEY"],
         },
     }
@@ -38,10 +37,25 @@ def test_parse_tester_config_accepts_container_harness():
     assert config.benchmark.tasks == Path("benchmarks/repo-repair/tasks.jsonl")
     assert config.harness.type == "codex"
     assert config.harness.mode == "container"
-    assert config.harness.image == "securebench-codex:0.1"
     assert config.harness.env == ("OPENAI_API_KEY",)
     assert config.harness.path is None
     assert config.harness.config == {}
+
+
+def test_parse_tester_config_accepts_container_harness_without_image():
+    config = parse_tester_config(
+        valid_tester_config(
+            harness={
+                "type": "codex",
+                "mode": "container",
+                "env": ["OPENAI_API_KEY"],
+            }
+        )
+    )
+
+    assert config.harness.type == "codex"
+    assert config.harness.mode == "container"
+    assert config.harness.env == ("OPENAI_API_KEY",)
 
 
 def test_parse_tester_config_accepts_host_harness_without_image():
@@ -58,7 +72,6 @@ def test_parse_tester_config_accepts_host_harness_without_image():
 
     assert config.harness.type == "claude_code"
     assert config.harness.mode == "host"
-    assert config.harness.image is None
     assert config.harness.env == ("ANTHROPIC_API_KEY",)
     assert config.harness.config == {"profile": "default"}
 
@@ -124,6 +137,10 @@ harness:
             {"harness": {"type": "codex", "mode": "host", "command": "codex"}},
             "harness contains unsupported field",
         ),
+        (
+            {"harness": {"type": "codex", "mode": "container", "image": "securebench-codex:0.1"}},
+            "harness contains unsupported field",
+        ),
     ],
 )
 def test_tester_config_rejects_invalid_shape(override, match):
@@ -138,7 +155,6 @@ def test_tester_config_rejects_invalid_shape(override, match):
         ({"type": "codex", "mode": "unknown"}, "harness.mode must be one of"),
         ({"type": "submission", "mode": "host", "path": "results.jsonl"}, "requires mode 'submission'"),
         ({"type": "codex", "mode": "submission"}, "requires harness.type 'submission'"),
-        ({"type": "codex", "mode": "container"}, "harness.image is required for container mode"),
         ({"type": "submission", "mode": "submission"}, "harness.path is required for submission"),
         ({"type": "codex", "mode": "host", "path": "results.jsonl"}, "only supported for submission"),
         ({"type": "codex", "mode": "host", "env": "OPENAI_API_KEY"}, "harness.env must be a list"),

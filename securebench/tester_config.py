@@ -18,7 +18,7 @@ HarnessMode = Literal["host", "container", "submission"]
 ROOT_FIELDS = {"schema_version", "run", "benchmark", "harness"}
 RUN_FIELDS = {"id", "output_dir"}
 BENCHMARK_FIELDS = {"manifest", "tasks"}
-HARNESS_FIELDS = {"type", "mode", "image", "env", "path", "config"}
+HARNESS_FIELDS = {"type", "mode", "env", "path", "config"}
 HARNESS_TYPES = {"codex", "claude_code", "command", "submission"}
 HARNESS_MODES = {"host", "container", "submission"}
 
@@ -45,7 +45,6 @@ class TesterHarnessSection:
 
     type: HarnessType
     mode: HarnessMode
-    image: str | None = None
     env: tuple[str, ...] = ()
     path: Path | None = None
     config: dict[str, Any] = field(default_factory=dict)
@@ -107,7 +106,6 @@ def parse_tester_config(data: dict[str, Any], *, base_dir: str | Path | None = N
 def _harness_section(data: dict[str, Any], base_dir: Path | None) -> TesterHarnessSection:
     harness_type = _expect_literal(_required_str(data, "type", "harness"), HARNESS_TYPES, "harness.type")
     mode = _expect_literal(_required_str(data, "mode", "harness"), HARNESS_MODES, "harness.mode")
-    image = _optional_str(data.get("image"), "harness.image")
     path_value = _optional_str(data.get("path"), "harness.path")
     path = None if path_value is None else _config_path(path_value, base_dir)
     config = _optional_dict(data.get("config"), "harness.config")
@@ -123,13 +121,9 @@ def _harness_section(data: dict[str, Any], base_dir: Path | None) -> TesterHarne
         if path is not None:
             raise ConfigError("harness.path is only supported for submission harnesses")
 
-    if mode == "container" and image is None:
-        raise ConfigError("harness.image is required for container mode")
-
     return TesterHarnessSection(
         type=harness_type,  # type: ignore[arg-type]
         mode=mode,  # type: ignore[arg-type]
-        image=image,
         env=_env_names(data.get("env"), "harness.env"),
         path=path,
         config=config,

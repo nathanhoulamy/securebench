@@ -67,7 +67,7 @@ def reset_fakes():
     FakeDockerSandbox.instances = []
 
 
-def mc_task(manifest=None, *, assets=()):
+def mc_task(manifest=None, *, assets=(), environment=None):
     return compile_benchmark_row(
         BenchmarkRow(
             id="mc-1",
@@ -75,6 +75,7 @@ def mc_task(manifest=None, *, assets=()):
             input={"question": "2 + 2?", "choices": ["1", "2", "4"]},
             assets=assets,
             eval={"answer": "4"},
+            environment={} if environment is None else environment,
         ),
         manifest=manifest or BenchmarkPackManifest(id="pack", version=1),
     )
@@ -104,11 +105,10 @@ def repo_patch_task():
     )
 
 
-def harness_section(*, mode="host", image=None, config=None, harness_type="command"):
+def harness_section(*, mode="host", config=None, harness_type="command"):
     return HarnessSection(
         type=harness_type,
         mode=mode,
-        image=image,
         env=("OPENAI_API_KEY",),
         config={} if config is None else config,
     )
@@ -214,11 +214,10 @@ def test_command_harness_container_mode_uses_docker_and_read_only_asset_mounts(m
         path=manifest_path,
         asset_defaults=AssetDefaults(read_only=True),
     )
-    task = mc_task(manifest, assets=({"path": "input.txt"},))
+    task = mc_task(manifest, assets=({"path": "input.txt"},), environment={"image": "python:3.11-slim"})
     producer = build_harness_producer(
         harness_section(
             mode="container",
-            image="securebench-command:0.1",
             config={"command": ["produce"]},
         ),
         workspace_root=tmp_path / "runs",
@@ -227,12 +226,27 @@ def test_command_harness_container_mode_uses_docker_and_read_only_asset_mounts(m
     producer.produce(task)
 
     docker = FakeDockerSandbox.instances[-1]
-    assert docker.image == "securebench-command:0.1"
+    assert docker.image == "python:3.11-slim"
     assert docker.env_names == ("OPENAI_API_KEY",)
     assert len(docker.mounts) == 1
     assert docker.mounts[0].target == "input.txt"
     assert docker.mounts[0].read_only is True
     assert docker.mounts[0].source == tmp_path / "runs" / "mc-1" / "input.txt"
+
+
+def test_command_harness_container_mode_requires_benchmark_environment_image(monkeypatch, tmp_path):
+    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.DockerSandbox", FakeDockerSandbox)
+    producer = build_harness_producer(
+        harness_section(
+            mode="container",
+            config={"command": ["produce"]},
+        ),
+        workspace_root=tmp_path / "runs",
+    )
+
+    with pytest.raises(ConfigError, match="benchmark environment.image"):
+        producer.produce(mc_task())
 
 
 @pytest.mark.parametrize(

@@ -195,7 +195,6 @@ benchmark:
 harness:
   type: codex
   mode: container
-  image: securebench-codex:0.1
   env:
     - OPENAI_API_KEY
 ```
@@ -211,7 +210,6 @@ Harness validation is deliberately minimal:
 - allowed modes are `host`, `container`, and `submission`.
 - `submission` type must use `mode: submission` and provide `path`.
 - non-submission types must use `host` or `container`.
-- `container` mode requires `image`.
 - `env` is optional and contains environment variable names only, never
   `NAME=value` assignments.
 - optional `harness.config` is preserved for Step 6 adapter-specific details.
@@ -323,7 +321,6 @@ The command harness accepts:
 harness:
   type: command
   mode: container
-  image: securebench-command:0.1
   env:
     - OPENAI_API_KEY
   config:
@@ -345,8 +342,9 @@ Before execution, SecureBench prepares an agent-visible workspace only:
 - materialize public resources and public `assets[]` with
   `VisibilityAwareMaterializer`;
 - never materialize hidden or `evaluation_inputs` resources for the harness;
-- in container mode, derive read-only Docker bind mounts for read-only public
-  assets.
+- in container mode, run the harness inside the benchmark row's resolved
+  `environment.image` and derive read-only Docker bind mounts for read-only
+  public assets.
 
 Candidate output is normalized through the family contract. `text` and `code`
 families populate `CandidateArtifact.text`; `patch` families populate
@@ -354,8 +352,10 @@ families populate `CandidateArtifact.text`; `patch` families populate
 but fail clearly when a harness tries to execute them.
 
 Host mode uses a rooted local workspace and is convenient for local tools, but
-it is weaker isolation. Container mode uses `DockerSandbox` with the tester
-image/env declaration and existing Docker hardening defaults.
+it is weaker isolation. Container mode uses `DockerSandbox` with the benchmark
+environment image, the tester environment-variable allowlist, and existing
+Docker hardening defaults. Agent/tooling overlays for named harnesses are
+deferred.
 
 Deferred `submission` note: a future submission harness should read a file
 keyed by task id, validate missing and duplicate task ids, preserve optional
@@ -366,8 +366,9 @@ agentic harness path first.
 Deferred named-wrapper note: `codex` and `claude_code` should become stable
 presets rather than raw command passthroughs. Implementing them needs fixed CLI
 invocation conventions, expected working-directory behavior, artifact
-extraction rules, and recommended container image shapes. Until then, testers
-can use `type: command` for their own installed or containerized harnesses.
+extraction rules, and an overlay strategy for installing agent tooling on top
+of benchmark environment images. Until then, testers can use `type: command`
+for their own installed or containerized harnesses.
 
 ACP can remain a future adapter path rather than a core dependency.
 

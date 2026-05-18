@@ -244,7 +244,6 @@ benchmark:
 harness:
   type: codex
   mode: container
-  image: securebench-codex:0.1
   env:
     - OPENAI_API_KEY</pre>
       <div class="note">Tester YAML cannot relax benchmark security constraints. SecureBench should fail preflight if the selected harness mode cannot satisfy the benchmark requirements.</div>
@@ -262,7 +261,7 @@ harness:
       <h2>Harness Modes</h2>
       <div class="grid">
         <div class="mini-card"><h3>host</h3><p>The tester has the harness installed locally. SecureBench creates a public temporary workspace and invokes the harness. Convenient for smoke runs, weaker as a host-process isolation boundary.</p></div>
-        <div class="mini-card"><h3>container</h3><p>The tester provides an image containing the harness. SecureBench runs it with only public workspace data and allowlisted credentials. Preferred for secure, reproducible runs.</p></div>
+        <div class="mini-card"><h3>container</h3><p>SecureBench runs the harness inside the benchmark environment image with only public workspace data and allowlisted credentials. Agent tooling overlays are a future layer.</p></div>
         <div class="mini-card"><h3>submission</h3><p>SecureBench does not run an agent. It evaluates precomputed predictions or artifacts against the benchmark family runner.</p></div>
       </div>
       <pre class="schema"># Host-installed convenience mode
@@ -276,7 +275,6 @@ harness:
 harness:
   type: claude_code
   mode: container
-  image: securebench-claude-code:0.1
   env:
     - ANTHROPIC_API_KEY
 
@@ -290,9 +288,9 @@ harness:
       <h2>Harness Types</h2>
       <article class="family">
         <div class="family-head"><div><h3>Supported and Planned Types</h3><p>Common harnesses should not expose raw commands. SecureBench owns the adapter behavior.</p></div><div class="examples">Agent-agnostic execution</div></div>
-        <div class="table-wrap"><table><thead><tr><th>Type</th><th>Mode support</th><th>Meaning</th></tr></thead><tbody><tr><td class="field">codex</td><td class="">host or container</td><td class="">Run the Codex CLI harness. SecureBench performs preflight checks for command/image and env vars.</td></tr><tr><td class="field">claude_code</td><td class="">host or container</td><td class="">Run the Claude Code harness. Container mode should use a tester-provided image with the CLI installed.</td></tr><tr><td class="field">command</td><td class="">host or container</td><td class="">Advanced escape hatch for custom harnesses. Requires explicit command and is not needed for common named harnesses.</td></tr><tr><td class="field">submission</td><td class="">submission only</td><td class="">Read candidate outputs from a file and skip harness execution.</td></tr><tr><td class="field">acp</td><td class="">future host or container</td><td class="">Potential future adapter where SecureBench acts as an Agent Client Protocol client.</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Type</th><th>Mode support</th><th>Meaning</th></tr></thead><tbody><tr><td class="field">codex</td><td class="">host or container</td><td class="">Run the Codex CLI harness. SecureBench performs preflight checks for command/tooling and env vars.</td></tr><tr><td class="field">claude_code</td><td class="">host or container</td><td class="">Run the Claude Code harness. Container mode should use the benchmark environment image plus a future tooling overlay.</td></tr><tr><td class="field">command</td><td class="">host or container</td><td class="">Advanced escape hatch for custom harnesses. Requires explicit command and is not needed for common named harnesses.</td></tr><tr><td class="field">submission</td><td class="">submission only</td><td class="">Read candidate outputs from a file and skip harness execution.</td></tr><tr><td class="field">acp</td><td class="">future host or container</td><td class="">Potential future adapter where SecureBench acts as an Agent Client Protocol client.</td></tr></tbody></table></div>
       </article>
-      <div class="warning"><strong>Installation policy:</strong> SecureBench should not install third-party harnesses by default. Testers install host harnesses themselves or provide container images. SecureBench checks availability, versions when possible, required env vars, and whether the benchmark constraints can be satisfied.</div>
+      <div class="warning"><strong>Installation policy:</strong> SecureBench should not install third-party harnesses by default. Testers install host harnesses themselves. Container harnesses run on the benchmark environment image; named harness tooling overlays are deferred. SecureBench checks availability, versions when possible, required env vars, and whether the benchmark constraints can be satisfied.</div>
     </section>
 
     <section>

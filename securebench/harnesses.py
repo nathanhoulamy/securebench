@@ -34,7 +34,6 @@ class CommandHarnessProducer(CandidateProducer):
         *,
         mode: str,
         command: str | tuple[str, ...],
-        image: str | None = None,
         env_names: tuple[str, ...] = (),
         artifact_path: str | None = None,
         task_file: str = "securebench_task.json",
@@ -43,10 +42,7 @@ class CommandHarnessProducer(CandidateProducer):
     ) -> None:
         if mode not in {"host", "container"}:
             raise ConfigError("command harness mode must be 'host' or 'container'")
-        if mode == "container" and image is None:
-            raise ConfigError("command harness container mode requires an image")
         self.mode = mode
-        self.image = image
         self.env_names = tuple(env_names)
         self.command = command
         self.artifact_path = artifact_path
@@ -74,7 +70,7 @@ class CommandHarnessProducer(CandidateProducer):
             _reject_artifact_collision(self.artifact_path, plan)
             staging.write_file(self.task_file, _agent_task_json(task))
 
-            sandbox = self._sandbox(workspace_root, plan)
+            sandbox = self._sandbox(task, workspace_root, plan)
             try:
                 result = sandbox.run(
                     self.command,
@@ -104,11 +100,12 @@ class CommandHarnessProducer(CandidateProducer):
             if cleanup is not None:
                 cleanup.cleanup()
 
-    def _sandbox(self, workspace_root: Path, plan: MaterializationPlan) -> Sandbox:
+    def _sandbox(self, task: SecureBenchTask, workspace_root: Path, plan: MaterializationPlan) -> Sandbox:
         if self.mode == "host":
             return HostSandbox(root=workspace_root, env_names=self.env_names)
+        image = _container_image_for_task(task)
         return DockerSandbox(
-            image=self.image or "",
+            image=image,
             root=workspace_root,
             env_names=self.env_names,
             mounts=docker_read_only_mounts(plan, workspace_root),
@@ -125,7 +122,6 @@ def build_harness_producer(
         config = _command_config(harness.config)
         return CommandHarnessProducer(
             mode=harness.mode,
-            image=harness.image,
             env_names=harness.env,
             workspace_root=workspace_root,
             **config,
@@ -144,6 +140,18 @@ def _command_config(config: dict[str, Any]) -> dict[str, Any]:
         "task_file": _workspace_path(config.get("task_file", "securebench_task.json"), "harness.config.task_file"),
         "timeout_seconds": _optional_positive_number(config.get("timeout_seconds"), "harness.config.timeout_seconds"),
     }
+
+
+def _container_image_for_task(task: SecureBenchTask) -> str:
+    metadata = task.metadata if isinstance(task.metadata, dict) else {}
+    environment = metadata.get("environment")
+    image = environment.get("image") if isinstance(environment, dict) else None
+    if not isinstance(image, str) or not image.strip():
+        raise ConfigError(
+            "container harness mode requires benchmark environment.image; "
+            "set defaults.environment.image in the manifest or environment.image on the benchmark row"
+        )
+    return image.strip()
 
 
 def _command_value(value: Any) -> str | tuple[str, ...]:

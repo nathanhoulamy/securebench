@@ -13,6 +13,5 @@ benchmark:
 harness:
   type: codex
   mode: container
-  image: securebench-codex:0.1
   env:
     - OPENAI_API_KEY
