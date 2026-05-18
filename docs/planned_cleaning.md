@@ -8,30 +8,28 @@ the current compatibility use cases. Until then, keep these paths working.
 
 Do not remove compatibility code until all of these are true:
 
-- benchmark-pack loading, compilation, harness execution, family runners, and
+- benchmark-pack loading, compilation, harness execution, family verifiers, and
   tester YAML CLI execution are wired end to end.
 - MMLU, HumanEval, and SWE-bench-style evaluations have been ported to
   benchmark packs or intentionally dropped.
-- regression fixtures exist for the replacement packs and runner behavior.
+- regression fixtures exist for the replacement packs and verifier behavior.
 - result records from the new path contain enough metadata to replace old run
   outputs for debugging and comparison.
 
 ## Run Config and Dataset Compatibility
 
-Remove the old Hugging Face-oriented run path once `tester.yaml` is the only
-supported execution entrypoint:
+The old Hugging Face-oriented run path has been removed now that
+`securebench run --config` expects tester YAML:
 
 - `securebench/config.py` and its old `dataset`, `adapter`, `producer`,
   `runner`, and `environment` run schema.
-- `securebench/datasets.py` dataset reference helpers for MMLU, HumanEval, and
-  SWE-bench Verified.
 - `securebench/runtime.py` builders for old adapters, producers, and runners.
-- `securebench/run.py` orchestration that assumes the old config structure.
-- CLI options that load `securebench run --config ...` instead of tester YAML.
-- tests whose only purpose is preserving the old run schema.
+- `securebench/run.py` orchestration that assumed the old config structure.
+- legacy run-schema documentation and configs.
+- tests whose only purpose was preserving the old run schema.
 
 Before removal, migrate any still-useful validation ideas into the new
-benchmark manifest, tester config, harness, or family-runner layers.
+benchmark manifest, tester config, harness, or family-verifier layers.
 
 ## Adapter Layer
 
@@ -64,19 +62,20 @@ Review old candidate producers after harnesses are complete:
 Keep small reusable primitives only when they serve the standardized harness
 interface directly.
 
-## Task and Runner Naming
+## Task and Verifier Naming
 
-Normalize legacy task names once replacement runners exist:
+Normalize legacy task names once replacement verifiers exist:
 
 - replace `github_patch` with standard `repo_patch` throughout public-facing
   code.
 - remove `GitHubPatchTask` if generic `SecureBenchTask` plus family contracts
   are sufficient.
-- rename or replace `GitHubPatchRunner` with a `repo_patch` family runner.
+- replace `GitHubPatchTask`/patch-specific assumptions with a `repo_patch`
+  family verifier.
 - ensure `CandidateArtifact.for_task(...)` no longer needs legacy
   task-type aliases.
 
-This should happen after Step 7 proves that standard family runners can score
+This should happen after Step 7 proves that standard family verifiers can score
 the active families without relying on legacy task classes.
 
 ## Materialization and Sandbox Primitives

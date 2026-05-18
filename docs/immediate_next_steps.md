@@ -4,7 +4,7 @@ This document collects the deferred work from the implemented refactoring
 steps and orders the next engineering passes. It is meant as the restart point
 after the current pause.
 
-## 1. Step 7: Family Runner Integration
+## 1. Step 7: Family Verifier Integration
 
 Implement the standardized scoring loop for the active families:
 
@@ -16,7 +16,7 @@ Implement the standardized scoring loop for the active families:
 6. create a fresh test sandbox for scoring;
 7. materialize public resources plus `evaluation_inputs` into the test
    sandbox;
-8. run the family runner while keeping hidden resources evaluator-side only.
+8. run the family verifier while keeping hidden resources evaluator-side only.
 
 Start with `multiple_choice`, `short_answer`, `code_completion`, and
 `repo_patch`. Treat `free_response` as structurally valid but not fully
@@ -24,7 +24,7 @@ automated unless a concrete scorer is chosen.
 
 Key decisions to preserve:
 
-- runner dispatch uses standard family names, not `runner_key` aliases.
+- verifier dispatch uses standard family names, not `runner_key` aliases.
 - `repo_patch` is not silently translated to legacy `github_patch`.
 - hidden resources may be read by trusted evaluator code, but are not mounted
   into harness or ordinary test-sandbox workspaces.
@@ -43,13 +43,13 @@ Make the working/test sandbox split concrete:
   and expected states.
 
 Add helper APIs for building the test-sandbox materialization plan and for
-placing candidate artifacts at runner-specific paths. Avoid exposing a generic
-global artifact section in the benchmark row; runner expectations remain
+placing candidate artifacts at verifier-specific paths. Avoid exposing a generic
+global artifact section in the benchmark row; verifier expectations remain
 family-specific.
 
-## 3. Active Family Runners
+## 3. Active Family Verifiers
 
-Implement or adapt runners for the active families:
+Implement verifiers for the active families:
 
 - `multiple_choice`: compare normalized text candidate to hidden
   `eval.answer`.
@@ -64,8 +64,8 @@ Implement or adapt runners for the active families:
 - `free_response`: leave as pending or implement only once the scorer shape is
   decided.
 
-Keep current MMLU/HumanEval/SWE-bench runners green as compatibility paths
-until equivalent standard-family coverage exists.
+The legacy runner path has been removed; new work should target these
+standard-family verifiers directly.
 
 ## 4. Deferred Harness Work
 
@@ -76,7 +76,8 @@ remaining harness work:
   duplicate task ids, preserve metadata, and validate candidate value shape
   against family contracts.
 - `codex`: mounted container execution is the first named-agent preset;
-  candidate extraction remains to be defined.
+  `code_completion` extraction reads `candidate.py`, and `repo_patch`
+  extraction collects `git diff --binary`.
 - `claude_code`: same as `codex`; avoid exposing raw commands for named common
   harnesses.
 - optional future `acp`: keep outside the parser until a real adapter path is
@@ -102,20 +103,17 @@ loop but should land before public use:
 
 ## 6. CLI and Examples
 
-Wire the standardized path into the command line after Step 7 has a working
-runner loop:
+The standardized candidate-production and verification path is wired into the
+command line:
 
-- add a tester-YAML CLI entrypoint.
-- write a minimal benchmark-pack fixture for each active family with an
-  executable runner.
-- add smoke tests that exercise tester YAML, benchmark-pack loading,
-  compilation, command harness execution, and family scoring.
-- keep the old `securebench run --config ...` path until the new examples cover
-  the replacement behavior.
+- `securebench run --config <tester.yaml>` loads tester YAML.
+- the code-completion smoke pack exercises tester YAML, benchmark-pack loading,
+  compilation, Codex mounted harness execution, candidate extraction, and
+  code-completion verification.
 
 ## 7. Security and Audit Follow-Ups
 
-Carry forward these hardening items while integrating runners:
+Carry forward these hardening items while integrating verifiers:
 
 - keep Docker as the secure/reproducible path; host mode remains convenience
   only.

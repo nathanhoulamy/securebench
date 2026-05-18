@@ -1,24 +1,20 @@
 # SecureBench
 
 SecureBench is a benchmark execution framework for evaluating AI systems while
-keeping benchmark data, answer keys, tests, and grading logic separate from
-untrusted model or agent execution.
+keeping benchmark rows, public task data, candidate-producing harnesses, and
+trusted verifier data separated.
 
-The current MVP supports:
+The current implementation is centered on benchmark packs and tester YAML:
 
-- Hugging Face dataset loading
-- MMLU multiple-choice evaluation
-- HumanEval-style Python completion evaluation
-- SWE-bench Verified row normalization
-- GitHub patch evaluation with hidden patch groups and named test groups
-- A minimal built-in workspace agent for repository patch production
-- OpenAI-compatible Chat Completions endpoints
-- Static candidate producers for smoke tests
-- Workspace-agent patch producers for GitHub repair tasks
-- Internal resource materialization primitives with framework-owned paths
-- Internal path policy validation for materialized resources
-- YAML run configs
-- JSONL result output
+- benchmark-pack manifests and JSONL task rows
+- visibility-aware public/evaluation/hidden resource compilation
+- tester YAML harness configs
+- command harnesses for host/container smoke runs
+- Codex CLI mounted harness execution
+- shared candidate artifact extraction
+- code-completion verification with JSONL result output
+
+Additional family verifiers are still being added.
 
 ## Quick Start
 
@@ -26,71 +22,68 @@ Create and install the project:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[hf]'
+.venv/bin/python -m pip install -e .
 ```
 
-Run the offline/static smoke test against MMLU rows:
+For Codex harness runs, put your key in `.env`:
 
 ```bash
-.venv/bin/python -m securebench.cli run --config configs/mmlu-static-smoke.yaml --limit 3
+CODEX_API_KEY=...
 ```
 
-For an OpenAI-compatible endpoint, put your key in `.env`:
+Run the code-completion smoke pack through candidate extraction and verification:
 
 ```bash
-OPENAI_API_KEY=...
+.venv/bin/python -m securebench.cli run \
+  --config benchmarks/code-completion-smoke/tester-codex.yaml \
+  --limit 1
 ```
 
-Then run:
+Candidate records are written to:
 
-```bash
-.venv/bin/python -m securebench.cli run --config configs/mmlu-openai-smoke.yaml --limit 5
+```text
+runs/code-completion-smoke-codex/candidates.jsonl
 ```
 
-Run the HumanEval smoke configs:
+Per-task harness workspaces are written under:
 
-```bash
-.venv/bin/python -m securebench.cli run --config configs/humaneval-static-smoke.yaml --limit 3
-.venv/bin/python -m securebench.cli run --config configs/humaneval-openai-smoke.yaml --limit 3
+```text
+runs/code-completion-smoke-codex/workspaces/
 ```
 
-Results are written as JSONL under `runs/`.
+## Tester YAML
 
-## Configs
-
-Run configs are YAML files. See [docs/run-schema.md](docs/run-schema.md).
-
-Example:
+Tester YAML selects a benchmark pack and candidate-producing harness:
 
 ```yaml
-schema_version: "0.1"
+schema_version: "0.2"
 
 run:
-  id: mmlu-openai-smoke
-  limit: 10
-  output_path: runs/mmlu-openai-smoke/results.jsonl
+  id: code-completion-smoke-codex
+  output_dir: ../../runs/code-completion-smoke-codex
 
-dataset:
-  provider: huggingface
-  name: cais/mmlu
-  config: abstract_algebra
-  split: test
-  streaming: true
+benchmark:
+  manifest: manifest.yaml
+  tasks: tasks.jsonl
 
-adapter:
-  id: mmlu
-
-producer:
-  type: openai_compatible
+harness:
+  type: codex
+  mode: mounted
+  env:
+    - CODEX_API_KEY
   config:
     model: gpt-5.4-mini
-    base_url: https://api.openai.com/v1
-    api_key_env: OPENAI_API_KEY
-    temperature: 0
-    system_prompt: Answer with only one of A, B, C, or D. Do not return the choice text.
+    version: latest
+    task_file: task.json
+    timeout_seconds: 300
+```
 
-runner:
-  type: multiple_choice
+The CLI loads `.env` by default. Use another env file when needed:
+
+```bash
+.venv/bin/python -m securebench.cli run \
+  --config benchmarks/code-completion-smoke/tester-codex.yaml \
+  --env-file path/to/.env
 ```
 
 ## Development
@@ -101,45 +94,6 @@ Run tests:
 .venv/bin/python -m pytest -q
 ```
 
-Build the default workspace-agent Docker image manually if desired:
-
-```bash
-docker build -f docker/agent.Dockerfile \
-  --build-arg PYTHON_VERSION=3.11-slim \
-  --build-arg ENVIRONMENT_PACKAGES="" \
-  -t securebench-agent-runtime:py3.11-slim .
-```
-
-Run configs with a Docker-backed `environment` auto-build this image when the
-tag is missing. If `environment.packages` is set, SecureBench includes those
-Debian packages in the build and uses a package-specific image tag. The image
-includes the standalone SecureBench agent runtime, so producer configs can run
-`python -m securebench_agent.run` inside the sandbox.
-
-Run the SWE-bench Verified smoke config:
-
-```bash
-.venv/bin/python -m securebench.cli run --config configs/swebench-verified-agent-smoke.yaml --limit 1
-```
-
-This path is intentionally still a smoke path: it exercises dataset loading,
-the workspace agent, candidate patch collection, hidden patch application, and
-test selection, but real pass rates depend on repo-specific dependency setup
-and agent quality.
-
-## Status
-
-This is an early MVP. The current working paths are MMLU, HumanEval smoke
-evaluation, and a generic GitHub patch pipeline aimed first at SWE-bench
-Verified. The Docker sandbox now uses one persistent container per sandbox
-instance, while producers and runners create fresh sandbox instances at task
-boundaries. Restrictive Docker hardening defaults are now in place, including
-no-network mode, dropped capabilities, read-only container roots, tmpfs for
-`/tmp`, memory and PID limits, and `no-new-privileges`.
-
-Resource materialization currently exists as internal framework plumbing with
-framework-owned paths, guarded by internal path-policy validation. Producers
-and runners still use the existing task payload and typed-field flow. The
-GitHub patch path still needs materialization integration, schema-declared
-paths, developer path policies, a stronger dependency strategy, and agent
-traceability before broad benchmark runs.
+The old Hugging Face-oriented CLI path has been removed from the command line.
+Legacy modules remain in the repository during the transition, but `securebench
+run` now expects tester YAML.

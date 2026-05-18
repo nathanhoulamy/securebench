@@ -113,8 +113,8 @@ Initial `eval.*` visibility registry:
 
 Compatibility note: `reference_solution` is the benchmark-pack
 code-completion field for private/gold solutions. `canonical_solution` comes
-from the current HumanEval adapter and remains accepted as a hidden
-compatibility alias until that path is retired.
+from the previous HumanEval adapter path and remains accepted as a hidden
+alias for imported benchmark rows.
 
 ## 3. Materialization Expansion
 
@@ -170,13 +170,13 @@ should be treated as future harness work.
 Deferred family-schema work: Step 3 recognizes file-reference structure
 generically, but it does not yet decide which family fields are allowed or
 required to be file references. That validation belongs with family schemas and
-runner integration.
+verifier integration.
 
 ## 4. Tester YAML Parsing
 
 Add a small tester config that contains only the run identity, benchmark pack
-paths, output location, and harness selection. This parser is separate from the
-old `securebench.config` Hugging Face run config and uses
+paths, output location, and harness selection. The legacy Hugging Face run
+config path has been removed from the active CLI; tester YAML uses
 `schema_version: "0.2"`.
 
 The supported shape is:
@@ -198,6 +198,7 @@ harness:
   env:
     - CODEX_API_KEY
   config:
+    model: gpt-5.4-mini
     version: latest
     task_file: task.json
     timeout_seconds: 900
@@ -231,11 +232,11 @@ step should give every benchmark family a minimal internal contract describing
 what kind of candidate artifact it expects, and should validate the
 family-specific required and optional row fields for active families.
 
-The first pass stays structural rather than implementing runners:
+The first pass stays structural rather than implementing verifiers:
 
 - define `CandidateKind` as `text`, `code`, or `patch`.
 - define `FamilyContract(family, candidate_kind, requires_workspace=False)`.
-- provide a registry lookup used by future harness adapters and family runners.
+- provide a registry lookup used by future harness adapters and family verifiers.
 - allow unknown families to fail clearly once execution is attempted, while
   still allowing Step 1/2 loading and compilation.
 
@@ -249,7 +250,7 @@ Active contracts:
 
 Do not add visibility-derived fields such as `uses_evaluation_inputs` or
 `uses_hidden`; those remain available from each task's `ResourceBundle`. Do not
-add `legacy_task_type` or `runner_key`; future dispatch should use standard
+add `legacy_task_type` or `runner_key`; dispatch should use standard
 family names directly. `submission` is a harness mode, not a candidate kind.
 
 Deferred families: `terminal_task`, `tool_call`, `browser_task`,
@@ -262,8 +263,8 @@ contract explicit so harness adapters know what they must produce.
 
 Active-family schema validation runs at the start of row compilation, before
 resources are constructed, so benchmark authors get row-shaped errors rather
-than late runner failures. Unknown/deferred families may still load and compile,
-but they fail execution-contract lookup until their contracts and runners are
+than late verifier failures. Unknown/deferred families may still load and compile,
+but they fail execution-contract lookup until their contracts and verifiers are
 implemented.
 
 Active schemas:
@@ -289,8 +290,8 @@ Active schemas:
   - optional `input.starter_code`: string
   - required `eval.tests`: object
   - optional `eval.reference_solution`: string
-  - compatibility: continue accepting optional `eval.canonical_solution` as a
-    hidden HumanEval-era alias until the compatibility path is removed.
+  - compatibility: optional `eval.canonical_solution` remains accepted as a
+    hidden HumanEval-era alias for imported benchmark rows.
 - `repo_patch`
   - required `input.repo`: string
   - required `input.base_commit`: string
@@ -370,17 +371,19 @@ agentic harness path first.
 
 Named-wrapper note: `codex` now has a first mounted container harness that runs
 inside the benchmark environment image and mounts a read-only Codex CLI overlay.
-Candidate extraction remains deferred. `claude_code` and other agent wrappers
-remain future work.
+Harnesses use shared candidate extraction specs rather than each wrapper owning
+artifact collection. For `code_completion`, named agents write `candidate.py`
+and SecureBench reads that file as the code candidate. For `repo_patch`,
+SecureBench collects `git diff --binary` after the harness finishes.
+`claude_code` and other agent wrappers remain future work.
 
 ACP can remain a future adapter path rather than a core dependency.
 
-## 7. Family Runner Integration
+## 7. Family Verifier Integration
 
-Map benchmark families to candidate-output contracts and runners without adding
-a separate global artifact section. Preserve current MMLU, HumanEval, and
-SWE-bench behavior as compatibility paths while new development moves toward
-family-based normalized rows and benchmark packs.
+Map benchmark families to candidate-output contracts and verifiers without
+adding a separate global artifact section. New development should use
+family-based normalized rows and benchmark packs directly.
 
 This is also the step where the full sandbox lifecycle becomes explicit. Step 6
 creates only the harness working sandbox: the public workspace where the agent
@@ -398,12 +401,16 @@ The intended standardized execution flow is:
 4. create a fresh test sandbox for scoring;
 5. materialize public resources plus `evaluation_inputs` into that test
    sandbox;
-6. run the family runner and keep hidden resources available only to trusted
+6. run the family verifier and keep hidden resources available only to trusted
    evaluator code.
 
 ## 8. CLI and Migration Path
 
-Update the CLI so SecureBench can run the new tester YAML while the current
-`securebench run --config ...` path keeps working during the transition. Add
-focused smoke examples for the new pack format before removing or deprecating
-old schema paths.
+The CLI now runs tester YAML directly:
+
+```bash
+.venv/bin/python -m securebench.cli run --config benchmarks/code-completion-smoke/tester-codex.yaml
+```
+
+This path writes candidate and verifier records. The old Hugging Face-oriented
+CLI entrypoint has been removed from the command-line surface.
