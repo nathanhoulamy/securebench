@@ -72,7 +72,7 @@ benchmark:
   name: string
   extends: one_of:
     - multiple_choice
-    - code_generation
+    - code_completion
     - github_patch
     - custom
 
@@ -223,7 +223,7 @@ task_ref:
   row_idx: 0
 ```
 
-## Task Type: Code Generation
+## Task Type: Code Completion
 
 Use this for HumanEval-like benchmarks where the model emits code and the
 framework executes it against tests.
@@ -234,7 +234,7 @@ schema_version: 0.1
 benchmark:
   id: humaneval
   name: HumanEval
-  extends: code_generation
+  extends: code_completion
 
 dataset:
   provider: huggingface

@@ -18,7 +18,7 @@ Implement the standardized scoring loop for the active families:
    sandbox;
 8. run the family runner while keeping hidden resources evaluator-side only.
 
-Start with `multiple_choice`, `short_answer`, `code_generation`, and
+Start with `multiple_choice`, `short_answer`, `code_completion`, and
 `repo_patch`. Treat `free_response` as structurally valid but not fully
 automated unless a concrete scorer is chosen.
 
@@ -55,7 +55,7 @@ Implement or adapt runners for the active families:
   `eval.answer`.
 - `short_answer`: compare normalized candidate to hidden
   `accepted_answers`, with optional numeric `tolerance`.
-- `code_generation`: run candidate code against `eval.tests` in a fresh
+- `code_completion`: run candidate code against `eval.tests` in a fresh
   sandbox. Avoid assuming the current HumanEval-only concatenation mode is the
   whole standard.
 - `repo_patch`: apply a patch candidate in a fresh workspace and run

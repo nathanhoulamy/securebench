@@ -14,7 +14,7 @@ from securebench.candidates import (
 )
 from securebench.environment import ensure_environment_image
 from securebench.errors import ConfigError
-from securebench.runners import CodeGenerationRunner, GitHubPatchRunner, MultipleChoiceRunner, Runner
+from securebench.runners import CodeCompletionRunner, GitHubPatchRunner, MultipleChoiceRunner, Runner
 from securebench.sandboxes import DockerSandbox
 
 
@@ -101,8 +101,8 @@ def build_producer(config: Any) -> Any:
 def build_runner(config: Any) -> Runner:
     if config.runner.type == "multiple_choice":
         return MultipleChoiceRunner()
-    if config.runner.type == "code_generation":
-        return CodeGenerationRunner()
+    if config.runner.type == "code_completion":
+        return CodeCompletionRunner()
     if config.runner.type == "github_patch":
         runner_config = config.runner.config or {}
         image = config.environment.image

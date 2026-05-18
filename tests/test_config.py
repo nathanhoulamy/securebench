@@ -5,7 +5,7 @@ import pytest
 from securebench.candidates import StaticCandidateProducer, TextCompletionProducer, WorkspaceAgentPatchProducer
 from securebench.config import ConfigError, load_run_config, parse_run_config
 from securebench.datasets import HUMANEVAL_DATASET_ID, MMLU_DATASET_ID, SWEBENCH_VERIFIED_DATASET_ID
-from securebench.runners import CodeGenerationRunner, GitHubPatchRunner, MultipleChoiceRunner
+from securebench.runners import CodeCompletionRunner, GitHubPatchRunner, MultipleChoiceRunner
 
 
 @pytest.fixture(autouse=True)
@@ -455,7 +455,7 @@ def test_load_humaneval_static_smoke_config_reads_yaml_file():
     assert config.dataset.split == "test"
     assert config.adapter.id == "humaneval"
     assert config.producer.type == "static"
-    assert config.runner.type == "code_generation"
+    assert config.runner.type == "code_completion"
 
 
 def test_load_humaneval_openai_smoke_config_reads_yaml_file():
@@ -465,7 +465,7 @@ def test_load_humaneval_openai_smoke_config_reads_yaml_file():
     assert config.dataset.name == HUMANEVAL_DATASET_ID
     assert config.dataset.config == "openai_humaneval"
     assert config.producer.type == "openai_compatible"
-    assert config.runner.type == "code_generation"
+    assert config.runner.type == "code_completion"
 
 
 def test_load_swebench_verified_agent_smoke_config_reads_yaml_file():
@@ -494,7 +494,7 @@ def test_load_swebench_verified_agent_smoke_config_reads_yaml_file():
         ("schema_version", "9.9", "Unsupported schema_version"),
         ("dataset", {"provider": "local", "name": "cais/mmlu", "config": "x", "split": "test"}, "dataset.provider"),
         ("adapter", {"id": "missing"}, "Unknown benchmark adapter"),
-        ("runner", {"type": "code_generation"}, "runner.type must match adapter task_type 'multiple_choice'"),
+        ("runner", {"type": "code_completion"}, "runner.type must match adapter task_type 'multiple_choice'"),
     ],
 )
 def test_parse_run_config_rejects_invalid_values(path, value, message):
@@ -605,12 +605,12 @@ def test_parse_run_config_allows_non_mmlu_huggingface_dataset_name():
 def test_parse_run_config_uses_adapter_task_type_for_runner_compatibility():
     data = valid_config()
     data["adapter"] = {"id": "humaneval"}
-    data["runner"] = {"type": "code_generation"}
+    data["runner"] = {"type": "code_completion"}
 
     config = parse_run_config(data)
 
     assert config.adapter.id == "humaneval"
-    assert isinstance(config.build_runner(), CodeGenerationRunner)
+    assert isinstance(config.build_runner(), CodeCompletionRunner)
 
 
 def test_parse_run_config_rejects_removed_sandbox_policy():

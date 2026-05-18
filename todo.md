@@ -23,7 +23,7 @@ For the MVP, the schema and interfaces should still leave room for a stricter fu
 - Benchmark-specific logic belongs in adapters.
 - SecureBench should normalize benchmark rows into a few common task types:
   - `multiple_choice`
-  - `code_generation`
+  - `code_completion`
   - `github_patch`
 - SWE-bench should not be treated as a one-off core abstraction. It should be an
   adapter on top of the generic `github_patch` primitive.
@@ -42,14 +42,14 @@ For the MVP, the schema and interfaces should still leave room for a stricter fu
 - `securebench/tasks.py`
   - Normalized task dataclasses:
     - `MultipleChoiceTask`
-    - `CodeGenerationTask`
+    - `CodeCompletionTask`
     - `GitHubPatchTask`
 - `securebench/adapters/base.py`
   - Base adapter interface.
 - `securebench/adapters/mmlu.py`
   - Converts MMLU rows into `MultipleChoiceTask`.
 - `securebench/adapters/humaneval.py`
-  - Converts HumanEval rows into `CodeGenerationTask`.
+  - Converts HumanEval rows into `CodeCompletionTask`.
 - `securebench/adapters/swebench.py`
   - Converts SWE-bench Verified rows into `GitHubPatchTask`.
   - Formats SWE-bench-compatible prediction objects.
@@ -62,8 +62,8 @@ For the MVP, the schema and interfaces should still leave room for a stricter fu
   - Base runner interface and structured `RunnerResult`.
 - `securebench/runners/multiple_choice.py`
   - Exact-match runner for `MultipleChoiceTask`.
-- `securebench/runners/code_generation.py`
-  - HumanEval-style Python code-generation runner.
+- `securebench/runners/code_completion.py`
+  - HumanEval-style Python code-completion runner.
 - `securebench/runners/github_patch.py`
   - Skeleton runner for clone, checkout, patch, test, and diff flows.
 - `securebench/sandboxes/base.py`
@@ -123,7 +123,7 @@ For the MVP, the schema and interfaces should still leave room for a stricter fu
   - Tests for adapter registry lookup behavior.
 - `tests/test_multiple_choice_runner.py`
   - Tests for multiple-choice parsing and scoring.
-- `tests/test_code_generation_runner.py`
+- `tests/test_code_completion_runner.py`
   - Tests for HumanEval script construction and sandbox interaction.
 - `tests/test_github_patch_runner.py`
   - Tests for GitHub patch runner command flow.
@@ -189,7 +189,7 @@ test protection, or full policy enforcement yet.
    - Suggested files:
      - `securebench/runners/base.py`
      - `securebench/runners/multiple_choice.py`
-     - `securebench/runners/code_generation.py`
+     - `securebench/runners/code_completion.py`
      - `securebench/runners/github_patch.py`
    - Keep these small.
    - A runner should accept a normalized task and return a structured result.
@@ -215,7 +215,7 @@ test protection, or full policy enforcement yet.
      6. Run configured tests.
      7. Return patch, exit code, stdout, stderr.
 
-5. Implement `CodeGenerationRunner` for HumanEval-style tasks.
+5. Implement `CodeCompletionRunner` for HumanEval-style tasks.
    - Flow:
      1. Receive generated Python code.
      2. Combine prompt, completion, and hidden tests.
@@ -260,7 +260,7 @@ test protection, or full policy enforcement yet.
    - Run `configs/mmlu-openai-smoke.yaml` once `OPENAI_API_KEY` is configured.
 
 3. Add integration tests for Docker-backed execution.
-   - Start with `CodeGenerationRunner` and a tiny Python task.
+   - Start with `CodeCompletionRunner` and a tiny Python task.
    - Skip when Docker is unavailable.
 
 4. Harden patch production/evaluation separation.

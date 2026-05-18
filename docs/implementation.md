@@ -97,7 +97,7 @@ Initial `eval.*` visibility registry:
 - `multiple_choice`: `answer` is hidden.
 - `short_answer`: `accepted_answers`, `tolerance` are hidden.
 - `free_response`: `reference_answer`, `rubric` are hidden.
-- `code_generation`: `tests` is `evaluation_inputs`; `reference_solution`
+- `code_completion`: `tests` is `evaluation_inputs`; `reference_solution`
   and compatibility `canonical_solution` are hidden.
 - `repo_patch`: `tests` is `evaluation_inputs`; `gold_patch` is hidden.
 - `terminal_task`: `checker` is `evaluation_inputs`; `expected_state` is
@@ -112,7 +112,7 @@ Initial `eval.*` visibility registry:
 - `preference_pair`: `preference`, `rubric` are hidden.
 
 Compatibility note: `reference_solution` is the benchmark-pack
-code-generation field for private/gold solutions. `canonical_solution` comes
+code-completion field for private/gold solutions. `canonical_solution` comes
 from the current HumanEval adapter and remains accepted as a hidden
 compatibility alias until that path is retired.
 
@@ -244,7 +244,7 @@ Active contracts:
 - `multiple_choice`: `text`
 - `short_answer`: `text`
 - `free_response`: `text`
-- `code_generation`: `code`
+- `code_completion`: `code`
 - `repo_patch`: `patch`, requires a mutable workspace
 
 Do not add visibility-derived fields such as `uses_evaluation_inputs` or
@@ -283,7 +283,7 @@ Active schemas:
   - optional `input.context`: string or object
   - required `eval.rubric`: string or object
   - optional `eval.reference_answer`: string
-- `code_generation`
+- `code_completion`
   - required `input.prompt`: string
   - optional `input.language`: string
   - optional `input.starter_code`: string

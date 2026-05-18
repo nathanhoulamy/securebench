@@ -70,12 +70,12 @@ def task_from_spec(spec: TaskSpec) -> SecureBenchTask:
             resources=resources,
         )
 
-    if task_type == "code_generation":
+    if task_type == "code_completion":
         _require_resources(resources, task_type, ("prompt",))
-        return CodeGenerationTask(
+        return CodeCompletionTask(
             id=task_id,
             benchmark_id=benchmark_id,
-            task_type="code_generation",
+            task_type="code_completion",
             metadata=metadata,
             resources=resources,
         )
@@ -105,7 +105,7 @@ class MultipleChoiceTask(SecureBenchTask):
 
 
 @dataclass(frozen=True)
-class CodeGenerationTask(SecureBenchTask):
+class CodeCompletionTask(SecureBenchTask):
     pass
 
 

@@ -25,4 +25,4 @@ producer:
     system_prompt: You are completing a Python function. Return only the indented function body that should be appended after the provided prompt. Do not repeat imports, decorators, the function signature, Markdown fences, or explanation.
 
 runner:
-  type: code_generation
+  type: code_completion

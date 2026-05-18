@@ -24,7 +24,7 @@ FAMILY_CONTRACTS: dict[str, FamilyContract] = {
     "multiple_choice": FamilyContract("multiple_choice", "text"),
     "short_answer": FamilyContract("short_answer", "text"),
     "free_response": FamilyContract("free_response", "text"),
-    "code_generation": FamilyContract("code_generation", "code"),
+    "code_completion": FamilyContract("code_completion", "code"),
     "repo_patch": FamilyContract("repo_patch", "patch", requires_workspace=True),
 }
 
@@ -84,7 +84,7 @@ def _validate_free_response(row: Any, context: str) -> None:
     _optional_non_empty_string(row.eval, "reference_answer", f"{context}.eval")
 
 
-def _validate_code_generation(row: Any, context: str) -> None:
+def _validate_code_completion(row: Any, context: str) -> None:
     _reject_unknown(
         row.input,
         {"prompt", "language", "starter_code"},
@@ -122,7 +122,7 @@ FAMILY_VALIDATORS: dict[str, FamilyValidator] = {
     "multiple_choice": _validate_multiple_choice,
     "short_answer": _validate_short_answer,
     "free_response": _validate_free_response,
-    "code_generation": _validate_code_generation,
+    "code_completion": _validate_code_completion,
     "repo_patch": _validate_repo_patch,
 }
 

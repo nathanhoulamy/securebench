@@ -9,7 +9,7 @@ The parser accepts YAML.
 
 The MVP implementation supports Hugging Face datasets, built-in adapters,
 static and OpenAI-compatible text producers, a workspace-agent patch producer,
-and runners for multiple-choice, HumanEval-style code generation, and generic
+and runners for multiple-choice, HumanEval-style code completion, and generic
 GitHub patch evaluation.
 
 Adapters normalize rows through a plain task spec. Custom Python adapters,
@@ -99,7 +99,7 @@ producer:
     system_prompt: You are completing a Python function. Return only the indented function body that should be appended after the provided prompt. Do not repeat imports, decorators, the function signature, Markdown fences, or explanation.
 
 runner:
-  type: code_generation
+  type: code_completion
 ```
 
 ## SWE-bench Verified Smoke Example
@@ -255,7 +255,7 @@ For `"workspace_agent_patch"`:
 
 `runner.type`
 : Required runner type. Built-in values are `"multiple_choice"`,
-`"code_generation"`, and `"github_patch"`.
+`"code_completion"`, and `"github_patch"`.
 
 For `runner.type: github_patch`, optional `runner.config` fields include:
 

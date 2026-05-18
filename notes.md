@@ -125,7 +125,7 @@ unknown `input.*` or `eval.*` keys are rejected. Unknown/deferred families
 remain loadable and compilable so future benchmark families can be introduced
 without changing the common loader first.
 
-For code-generation, `reference_solution` is the standard hidden
+For code-completion, `reference_solution` is the standard hidden
 benchmark-pack field for private/gold solutions. `canonical_solution` is kept
 as a hidden compatibility alias from the existing HumanEval adapter until that
 path is removed.
@@ -142,7 +142,7 @@ sandbox-style `write_file` interface.
 The immediate value is centralization rather than new benchmark capability.
 Before this layer, each producer or runner had to invent its own files and
 paths: task markdown for a workspace agent, candidate patches for a repository
-runner, generated test scripts for code-generation tasks, hidden patch files,
+runner, generated test scripts for code-completion tasks, hidden patch files,
 and future fixture or input files. That pattern works for smoke paths, but it
 spreads security-sensitive decisions across many modules. Materialization gives
 SecureBench one framework-owned place to decide which resources can become
@@ -252,7 +252,7 @@ Those remain separate concerns: visibility is derived from each compiled task's
 The active first-pass contracts are intentionally small:
 
 - `multiple_choice`, `short_answer`, and `free_response` expect `text`.
-- `code_generation` expects `code`.
+- `code_completion` expects `code`.
 - `repo_patch` expects `patch` and requires a mutable workspace.
 
 Unknown families can still load and compile, but execution-contract lookup
@@ -389,19 +389,19 @@ model outputs include common wrappers. Start with stripping Markdown fences and
 removing an exact repeated prompt prefix. Avoid aggressive code repair or
 function-body extraction until failures show it is needed.
 
-## CodeGenerationRunner Scope
+## CodeCompletionRunner Scope
 
-The current `CodeGenerationRunner` is really a HumanEval-style Python completion
+The current `CodeCompletionRunner` is really a HumanEval-style Python completion
 test runner. It assumes the evaluator can build one script by concatenating the
 dataset prompt, the model's completion, hidden tests, and `check(entry_point)`.
 
-That is correct for HumanEval, but it is not yet a general code-generation
-runner. Future code-generation benchmarks may require different modes, such as
+That is correct for HumanEval, but it is not yet a general code-completion
+runner. Future code-completion benchmarks may require different modes, such as
 running a full generated source file, comparing stdout against expected output,
 executing multiple files, or running a separate unit-test command.
 
 Deferred follow-up: split the generic task type from the runner execution mode.
-For example, keep `task_type: code_generation`, but introduce runner config or
+For example, keep `task_type: code_completion`, but introduce runner config or
 specific runner classes for `python_completion_tests`, `python_program_io`, and
 other evaluation styles.
 

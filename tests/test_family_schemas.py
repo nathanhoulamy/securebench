@@ -38,7 +38,7 @@ def row_for(family, *, input=None, eval=None):
             eval={"rubric": {"criteria": ["correctness"]}, "reference_answer": "A good answer..."},
         ),
         row_for(
-            "code_generation",
+            "code_completion",
             input={
                 "prompt": "Write add(a, b).",
                 "language": "python",
@@ -81,7 +81,7 @@ def test_active_family_valid_rows_pass_schema_validation(row):
             "eval.rubric is required",
         ),
         (
-            row_for("code_generation", input={"prompt": "Q"}, eval={}),
+            row_for("code_completion", input={"prompt": "Q"}, eval={}),
             "eval.tests is required",
         ),
         (
@@ -127,7 +127,7 @@ def test_active_family_missing_required_fields_raise(row, match):
             "input.context must be a non-empty string or object",
         ),
         (
-            row_for("code_generation", input={"prompt": "Q"}, eval={"tests": "assert True"}),
+            row_for("code_completion", input={"prompt": "Q"}, eval={"tests": "assert True"}),
             "eval.tests must be an object",
         ),
         (
@@ -158,7 +158,7 @@ def test_active_family_malformed_fields_raise(row, match):
         ),
         (
             row_for(
-                "code_generation",
+                "code_completion",
                 input={"prompt": "Q"},
                 eval={"tests": {}, "timeout_seconds": 30},
             ),
@@ -191,7 +191,7 @@ def test_unknown_or_deferred_family_rows_do_not_fail_schema_validation():
 def test_reference_solution_is_accepted_and_hidden_after_compilation():
     task = compile_benchmark_row(
         row_for(
-            "code_generation",
+            "code_completion",
             input={"prompt": "Write add(a, b)."},
             eval={
                 "tests": {"source": "inline", "code": "assert candidate(2, 3) == 5"},
@@ -212,7 +212,7 @@ def test_reference_solution_is_accepted_and_hidden_after_compilation():
 def test_canonical_solution_remains_accepted_and_hidden_after_compilation():
     task = compile_benchmark_row(
         row_for(
-            "code_generation",
+            "code_completion",
             input={"prompt": "Write add(a, b)."},
             eval={
                 "tests": {"source": "inline", "code": "assert candidate(2, 3) == 5"},
@@ -226,11 +226,11 @@ def test_canonical_solution_remains_accepted_and_hidden_after_compilation():
     assert "canonical_solution" not in task.agent_payload()
 
 
-def test_code_generation_timeout_seconds_is_rejected_in_eval():
+def test_code_completion_timeout_seconds_is_rejected_in_eval():
     with pytest.raises(ConfigError, match="eval has unknown field"):
         compile_benchmark_row(
             row_for(
-                "code_generation",
+                "code_completion",
                 input={"prompt": "Write add(a, b)."},
                 eval={"tests": {}, "timeout_seconds": 30},
             ),

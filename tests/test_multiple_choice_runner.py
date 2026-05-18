@@ -2,7 +2,7 @@ import pytest
 
 from securebench.runners import MultipleChoiceRunner
 from securebench.runners.multiple_choice import normalize_answer, parse_choice
-from securebench.tasks import CodeGenerationTask, task_from_spec
+from securebench.tasks import CodeCompletionTask, task_from_spec
 
 
 def make_task(answer=2):
@@ -71,10 +71,10 @@ def test_multiple_choice_runner_scores_wrong_answer():
 
 
 def test_multiple_choice_runner_rejects_wrong_task_type():
-    task = CodeGenerationTask(
+    task = CodeCompletionTask(
         id="HumanEval/0",
         benchmark_id="humaneval",
-        task_type="code_generation",
+        task_type="code_completion",
     )
 
     with pytest.raises(TypeError, match="MultipleChoiceRunner requires MultipleChoiceTask"):

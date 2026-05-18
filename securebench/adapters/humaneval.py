@@ -10,7 +10,7 @@ from securebench.tasks import TaskSpec
 
 class HumanEvalAdapter(BenchmarkAdapter):
     benchmark_id = "humaneval"
-    task_type = "code_generation"
+    task_type = "code_completion"
 
     def to_task_spec(self, row: dict[str, Any], **context: Any) -> TaskSpec:
         entry_point = row.get("entry_point")
@@ -34,7 +34,7 @@ class HumanEvalAdapter(BenchmarkAdapter):
         return {
             "id": row["task_id"],
             "benchmark_id": self.benchmark_id,
-            "task_type": "code_generation",
+            "task_type": "code_completion",
             "resources": resources_from_values(resource_values, resource_visibility),
             "metadata": {
                 "split": context.get("split", "test"),

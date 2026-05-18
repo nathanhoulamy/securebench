@@ -21,4 +21,4 @@ producer:
     text: "    pass"
 
 runner:
-  type: code_generation
+  type: code_completion

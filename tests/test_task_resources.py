@@ -1,6 +1,6 @@
 from securebench.resources import REDACTED, Resource, ResourceBundle
 from securebench.tasks import (
-    CodeGenerationTask,
+    CodeCompletionTask,
     GitHubPatchTask,
     MultipleChoiceTask,
     resource_tuple,
@@ -23,11 +23,11 @@ def multiple_choice_spec():
     }
 
 
-def code_generation_spec(*, tests_visibility="hidden"):
+def code_completion_spec(*, tests_visibility="hidden"):
     return {
         "id": "HumanEval/0",
         "benchmark_id": "humaneval",
-        "task_type": "code_generation",
+        "task_type": "code_completion",
         "resources": {
             "prompt": {"value": "def add(a, b):\n", "visibility": "public"},
             "language": {"value": "python", "visibility": "public"},
@@ -85,10 +85,10 @@ def test_multiple_choice_task_agent_payload_uses_spec_resources():
     assert task.resources.by_visibility("hidden")[0].name == "answer"
 
 
-def test_code_generation_task_hides_tests_and_solution_from_spec():
-    task = task_from_spec(code_generation_spec())
+def test_code_completion_task_hides_tests_and_solution_from_spec():
+    task = task_from_spec(code_completion_spec())
 
-    assert isinstance(task, CodeGenerationTask)
+    assert isinstance(task, CodeCompletionTask)
     assert task.agent_payload() == {
         "prompt": "def add(a, b):\n",
         "language": "python",
@@ -127,7 +127,7 @@ def test_github_patch_task_hides_patch_and_test_resources_from_spec():
 
 
 def test_evaluation_inputs_route_to_test_sandbox_not_agent():
-    task = task_from_spec(code_generation_spec(tests_visibility="evaluation_inputs"))
+    task = task_from_spec(code_completion_spec(tests_visibility="evaluation_inputs"))
 
     assert "tests" not in task.agent_payload()
     assert task.evaluation_payload()["tests"] == "def check(candidate): assert candidate(1, 2) == 3"

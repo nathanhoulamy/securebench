@@ -1,7 +1,7 @@
 import pytest
 
 from securebench.tasks import (
-    CodeGenerationTask,
+    CodeCompletionTask,
     GitHubPatchTask,
     MultipleChoiceTask,
     SecureBenchTask,
@@ -36,12 +36,12 @@ def test_multiple_choice_spec_converts_to_task_with_visibility():
     assert [resource.name for resource in task.resources.by_visibility("hidden")] == ["answer"]
 
 
-def test_code_generation_spec_converts_to_task_with_hidden_tests():
+def test_code_completion_spec_converts_to_task_with_hidden_tests():
     task = task_from_spec(
         {
             "id": "HumanEval/0",
             "benchmark_id": "humaneval",
-            "task_type": "code_generation",
+            "task_type": "code_completion",
             "resources": {
                 "prompt": {"value": "def add(a, b):\n", "visibility": "public"},
                 "language": {"value": "python", "visibility": "public"},
@@ -52,7 +52,7 @@ def test_code_generation_spec_converts_to_task_with_hidden_tests():
         }
     )
 
-    assert isinstance(task, CodeGenerationTask)
+    assert isinstance(task, CodeCompletionTask)
     assert "tests" not in task.agent_payload()
     assert "canonical_solution" not in task.agent_payload()
     assert {resource.name for resource in task.resources.by_visibility("hidden")} == {
@@ -129,7 +129,7 @@ def test_unknown_task_type_converts_to_generic_securebench_task():
             {
                 "id": "x",
                 "benchmark_id": "b",
-                "task_type": "code_generation",
+                "task_type": "code_completion",
                 "resources": {
                     "prompt": {"value": "def f():", "visibility": "private"},
                 },
@@ -140,7 +140,7 @@ def test_unknown_task_type_converts_to_generic_securebench_task():
             {
                 "id": "x",
                 "benchmark_id": "b",
-                "task_type": "code_generation",
+                "task_type": "code_completion",
                 "resources": {
                     "prompt": {"value": "def f():", "visibility": "public", "expose": False},
                 },

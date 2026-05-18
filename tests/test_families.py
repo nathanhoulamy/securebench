@@ -14,7 +14,7 @@ from securebench.families import family_contract_for, known_family_contracts
         ("multiple_choice", "text", False),
         ("short_answer", "text", False),
         ("free_response", "text", False),
-        ("code_generation", "code", False),
+        ("code_completion", "code", False),
         ("repo_patch", "patch", True),
     ],
 )
@@ -40,7 +40,7 @@ def test_known_family_contracts_returns_only_active_families():
         "multiple_choice",
         "short_answer",
         "free_response",
-        "code_generation",
+        "code_completion",
         "repo_patch",
     ]
 

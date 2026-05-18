@@ -1,4 +1,4 @@
-"""Runner for Python code-generation tasks."""
+"""Runner for Python code-completion tasks."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ from typing import Any
 from securebench.runners.base import Runner, RunnerResult
 from securebench.sandboxes import DockerSandbox, Sandbox
 from securebench.tasks import (
-    CodeGenerationTask,
+    CodeCompletionTask,
     SecureBenchTask,
     optional_resource_text,
     resource_text,
 )
 
 
-class CodeGenerationRunner(Runner):
+class CodeCompletionRunner(Runner):
     """Execute generated Python code against hidden tests in a sandbox."""
 
     def __init__(self, *, sandbox: Sandbox | None = None, timeout: float = 10.0) -> None:
@@ -22,14 +22,14 @@ class CodeGenerationRunner(Runner):
         self.timeout = timeout
 
     def run(self, task: SecureBenchTask, candidate: Any, **context: Any) -> RunnerResult:
-        if not isinstance(task, CodeGenerationTask):
-            raise TypeError(f"CodeGenerationRunner requires CodeGenerationTask, got {type(task).__name__}")
+        if not isinstance(task, CodeCompletionTask):
+            raise TypeError(f"CodeCompletionRunner requires CodeCompletionTask, got {type(task).__name__}")
         language = resource_text(task, "language", "python")
         tests = optional_resource_text(task, "tests")
         if language != "python":
-            raise ValueError(f"CodeGenerationRunner only supports Python tasks, got {language!r}")
+            raise ValueError(f"CodeCompletionRunner only supports Python tasks, got {language!r}")
         if tests is None:
-            raise ValueError(f"CodeGenerationTask {task.id!r} has no hidden tests")
+            raise ValueError(f"CodeCompletionTask {task.id!r} has no hidden tests")
 
         sandbox = self.sandbox or DockerSandbox()
         test_file = str(context.get("test_file", "solution_test.py"))
@@ -56,11 +56,11 @@ class CodeGenerationRunner(Runner):
                 _close_sandbox(sandbox)
 
 
-def build_python_test_script(task: CodeGenerationTask, candidate_code: str) -> str:
+def build_python_test_script(task: CodeCompletionTask, candidate_code: str) -> str:
     """Build a single Python script containing candidate code and hidden tests."""
     tests = optional_resource_text(task, "tests")
     if tests is None:
-        raise ValueError(f"CodeGenerationTask {task.id!r} has no hidden tests")
+        raise ValueError(f"CodeCompletionTask {task.id!r} has no hidden tests")
 
     entry_point = optional_resource_text(task, "entry_point")
     parts = [

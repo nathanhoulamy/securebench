@@ -23,7 +23,7 @@ EVAL_VISIBILITY: dict[str, dict[str, ResourceVisibility]] = {
         "reference_answer": "hidden",
         "rubric": "hidden",
     },
-    "code_generation": {
+    "code_completion": {
         "tests": "evaluation_inputs",
         "reference_solution": "hidden",
         "canonical_solution": "hidden",

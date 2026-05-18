@@ -10,7 +10,7 @@ from securebench.benchmark_pack import (
     BenchmarkRow,
 )
 from securebench.errors import ConfigError
-from securebench.tasks import CodeGenerationTask, MultipleChoiceTask, SecureBenchTask
+from securebench.tasks import CodeCompletionTask, MultipleChoiceTask, SecureBenchTask
 
 
 def manifest():
@@ -49,11 +49,11 @@ def test_multiple_choice_row_compiles_to_specialized_task():
     assert task.hidden_payload()["answer"] == 2
 
 
-def test_code_generation_row_compiles_tests_as_evaluation_inputs():
+def test_code_completion_row_compiles_tests_as_evaluation_inputs():
     task = compile_benchmark_row(
         BenchmarkRow(
             id="code-1",
-            family="code_generation",
+            family="code_completion",
             input={
                 "prompt": "def add(a, b):\n",
                 "language": "python",
@@ -66,7 +66,7 @@ def test_code_generation_row_compiles_tests_as_evaluation_inputs():
         manifest=manifest(),
     )
 
-    assert isinstance(task, CodeGenerationTask)
+    assert isinstance(task, CodeCompletionTask)
     assert "tests" not in task.agent_payload()
     assert "canonical_solution" not in task.agent_payload()
     assert task.evaluation_payload()["tests"] == {

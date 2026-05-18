@@ -1,7 +1,7 @@
 import pytest
 
-from securebench.runners import CodeGenerationRunner
-from securebench.runners.code_generation import build_python_test_script
+from securebench.runners import CodeCompletionRunner
+from securebench.runners.code_completion import build_python_test_script
 from securebench.sandboxes import CommandResult, Sandbox
 from securebench.tasks import MultipleChoiceTask, task_from_spec
 
@@ -33,7 +33,7 @@ def make_task():
         {
             "id": "HumanEval/0",
             "benchmark_id": "humaneval",
-            "task_type": "code_generation",
+            "task_type": "code_completion",
             "resources": {
                 "prompt": {"value": "def add(a, b):\n", "visibility": "public"},
                 "entry_point": {"value": "add", "visibility": "public"},
@@ -60,9 +60,9 @@ def test_build_python_test_script_combines_prompt_candidate_tests_and_check_call
     )
 
 
-def test_code_generation_runner_writes_and_runs_hidden_test_script():
+def test_code_completion_runner_writes_and_runs_hidden_test_script():
     sandbox = FakeSandbox(stdout="ok")
-    result = CodeGenerationRunner(sandbox=sandbox, timeout=3).run(make_task(), "    return a + b\n")
+    result = CodeCompletionRunner(sandbox=sandbox, timeout=3).run(make_task(), "    return a + b\n")
 
     assert sandbox.files["solution_test.py"].endswith("check(add)\n")
     assert sandbox.commands == [(("python", "solution_test.py"), None, 3)]
@@ -72,21 +72,21 @@ def test_code_generation_runner_writes_and_runs_hidden_test_script():
     assert result.metadata["exit_code"] == 0
 
 
-def test_code_generation_runner_reports_failure():
+def test_code_completion_runner_reports_failure():
     sandbox = FakeSandbox(exit_code=1, stderr="assertion failed")
-    result = CodeGenerationRunner(sandbox=sandbox).run(make_task(), "    return a - b\n")
+    result = CodeCompletionRunner(sandbox=sandbox).run(make_task(), "    return a - b\n")
 
     assert result.passed is False
     assert result.score == 0.0
     assert result.stderr == "assertion failed"
 
 
-def test_code_generation_runner_requires_code_generation_task():
+def test_code_completion_runner_requires_code_completion_task():
     task = MultipleChoiceTask(
         id="mmlu/math/test/7",
         benchmark_id="mmlu",
         task_type="multiple_choice",
     )
 
-    with pytest.raises(TypeError, match="CodeGenerationRunner requires CodeGenerationTask"):
-        CodeGenerationRunner(sandbox=FakeSandbox()).run(task, "C")
+    with pytest.raises(TypeError, match="CodeCompletionRunner requires CodeCompletionTask"):
+        CodeCompletionRunner(sandbox=FakeSandbox()).run(task, "C")

@@ -87,7 +87,7 @@ def code_task():
     return compile_benchmark_row(
         BenchmarkRow(
             id="code-1",
-            family="code_generation",
+            family="code_completion",
             input={"prompt": "Write add."},
             eval={"tests": {"source": "inline", "code": "assert candidate(1, 2) == 3"}},
         ),

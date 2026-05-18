@@ -7,7 +7,7 @@ from typing import Any
 
 from securebench.adapters import get_adapter
 from securebench.candidates import CandidateArtifact, CandidateProducer
-from securebench.runners import CodeGenerationRunner, GitHubPatchRunner, MultipleChoiceRunner, Runner, RunnerResult
+from securebench.runners import CodeCompletionRunner, GitHubPatchRunner, MultipleChoiceRunner, Runner, RunnerResult
 from securebench.tasks import SecureBenchTask
 
 
@@ -68,8 +68,8 @@ def get_runner(task_type: str) -> Runner:
     """Return the built-in runner for a normalized task type."""
     if task_type == "multiple_choice":
         return MultipleChoiceRunner()
-    if task_type == "code_generation":
-        return CodeGenerationRunner()
+    if task_type == "code_completion":
+        return CodeCompletionRunner()
     if task_type == "github_patch":
         return GitHubPatchRunner()
     raise KeyError(f"Unknown task type {task_type!r}")
