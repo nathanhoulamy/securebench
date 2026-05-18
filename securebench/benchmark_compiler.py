@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Iterator
 
-from securebench.benchmark_pack import BenchmarkPack, BenchmarkPackManifest, BenchmarkTaskRow
+from securebench.benchmark_pack import BenchmarkPack, BenchmarkPackManifest, BenchmarkRow
 from securebench.errors import ConfigError
-from securebench.families import validate_task_row_family
+from securebench.families import validate_benchmark_row_family
 from securebench.resources import ResourceVisibility
 from securebench.tasks import SecureBenchTask, task_from_spec
 
@@ -68,13 +68,13 @@ def eval_visibility_for(family: str, key: str) -> ResourceVisibility:
     return EVAL_VISIBILITY.get(family, {}).get(key, "hidden")
 
 
-def compile_task_row(
-    row: BenchmarkTaskRow,
+def compile_benchmark_row(
+    row: BenchmarkRow,
     *,
     manifest: BenchmarkPackManifest,
 ) -> SecureBenchTask:
-    """Compile one benchmark-pack task row into a SecureBench task."""
-    validate_task_row_family(row)
+    """Compile one benchmark row into a SecureBench task."""
+    validate_benchmark_row_family(row)
 
     resources: dict[str, dict[str, object]] = {}
     for name, value in row.input.items():
@@ -107,7 +107,7 @@ def compile_benchmark_pack(
 ) -> Iterator[SecureBenchTask]:
     """Compile benchmark-pack rows into SecureBench tasks."""
     for row in pack.iter_rows(limit=limit):
-        yield compile_task_row(row, manifest=pack.manifest)
+        yield compile_benchmark_row(row, manifest=pack.manifest)
 
 
 def _add_resource(
@@ -124,7 +124,7 @@ def _add_resource(
     }
 
 
-def _metadata(row: BenchmarkTaskRow, manifest: BenchmarkPackManifest) -> dict[str, object]:
+def _metadata(row: BenchmarkRow, manifest: BenchmarkPackManifest) -> dict[str, object]:
     return {
         **row.metadata,
         "benchmark_pack": {

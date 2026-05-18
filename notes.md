@@ -87,7 +87,7 @@ declarations for custom adapters.
 ## Benchmark Pack Loading
 
 The revised benchmark-pack path starts with a family-agnostic loader for
-`manifest.yaml` plus JSONL task rows. This loader intentionally stays one layer
+`manifest.yaml` plus JSONL benchmark rows. This loader intentionally stays one layer
 above `SecureBenchTask`: it validates only the common author-facing row
 envelope, applies manifest defaults, and preserves `eval` as a separate
 non-public section.
@@ -108,7 +108,7 @@ normalization must never move `eval.*` into public `input` or top-level
 ## Benchmark Row Compilation
 
 Benchmark-pack row compilation is the first enforcement point for the revised
-author-facing standard. It converts validated `BenchmarkTaskRow` objects into
+author-facing standard. It converts validated `BenchmarkRow` objects into
 the existing `SecureBenchTask` and `ResourceBundle` model, preserving the
 current component views and result redaction behavior.
 
@@ -231,7 +231,7 @@ config. It selects a benchmark pack, output directory, and candidate-producing
 harness, but it does not define benchmark data, resource visibility, sandbox
 security constraints, or family evaluation behavior.
 
-Benchmark manifest and task rows remain benchmark-owned: they define task
+Benchmark manifest and benchmark rows remain benchmark-owned: they define task
 inputs, public assets, non-public eval fields, asset roots, and benchmark
 runtime defaults. Tester YAML is tester-owned: it chooses `run.id`,
 `run.output_dir`, `benchmark.manifest`, `benchmark.tasks`, and the harness

@@ -18,7 +18,7 @@ DEFAULT_EVAL_ASSET_ROOT = "hidden/"
 
 @dataclass(frozen=True)
 class BenchmarkDefaults:
-    """Shared defaults applied to benchmark task rows."""
+    """Shared defaults applied to benchmark rows."""
 
     family: str | None = None
     environment: dict[str, Any] = field(default_factory=dict)
@@ -52,8 +52,8 @@ class BenchmarkPackManifest:
 
 
 @dataclass(frozen=True)
-class BenchmarkTaskRow:
-    """One author-facing task row after common manifest defaults are applied."""
+class BenchmarkRow:
+    """One author-facing benchmark row after common manifest defaults are applied."""
 
     id: str
     family: str
@@ -66,23 +66,23 @@ class BenchmarkTaskRow:
 
 @dataclass(frozen=True)
 class BenchmarkPack:
-    """A benchmark manifest plus task-row file."""
+    """A benchmark manifest plus benchmark-row file."""
 
     manifest: BenchmarkPackManifest
     tasks_path: Path
 
-    def iter_rows(self, *, limit: int | None = None) -> Iterator[BenchmarkTaskRow]:
-        """Yield task rows with manifest defaults applied."""
+    def iter_rows(self, *, limit: int | None = None) -> Iterator[BenchmarkRow]:
+        """Yield benchmark rows with manifest defaults applied."""
         yielded = 0
         for line_number, line in _iter_jsonl_lines(self.tasks_path):
             if limit is not None and yielded >= limit:
                 break
             row = _load_jsonl_object(self.tasks_path, line_number, line)
-            yield parse_task_row(row, manifest=self.manifest, line_number=line_number)
+            yield parse_benchmark_row(row, manifest=self.manifest, line_number=line_number)
             yielded += 1
 
-    def load_rows(self, *, limit: int | None = None) -> list[BenchmarkTaskRow]:
-        """Load task rows eagerly into a list."""
+    def load_rows(self, *, limit: int | None = None) -> list[BenchmarkRow]:
+        """Load benchmark rows eagerly into a list."""
         return list(self.iter_rows(limit=limit))
 
 
@@ -117,21 +117,21 @@ def parse_benchmark_manifest(
 
 
 def load_benchmark_pack(manifest_path: str | Path, tasks_path: str | Path) -> BenchmarkPack:
-    """Load a benchmark-pack manifest and bind it to a JSONL task-row file."""
+    """Load a benchmark-pack manifest and bind it to a JSONL benchmark-row file."""
     return BenchmarkPack(
         manifest=load_benchmark_manifest(manifest_path),
         tasks_path=Path(tasks_path),
     )
 
 
-def parse_task_row(
+def parse_benchmark_row(
     row: dict[str, Any],
     *,
     manifest: BenchmarkPackManifest,
     line_number: int | None = None,
-) -> BenchmarkTaskRow:
-    """Normalize one author-facing task row using manifest defaults."""
-    context = "task row" if line_number is None else f"task row line {line_number}"
+) -> BenchmarkRow:
+    """Normalize one author-facing benchmark row using manifest defaults."""
+    context = "benchmark row" if line_number is None else f"benchmark row line {line_number}"
     task_id = _required_str(row, "id", context)
     family = _optional_str(row.get("family"), f"{context}.family")
     if family is None:
@@ -148,7 +148,7 @@ def parse_task_row(
     }
     assets = _assets(row.get("assets"), f"{context}.assets")
 
-    return BenchmarkTaskRow(
+    return BenchmarkRow(
         id=task_id,
         family=family,
         input=input_data,
@@ -264,5 +264,5 @@ def _load_jsonl_object(path: Path, line_number: int, line: str) -> dict[str, Any
     except json.JSONDecodeError as exc:
         raise ConfigError(f"{path}:{line_number}: invalid JSON: {exc.msg}") from exc
     if not isinstance(loaded, dict):
-        raise ConfigError(f"{path}:{line_number}: task row must be an object")
+        raise ConfigError(f"{path}:{line_number}: benchmark row must be an object")
     return loaded

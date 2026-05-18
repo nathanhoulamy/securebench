@@ -1,13 +1,13 @@
 import pytest
 
-from securebench.benchmark_compiler import compile_benchmark_pack, compile_task_row, eval_visibility_for
+from securebench.benchmark_compiler import compile_benchmark_pack, compile_benchmark_row, eval_visibility_for
 from securebench.benchmark_pack import (
     AssetDefaults,
     AssetRoots,
     BenchmarkDefaults,
     BenchmarkPack,
     BenchmarkPackManifest,
-    BenchmarkTaskRow,
+    BenchmarkRow,
 )
 from securebench.errors import ConfigError
 from securebench.tasks import CodeGenerationTask, MultipleChoiceTask, SecureBenchTask
@@ -24,8 +24,8 @@ def manifest():
 
 
 def test_multiple_choice_row_compiles_to_specialized_task():
-    task = compile_task_row(
-        BenchmarkTaskRow(
+    task = compile_benchmark_row(
+        BenchmarkRow(
             id="mc-1",
             family="multiple_choice",
             input={
@@ -50,8 +50,8 @@ def test_multiple_choice_row_compiles_to_specialized_task():
 
 
 def test_code_generation_row_compiles_tests_as_evaluation_inputs():
-    task = compile_task_row(
-        BenchmarkTaskRow(
+    task = compile_benchmark_row(
+        BenchmarkRow(
             id="code-1",
             family="code_generation",
             input={
@@ -78,8 +78,8 @@ def test_code_generation_row_compiles_tests_as_evaluation_inputs():
 
 
 def test_terminal_task_row_compiles_to_generic_task_with_eval_visibility():
-    task = compile_task_row(
-        BenchmarkTaskRow(
+    task = compile_benchmark_row(
+        BenchmarkRow(
             id="terminal-1",
             family="terminal_task",
             input={"instructions": "Create output.txt"},
@@ -99,8 +99,8 @@ def test_terminal_task_row_compiles_to_generic_task_with_eval_visibility():
 
 
 def test_assets_are_public_when_non_empty():
-    task = compile_task_row(
-        BenchmarkTaskRow(
+    task = compile_benchmark_row(
+        BenchmarkRow(
             id="asset-1",
             family="terminal_task",
             input={"instructions": "Read the file"},
@@ -114,7 +114,7 @@ def test_assets_are_public_when_non_empty():
 
 
 def test_environment_and_pack_details_are_metadata_not_agent_payload():
-    row = BenchmarkTaskRow(
+    row = BenchmarkRow(
         id="meta-1",
         family="terminal_task",
         input={"instructions": "Do it"},
@@ -122,7 +122,7 @@ def test_environment_and_pack_details_are_metadata_not_agent_payload():
         metadata={"difficulty": "easy"},
     )
 
-    task = compile_task_row(row, manifest=manifest())
+    task = compile_benchmark_row(row, manifest=manifest())
 
     assert task.metadata["difficulty"] == "easy"
     assert task.metadata["benchmark_pack"] == {
@@ -139,8 +139,8 @@ def test_environment_and_pack_details_are_metadata_not_agent_payload():
 
 
 def test_unknown_family_defaults_eval_fields_to_hidden():
-    task = compile_task_row(
-        BenchmarkTaskRow(
+    task = compile_benchmark_row(
+        BenchmarkRow(
             id="custom-1",
             family="custom_family",
             input={"prompt": "Solve this"},
@@ -157,8 +157,8 @@ def test_unknown_family_defaults_eval_fields_to_hidden():
 
 
 def test_unknown_eval_key_in_known_family_defaults_to_hidden():
-    task = compile_task_row(
-        BenchmarkTaskRow(
+    task = compile_benchmark_row(
+        BenchmarkRow(
             id="terminal-unknown-eval",
             family="terminal_task",
             input={"instructions": "Do it"},
@@ -174,14 +174,14 @@ def test_unknown_eval_key_in_known_family_defaults_to_hidden():
 @pytest.mark.parametrize(
     "row",
     [
-        BenchmarkTaskRow(id="collision-1", family="terminal_task", input={"assets": "bad"}, assets=({"path": "x"},)),
-        BenchmarkTaskRow(id="collision-2", family="terminal_task", input={"checker": "public"}, eval={"checker": "private"}),
-        BenchmarkTaskRow(id="collision-3", family="terminal_task", assets=({"path": "x"},), eval={"assets": "private"}),
+        BenchmarkRow(id="collision-1", family="terminal_task", input={"assets": "bad"}, assets=({"path": "x"},)),
+        BenchmarkRow(id="collision-2", family="terminal_task", input={"checker": "public"}, eval={"checker": "private"}),
+        BenchmarkRow(id="collision-3", family="terminal_task", assets=({"path": "x"},), eval={"assets": "private"}),
     ],
 )
 def test_resource_name_collisions_are_rejected(row):
     with pytest.raises(ConfigError, match="Duplicate compiled resource name"):
-        compile_task_row(row, manifest=manifest())
+        compile_benchmark_row(row, manifest=manifest())
 
 
 def test_eval_visibility_registry_defaults_to_hidden():

@@ -2,8 +2,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from securebench.benchmark_compiler import compile_task_row
-from securebench.benchmark_pack import BenchmarkPackManifest, BenchmarkTaskRow
+from securebench.benchmark_compiler import compile_benchmark_row
+from securebench.benchmark_pack import BenchmarkPackManifest, BenchmarkRow
 from securebench.errors import ConfigError
 from securebench.families import family_contract_for, known_family_contracts
 
@@ -51,8 +51,8 @@ def test_unknown_family_contract_errors_when_execution_contract_is_requested():
 
 
 def test_compiled_repo_patch_task_can_lookup_contract_by_task_type():
-    task = compile_task_row(
-        BenchmarkTaskRow(
+    task = compile_benchmark_row(
+        BenchmarkRow(
             id="repo-1",
             family="repo_patch",
             input={

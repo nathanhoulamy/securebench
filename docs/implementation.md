@@ -7,7 +7,7 @@ filled in as each step is designed and implemented.
 ## 1. Benchmark Pack Loading
 
 Add a family-agnostic loader for benchmark packs made of a `manifest.yaml` file
-plus JSONL task rows. This is separate from the current executable run config,
+plus JSONL benchmark rows. This is separate from the current executable run config,
 while keeping the existing Hugging Face adapter flow available as a
 compatibility path.
 
@@ -65,7 +65,7 @@ This step does not compile rows into `SecureBenchTask`, classify `eval.*` into
 `evaluation_inputs` versus `hidden`, materialize assets, parse tester YAML, or
 wire the new format into the CLI.
 
-Deferred hardening: `parse_task_row(...)` is currently intended for already
+Deferred hardening: `parse_benchmark_row(...)` is currently intended for already
 validated dictionary rows from the loader. If external callers begin using it
 directly, add an explicit root-object guard so invalid direct inputs raise
 `ConfigError` rather than lower-level attribute errors.
@@ -77,9 +77,9 @@ objects. Visibility should be derived from family/schema rules:
 
 - `input.*` and top-level `assets[]` become public resources.
 - family-specific `eval.*` fields become either `evaluation_inputs` or `hidden`.
-- task rows should not be able to arbitrarily override visibility.
+- benchmark rows should not be able to arbitrarily override visibility.
 
-The compiler turns a `BenchmarkTaskRow` into a task spec consumed by
+The compiler turns a `BenchmarkRow` into a task spec consumed by
 `task_from_spec(...)`. Existing task types still use specialized classes where
 available, while new benchmark-family task types compile to generic
 `SecureBenchTask` objects. Public row fields are flattened by key name, non-empty

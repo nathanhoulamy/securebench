@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from securebench.benchmark_compiler import compile_task_row
-from securebench.benchmark_pack import AssetDefaults, BenchmarkPackManifest, BenchmarkTaskRow
+from securebench.benchmark_compiler import compile_benchmark_row
+from securebench.benchmark_pack import AssetDefaults, BenchmarkPackManifest, BenchmarkRow
 from securebench.errors import ConfigError
 from securebench.harnesses import build_harness_producer
 from securebench.sandboxes import CommandResult
@@ -68,8 +68,8 @@ def reset_fakes():
 
 
 def mc_task(manifest=None, *, assets=()):
-    return compile_task_row(
-        BenchmarkTaskRow(
+    return compile_benchmark_row(
+        BenchmarkRow(
             id="mc-1",
             family="multiple_choice",
             input={"question": "2 + 2?", "choices": ["1", "2", "4"]},
@@ -81,8 +81,8 @@ def mc_task(manifest=None, *, assets=()):
 
 
 def code_task():
-    return compile_task_row(
-        BenchmarkTaskRow(
+    return compile_benchmark_row(
+        BenchmarkRow(
             id="code-1",
             family="code_generation",
             input={"prompt": "Write add."},
@@ -93,8 +93,8 @@ def code_task():
 
 
 def repo_patch_task():
-    return compile_task_row(
-        BenchmarkTaskRow(
+    return compile_benchmark_row(
+        BenchmarkRow(
             id="repo-1",
             family="repo_patch",
             input={"repo": "repo/", "base_commit": "abc123", "instructions": "Fix it."},
@@ -271,8 +271,8 @@ def test_command_harness_workspace_names_avoid_sanitized_id_collisions(monkeypat
         harness_section(config={"command": ["produce"]}),
         workspace_root=tmp_path,
     )
-    task_with_slash = compile_task_row(
-        BenchmarkTaskRow(
+    task_with_slash = compile_benchmark_row(
+        BenchmarkRow(
             id="suite/task",
             family="multiple_choice",
             input={"question": "2 + 2?", "choices": ["1", "2", "4"]},
@@ -280,8 +280,8 @@ def test_command_harness_workspace_names_avoid_sanitized_id_collisions(monkeypat
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),
     )
-    task_with_colon = compile_task_row(
-        BenchmarkTaskRow(
+    task_with_colon = compile_benchmark_row(
+        BenchmarkRow(
             id="suite:task",
             family="multiple_choice",
             input={"question": "3 + 3?", "choices": ["3", "6", "9"]},

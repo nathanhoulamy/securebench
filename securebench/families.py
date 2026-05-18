@@ -45,7 +45,7 @@ def known_family_contracts() -> tuple[FamilyContract, ...]:
 FamilyValidator = Callable[[Any, str], None]
 
 
-def validate_task_row_family(row: Any, *, context: str | None = None) -> None:
+def validate_benchmark_row_family(row: Any, *, context: str | None = None) -> None:
     """Validate active family-specific row fields.
 
     Unknown and deferred families intentionally remain permissive here so pack

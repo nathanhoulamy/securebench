@@ -1,9 +1,9 @@
 import pytest
 
-from securebench.benchmark_compiler import compile_task_row
-from securebench.benchmark_pack import BenchmarkPackManifest, BenchmarkTaskRow
+from securebench.benchmark_compiler import compile_benchmark_row
+from securebench.benchmark_pack import BenchmarkPackManifest, BenchmarkRow
 from securebench.errors import ConfigError
-from securebench.families import validate_task_row_family
+from securebench.families import validate_benchmark_row_family
 
 
 def manifest():
@@ -11,7 +11,7 @@ def manifest():
 
 
 def row_for(family, *, input=None, eval=None):
-    return BenchmarkTaskRow(
+    return BenchmarkRow(
         id=f"{family}-1",
         family=family,
         input={} if input is None else input,
@@ -62,7 +62,7 @@ def row_for(family, *, input=None, eval=None):
     ],
 )
 def test_active_family_valid_rows_pass_schema_validation(row):
-    validate_task_row_family(row)
+    validate_benchmark_row_family(row)
 
 
 @pytest.mark.parametrize(
@@ -96,7 +96,7 @@ def test_active_family_valid_rows_pass_schema_validation(row):
 )
 def test_active_family_missing_required_fields_raise(row, match):
     with pytest.raises(ConfigError, match=match):
-        validate_task_row_family(row)
+        validate_benchmark_row_family(row)
 
 
 @pytest.mark.parametrize(
@@ -142,7 +142,7 @@ def test_active_family_missing_required_fields_raise(row, match):
 )
 def test_active_family_malformed_fields_raise(row, match):
     with pytest.raises(ConfigError, match=match):
-        validate_task_row_family(row)
+        validate_benchmark_row_family(row)
 
 
 @pytest.mark.parametrize(
@@ -168,18 +168,18 @@ def test_active_family_malformed_fields_raise(row, match):
 )
 def test_active_family_unknown_input_or_eval_keys_raise(row, match):
     with pytest.raises(ConfigError, match=match):
-        validate_task_row_family(row)
+        validate_benchmark_row_family(row)
 
 
 def test_unknown_or_deferred_family_rows_do_not_fail_schema_validation():
-    validate_task_row_family(
+    validate_benchmark_row_family(
         row_for(
             "terminal_task",
             input={"arbitrary": []},
             eval={"private": object()},
         )
     )
-    validate_task_row_family(
+    validate_benchmark_row_family(
         row_for(
             "custom_family",
             input={"whatever": {"shape": "later"}},
@@ -189,7 +189,7 @@ def test_unknown_or_deferred_family_rows_do_not_fail_schema_validation():
 
 
 def test_reference_solution_is_accepted_and_hidden_after_compilation():
-    task = compile_task_row(
+    task = compile_benchmark_row(
         row_for(
             "code_generation",
             input={"prompt": "Write add(a, b)."},
@@ -210,7 +210,7 @@ def test_reference_solution_is_accepted_and_hidden_after_compilation():
 
 
 def test_canonical_solution_remains_accepted_and_hidden_after_compilation():
-    task = compile_task_row(
+    task = compile_benchmark_row(
         row_for(
             "code_generation",
             input={"prompt": "Write add(a, b)."},
@@ -228,7 +228,7 @@ def test_canonical_solution_remains_accepted_and_hidden_after_compilation():
 
 def test_code_generation_timeout_seconds_is_rejected_in_eval():
     with pytest.raises(ConfigError, match="eval has unknown field"):
-        compile_task_row(
+        compile_benchmark_row(
             row_for(
                 "code_generation",
                 input={"prompt": "Write add(a, b)."},
@@ -239,7 +239,7 @@ def test_code_generation_timeout_seconds_is_rejected_in_eval():
 
 
 def test_compiled_active_family_rows_keep_expected_resource_visibility():
-    task = compile_task_row(
+    task = compile_benchmark_row(
         row_for(
             "repo_patch",
             input={

@@ -95,7 +95,7 @@ loop but should land before public use:
   ordinary JSON objects.
 - consider declarative schema descriptors if hand-written validators grow
   beyond the current active families.
-- add an explicit direct-call guard for `parse_task_row(...)` if external code
+- add an explicit direct-call guard for `parse_benchmark_row(...)` if external code
   starts using it outside the JSONL loader.
 - decide whether `evaluation_inputs` should eventually be renamed to a clearer
   term such as `sandbox_input`.

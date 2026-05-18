@@ -174,7 +174,7 @@ def test_row_sections_are_validated(tmp_path):
     manifest_path.write_text("id: example-pack\nversion: 1\ndefaults:\n  family: terminal_task\n")
 
     invalid_rows = [
-        ('{"id":"","input":{}}\n', "task row line 1.id"),
+        ('{"id":"","input":{}}\n', "benchmark row line 1.id"),
         ('{"id":"task-1","input":[]}\n', "input"),
         ('{"id":"task-1","eval":[]}\n', "eval"),
         ('{"id":"task-1","environment":[]}\n', "environment"),
@@ -205,7 +205,7 @@ def test_non_object_jsonl_rows_are_rejected(tmp_path):
     manifest_path.write_text("id: example-pack\nversion: 1\ndefaults:\n  family: terminal_task\n")
     tasks_path.write_text('["not", "object"]\n')
 
-    with pytest.raises(ConfigError, match=r"tasks\.jsonl:1: task row must be an object"):
+    with pytest.raises(ConfigError, match=r"tasks\.jsonl:1: benchmark row must be an object"):
         load_benchmark_pack(manifest_path, tasks_path).load_rows()
 
 
