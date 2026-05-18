@@ -4,6 +4,7 @@ from securebench.tasks import (
     CodeGenerationTask,
     GitHubPatchTask,
     MultipleChoiceTask,
+    SecureBenchTask,
     resource_test_groups,
     resource_tuple,
     task_from_spec,
@@ -86,19 +87,32 @@ def test_github_patch_spec_converts_json_lists_to_runner_fields():
     assert "gold_patch" not in task.agent_payload()
 
 
+def test_unknown_task_type_converts_to_generic_securebench_task():
+    task = task_from_spec(
+        {
+            "id": "custom/1",
+            "benchmark_id": "custom",
+            "task_type": "terminal_task",
+            "resources": {
+                "instructions": {"value": "Do it.", "visibility": "public"},
+                "checker": {"value": {"command": "pytest"}, "visibility": "evaluation_inputs"},
+            },
+        }
+    )
+
+    assert type(task) is SecureBenchTask
+    assert task.task_type == "terminal_task"
+    assert task.agent_payload() == {"instructions": "Do it."}
+    assert task.evaluation_payload() == {
+        "instructions": "Do it.",
+        "checker": {"command": "pytest"},
+    }
+
+
 @pytest.mark.parametrize(
     "spec, match",
     [
         ({}, "requires string field 'id'"),
-        (
-            {
-                "id": "x",
-                "benchmark_id": "b",
-                "task_type": "missing",
-                "resources": {},
-            },
-            "unknown task_type",
-        ),
         (
             {
                 "id": "x",

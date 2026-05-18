@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
 from securebench.resources import Component, Resource, ResourceBundle, ResourceKind
 
 
-TaskType = Literal["multiple_choice", "code_generation", "github_patch"]
+TaskType = str
 TaskSpec = dict[str, Any]
 
 
@@ -90,7 +90,13 @@ def task_from_spec(spec: TaskSpec) -> SecureBenchTask:
             resources=resources,
         )
 
-    raise ValueError(f"unknown task_type {task_type!r}")
+    return SecureBenchTask(
+        id=task_id,
+        benchmark_id=benchmark_id,
+        task_type=task_type,
+        metadata=metadata,
+        resources=resources,
+    )
 
 
 @dataclass(frozen=True)
