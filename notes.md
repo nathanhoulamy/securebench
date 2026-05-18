@@ -84,6 +84,52 @@ Deferred follow-up: wire materialization into runtime test-sandbox and
 evaluator flows, strengthen audit/replay redaction, and add schema-level
 declarations for custom adapters.
 
+## Benchmark Pack Loading
+
+The revised benchmark-pack path starts with a family-agnostic loader for
+`manifest.yaml` plus JSONL task rows. This loader intentionally stays one layer
+above `SecureBenchTask`: it validates only the common author-facing row
+envelope, applies manifest defaults, and preserves `eval` as a separate
+non-public section.
+
+The initial merge rules are deliberately small. `defaults.family` fills missing
+row families, row `family` wins when present, and row `environment` shallowly
+overrides `defaults.environment` so rows do not repeat shared image, setup,
+network, or timeout values. Missing `input`, `eval`, `environment`, and
+`metadata` become empty objects, and missing `assets` becomes an empty list.
+
+This loader does not decide whether `eval.*` fields are `evaluation_inputs` or
+`hidden`, does not materialize files, and does not validate family-specific
+fields such as `input.repo` or `eval.tests`. Those decisions belong to row
+compilation and family schemas. The important invariant for this stage is that
+normalization must never move `eval.*` into public `input` or top-level
+`assets[]`.
+
+## Benchmark Row Compilation
+
+Benchmark-pack row compilation is the first enforcement point for the revised
+author-facing standard. It converts validated `BenchmarkTaskRow` objects into
+the existing `SecureBenchTask` and `ResourceBundle` model, preserving the
+current component views and result redaction behavior.
+
+The compiler derives visibility instead of trusting row-provided flags.
+`input.*` fields and non-empty top-level `assets[]` become public resources.
+Known family `eval.*` keys are classified by a small registry as either
+`evaluation_inputs` or `hidden`, while unknown `eval.*` keys and unknown
+families default to `hidden`. Environment, asset roots, asset defaults, and row
+metadata stay in task metadata rather than becoming agent-visible resources.
+
+For active families, compilation now begins with family-schema validation:
+required fields must be present, optional fields are checked when provided, and
+unknown `input.*` or `eval.*` keys are rejected. Unknown/deferred families
+remain loadable and compilable so future benchmark families can be introduced
+without changing the common loader first.
+
+For code-generation, `reference_solution` is the standard hidden
+benchmark-pack field for private/gold solutions. `canonical_solution` is kept
+as a hidden compatibility alias from the existing HumanEval adapter until that
+path is removed.
+
 ## Resource Materialization
 
 Road B Option 1 adds internal materialization primitives without changing the
@@ -112,12 +158,10 @@ The current materializer uses only framework-owned paths:
 - `securebench/evaluator/<resource_name>.json` for trusted evaluator-side
   materialization plans
 
-This phase intentionally does not define public schema fields for `path`,
-`source`, `mode`, or component overrides. Those fields remain the Option 3
-possibility rather than being rejected in principle. Future schema-declared
-paths could be validated against the same materialization model, and should be
-allowed only to narrow physical placement within what resource visibility
-already permits.
+The original value-only materializer still does not define public schema fields
+for `path`, `source`, `mode`, or component overrides. Benchmark-pack assets and
+eval file references now provide the first standardized path-bearing shape, and
+those paths are allowed only within what resource visibility already permits.
 
 Option 3 path configurability might still be useful because not every benchmark can
 consume framework-owned JSON files directly. Some existing tools expect inputs
@@ -131,10 +175,11 @@ not widen access: visibility must still decide the component, path traversal
 must be rejected, mandatory denied paths must win, and collisions with
 framework files or repository files must be handled explicitly.
 
-Only current value-backed `text` and `json` resources are materialized, and both
-are serialized as deterministic JSON for now. Future internal resource kinds
-such as `file`, `directory`, `artifact`, and `scratch` fail clearly until file
-and directory materialization semantics are designed.
+The original `ResourceMaterializer` remains value-backed and serializes only
+`text` and `json` resources as deterministic JSON. The newer
+visibility-aware task materializer adds file and directory copying for
+benchmark-pack assets and eval file references without changing that
+compatibility primitive.
 
 `result` remains a redacted serialization view, not a materialization target.
 Current evaluator views include `public` and `hidden`, but not
@@ -154,6 +199,113 @@ bundle for audit and reproducibility. These uses should produce trusted-side
 files such as evaluator inputs, never agent-visible or ordinary test-sandbox
 mounts.
 
+## Visibility-Aware Materialization
+
+Benchmark-pack materialization now has three lanes. Public top-level
+`assets[]` resolve from `asset_roots.public` and can be copied into the agent
+and test-sandbox workspaces at their declared `mount` paths. Evaluation-input
+resources are available only to the test sandbox; JSON values use
+`securebench/evaluation_inputs/*.json`, while file references resolve from
+`asset_roots.eval`. Hidden resources are evaluator-only; hidden JSON values use
+`securebench/evaluator/*.json`, and hidden file references also resolve from
+`asset_roots.eval`.
+
+The common file-reference shape is structural rather than family-specific:
+
+```json
+{"path": "checks/check.py", "mount": "securebench/evaluation_inputs/check.py", "read_only": true}
+```
+
+Public asset `mount` defaults to `path` and `read_only` defaults to
+`asset_defaults.read_only`. Non-public eval file references default to internal
+component paths and must stay under those internal roots if a custom `mount` is
+provided. This shape is intentionally narrow: only `path`, `mount`, and
+`read_only` are recognized as file-reference keys. Eval objects with additional
+keys remain JSON resources. Full validation of which family fields may be file
+references is deferred to family-schema work.
+
+## Tester YAML Parsing
+
+The tester YAML is now a separate parser path from the old executable run
+config. It selects a benchmark pack, output directory, and candidate-producing
+harness, but it does not define benchmark data, resource visibility, sandbox
+security constraints, or family evaluation behavior.
+
+Benchmark manifest and task rows remain benchmark-owned: they define task
+inputs, public assets, non-public eval fields, asset roots, and benchmark
+runtime defaults. Tester YAML is tester-owned: it chooses `run.id`,
+`run.output_dir`, `benchmark.manifest`, `benchmark.tasks`, and the harness
+declaration.
+
+The parser accepts only `codex`, `claude_code`, `command`, and `submission`
+harness types for now. The first executable harness layer implements
+`command`; `submission`, `codex`, and `claude_code` still parse but fail
+clearly if execution is requested before their adapters exist.
+
+## Family Contracts
+
+Family contracts define the candidate shape a harness must produce. They do not
+describe resource visibility, hidden data, evaluator inputs, or runner dispatch.
+Those remain separate concerns: visibility is derived from each compiled task's
+`ResourceBundle`, and scoring/runners are later family-runner work.
+
+The active first-pass contracts are intentionally small:
+
+- `multiple_choice`, `short_answer`, and `free_response` expect `text`.
+- `code_generation` expects `code`.
+- `repo_patch` expects `patch` and requires a mutable workspace.
+
+Unknown families can still load and compile, but execution-contract lookup
+fails clearly until the family is added to the contract registry. Deferred
+families such as terminal, browser, desktop, artifact, multimodal, preference,
+and tool-call tasks should introduce new candidate kinds only when their
+execution contracts are implemented.
+
+The active family layer also validates row schemas before compilation produces
+resources. That validation is intentionally structural: it confirms required
+and optional field names and value shapes, then preserves the row values in the
+same common resource flow. It does not yet convert rows into typed per-family
+objects or implement scoring.
+
+## Command Harness
+
+The standardized harness path now starts with `harness.type: command`.
+SecureBench prepares a per-task public workspace, writes the public task payload
+to `securebench_task.json` by default, materializes public resources/assets,
+and then runs the tester-provided command in either host or container mode.
+Hidden and `evaluation_inputs` resources are not materialized into the harness
+workspace. Workspace directory names are derived from task ids, with a short
+hash suffix when sanitization changes the id so different raw ids do not
+silently share a workspace.
+
+When the command declares an `artifact_path`, SecureBench reads the candidate
+from that file; otherwise stdout is the candidate. The candidate is normalized
+through the active family contract: text/code families fill
+`CandidateArtifact.text`, while patch families fill `CandidateArtifact.patch`.
+This keeps tester YAML independent of benchmark-family output semantics.
+
+Container mode uses `DockerSandbox` and can over-mount read-only public assets
+with read-only Docker bind mounts. Host mode uses a rooted local workspace and
+is useful for local harness development, but it is weaker isolation and should
+not be treated as the secure/reproducible path.
+
+Deferred `submission` adapter: submission files should be keyed by task id,
+validate missing and duplicate ids, preserve optional metadata, and check
+candidate values against the family contract. This is intentionally behind the
+command harness because the command path is the main bridge to agentic systems.
+
+Deferred `codex` / `claude_code` wrappers: named wrappers should be stable
+presets, not broad raw-command escape hatches. They need fixed CLI invocation,
+working-directory behavior, artifact extraction conventions, and recommended
+container image shapes before being added. Until then, testers can express
+those harnesses through `type: command`.
+
+The full working-sandbox/test-sandbox lifecycle is runner-integration work.
+The command harness creates the public working sandbox only. Step 7 should
+create a fresh test sandbox for each task or attempt, materialize public
+resources plus `evaluation_inputs` there, inject the candidate artifact, and
+keep hidden resources evaluator-side.
+
 ## Materialization Path Policy
 
 Road C adds an internal path policy layer between materialization planning and
@@ -161,8 +313,8 @@ sandbox writes. Road B decides which resources can become files for a
 component; Road C validates that the planned paths are allowed for that
 component before any files are written.
 
-The current policy is intentionally small and internal. It validates only
-framework-owned paths, with fixed allowed roots:
+The internal-resource policy validates framework-owned paths with fixed allowed
+roots:
 
 - `agent`: `securebench/public`
 - `test_sandbox`: `securebench/public` and `securebench/evaluation_inputs`
@@ -182,6 +334,13 @@ evaluator-only files, hidden patch artifacts, or Option 3 schema-declared paths.
 Developer-provided allowlists or denylists are also deferred. If added, they
 should only narrow access and must remain subordinate to mandatory denies,
 future dynamic denies, and visibility-derived component access.
+
+The path policy now also validates benchmark-owned workspace mounts. This is a
+separate guardrail from the fixed internal materialization roots: public assets
+may need paths such as `input.txt` or `repo/data/sample.json`, but they still
+cannot use absolute paths, traversal, mandatory denied paths, or reserved
+internal hidden/evaluator destinations such as `securebench/evaluation_inputs`
+or `securebench/evaluator`.
 
 Patch-style benchmarks need an additional hardening note. A fresh test sandbox
 prevents the workspace agent from seeing hidden tests while producing a patch,
