@@ -12,9 +12,15 @@ from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from securebench.candidate_extraction import (
+    default_extraction_spec,
+    extract_candidate,
+    extraction_instructions,
+    file_extraction_spec,
+    stdout_extraction_spec,
+)
 from securebench.candidates import CandidateArtifact, CandidateProducer
 from securebench.errors import ConfigError
-from securebench.families import family_contract_for
 from securebench.materialization import (
     MaterializationPlan,
     VisibilityAwareMaterializer,
@@ -28,7 +34,7 @@ from securebench.tester_config import TesterHarnessSection
 
 
 COMMAND_CONFIG_FIELDS = {"command", "artifact_path", "task_file", "timeout_seconds"}
-CODEX_CONFIG_FIELDS = {"version", "task_file", "timeout_seconds"}
+CODEX_CONFIG_FIELDS = {"model", "version", "task_file", "timeout_seconds"}
 CODEX_OVERLAY_TARGET = "/opt/securebench/codex"
 CODEX_HOME_TARGET = "/opt/securebench/codex-home"
 CODEX_DEFAULT_VERSION = "latest"
@@ -62,7 +68,6 @@ class CommandHarnessProducer(CandidateProducer):
         self.materializer = VisibilityAwareMaterializer()
 
     def produce(self, task: SecureBenchTask, **context: Any) -> CandidateArtifact:
-        contract = family_contract_for(task.task_type)
         workspace_root = _workspace_root(
             task,
             context.get("workspace_root", self.workspace_root),
@@ -86,14 +91,23 @@ class CommandHarnessProducer(CandidateProducer):
                     self.command,
                     timeout=context.get("timeout", self.timeout_seconds),
                 )
-                raw_candidate = result.stdout
-                if self.artifact_path is not None:
-                    raw_candidate = sandbox.read_file(self.artifact_path)
+                extraction = (
+                    file_extraction_spec(task, self.artifact_path)
+                    if self.artifact_path is not None
+                    else stdout_extraction_spec(task)
+                )
+                candidate = extract_candidate(
+                    task,
+                    sandbox,
+                    result,
+                    extraction,
+                    timeout=context.get("timeout", self.timeout_seconds),
+                )
                 return CandidateArtifact(
-                    text=raw_candidate if contract.candidate_kind in {"text", "code"} else None,
-                    patch=raw_candidate if contract.candidate_kind == "patch" else None,
-                    stdout=result.stdout,
-                    stderr=result.stderr,
+                    text=candidate.text,
+                    patch=candidate.patch,
+                    stdout=candidate.stdout,
+                    stderr=candidate.stderr,
                     metadata={
                         "harness": "command",
                         "mode": self.mode,
@@ -101,7 +115,7 @@ class CommandHarnessProducer(CandidateProducer):
                         "task_file": self.task_file,
                         "artifact_path": self.artifact_path,
                         "workspace_root": str(workspace_root),
-                        "candidate_kind": contract.candidate_kind,
+                        **candidate.metadata,
                     },
                 )
             finally:
@@ -155,6 +169,7 @@ class CodexHarnessProducer(CandidateProducer):
         self,
         *,
         mode: str,
+        model: str,
         env_names: tuple[str, ...] = (),
         version: str = CODEX_DEFAULT_VERSION,
         task_file: str = CODEX_DEFAULT_TASK_FILE,
@@ -164,6 +179,7 @@ class CodexHarnessProducer(CandidateProducer):
         if mode != "mounted":
             raise ConfigError("codex harness mode must be 'mounted' for this implementation")
         self.mode = mode
+        self.model = model
         self.env_names = _codex_env_names(env_names)
         self.version = _codex_version(version)
         self.task_file = task_file
@@ -217,12 +233,23 @@ class CodexHarnessProducer(CandidateProducer):
                     )
                 result = sandbox.run(
                     _codex_shell_command(
-                        "codex exec --json --skip-git-repo-check "
-                        f"--dangerously-bypass-approvals-and-sandbox {_shell_quote(_codex_prompt(self.task_file))}"
+                        f"codex exec --model {_shell_quote(self.model)} --json --skip-git-repo-check "
+                        f"--dangerously-bypass-approvals-and-sandbox "
+                        f"{_shell_quote(_codex_prompt(task, self.task_file))}"
                     ),
                     timeout=context.get("timeout", self.timeout_seconds),
                 )
+                extraction = default_extraction_spec(task, allow_stdout=False)
+                candidate = extract_candidate(
+                    task,
+                    sandbox,
+                    result,
+                    extraction,
+                    timeout=context.get("timeout", self.timeout_seconds),
+                )
                 return CandidateArtifact(
+                    text=candidate.text,
+                    patch=candidate.patch,
                     stdout=result.stdout,
                     stderr=result.stderr,
                     metadata={
@@ -233,10 +260,11 @@ class CodexHarnessProducer(CandidateProducer):
                         "workspace_root": str(workspace_root),
                         "benchmark_environment_image": image,
                         "codex_version": overlay.version,
+                        "codex_model": self.model,
                         "overlay_mode": "mounted",
                         "overlay_platform": overlay.platform.docker_platform,
                         "overlay_cache_path": str(overlay.path),
-                        "candidate_extraction": "todo",
+                        **candidate.metadata,
                     },
                 )
             finally:
@@ -288,6 +316,7 @@ def _command_config(config: dict[str, Any]) -> dict[str, Any]:
 def _codex_config(config: dict[str, Any]) -> dict[str, Any]:
     _reject_unknown_fields(config, CODEX_CONFIG_FIELDS, "harness.config")
     return {
+        "model": _codex_model(config.get("model")),
         "version": _codex_version(config.get("version", CODEX_DEFAULT_VERSION)),
         "task_file": _workspace_path(config.get("task_file", CODEX_DEFAULT_TASK_FILE), "harness.config.task_file"),
         "timeout_seconds": _optional_positive_number(
@@ -298,8 +327,7 @@ def _codex_config(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def _container_image_for_task(task: SecureBenchTask) -> str:
-    metadata = task.metadata if isinstance(task.metadata, dict) else {}
-    environment = metadata.get("environment")
+    environment = _task_environment(task)
     image = environment.get("image") if isinstance(environment, dict) else None
     if not isinstance(image, str) or not image.strip():
         raise ConfigError(
@@ -307,6 +335,12 @@ def _container_image_for_task(task: SecureBenchTask) -> str:
             "set defaults.environment.image in the manifest or environment.image on the benchmark row"
         )
     return image.strip()
+
+
+def _task_environment(task: SecureBenchTask) -> dict[str, Any]:
+    metadata = task.metadata if isinstance(task.metadata, dict) else {}
+    environment = metadata.get("environment")
+    return environment if isinstance(environment, dict) else {}
 
 
 def _codex_env_names(env_names: tuple[str, ...]) -> tuple[str, ...]:
@@ -329,6 +363,15 @@ def _codex_version(value: Any) -> str:
     if not re.fullmatch(r"[A-Za-z0-9._+-]+", version):
         raise ConfigError("harness.config.version contains unsupported characters")
     return version
+
+
+def _codex_model(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError("harness.config.model must be a non-empty string")
+    model = value.strip()
+    if not re.fullmatch(r"[A-Za-z0-9._+-]+", model):
+        raise ConfigError("harness.config.model contains unsupported characters")
+    return model
 
 
 def _codex_overlay_for_image(image: str, version: str) -> CodexOverlay:
@@ -425,11 +468,10 @@ def _codex_shell_command(inner: str) -> str:
     )
 
 
-def _codex_prompt(task_file: str) -> str:
-    return (
-        f"Read {task_file}, solve the benchmark task using only public workspace data, "
-        "and leave your work in the workspace. Candidate extraction is handled by SecureBench later."
-    )
+def _codex_prompt(task: SecureBenchTask, task_file: str) -> str:
+    extraction = default_extraction_spec(task, allow_stdout=False)
+    base = f"Read {task_file} and solve the benchmark task using only public workspace data."
+    return f"{base} {extraction_instructions(extraction)}"
 
 
 def _shell_quote(value: str) -> str:
@@ -476,7 +518,7 @@ def _reject_unknown_fields(data: dict[str, Any], allowed: set[str], section: str
 def _workspace_root(task: SecureBenchTask, root: str | Path | None) -> Path | None:
     if root is None:
         return None
-    return Path(root) / _workspace_dir_name(task)
+    return (Path(root) / _workspace_dir_name(task)).resolve()
 
 
 def _workspace_dir_name(task: SecureBenchTask) -> str:

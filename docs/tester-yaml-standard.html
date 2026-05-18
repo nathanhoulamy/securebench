@@ -247,6 +247,7 @@ harness:
   env:
     - CODEX_API_KEY
   config:
+    model: gpt-5.4-mini
     version: latest
     task_file: task.json
     timeout_seconds: 900</pre>
@@ -267,7 +268,7 @@ harness:
         <div class="mini-card"><h3>host</h3><p>The tester has the harness installed locally. SecureBench creates a public temporary workspace and invokes the harness. Convenient for smoke runs, weaker as a host-process isolation boundary.</p></div>
         <div class="mini-card"><h3>container</h3><p>SecureBench runs the harness inside the benchmark environment image with only public workspace data and allowlisted credentials. Agent tooling overlays are a future layer.</p></div>
         <div class="mini-card"><h3>mounted</h3><p>SecureBench runs a named agent inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state.</p></div>
-        <div class="mini-card"><h3>submission</h3><p>SecureBench does not run an agent. It evaluates precomputed predictions or artifacts against the benchmark family runner.</p></div>
+        <div class="mini-card"><h3>submission</h3><p>SecureBench does not run an agent. It evaluates precomputed predictions or artifacts against the benchmark family verifier.</p></div>
       </div>
       <pre class="schema"># Host-installed convenience mode
 harness:
@@ -282,6 +283,8 @@ harness:
   mode: mounted
   env:
     - CODEX_API_KEY
+  config:
+    model: gpt-5.4-mini
 
 # Containerized command mode
 harness:

@@ -83,25 +83,27 @@ def mc_task(manifest=None, *, assets=(), environment=None):
     )
 
 
-def code_task():
+def code_task(*, environment=None):
     return compile_benchmark_row(
         BenchmarkRow(
             id="code-1",
             family="code_completion",
             input={"prompt": "Write add."},
             eval={"tests": {"source": "inline", "code": "assert candidate(1, 2) == 3"}},
+            environment={} if environment is None else environment,
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),
     )
 
 
-def repo_patch_task():
+def repo_patch_task(*, environment=None):
     return compile_benchmark_row(
         BenchmarkRow(
             id="repo-1",
             family="repo_patch",
             input={"repo": "repo/", "base_commit": "abc123", "instructions": "Fix it."},
             eval={"tests": {"path": "tests/test_bug.py"}},
+            environment={} if environment is None else environment,
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),
     )
@@ -271,7 +273,7 @@ def test_codex_mounted_harness_uses_benchmark_image_and_overlay_mounts(monkeypat
         harness_section(
             mode="mounted",
             harness_type="codex",
-            config={"version": "0.30.0", "timeout_seconds": 11},
+            config={"model": "gpt-5.1-codex", "version": "0.30.0", "timeout_seconds": 11},
         ),
         workspace_root=tmp_path / "runs",
     )
@@ -290,7 +292,7 @@ def test_codex_mounted_harness_uses_benchmark_image_and_overlay_mounts(monkeypat
     assert docker.mounts[1].read_only is False
     assert docker.commands[0][0].startswith("export HOME=")
     assert "codex --version" in docker.commands[0][0]
-    assert "codex exec --json" in docker.commands[1][0]
+    assert "codex exec --model 'gpt-5.1-codex' --json" in docker.commands[1][0]
     assert "--skip-git-repo-check" in docker.commands[1][0]
     assert "--dangerously-bypass-approvals-and-sandbox" in docker.commands[1][0]
     assert docker.commands[0][2] == 11.0
@@ -300,8 +302,111 @@ def test_codex_mounted_harness_uses_benchmark_image_and_overlay_mounts(monkeypat
     assert artifact.patch is None
     assert artifact.metadata["harness"] == "codex"
     assert artifact.metadata["mode"] == "mounted"
+    assert artifact.metadata["codex_model"] == "gpt-5.1-codex"
     assert artifact.metadata["overlay_platform"] == "linux/arm64"
-    assert artifact.metadata["candidate_extraction"] == "todo"
+    assert artifact.metadata["candidate_extraction"] == "unsupported"
+
+
+def test_codex_mounted_harness_extracts_code_completion_candidate_file(monkeypatch, tmp_path):
+    class CodeWritingDockerSandbox(FakeDockerSandbox):
+        instances = []
+
+        def run(self, command, *, workdir=None, timeout=None):
+            self.commands.append((command, workdir, timeout))
+            if isinstance(command, str) and "codex exec" in command:
+                self.write_file("candidate.py", "def add(a, b):\n    return a + b\n")
+            return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
+
+    monkeypatch.setenv("CODEX_API_KEY", "secret")
+    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.DockerSandbox", CodeWritingDockerSandbox)
+    overlay_path = tmp_path / "codex-overlay"
+    overlay_path.mkdir()
+    monkeypatch.setattr(
+        "securebench.harnesses._codex_overlay_for_image",
+        lambda image, version: CodexOverlay(
+            path=overlay_path,
+            platform=DockerPlatform(os="linux", architecture="amd64"),
+            version=version,
+        ),
+    )
+    producer = build_harness_producer(
+        HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"}),
+        workspace_root=tmp_path / "runs",
+    )
+
+    artifact = producer.produce(code_task(environment={"image": "python:3.11-slim"}))
+
+    assert artifact.text == "def add(a, b):\n    return a + b\n"
+    assert artifact.patch is None
+    assert artifact.metadata["candidate_kind"] == "code"
+    assert artifact.metadata["candidate_extraction"] == "file"
+    assert artifact.metadata["candidate_path"] == "candidate.py"
+
+
+def test_codex_mounted_harness_fails_when_code_candidate_file_missing(monkeypatch, tmp_path):
+    monkeypatch.setenv("CODEX_API_KEY", "secret")
+    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.DockerSandbox", FakeDockerSandbox)
+    overlay_path = tmp_path / "codex-overlay"
+    overlay_path.mkdir()
+    monkeypatch.setattr(
+        "securebench.harnesses._codex_overlay_for_image",
+        lambda image, version: CodexOverlay(
+            path=overlay_path,
+            platform=DockerPlatform(os="linux", architecture="amd64"),
+            version=version,
+        ),
+    )
+    producer = build_harness_producer(
+        HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"}),
+        workspace_root=tmp_path / "runs",
+    )
+
+    with pytest.raises(ConfigError, match="candidate.py"):
+        producer.produce(code_task(environment={"image": "python:3.11-slim"}))
+
+
+def test_codex_mounted_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
+    class DiffingDockerSandbox(FakeDockerSandbox):
+        instances = []
+
+        def run(self, command, *, workdir=None, timeout=None):
+            self.commands.append((command, workdir, timeout))
+            if tuple(command) == ("git", "diff", "--binary"):
+                return CommandResult(tuple(command), 0, "diff --git a/app.py b/app.py\n", "")
+            return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
+
+    monkeypatch.setenv("CODEX_API_KEY", "secret")
+    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.DockerSandbox", DiffingDockerSandbox)
+    overlay_path = tmp_path / "codex-overlay"
+    overlay_path.mkdir()
+    monkeypatch.setattr(
+        "securebench.harnesses._codex_overlay_for_image",
+        lambda image, version: CodexOverlay(
+            path=overlay_path,
+            platform=DockerPlatform(os="linux", architecture="amd64"),
+            version=version,
+        ),
+    )
+    producer = build_harness_producer(
+        HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"}),
+        workspace_root=tmp_path / "runs",
+    )
+
+    artifact = producer.produce(
+        repo_patch_task(environment={"image": "python:3.11-slim", "workdir": "/workspace/repo"})
+    )
+
+    assert artifact.text is None
+    assert artifact.patch == "diff --git a/app.py b/app.py\n"
+    assert artifact.metadata["candidate_kind"] == "patch"
+    assert artifact.metadata["candidate_extraction"] == "git_diff"
+    assert artifact.metadata["candidate_workdir"] == "/workspace/repo"
+    assert artifact.metadata["candidate_diff_exit_code"] == 0
+    docker = FakeDockerSandbox.instances[-1]
+    assert docker.commands[-1] == (["git", "diff", "--binary"], "/workspace/repo", 900.0)
 
 
 def test_codex_mounted_harness_defaults_to_codex_api_key(monkeypatch, tmp_path):
@@ -319,7 +424,7 @@ def test_codex_mounted_harness_defaults_to_codex_api_key(monkeypatch, tmp_path):
         ),
     )
     task = mc_task(environment={"image": "python:3.11-slim"})
-    harness = HarnessSection(type="codex", mode="mounted", config={})
+    harness = HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"})
 
     producer = build_harness_producer(harness, workspace_root=tmp_path / "runs")
     producer.produce(task)
@@ -329,16 +434,30 @@ def test_codex_mounted_harness_defaults_to_codex_api_key(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("mode", ["host", "container"])
 def test_codex_harness_rejects_non_mounted_modes(mode):
-    harness = HarnessSection(type="codex", mode=mode)
+    harness = HarnessSection(type="codex", mode=mode, config={"model": "gpt-5.1-codex"})
 
     with pytest.raises(ConfigError, match="codex harness mode must be 'mounted'"):
         build_harness_producer(harness)
 
 
+@pytest.mark.parametrize(
+    ("config", "match"),
+    [
+        ({}, "model"),
+        ({"model": ""}, "model"),
+        ({"model": "bad/model"}, "model"),
+        ({"model": "gpt-5.1-codex", "unknown": True}, "unsupported field"),
+    ],
+)
+def test_codex_harness_rejects_invalid_config(config, match):
+    with pytest.raises(ConfigError, match=match):
+        build_harness_producer(HarnessSection(type="codex", mode="mounted", config=config))
+
+
 def test_codex_mounted_harness_requires_benchmark_environment_image(monkeypatch, tmp_path):
     monkeypatch.setenv("CODEX_API_KEY", "secret")
     producer = build_harness_producer(
-        HarnessSection(type="codex", mode="mounted"),
+        HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"}),
         workspace_root=tmp_path / "runs",
     )
 
@@ -349,7 +468,7 @@ def test_codex_mounted_harness_requires_benchmark_environment_image(monkeypatch,
 def test_codex_mounted_harness_requires_codex_api_key(monkeypatch, tmp_path):
     monkeypatch.delenv("CODEX_API_KEY", raising=False)
     producer = build_harness_producer(
-        HarnessSection(type="codex", mode="mounted"),
+        HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"}),
         workspace_root=tmp_path / "runs",
     )
 
@@ -379,7 +498,7 @@ def test_codex_mounted_harness_reports_preflight_failure(monkeypatch, tmp_path):
         ),
     )
     producer = build_harness_producer(
-        HarnessSection(type="codex", mode="mounted"),
+        HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"}),
         workspace_root=tmp_path / "runs",
     )
 

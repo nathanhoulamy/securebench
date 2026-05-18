@@ -16,6 +16,7 @@ harness:
   env:
     - CODEX_API_KEY
   config:
+    model: gpt-5.4-mini
     version: latest
     task_file: task.json
     timeout_seconds: 900
