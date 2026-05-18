@@ -1,58 +1,52 @@
 import json
-from pathlib import Path
+
+import pytest
 
 from securebench import cli
-from securebench.datasets import DatasetRow
 
 
-def test_cli_run_loads_config_applies_overrides_and_prints_summary(monkeypatch, tmp_path, capsys):
-    config_path = tmp_path / "config.yaml"
-    output_path = tmp_path / "results.jsonl"
+def test_cli_run_loads_tester_config_applies_overrides_and_prints_summary(monkeypatch, tmp_path, capsys):
+    config_path = tmp_path / "tester.yaml"
+    output_dir = tmp_path / "out"
+    override_dir = tmp_path / "override"
+    manifest_path = tmp_path / "manifest.yaml"
+    tasks_path = tmp_path / "tasks.jsonl"
     config_path.write_text(
         f"""
-schema_version: "0.1"
+schema_version: "0.2"
 run:
-  id: cli-test
-  limit: 5
-  output_path: {tmp_path / "ignored.jsonl"}
-dataset:
-  provider: huggingface
-  name: cais/mmlu
-  config: abstract_algebra
-  split: test
-adapter:
-  id: mmlu
-producer:
-  type: static
+  id: cli-tester
+  output_dir: {output_dir}
+benchmark:
+  manifest: {manifest_path}
+  tasks: {tasks_path}
+harness:
+  type: command
+  mode: host
   config:
-    text: A
-runner:
-  type: multiple_choice
+    command:
+      - produce
 """
     )
 
-    rows = [
-        DatasetRow(
-            row={
-                "question": "first?",
-                "choices": ["correct", "wrong"],
-                "answer": 0,
-                "subject": "test",
-            },
-            context={"config": "abstract_algebra", "split": "test", "row_idx": 0},
-        ),
-        DatasetRow(
-            row={
-                "question": "second?",
-                "choices": ["correct", "wrong"],
-                "answer": 0,
-                "subject": "test",
-            },
-            context={"config": "abstract_algebra", "split": "test", "row_idx": 1},
-        ),
-    ]
+    seen = {}
 
-    monkeypatch.setattr("securebench.run.RunConfig.dataset_ref", lambda self: FakeDatasetRef(rows))
+    def fake_run_tester_config(config, *, limit=None):
+        seen["config"] = config
+        seen["limit"] = limit
+        config.run.output_dir.mkdir(parents=True)
+        output_path = config.run.output_dir / "candidates.jsonl"
+        output_path.write_text(json.dumps({"task_id": "task-1"}) + "\n")
+        return FakeTesterSummary(
+            run_id=config.run.id,
+            total=1,
+            verified=1,
+            passed=1,
+            verification_status="complete",
+            output_path=str(output_path),
+        )
+
+    monkeypatch.setattr("securebench.cli.run_tester_config", fake_run_tester_config)
 
     exit_code = cli.main(
         [
@@ -61,15 +55,17 @@ runner:
             str(config_path),
             "--limit",
             "1",
-            "--output",
-            str(output_path),
+            "--output-dir",
+            str(override_dir),
         ]
     )
 
     assert exit_code == 0
-    assert "run_id=cli-test total=1 passed=1" in capsys.readouterr().out
-    records = [json.loads(line) for line in output_path.read_text().splitlines()]
-    assert len(records) == 1
+    assert seen["limit"] == 1
+    assert seen["config"].run.output_dir == override_dir
+    assert "run_id=cli-tester total=1 verification=complete verified=1 passed=1" in capsys.readouterr().out
+    records = [json.loads(line) for line in (override_dir / "candidates.jsonl").read_text().splitlines()]
+    assert records == [{"task_id": "task-1"}]
 
 
 def test_cli_run_reports_config_error(capsys):
@@ -79,12 +75,19 @@ def test_cli_run_reports_config_error(capsys):
     assert "securebench: error:" in capsys.readouterr().out
 
 
-class FakeDatasetRef:
-    def __init__(self, rows):
-        self.rows = rows
+def test_cli_has_no_legacy_run_tester_subcommand(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["run-tester", "--config", "tester.yaml"])
 
-    def iter_rows(self, *, limit=None):
-        for index, row in enumerate(self.rows):
-            if limit is not None and index >= limit:
-                break
-            yield row
+    assert exc_info.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+
+
+class FakeTesterSummary:
+    def __init__(self, *, run_id, total, verified, passed, verification_status, output_path):
+        self.run_id = run_id
+        self.total = total
+        self.verified = verified
+        self.passed = passed
+        self.verification_status = verification_status
+        self.output_path = output_path

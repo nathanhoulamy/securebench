@@ -1,0 +1,15 @@
+id: code-completion-smoke
+version: 1
+
+defaults:
+  family: code_completion
+  environment:
+    image: node:22-bookworm
+    timeout_seconds: 120
+
+asset_roots:
+  public: assets/
+  eval: hidden/
+
+asset_defaults:
+  read_only: true
