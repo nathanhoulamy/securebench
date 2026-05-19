@@ -31,9 +31,11 @@ harness:
 
     seen = {}
 
-    def fake_run_tester_config(config, *, limit=None):
+    def fake_run_tester_config(config, *, limit=None, progress=None, resume=False):
         seen["config"] = config
         seen["limit"] = limit
+        seen["progress"] = progress
+        seen["resume"] = resume
         config.run.output_dir.mkdir(parents=True)
         output_path = config.run.output_dir / "candidates.jsonl"
         output_path.write_text(json.dumps({"task_id": "task-1"}) + "\n")
@@ -62,6 +64,8 @@ harness:
 
     assert exit_code == 0
     assert seen["limit"] == 1
+    assert seen["progress"] is not None
+    assert seen["resume"] is False
     assert seen["config"].run.output_dir == override_dir
     assert "run_id=cli-tester total=1 verification=complete verified=1 passed=1" in capsys.readouterr().out
     records = [json.loads(line) for line in (override_dir / "candidates.jsonl").read_text().splitlines()]
@@ -73,6 +77,96 @@ def test_cli_run_reports_config_error(capsys):
 
     assert exit_code == 1
     assert "securebench: error:" in capsys.readouterr().out
+
+
+def test_cli_run_quiet_disables_progress(monkeypatch, tmp_path):
+    config_path = tmp_path / "tester.yaml"
+    output_dir = tmp_path / "out"
+    manifest_path = tmp_path / "manifest.yaml"
+    tasks_path = tmp_path / "tasks.jsonl"
+    config_path.write_text(
+        f"""
+schema_version: "0.2"
+run:
+  id: cli-tester
+  output_dir: {output_dir}
+benchmark:
+  manifest: {manifest_path}
+  tasks: {tasks_path}
+harness:
+  type: command
+  mode: host
+  config:
+    command: produce
+"""
+    )
+    seen = {}
+
+    def fake_run_tester_config(config, *, limit=None, progress=None, resume=False):
+        seen["progress"] = progress
+        config.run.output_dir.mkdir(parents=True)
+        output_path = config.run.output_dir / "candidates.jsonl"
+        output_path.write_text("")
+        return FakeTesterSummary(
+            run_id=config.run.id,
+            total=0,
+            verified=0,
+            passed=0,
+            verification_status="complete",
+            output_path=str(output_path),
+        )
+
+    monkeypatch.setattr("securebench.cli.run_tester_config", fake_run_tester_config)
+
+    exit_code = cli.main(["run", "--config", str(config_path), "--quiet"])
+
+    assert exit_code == 0
+    assert seen["progress"].__class__.__name__ == "NullProgressReporter"
+
+
+def test_cli_run_passes_resume(monkeypatch, tmp_path):
+    config_path = tmp_path / "tester.yaml"
+    output_dir = tmp_path / "out"
+    manifest_path = tmp_path / "manifest.yaml"
+    tasks_path = tmp_path / "tasks.jsonl"
+    config_path.write_text(
+        f"""
+schema_version: "0.2"
+run:
+  id: cli-tester
+  output_dir: {output_dir}
+benchmark:
+  manifest: {manifest_path}
+  tasks: {tasks_path}
+harness:
+  type: command
+  mode: host
+  config:
+    command: produce
+"""
+    )
+    seen = {}
+
+    def fake_run_tester_config(config, *, limit=None, progress=None, resume=False):
+        seen["resume"] = resume
+        config.run.output_dir.mkdir(parents=True)
+        output_path = config.run.output_dir / "candidates.jsonl"
+        output_path.write_text("")
+        return FakeTesterSummary(
+            run_id=config.run.id,
+            total=0,
+            verified=0,
+            passed=0,
+            verification_status="complete",
+            output_path=str(output_path),
+        )
+
+    monkeypatch.setattr("securebench.cli.run_tester_config", fake_run_tester_config)
+
+    exit_code = cli.main(["run", "--config", str(config_path), "--resume"])
+
+    assert exit_code == 0
+    assert seen["resume"] is True
 
 
 def test_cli_has_no_legacy_run_tester_subcommand(capsys):

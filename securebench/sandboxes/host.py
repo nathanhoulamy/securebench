@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 from pathlib import Path, PurePosixPath
 
+from securebench.progress import emit_progress
 from securebench.sandboxes.base import CommandResult, Sandbox, resolve_sandbox_host_path
 
 
@@ -27,6 +28,14 @@ class HostSandbox(Sandbox):
         self._tempdir = None if root is not None else tempfile.TemporaryDirectory(prefix="securebench-host-")
         self.root = Path(root) if root is not None else Path(self._tempdir.name)
         self.root.mkdir(parents=True, exist_ok=True)
+        emit_progress(
+            "sandbox_create",
+            kind="host",
+            image="host",
+            root=self.root,
+            network="host",
+            read_only=False,
+        )
 
     def run(
         self,
@@ -36,6 +45,13 @@ class HostSandbox(Sandbox):
         timeout: float | None = None,
     ) -> CommandResult:
         normalized = _normalize_command(command)
+        emit_progress(
+            "sandbox_command",
+            kind="host",
+            image="host",
+            workdir=str(self._host_path(workdir or ".")),
+            command=" ".join(normalized),
+        )
         completed = subprocess.run(
             normalized,
             cwd=self._host_path(workdir or "."),
@@ -44,6 +60,14 @@ class HostSandbox(Sandbox):
             capture_output=True,
             text=True,
             timeout=timeout,
+        )
+        emit_progress(
+            "sandbox_result",
+            kind="host",
+            exit_code=completed.returncode,
+            command=" ".join(normalized),
+            stdout=completed.stdout,
+            stderr=completed.stderr,
         )
         return CommandResult(
             command=normalized,

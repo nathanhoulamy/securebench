@@ -195,3 +195,41 @@ def test_run_tester_config_leaves_unsupported_family_pending(monkeypatch, tmp_pa
     records = [json.loads(line) for line in (tmp_path / "out" / "candidates.jsonl").read_text().splitlines()]
     assert records[0]["verification_status"] == "pending"
     assert "passed" not in records[0]
+
+
+def test_run_tester_config_resume_keeps_valid_records_and_skips_completed(monkeypatch, tmp_path):
+    manifest, tasks = write_multiple_choice_pack(tmp_path)
+    config = make_config(tmp_path, manifest, tasks)
+    config.run.output_dir.mkdir(parents=True)
+    existing = {
+        "run_id": "tester-run",
+        "task_id": "tester-run-pack/addition",
+        "benchmark_id": "tester-run-pack",
+        "task_type": "multiple_choice",
+        "verification_status": "passed",
+        "passed": True,
+        "score": 1.0,
+    }
+    (config.run.output_dir / "candidates.jsonl").write_text(
+        "\x00\x00not-json\n" + json.dumps(existing) + "\n"
+    )
+
+    def fake_producer(harness, workspace_root=None):
+        class Producer:
+            def produce(self, task):
+                raise AssertionError("completed task should be skipped")
+
+        return Producer()
+
+    monkeypatch.setattr("securebench.tester_run.build_harness_producer", fake_producer)
+
+    summary = run_tester_config(config, resume=True)
+
+    assert summary.total == 1
+    assert summary.verified == 1
+    assert summary.passed == 1
+    records = [
+        json.loads(line)
+        for line in (config.run.output_dir / "candidates.jsonl").read_text().splitlines()
+    ]
+    assert records == [existing]

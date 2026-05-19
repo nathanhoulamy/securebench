@@ -11,6 +11,7 @@ from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import CandidateArtifact
 from securebench.harnesses import build_harness_producer
+from securebench.progress import ProgressReporter, emit_progress, progress_context
 from securebench.resources import REDACTED
 from securebench.tester_config import TesterConfig
 from securebench.verifiers import VerificationResult, verifier_for_task_type
@@ -43,7 +44,13 @@ class TesterRunSummary:
         return "partial"
 
 
-def run_tester_config(config: TesterConfig, *, limit: int | None = None) -> TesterRunSummary:
+def run_tester_config(
+    config: TesterConfig,
+    *,
+    limit: int | None = None,
+    progress: ProgressReporter | None = None,
+    resume: bool = False,
+) -> TesterRunSummary:
     """Run tester YAML through candidate production and supported verification."""
     output_dir = config.run.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -53,22 +60,78 @@ def run_tester_config(config: TesterConfig, *, limit: int | None = None) -> Test
     pack = load_benchmark_pack(config.benchmark.manifest, config.benchmark.tasks)
     producer = build_harness_producer(config.harness, workspace_root=workspace_root)
 
-    total = 0
+    tasks = list(compile_benchmark_pack(pack, limit=limit))
+    existing_records = _resume_records(output_path) if resume else []
+    completed_task_ids = {
+        record["task_id"]
+        for record in existing_records
+        if isinstance(record.get("task_id"), str)
+    }
+    remaining_tasks = [task for task in tasks if task.id not in completed_task_ids]
+    total = len(existing_records)
     verified = 0
     passed = 0
     score_sum = 0.0
-    with output_path.open("w") as output_file:
-        for task in compile_benchmark_pack(pack, limit=limit):
-            candidate = producer.produce(task)
-            verification = verify_candidate(task, candidate)
-            record = candidate_record(config.run.id, task, candidate, verification)
-            output_file.write(json.dumps(record, sort_keys=True) + "\n")
-            total += 1
-            if verification is not None:
-                verified += 1
-                if verification.passed:
-                    passed += 1
-                score_sum += verification.score
+    for record in existing_records:
+        if _record_is_verified(record):
+            verified += 1
+            if record.get("passed") is True:
+                passed += 1
+            score_sum += _record_score(record)
+    with progress_context(progress):
+        emit_progress("run_start", run_id=config.run.id, output_dir=output_dir)
+        if existing_records:
+            emit_progress(
+                "resume",
+                completed=len(existing_records),
+                remaining=len(remaining_tasks),
+                output_path=output_path,
+            )
+        with output_path.open("w") as output_file:
+            if resume and existing_records:
+                for record in existing_records:
+                    output_file.write(json.dumps(record, sort_keys=True) + "\n")
+                output_file.flush()
+            for task in remaining_tasks:
+                emit_progress(
+                    "task_start",
+                    index=total + 1,
+                    total=len(tasks),
+                    task_id=task.id,
+                    family=task.task_type,
+                )
+                emit_progress("producer_start", task_id=task.id)
+                candidate = producer.produce(task)
+                emit_progress(
+                    "producer_done",
+                    task_id=task.id,
+                    candidate_kind=_candidate_kind(candidate),
+                )
+                emit_progress("verifier_start", task_id=task.id)
+                verification = verify_candidate(task, candidate)
+                emit_progress(
+                    "verifier_done",
+                    task_id=task.id,
+                    status=None if verification is None else verification.status,
+                    score=None if verification is None else verification.score,
+                    phase=_verification_phase(verification),
+                )
+                record = candidate_record(config.run.id, task, candidate, verification)
+                output_file.write(json.dumps(record, sort_keys=True) + "\n")
+                output_file.flush()
+                total += 1
+                if verification is not None:
+                    verified += 1
+                    if verification.passed:
+                        passed += 1
+                    score_sum += verification.score
+                emit_progress(
+                    "task_done",
+                    task_id=task.id,
+                    status=record["verification_status"],
+                    passed=record.get("passed"),
+                    score=record.get("score"),
+                )
 
     return TesterRunSummary(
         run_id=config.run.id,
@@ -79,6 +142,48 @@ def run_tester_config(config: TesterConfig, *, limit: int | None = None) -> Test
         passed=passed,
         score_sum=score_sum,
     )
+
+
+def _resume_records(output_path: Path) -> list[dict[str, Any]]:
+    if not output_path.exists():
+        return []
+    records = []
+    for line in output_path.read_text(errors="ignore").splitlines():
+        line = line.strip("\x00").strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict) and isinstance(record.get("task_id"), str):
+            records.append(record)
+    return records
+
+
+def _record_is_verified(record: dict[str, Any]) -> bool:
+    return record.get("verification_status") != UNSUPPORTED_VERIFICATION_STATUS
+
+
+def _record_score(record: dict[str, Any]) -> float:
+    score = record.get("score", 0.0)
+    if isinstance(score, (int, float)) and not isinstance(score, bool):
+        return float(score)
+    return 0.0
+
+
+def _candidate_kind(candidate: CandidateArtifact) -> str:
+    if candidate.patch is not None:
+        return "patch"
+    if candidate.text is not None:
+        return "text"
+    return "none"
+
+
+def _verification_phase(verification: VerificationResult | None) -> object:
+    if verification is None:
+        return None
+    return verification.metadata.get("phase")
 
 
 def with_tester_overrides(

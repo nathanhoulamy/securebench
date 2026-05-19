@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import selectors
 import subprocess
 import tempfile
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from securebench.progress import emit_progress, wants_agent_output
 from securebench.sandboxes.base import CommandResult, Sandbox, resolve_sandbox_host_path
 
 
@@ -56,6 +59,14 @@ class DockerSandbox(Sandbox):
         self._tempdir = None if root is not None else tempfile.TemporaryDirectory(prefix="securebench-")
         self.root = Path(root) if root is not None else Path(self._tempdir.name)
         self.root.mkdir(parents=True, exist_ok=True)
+        emit_progress(
+            "sandbox_create",
+            kind="docker",
+            image=self.image,
+            root=self.root,
+            network=self.network,
+            read_only=self.read_only,
+        )
 
     def run(
         self,
@@ -66,9 +77,24 @@ class DockerSandbox(Sandbox):
     ) -> CommandResult:
         normalized = _normalize_command(command)
         docker_workdir = _docker_path(workdir or ".")
+        emit_progress(
+            "sandbox_command",
+            kind="docker",
+            image=self.image,
+            workdir=docker_workdir,
+            command=" ".join(normalized),
+        )
         if self.persistent:
             start_result = self._ensure_container()
             if start_result is not None:
+                emit_progress(
+                    "sandbox_result",
+                    kind="docker",
+                    exit_code=start_result.exit_code,
+                    command="docker run",
+                    stdout=start_result.stdout,
+                    stderr=start_result.stderr,
+                )
                 return CommandResult(
                     command=normalized,
                     exit_code=start_result.exit_code,
@@ -106,12 +132,23 @@ class DockerSandbox(Sandbox):
                 self.image,
                 *normalized,
             ]
-        completed = subprocess.run(
-            docker_command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+        if _is_codex_agent_command(normalized) and wants_agent_output():
+            completed = _run_streaming_agent_command(docker_command, timeout=timeout)
+        else:
+            completed = subprocess.run(
+                docker_command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        emit_progress(
+            "sandbox_result",
+            kind="docker",
+            exit_code=completed.returncode,
+            command=" ".join(normalized),
+            stdout=completed.stdout,
+            stderr=completed.stderr,
         )
         return CommandResult(
             command=normalized,
@@ -165,6 +202,12 @@ class DockerSandbox(Sandbox):
         if self._container_name is not None:
             return None
         self._container_name = f"securebench-{uuid.uuid4().hex}"
+        emit_progress(
+            "sandbox_start",
+            kind="docker",
+            image=self.image,
+            container=self._container_name,
+        )
         completed = subprocess.run(
             [
                 "docker",
@@ -212,6 +255,63 @@ def _normalize_command(command: str | list[str] | tuple[str, ...]) -> tuple[str,
     if not command:
         raise ValueError("Command must not be empty")
     return tuple(str(part) for part in command)
+
+
+def _is_codex_agent_command(command: tuple[str, ...]) -> bool:
+    return "codex exec" in " ".join(command)
+
+
+def _run_streaming_agent_command(
+    docker_command: list[str],
+    *,
+    timeout: float | None,
+) -> subprocess.CompletedProcess[str]:
+    started = time.monotonic()
+    stdout_parts: list[str] = []
+    stderr_parts: list[str] = []
+    process = subprocess.Popen(
+        docker_command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    selector = selectors.DefaultSelector()
+    if process.stdout is not None:
+        selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+    if process.stderr is not None:
+        selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+    try:
+        while selector.get_map():
+            if timeout is not None and time.monotonic() - started > timeout:
+                process.kill()
+                raise subprocess.TimeoutExpired(docker_command, timeout)
+            events = selector.select(timeout=0.2)
+            if not events and process.poll() is not None:
+                for key in list(selector.get_map().values()):
+                    selector.unregister(key.fileobj)
+                break
+            for key, _ in events:
+                line = key.fileobj.readline()
+                if line == "":
+                    selector.unregister(key.fileobj)
+                    continue
+                if key.data == "stdout":
+                    stdout_parts.append(line)
+                else:
+                    stderr_parts.append(line)
+                emit_progress("agent_output", stream=key.data, line=line)
+        exit_code = process.wait(timeout=1)
+    finally:
+        selector.close()
+        if process.poll() is None:
+            process.kill()
+    return subprocess.CompletedProcess(
+        docker_command,
+        exit_code,
+        stdout="".join(stdout_parts),
+        stderr="".join(stderr_parts),
+    )
 
 
 def _docker_path(path: str) -> str:
