@@ -103,7 +103,7 @@ def make_config(tmp_path, manifest, tasks):
         schema_version="0.2",
         run=RunSection(id="tester-run", output_dir=tmp_path / "out"),
         benchmark=BenchmarkSection(manifest=manifest, tasks=tasks),
-        harness=HarnessSection(type="command", mode="host", config={"command": "ignored"}),
+        harness=HarnessSection(type="command", config={"command": "ignored"}),
     )
 
 

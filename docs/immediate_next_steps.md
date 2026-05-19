@@ -69,14 +69,12 @@ standard-family verifiers directly.
 
 ## 4. Deferred Harness Work
 
-After command harness integration is exercised end to end, continue the
-remaining harness work:
+After command and Codex harness integration is exercised end to end, continue
+the remaining harness work:
 
-- `submission`: read task-id-keyed candidate records, reject missing or
-  duplicate task ids, preserve metadata, and validate candidate value shape
-  against family contracts.
-- `codex`: mounted container execution is the first named-agent preset;
-  `code_completion` extraction reads `candidate.py`, and `repo_patch`
+- `codex`: benchmark-container execution with a mounted tooling overlay is the
+  first named-agent preset; `code_completion` extraction reads `candidate.py`,
+  and `repo_patch`
   extraction collects `git diff --binary`.
 - `claude_code`: same as `codex`; avoid exposing raw commands for named common
   harnesses.
@@ -84,7 +82,7 @@ remaining harness work:
   chosen.
 
 Until additional named wrappers exist, use `harness.type: command` for custom
-installed or containerized agentic systems.
+containerized agentic systems.
 
 ## 5. Schema and Materialization Tightening
 
@@ -108,15 +106,15 @@ command line:
 
 - `securebench run --config <tester.yaml>` loads tester YAML.
 - the code-completion smoke pack exercises tester YAML, benchmark-pack loading,
-  compilation, Codex mounted harness execution, candidate extraction, and
+  compilation, Codex harness execution, candidate extraction, and
   code-completion verification.
 
 ## 7. Security and Audit Follow-Ups
 
 Carry forward these hardening items while integrating verifiers:
 
-- keep Docker as the secure/reproducible path; host mode remains convenience
-  only.
+- keep Docker as the harness execution path; avoid reintroducing host execution
+  for untrusted candidate production.
 - verify hidden/evaluation files that must be present during tests are
   read-only where possible.
 - record audit metadata when a benchmark design necessarily lets candidate code

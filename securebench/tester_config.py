@@ -12,15 +12,13 @@ from securebench.errors import ConfigError
 
 
 SUPPORTED_TESTER_SCHEMA_VERSION = "0.2"
-HarnessType = Literal["codex", "claude_code", "command", "submission"]
-HarnessMode = Literal["host", "container", "mounted", "submission"]
+HarnessType = Literal["codex", "claude_code", "command"]
 
 ROOT_FIELDS = {"schema_version", "run", "benchmark", "harness"}
 RUN_FIELDS = {"id", "output_dir"}
 BENCHMARK_FIELDS = {"manifest", "tasks"}
-HARNESS_FIELDS = {"type", "mode", "env", "path", "config"}
-HARNESS_TYPES = {"codex", "claude_code", "command", "submission"}
-HARNESS_MODES = {"host", "container", "mounted", "submission"}
+HARNESS_FIELDS = {"type", "env", "config"}
+HARNESS_TYPES = {"codex", "claude_code", "command"}
 
 
 @dataclass(frozen=True)
@@ -44,9 +42,7 @@ class TesterHarnessSection:
     """Candidate-producing harness selected by the tester."""
 
     type: HarnessType
-    mode: HarnessMode
     env: tuple[str, ...] = ()
-    path: Path | None = None
     config: dict[str, Any] = field(default_factory=dict)
 
 
@@ -94,7 +90,7 @@ def parse_tester_config(data: dict[str, Any], *, base_dir: str | Path | None = N
         manifest=_config_path(_required_str(benchmark_data, "manifest", "benchmark"), base),
         tasks=_config_path(_required_str(benchmark_data, "tasks", "benchmark"), base),
     )
-    harness = _harness_section(harness_data, base)
+    harness = _harness_section(harness_data)
     return TesterConfig(
         schema_version=schema_version,
         run=run,
@@ -103,31 +99,13 @@ def parse_tester_config(data: dict[str, Any], *, base_dir: str | Path | None = N
     )
 
 
-def _harness_section(data: dict[str, Any], base_dir: Path | None) -> TesterHarnessSection:
+def _harness_section(data: dict[str, Any]) -> TesterHarnessSection:
     harness_type = _expect_literal(_required_str(data, "type", "harness"), HARNESS_TYPES, "harness.type")
-    mode = _expect_literal(_required_str(data, "mode", "harness"), HARNESS_MODES, "harness.mode")
-    path_value = _optional_str(data.get("path"), "harness.path")
-    path = None if path_value is None else _config_path(path_value, base_dir)
     config = _optional_dict(data.get("config"), "harness.config")
-
-    if harness_type == "submission":
-        if mode != "submission":
-            raise ConfigError("harness.type 'submission' requires mode 'submission'")
-        if path is None:
-            raise ConfigError("harness.path is required for submission harnesses")
-    else:
-        if mode == "submission":
-            raise ConfigError("harness.mode 'submission' requires harness.type 'submission'")
-        if mode == "mounted" and harness_type != "codex":
-            raise ConfigError("harness.mode 'mounted' requires harness.type 'codex'")
-        if path is not None:
-            raise ConfigError("harness.path is only supported for submission harnesses")
 
     return TesterHarnessSection(
         type=harness_type,  # type: ignore[arg-type]
-        mode=mode,  # type: ignore[arg-type]
         env=_env_names(data.get("env"), "harness.env"),
-        path=path,
         config=config,
     )
 
@@ -151,14 +129,6 @@ def _required_str(data: dict[str, Any], key: str, section: str) -> str:
     value = data.get(key)
     if not isinstance(value, str) or not value:
         raise ConfigError(f"{section}.{key} must be a non-empty string")
-    return value
-
-
-def _optional_str(value: Any, field: str) -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str) or not value:
-        raise ConfigError(f"{field} must be a non-empty string")
     return value
 
 

@@ -10,7 +10,6 @@ benchmark:
 
 harness:
   type: command
-  mode: host
   config:
     task_file: task.json
     command:

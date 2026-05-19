@@ -109,30 +109,30 @@ def repo_patch_task(*, environment=None):
     )
 
 
-def harness_section(*, mode="host", config=None, harness_type="command"):
+def harness_section(*, config=None, harness_type="command"):
     return HarnessSection(
         type=harness_type,
-        mode=mode,
         env=("OPENAI_API_KEY",),
         config={} if config is None else config,
     )
 
 
-def test_command_harness_host_mode_writes_public_task_file_and_uses_stdout(monkeypatch, tmp_path):
+def test_command_harness_writes_public_task_file_and_uses_stdout(monkeypatch, tmp_path):
     monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
     producer = build_harness_producer(
         harness_section(config={"command": ["produce"], "timeout_seconds": 7}),
         workspace_root=tmp_path,
     )
 
-    artifact = producer.produce(mc_task())
+    artifact = producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
 
     assert artifact.text == "STDOUT-CANDIDATE"
     assert artifact.patch is None
-    assert artifact.metadata["mode"] == "host"
     assert artifact.metadata["candidate_kind"] == "text"
-    run_sandbox = FakeHostSandbox.instances[-1]
-    assert run_sandbox.commands == [(("produce",), None, 7.0)]
+    docker = FakeDockerSandbox.instances[-1]
+    assert docker.image == "python:3.11-slim"
+    assert docker.commands == [(("produce",), None, 7.0)]
     task_payload = json.loads((tmp_path / "mc-1" / "task.json").read_text())
     assert task_payload == {"question": "2 + 2?", "choices": ["1", "2", "4"]}
     assert "answer" not in task_payload
@@ -140,12 +140,13 @@ def test_command_harness_host_mode_writes_public_task_file_and_uses_stdout(monke
 
 def test_command_harness_file_backed_candidate(monkeypatch, tmp_path):
     monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
     producer = build_harness_producer(
         harness_section(config={"command": ["write-artifact"], "artifact_path": "candidate.txt"}),
         workspace_root=tmp_path,
     )
 
-    artifact = producer.produce(mc_task())
+    artifact = producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
 
     assert artifact.text == "FILE-CANDIDATE"
     assert artifact.stdout == "ignored stdout"
@@ -154,12 +155,13 @@ def test_command_harness_file_backed_candidate(monkeypatch, tmp_path):
 
 def test_command_harness_code_family_uses_text_candidate(monkeypatch, tmp_path):
     monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
     producer = build_harness_producer(
         harness_section(config={"command": "produce code"}),
         workspace_root=tmp_path,
     )
 
-    artifact = producer.produce(code_task())
+    artifact = producer.produce(code_task(environment={"image": "python:3.11-slim"}))
 
     assert artifact.text == "STDOUT-CANDIDATE"
     assert artifact.patch is None
@@ -168,12 +170,13 @@ def test_command_harness_code_family_uses_text_candidate(monkeypatch, tmp_path):
 
 def test_command_harness_patch_family_uses_patch_candidate(monkeypatch, tmp_path):
     monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
     producer = build_harness_producer(
         harness_section(config={"command": ["patch"]}),
         workspace_root=tmp_path,
     )
 
-    artifact = producer.produce(repo_patch_task())
+    artifact = producer.produce(repo_patch_task(environment={"image": "python:3.11-slim"}))
 
     assert artifact.text is None
     assert artifact.patch == "diff --git a/file.py b/file.py\n"
@@ -182,6 +185,7 @@ def test_command_harness_patch_family_uses_patch_candidate(monkeypatch, tmp_path
 
 def test_command_harness_materializes_public_assets(monkeypatch, tmp_path):
     monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
     manifest_path = tmp_path / "manifest.yaml"
     manifest_path.write_text("id: pack\nversion: 1\n")
     assets_root = tmp_path / "assets"
@@ -193,7 +197,7 @@ def test_command_harness_materializes_public_assets(monkeypatch, tmp_path):
         path=manifest_path,
         asset_defaults=AssetDefaults(read_only=True),
     )
-    task = mc_task(manifest, assets=({"path": "input.txt"},))
+    task = mc_task(manifest, assets=({"path": "input.txt"},), environment={"image": "python:3.11-slim"})
     producer = build_harness_producer(
         harness_section(config={"command": ["produce"]}),
         workspace_root=tmp_path / "runs",
@@ -204,7 +208,7 @@ def test_command_harness_materializes_public_assets(monkeypatch, tmp_path):
     assert (tmp_path / "runs" / "mc-1" / "input.txt").read_text() == "public input"
 
 
-def test_command_harness_container_mode_uses_docker_and_read_only_asset_mounts(monkeypatch, tmp_path):
+def test_command_harness_uses_docker_and_read_only_asset_mounts(monkeypatch, tmp_path):
     monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
     monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
     manifest_path = tmp_path / "manifest.yaml"
@@ -221,7 +225,6 @@ def test_command_harness_container_mode_uses_docker_and_read_only_asset_mounts(m
     task = mc_task(manifest, assets=({"path": "input.txt"},), environment={"image": "python:3.11-slim"})
     producer = build_harness_producer(
         harness_section(
-            mode="container",
             config={"command": ["produce"]},
         ),
         workspace_root=tmp_path / "runs",
@@ -238,12 +241,11 @@ def test_command_harness_container_mode_uses_docker_and_read_only_asset_mounts(m
     assert docker.mounts[0].source == tmp_path / "runs" / "mc-1" / "input.txt"
 
 
-def test_command_harness_container_mode_requires_benchmark_environment_image(monkeypatch, tmp_path):
+def test_command_harness_requires_benchmark_environment_image(monkeypatch, tmp_path):
     monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
     monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
     producer = build_harness_producer(
         harness_section(
-            mode="container",
             config={"command": ["produce"]},
         ),
         workspace_root=tmp_path / "runs",
@@ -253,7 +255,7 @@ def test_command_harness_container_mode_requires_benchmark_environment_image(mon
         producer.produce(mc_task())
 
 
-def test_codex_mounted_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_path):
+def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_path):
     monkeypatch.setenv("CODEX_API_KEY", "secret")
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
@@ -271,7 +273,6 @@ def test_codex_mounted_harness_uses_benchmark_image_and_overlay_mounts(monkeypat
     task = mc_task(environment={"image": "python:3.11-slim"})
     producer = build_harness_producer(
         harness_section(
-            mode="mounted",
             harness_type="codex",
             config={"model": "gpt-5.1-codex", "version": "0.30.0", "timeout_seconds": 11},
         ),
@@ -304,13 +305,12 @@ def test_codex_mounted_harness_uses_benchmark_image_and_overlay_mounts(monkeypat
     assert artifact.text is None
     assert artifact.patch is None
     assert artifact.metadata["harness"] == "codex"
-    assert artifact.metadata["mode"] == "mounted"
     assert artifact.metadata["codex_model"] == "gpt-5.1-codex"
     assert artifact.metadata["overlay_platform"] == "linux/arm64"
     assert artifact.metadata["candidate_extraction"] == "unsupported"
 
 
-def test_codex_mounted_harness_extracts_code_completion_candidate_file(monkeypatch, tmp_path):
+def test_codex_harness_extracts_code_completion_candidate_file(monkeypatch, tmp_path):
     class CodeWritingDockerSandbox(FakeDockerSandbox):
         instances = []
 
@@ -334,7 +334,7 @@ def test_codex_mounted_harness_extracts_code_completion_candidate_file(monkeypat
         ),
     )
     producer = build_harness_producer(
-        HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"}),
+        HarnessSection(type="codex", config={"model": "gpt-5.1-codex"}),
         workspace_root=tmp_path / "runs",
     )
 
@@ -347,7 +347,7 @@ def test_codex_mounted_harness_extracts_code_completion_candidate_file(monkeypat
     assert artifact.metadata["candidate_path"] == "candidate.py"
 
 
-def test_codex_mounted_harness_fails_when_code_candidate_file_missing(monkeypatch, tmp_path):
+def test_codex_harness_fails_when_code_candidate_file_missing(monkeypatch, tmp_path):
     monkeypatch.setenv("CODEX_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
     monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", FakeDockerSandbox)
@@ -362,7 +362,7 @@ def test_codex_mounted_harness_fails_when_code_candidate_file_missing(monkeypatc
         ),
     )
     producer = build_harness_producer(
-        HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"}),
+        HarnessSection(type="codex", config={"model": "gpt-5.1-codex"}),
         workspace_root=tmp_path / "runs",
     )
 
@@ -370,7 +370,7 @@ def test_codex_mounted_harness_fails_when_code_candidate_file_missing(monkeypatc
         producer.produce(code_task(environment={"image": "python:3.11-slim"}))
 
 
-def test_codex_mounted_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
+def test_codex_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
     class DiffingDockerSandbox(FakeDockerSandbox):
         instances = []
 
@@ -394,7 +394,7 @@ def test_codex_mounted_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
         ),
     )
     producer = build_harness_producer(
-        HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"}),
+        HarnessSection(type="codex", config={"model": "gpt-5.1-codex"}),
         workspace_root=tmp_path / "runs",
     )
 
@@ -429,7 +429,7 @@ def test_codex_mounted_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
     assert docker.commands[-1] == (["git", "diff", "--binary"], "/workspace/repo", 900.0)
 
 
-def test_codex_mounted_harness_defaults_to_codex_api_key(monkeypatch, tmp_path):
+def test_codex_harness_defaults_to_codex_api_key(monkeypatch, tmp_path):
     monkeypatch.setenv("CODEX_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
     monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", FakeDockerSandbox)
@@ -444,20 +444,12 @@ def test_codex_mounted_harness_defaults_to_codex_api_key(monkeypatch, tmp_path):
         ),
     )
     task = mc_task(environment={"image": "python:3.11-slim"})
-    harness = HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"})
+    harness = HarnessSection(type="codex", config={"model": "gpt-5.1-codex"})
 
     producer = build_harness_producer(harness, workspace_root=tmp_path / "runs")
     producer.produce(task)
 
     assert FakeDockerSandbox.instances[-1].env_names == ("CODEX_API_KEY",)
-
-
-@pytest.mark.parametrize("mode", ["host", "container"])
-def test_codex_harness_rejects_non_mounted_modes(mode):
-    harness = HarnessSection(type="codex", mode=mode, config={"model": "gpt-5.1-codex"})
-
-    with pytest.raises(ConfigError, match="codex harness mode must be 'mounted'"):
-        build_harness_producer(harness)
 
 
 @pytest.mark.parametrize(
@@ -471,13 +463,13 @@ def test_codex_harness_rejects_non_mounted_modes(mode):
 )
 def test_codex_harness_rejects_invalid_config(config, match):
     with pytest.raises(ConfigError, match=match):
-        build_harness_producer(HarnessSection(type="codex", mode="mounted", config=config))
+        build_harness_producer(HarnessSection(type="codex", config=config))
 
 
-def test_codex_mounted_harness_requires_benchmark_environment_image(monkeypatch, tmp_path):
+def test_codex_harness_requires_benchmark_environment_image(monkeypatch, tmp_path):
     monkeypatch.setenv("CODEX_API_KEY", "secret")
     producer = build_harness_producer(
-        HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"}),
+        HarnessSection(type="codex", config={"model": "gpt-5.1-codex"}),
         workspace_root=tmp_path / "runs",
     )
 
@@ -485,10 +477,10 @@ def test_codex_mounted_harness_requires_benchmark_environment_image(monkeypatch,
         producer.produce(mc_task())
 
 
-def test_codex_mounted_harness_requires_codex_api_key(monkeypatch, tmp_path):
+def test_codex_harness_requires_codex_api_key(monkeypatch, tmp_path):
     monkeypatch.delenv("CODEX_API_KEY", raising=False)
     producer = build_harness_producer(
-        HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"}),
+        HarnessSection(type="codex", config={"model": "gpt-5.1-codex"}),
         workspace_root=tmp_path / "runs",
     )
 
@@ -496,7 +488,7 @@ def test_codex_mounted_harness_requires_codex_api_key(monkeypatch, tmp_path):
         producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
 
 
-def test_codex_mounted_harness_reports_preflight_failure(monkeypatch, tmp_path):
+def test_codex_harness_reports_preflight_failure(monkeypatch, tmp_path):
     class FailingPreflightDockerSandbox(FakeDockerSandbox):
         instances = []
 
@@ -518,7 +510,7 @@ def test_codex_mounted_harness_reports_preflight_failure(monkeypatch, tmp_path):
         ),
     )
     producer = build_harness_producer(
-        HarnessSection(type="codex", mode="mounted", config={"model": "gpt-5.1-codex"}),
+        HarnessSection(type="codex", config={"model": "gpt-5.1-codex"}),
         workspace_root=tmp_path / "runs",
     )
 
@@ -614,11 +606,8 @@ def test_command_harness_rejects_invalid_config(config, match):
         build_harness_producer(harness_section(config=config))
 
 
-@pytest.mark.parametrize("harness_type", ["submission", "claude_code"])
-def test_deferred_harness_types_fail_clearly(harness_type):
-    mode = "submission" if harness_type == "submission" else "host"
-    path = Path("submission.jsonl") if harness_type == "submission" else None
-    harness = HarnessSection(type=harness_type, mode=mode, path=path)
+def test_deferred_harness_types_fail_clearly():
+    harness = HarnessSection(type="claude_code")
 
     with pytest.raises(ConfigError, match="not implemented yet"):
         build_harness_producer(harness)
@@ -626,6 +615,7 @@ def test_deferred_harness_types_fail_clearly(harness_type):
 
 def test_command_harness_workspace_names_avoid_sanitized_id_collisions(monkeypatch, tmp_path):
     monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
     producer = build_harness_producer(
         harness_section(config={"command": ["produce"]}),
         workspace_root=tmp_path,
@@ -636,6 +626,7 @@ def test_command_harness_workspace_names_avoid_sanitized_id_collisions(monkeypat
             family="multiple_choice",
             input={"question": "2 + 2?", "choices": ["1", "2", "4"]},
             eval={"answer": "4"},
+            environment={"image": "python:3.11-slim"},
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),
     )
@@ -645,6 +636,7 @@ def test_command_harness_workspace_names_avoid_sanitized_id_collisions(monkeypat
             family="multiple_choice",
             input={"question": "3 + 3?", "choices": ["3", "6", "9"]},
             eval={"answer": "6"},
+            environment={"image": "python:3.11-slim"},
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),
     )

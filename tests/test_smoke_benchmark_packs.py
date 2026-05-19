@@ -40,7 +40,6 @@ def test_code_completion_smoke_tester_yaml_loads():
     assert config.benchmark.manifest == CODE_COMPLETION_SMOKE / "manifest.yaml"
     assert config.benchmark.tasks == CODE_COMPLETION_SMOKE / "tasks.jsonl"
     assert config.harness.type == "codex"
-    assert config.harness.mode == "mounted"
     assert config.harness.config["model"] == "gpt-5.4-mini"
 
 
@@ -71,4 +70,3 @@ def test_multiple_choice_smoke_tester_yaml_loads():
     assert config.benchmark.manifest == MULTIPLE_CHOICE_SMOKE / "manifest.yaml"
     assert config.benchmark.tasks == MULTIPLE_CHOICE_SMOKE / "tasks.jsonl"
     assert config.harness.type == "command"
-    assert config.harness.mode == "host"

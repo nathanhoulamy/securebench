@@ -9,8 +9,8 @@ The current implementation is centered on benchmark packs and tester YAML:
 - benchmark-pack manifests and JSONL task rows
 - visibility-aware public/evaluation/hidden resource compilation
 - tester YAML harness configs
-- command harnesses for host/container smoke runs
-- Codex CLI mounted harness execution
+- containerized command harness smoke runs
+- Codex CLI harness execution with a mounted tooling overlay
 - shared candidate artifact extraction
 - code-completion verification with JSONL result output
 
@@ -68,7 +68,6 @@ benchmark:
 
 harness:
   type: codex
-  mode: mounted
   env:
     - CODEX_API_KEY
   config:

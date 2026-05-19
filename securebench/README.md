@@ -56,8 +56,8 @@ extension points are visible from the directory tree.
 
 - `securebench/harnesses/__init__.py`: Public exports for harness implementations and factory.
 - `securebench/harnesses/registry.py`: Builds the right harness producer from tester YAML.
-- `securebench/harnesses/command.py`: Implements the host/container command harness.
-- `securebench/harnesses/codex.py`: Implements the Codex mounted harness and overlay handling.
+- `securebench/harnesses/command.py`: Implements the containerized command harness.
+- `securebench/harnesses/codex.py`: Implements the Codex harness and mounted overlay handling.
 - `securebench/harnesses/shared.py`: Shared harness helpers for workspaces, config parsing, and cleanup.
 
 ## Verifiers

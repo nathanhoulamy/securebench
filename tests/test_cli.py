@@ -22,7 +22,6 @@ benchmark:
   tasks: {tasks_path}
 harness:
   type: command
-  mode: host
   config:
     command:
       - produce
@@ -95,7 +94,6 @@ benchmark:
   tasks: {tasks_path}
 harness:
   type: command
-  mode: host
   config:
     command: produce
 """
@@ -140,7 +138,6 @@ benchmark:
   tasks: {tasks_path}
 harness:
   type: command
-  mode: host
   config:
     command: produce
 """

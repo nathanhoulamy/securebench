@@ -19,7 +19,7 @@ The active pipeline is benchmark-pack based:
 1. load a benchmark pack manifest and JSONL rows;
 2. parse tester YAML;
 3. compile rows into normalized tasks;
-4. run a harness such as Codex mounted mode or command mode;
+4. run a harness such as `codex` or `command`;
 5. extract a family-shaped candidate artifact;
 6. verify supported families through `securebench/verifiers/`;
 7. write JSONL result records.

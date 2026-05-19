@@ -192,7 +192,6 @@ benchmark:
 
 harness:
   type: codex
-  mode: mounted
   env:
     - CODEX_API_KEY
   config:
@@ -202,18 +201,19 @@ harness:
     timeout_seconds: 900
 ```
 
-Relative `run.output_dir`, `benchmark.manifest`, `benchmark.tasks`, and
-submission `harness.path` values resolve against the tester YAML file
-directory when loaded from disk. `parse_tester_config(...)` can also accept an
-explicit `base_dir`.
+Relative `run.output_dir`, `benchmark.manifest`, and `benchmark.tasks` values
+resolve against the tester YAML file directory when loaded from disk.
+`parse_tester_config(...)` can also accept an explicit `base_dir`.
 
 Harness validation is deliberately minimal:
 
-- allowed types are `codex`, `claude_code`, `command`, and `submission`.
-- allowed modes are `host`, `container`, `mounted`, and `submission`.
-- `submission` type must use `mode: submission` and provide `path`.
-- non-submission types must use `host`, `container`, or the named-agent
-  `mounted` mode.
+- allowed types are `codex`, `claude_code`, and `command`.
+- each harness type defines its own execution strategy; tester YAML does not
+  expose a separate `mode` field.
+- `command` runs inside the benchmark row or manifest `environment.image`.
+- `codex` runs inside the benchmark environment image with a mounted tooling
+  overlay.
+- `claude_code` is parsed as a planned named harness but is not implemented yet.
 - `env` is optional and contains environment variable names only, never
   `NAME=value` assignments.
 - optional `harness.config` is preserved for Step 6 adapter-specific details.
@@ -248,8 +248,7 @@ Active contracts:
 
 Do not add visibility-derived fields such as `uses_evaluation_inputs` or
 `uses_hidden`; those remain available from each task's `ResourceBundle`.
-Dispatch should use standard family names directly. `submission` is a harness
-mode, not a candidate kind.
+Dispatch should use standard family names directly.
 
 Deferred families: `terminal_task`, `tool_call`, `browser_task`,
 `desktop_task`, `artifact_task`, `multimodal_qa`, and `preference_pair`. Future
@@ -324,7 +323,6 @@ The command harness accepts:
 ```yaml
 harness:
   type: command
-  mode: container
   env:
     - OPENAI_API_KEY
   config:
@@ -346,26 +344,18 @@ Before execution, SecureBench prepares an agent-visible workspace only:
 - materialize public resources and public `assets[]` with
   `VisibilityAwareMaterializer`;
 - never materialize hidden or `evaluation_inputs` resources for the harness;
-- in container mode, run the harness inside the benchmark row's resolved
-  `environment.image` and derive read-only Docker bind mounts for read-only
-  public assets.
+- run the harness inside the benchmark row's resolved `environment.image` and
+  derive read-only Docker bind mounts for read-only public assets.
 
 Candidate output is normalized through the family contract. `text` and `code`
 families populate `CandidateArtifact.text`; `patch` families populate
 `CandidateArtifact.patch`. Unknown/deferred families still load and compile,
 but fail clearly when a harness tries to execute them.
 
-Host mode uses a rooted local workspace and is convenient for local tools, but
-it is weaker isolation. Container mode uses `DockerSandbox` with the benchmark
-environment image, the tester environment-variable allowlist, and existing
-Docker hardening defaults. Named agent harnesses can use mounted tooling
-overlays while still preserving the benchmark environment image as the runtime.
-
-Deferred `submission` note: a future submission harness should read a file
-keyed by task id, validate missing and duplicate task ids, preserve optional
-candidate metadata, and ensure each submitted value matches the family
-contract. This remains deferred because command-mode covers the important
-agentic harness path first.
+The command harness uses `DockerSandbox` with the benchmark environment image,
+the tester environment-variable allowlist, and existing Docker hardening
+defaults. Named agent harnesses can use mounted tooling overlays while still
+preserving the benchmark environment image as the runtime.
 
 Named-wrapper note: `codex` now has a first mounted container harness that runs
 inside the benchmark environment image and mounts a read-only Codex CLI overlay.

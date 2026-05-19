@@ -243,7 +243,6 @@ benchmark:
 
 harness:
   type: codex
-  mode: mounted
   env:
     - CODEX_API_KEY
   config:
@@ -251,68 +250,55 @@ harness:
     version: latest
     task_file: task.json
     timeout_seconds: 900</pre>
-      <div class="note">Tester YAML cannot relax benchmark security constraints. SecureBench should fail preflight if the selected harness mode cannot satisfy the benchmark requirements.</div>
+      <div class="note">Tester YAML cannot relax benchmark security constraints. SecureBench should fail preflight if the selected harness cannot satisfy the benchmark requirements.</div>
     </section>
 
     <section>
       <h2>Top-Level Fields</h2>
       <article class="family">
         <div class="family-head"><div><h3>Minimal Tester File</h3><p>Only these sections are required for the first version.</p></div><div class="examples">Small by design</div></div>
-        <div class="table-wrap"><table><thead><tr><th>Field</th><th>Required</th><th>Purpose</th></tr></thead><tbody><tr><td class="field">schema_version</td><td class="required">yes</td><td class="">Version of the tester YAML format.</td></tr><tr><td class="field">run.id</td><td class="required">yes</td><td class="">Stable identifier for this execution.</td></tr><tr><td class="field">run.output_dir</td><td class="required">yes</td><td class="">Directory where SecureBench writes results, logs, and candidate artifacts.</td></tr><tr><td class="field">benchmark.manifest</td><td class="required">yes</td><td class="">Path to benchmark pack manifest.</td></tr><tr><td class="field">benchmark.tasks</td><td class="required">yes</td><td class="">Path to benchmark rows, usually JSONL or Parquet.</td></tr><tr><td class="field">harness</td><td class="required">yes</td><td class="">Candidate producer configuration: named harness, custom command, or submission file.</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Field</th><th>Required</th><th>Purpose</th></tr></thead><tbody><tr><td class="field">schema_version</td><td class="required">yes</td><td class="">Version of the tester YAML format.</td></tr><tr><td class="field">run.id</td><td class="required">yes</td><td class="">Stable identifier for this execution.</td></tr><tr><td class="field">run.output_dir</td><td class="required">yes</td><td class="">Directory where SecureBench writes results, logs, and candidate artifacts.</td></tr><tr><td class="field">benchmark.manifest</td><td class="required">yes</td><td class="">Path to benchmark pack manifest.</td></tr><tr><td class="field">benchmark.tasks</td><td class="required">yes</td><td class="">Path to benchmark rows, usually JSONL or Parquet.</td></tr><tr><td class="field">harness</td><td class="required">yes</td><td class="">Candidate producer configuration: named agent harness or custom command.</td></tr></tbody></table></div>
       </article>
     </section>
 
     <section>
-      <h2>Harness Modes</h2>
+      <h2>Harness Execution</h2>
       <div class="grid">
-        <div class="mini-card"><h3>host</h3><p>The tester has the harness installed locally. SecureBench creates a public temporary workspace and invokes the harness. Convenient for smoke runs, weaker as a host-process isolation boundary.</p></div>
-        <div class="mini-card"><h3>container</h3><p>SecureBench runs the harness inside the benchmark environment image with only public workspace data and allowlisted credentials. Agent tooling overlays are a future layer.</p></div>
-        <div class="mini-card"><h3>mounted</h3><p>SecureBench runs a named agent inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state.</p></div>
-        <div class="mini-card"><h3>submission</h3><p>SecureBench does not run an agent. It evaluates precomputed predictions or artifacts against the benchmark family verifier.</p></div>
+        <div class="mini-card"><h3>command</h3><p>SecureBench runs the tester-provided command inside the benchmark environment image with only public workspace data and allowlisted credentials.</p></div>
+        <div class="mini-card"><h3>codex</h3><p>SecureBench runs Codex inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state.</p></div>
+        <div class="mini-card"><h3>claude_code</h3><p>Planned named agent harness with the same benchmark-image-plus-tooling-overlay execution model.</p></div>
       </div>
-      <pre class="schema"># Host-installed convenience mode
-harness:
-  type: command
-  mode: host
-  env:
-    - CUSTOM_API_KEY
-
-# Mounted Codex tooling mode
+      <pre class="schema"># Codex tooling overlay
 harness:
   type: codex
-  mode: mounted
   env:
     - CODEX_API_KEY
   config:
     model: gpt-5.4-mini
 
-# Containerized command mode
+# Containerized command harness
 harness:
   type: command
-  mode: container
   env:
     - CUSTOM_API_KEY
-
-# Precomputed artifacts or predictions
-harness:
-  type: submission
-  path: ./predictions.jsonl</pre>
+  config:
+    command: [&quot;python&quot;, &quot;-m&quot;, &quot;my_harness&quot;]</pre>
     </section>
 
     <section>
       <h2>Harness Types</h2>
       <article class="family">
         <div class="family-head"><div><h3>Supported and Planned Types</h3><p>Common harnesses should not expose raw commands. SecureBench owns the adapter behavior.</p></div><div class="examples">Agent-agnostic execution</div></div>
-        <div class="table-wrap"><table><thead><tr><th>Type</th><th>Mode support</th><th>Meaning</th></tr></thead><tbody><tr><td class="field">codex</td><td class="">mounted</td><td class="">Run the Codex CLI harness inside the benchmark environment image with a read-only mounted tooling overlay.</td></tr><tr><td class="field">claude_code</td><td class="">future host or mounted</td><td class="">Planned Claude Code harness. Container execution should use the benchmark environment image plus a tooling overlay.</td></tr><tr><td class="field">command</td><td class="">host or container</td><td class="">Advanced escape hatch for custom harnesses. Requires explicit command and is not needed for common named harnesses.</td></tr><tr><td class="field">submission</td><td class="">submission only</td><td class="">Read candidate outputs from a file and skip harness execution.</td></tr><tr><td class="field">acp</td><td class="">future host or container</td><td class="">Potential future adapter where SecureBench acts as an Agent Client Protocol client.</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Type</th><th>Status</th><th>Meaning</th></tr></thead><tbody><tr><td class="field">codex</td><td class="">implemented</td><td class="">Run the Codex CLI harness inside the benchmark environment image with a read-only mounted tooling overlay.</td></tr><tr><td class="field">claude_code</td><td class="">planned</td><td class="">Planned Claude Code harness using the benchmark environment image plus a tooling overlay.</td></tr><tr><td class="field">command</td><td class="">implemented</td><td class="">Containerized custom command harness for tests and advanced harness integration.</td></tr><tr><td class="field">acp</td><td class="">future</td><td class="">Potential future adapter where SecureBench acts as an Agent Client Protocol client.</td></tr></tbody></table></div>
       </article>
-      <div class="warning"><strong>Installation policy:</strong> SecureBench should not install third-party harnesses inside benchmark containers by default. The Codex mounted harness prepares a reusable read-only CLI overlay outside the benchmark run and mounts fresh writable agent state per row. SecureBench checks availability, versions when possible, required env vars, and whether the benchmark constraints can be satisfied.</div>
+      <div class="warning"><strong>Installation policy:</strong> SecureBench should not install third-party harnesses inside benchmark containers by default. The Codex harness prepares a reusable read-only CLI overlay outside the benchmark run and mounts fresh writable agent state per row. SecureBench checks availability, versions when possible, required env vars, and whether the benchmark constraints can be satisfied.</div>
     </section>
 
     <section>
       <h2>Overall Harness Loop</h2>
       <article class="family">
         <div class="family-head"><div><h3>Execution Flow</h3><p>The harness is only the candidate producer. SecureBench owns hidden data, materialization, evaluation, and scoring.</p></div><div class="examples">No hidden benchmark data in the harness workspace</div></div>
-        <div class="table-wrap"><table style="min-width: 980px"><thead><tr><th>Step</th><th>Owner</th><th>Behavior</th></tr></thead><tbody><tr><td class="field">1. Load benchmark</td><td class="">SecureBench</td><td class="">Read manifest, benchmark rows, public assets, and evaluator files.</td></tr><tr><td class="field">2. Normalize task</td><td class="">SecureBench</td><td class="">Compile author-friendly row into internal public/evaluation_inputs/hidden resources.</td></tr><tr><td class="field">3. Create public workspace</td><td class="">SecureBench</td><td class="">Materialize only public inputs/assets/repo into the harness workspace.</td></tr><tr><td class="field">4. Run harness</td><td class="">Harness adapter</td><td class="">Host or container harness edits files, calls tools, or writes outputs.</td></tr><tr><td class="field">5. Collect candidate</td><td class="">SecureBench</td><td class="">Family verifier extracts git diff, final state, deliverable file, text, or trace.</td></tr><tr><td class="field">6. Fresh evaluation sandbox</td><td class="">SecureBench</td><td class="">Materialize candidate plus evaluator inputs; keep hidden scorer data trusted-only.</td></tr><tr><td class="field">7. Score and redact</td><td class="">SecureBench</td><td class="">Run family evaluation, write results, redact hidden data and secrets.</td></tr></tbody></table></div>
+        <div class="table-wrap"><table style="min-width: 980px"><thead><tr><th>Step</th><th>Owner</th><th>Behavior</th></tr></thead><tbody><tr><td class="field">1. Load benchmark</td><td class="">SecureBench</td><td class="">Read manifest, benchmark rows, public assets, and evaluator files.</td></tr><tr><td class="field">2. Normalize task</td><td class="">SecureBench</td><td class="">Compile author-friendly row into internal public/evaluation_inputs/hidden resources.</td></tr><tr><td class="field">3. Create public workspace</td><td class="">SecureBench</td><td class="">Materialize only public inputs/assets/repo into the harness workspace.</td></tr><tr><td class="field">4. Run harness</td><td class="">Harness adapter</td><td class="">Containerized harness edits files, calls tools, or writes outputs.</td></tr><tr><td class="field">5. Collect candidate</td><td class="">SecureBench</td><td class="">Family verifier extracts git diff, final state, deliverable file, text, or trace.</td></tr><tr><td class="field">6. Fresh evaluation sandbox</td><td class="">SecureBench</td><td class="">Materialize candidate plus evaluator inputs; keep hidden scorer data trusted-only.</td></tr><tr><td class="field">7. Score and redact</td><td class="">SecureBench</td><td class="">Run family evaluation, write results, redact hidden data and secrets.</td></tr></tbody></table></div>
       </article>
     </section>
 

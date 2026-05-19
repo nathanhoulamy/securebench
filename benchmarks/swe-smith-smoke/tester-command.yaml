@@ -7,7 +7,6 @@ benchmark:
   tasks: tasks.jsonl
 harness:
   type: command
-  mode: host
   config:
     command:
       - python3

@@ -19,7 +19,6 @@ def valid_tester_config(**overrides):
         },
         "harness": {
             "type": "codex",
-            "mode": "mounted",
             "env": ["CODEX_API_KEY"],
         },
     }
@@ -27,7 +26,7 @@ def valid_tester_config(**overrides):
     return data
 
 
-def test_parse_tester_config_accepts_mounted_codex_harness():
+def test_parse_tester_config_accepts_codex_harness():
     config = parse_tester_config(valid_tester_config())
 
     assert config.schema_version == "0.2"
@@ -36,34 +35,29 @@ def test_parse_tester_config_accepts_mounted_codex_harness():
     assert config.benchmark.manifest == Path("benchmarks/repo-repair/manifest.yaml")
     assert config.benchmark.tasks == Path("benchmarks/repo-repair/tasks.jsonl")
     assert config.harness.type == "codex"
-    assert config.harness.mode == "mounted"
     assert config.harness.env == ("CODEX_API_KEY",)
-    assert config.harness.path is None
     assert config.harness.config == {}
 
 
-def test_parse_tester_config_accepts_mounted_codex_harness_without_image():
+def test_parse_tester_config_accepts_codex_harness_without_image():
     config = parse_tester_config(
         valid_tester_config(
             harness={
                 "type": "codex",
-                "mode": "mounted",
                 "env": ["CODEX_API_KEY"],
             }
         )
     )
 
     assert config.harness.type == "codex"
-    assert config.harness.mode == "mounted"
     assert config.harness.env == ("CODEX_API_KEY",)
 
 
-def test_parse_tester_config_accepts_host_harness_without_image():
+def test_parse_tester_config_accepts_claude_code_harness():
     config = parse_tester_config(
         valid_tester_config(
             harness={
                 "type": "claude_code",
-                "mode": "host",
                 "env": ["ANTHROPIC_API_KEY"],
                 "config": {"profile": "default"},
             }
@@ -71,26 +65,23 @@ def test_parse_tester_config_accepts_host_harness_without_image():
     )
 
     assert config.harness.type == "claude_code"
-    assert config.harness.mode == "host"
     assert config.harness.env == ("ANTHROPIC_API_KEY",)
     assert config.harness.config == {"profile": "default"}
 
 
-def test_parse_tester_config_accepts_submission_harness_with_path():
+def test_parse_tester_config_accepts_command_harness():
     config = parse_tester_config(
         valid_tester_config(
             harness={
-                "type": "submission",
-                "mode": "submission",
-                "path": "submissions/results.jsonl",
+                "type": "command",
+                "config": {"command": "produce"},
             }
         )
     )
 
-    assert config.harness.type == "submission"
-    assert config.harness.mode == "submission"
-    assert config.harness.path == Path("submissions/results.jsonl")
+    assert config.harness.type == "command"
     assert config.harness.env == ()
+    assert config.harness.config == {"command": "produce"}
 
 
 def test_load_tester_config_resolves_relative_paths_against_config_file(tmp_path):
@@ -106,9 +97,9 @@ benchmark:
   manifest: ../benchmarks/repo-repair/manifest.yaml
   tasks: ../benchmarks/repo-repair/tasks.jsonl
 harness:
-  type: submission
-  mode: submission
-  path: submissions/results.jsonl
+  type: command
+  config:
+    command: produce
 """
     )
 
@@ -117,7 +108,7 @@ harness:
     assert config.run.output_dir == config_path.parent / "runs/repo-repair-codex"
     assert config.benchmark.manifest == config_path.parent / "../benchmarks/repo-repair/manifest.yaml"
     assert config.benchmark.tasks == config_path.parent / "../benchmarks/repo-repair/tasks.jsonl"
-    assert config.harness.path == config_path.parent / "submissions/results.jsonl"
+    assert config.harness.config == {"command": "produce"}
 
 
 @pytest.mark.parametrize(
@@ -134,11 +125,11 @@ harness:
             "benchmark contains unsupported field",
         ),
         (
-            {"harness": {"type": "codex", "mode": "host", "command": "codex"}},
+            {"harness": {"type": "codex", "command": "codex"}},
             "harness contains unsupported field",
         ),
         (
-            {"harness": {"type": "codex", "mode": "mounted", "image": "securebench-codex:0.1"}},
+            {"harness": {"type": "codex", "image": "securebench-codex:0.1"}},
             "harness contains unsupported field",
         ),
     ],
@@ -151,16 +142,13 @@ def test_tester_config_rejects_invalid_shape(override, match):
 @pytest.mark.parametrize(
     ("harness", "match"),
     [
-        ({"type": "unknown", "mode": "host"}, "harness.type must be one of"),
-        ({"type": "codex", "mode": "unknown"}, "harness.mode must be one of"),
-        ({"type": "command", "mode": "mounted"}, "requires harness.type 'codex'"),
-        ({"type": "submission", "mode": "host", "path": "results.jsonl"}, "requires mode 'submission'"),
-        ({"type": "codex", "mode": "submission"}, "requires harness.type 'submission'"),
-        ({"type": "submission", "mode": "submission"}, "harness.path is required for submission"),
-        ({"type": "codex", "mode": "host", "path": "results.jsonl"}, "only supported for submission"),
-        ({"type": "codex", "mode": "host", "env": "OPENAI_API_KEY"}, "harness.env must be a list"),
-        ({"type": "codex", "mode": "host", "env": ["BAD=value"]}, "without '='"),
-        ({"type": "codex", "mode": "host", "config": "bad"}, "harness.config must be an object"),
+        ({"type": "unknown"}, "harness.type must be one of"),
+        ({"type": "submission"}, "harness.type must be one of"),
+        ({"type": "codex", "mode": "mounted"}, "harness contains unsupported field"),
+        ({"type": "codex", "path": "results.jsonl"}, "harness contains unsupported field"),
+        ({"type": "codex", "env": "OPENAI_API_KEY"}, "harness.env must be a list"),
+        ({"type": "codex", "env": ["BAD=value"]}, "without '='"),
+        ({"type": "codex", "config": "bad"}, "harness.config must be an object"),
     ],
 )
 def test_tester_config_rejects_invalid_harness(harness, match):

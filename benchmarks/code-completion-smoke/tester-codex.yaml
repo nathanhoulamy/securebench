@@ -10,7 +10,6 @@ benchmark:
 
 harness:
   type: codex
-  mode: mounted
   env:
     - CODEX_API_KEY
   config:

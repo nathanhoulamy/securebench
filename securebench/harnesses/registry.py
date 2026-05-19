@@ -20,7 +20,6 @@ def build_harness_producer(
     if harness.type == "command":
         config = command_config(harness.config)
         return CommandHarnessProducer(
-            mode=harness.mode,
             env_names=harness.env,
             workspace_root=workspace_root,
             **config,
@@ -28,7 +27,6 @@ def build_harness_producer(
     if harness.type == "codex":
         config = codex_config(harness.config)
         return CodexHarnessProducer(
-            mode=harness.mode,
             env_names=harness.env,
             workspace_root=workspace_root,
             **config,

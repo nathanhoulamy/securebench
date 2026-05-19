@@ -1,4 +1,4 @@
-"""Codex mounted harness implementation."""
+"""Codex harness implementation."""
 
 from __future__ import annotations
 
@@ -75,7 +75,6 @@ class CodexHarnessProducer(CandidateProducer):
     def __init__(
         self,
         *,
-        mode: str,
         model: str,
         env_names: tuple[str, ...] = (),
         version: str = CODEX_DEFAULT_VERSION,
@@ -83,9 +82,6 @@ class CodexHarnessProducer(CandidateProducer):
         timeout_seconds: float | None = CODEX_DEFAULT_TIMEOUT_SECONDS,
         workspace_root: str | Path | None = None,
     ) -> None:
-        if mode != "mounted":
-            raise ConfigError("codex harness mode must be 'mounted' for this implementation")
-        self.mode = mode
         self.model = model
         self.env_names = codex_env_names(env_names)
         self.version = codex_version(version)
@@ -143,7 +139,7 @@ class CodexHarnessProducer(CandidateProducer):
                 )
                 if preflight.exit_code != 0:
                     raise ConfigError(
-                        "codex mounted overlay is incompatible with benchmark environment image "
+                        "codex overlay is incompatible with benchmark environment image "
                         f"{image!r}: codex --version failed with exit code {preflight.exit_code}; "
                         f"stderr: {preflight.stderr.strip()}"
                     )
@@ -179,14 +175,12 @@ class CodexHarnessProducer(CandidateProducer):
                     stderr=result.stderr,
                     metadata={
                         "harness": "codex",
-                        "mode": self.mode,
                         "exit_code": result.exit_code,
                         "task_file": self.task_file,
                         "workspace_root": str(task_workspace),
                         "benchmark_environment_image": image,
                         "codex_version": overlay.version,
                         "codex_model": self.model,
-                        "overlay_mode": "mounted",
                         "overlay_platform": overlay.platform.docker_platform,
                         "overlay_cache_path": str(overlay.path),
                         **baseline,
@@ -299,7 +293,7 @@ def docker_image_platform(image: str) -> DockerPlatform:
 
 def normalize_docker_os(value: Any) -> str:
     if value != "linux":
-        raise ConfigError(f"Codex mounted harness requires a linux benchmark image, got {value!r}")
+        raise ConfigError(f"Codex harness requires a linux benchmark image, got {value!r}")
     return value
 
 

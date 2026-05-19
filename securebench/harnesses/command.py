@@ -44,7 +44,6 @@ class CommandHarnessProducer(CandidateProducer):
     def __init__(
         self,
         *,
-        mode: str,
         command: str | tuple[str, ...],
         env_names: tuple[str, ...] = (),
         artifact_path: str | None = None,
@@ -52,9 +51,6 @@ class CommandHarnessProducer(CandidateProducer):
         timeout_seconds: float | None = None,
         workspace_root: str | Path | None = None,
     ) -> None:
-        if mode not in {"host", "container"}:
-            raise ConfigError("command harness mode must be 'host' or 'container'")
-        self.mode = mode
         self.env_names = tuple(env_names)
         self.command = command
         self.artifact_path = artifact_path
@@ -106,7 +102,6 @@ class CommandHarnessProducer(CandidateProducer):
                     stderr=candidate.stderr,
                     metadata={
                         "harness": "command",
-                        "mode": self.mode,
                         "exit_code": result.exit_code,
                         "task_file": self.task_file,
                         "artifact_path": self.artifact_path,
@@ -123,8 +118,6 @@ class CommandHarnessProducer(CandidateProducer):
     def _sandbox(
         self, task: SecureBenchTask, task_workspace: Path, plan: MaterializationPlan
     ) -> Sandbox:
-        if self.mode == "host":
-            return HostSandbox(root=task_workspace, env_names=self.env_names)
         image = container_image_for_task(task)
         return DockerSandbox(
             image=image,
