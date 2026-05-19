@@ -1,4 +1,4 @@
-"""Normalized task models used by benchmark adapters."""
+"""Normalized task models used by benchmark-pack compilation."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ TaskSpec = dict[str, Any]
 class SecureBenchTask:
     """Base normalized task.
 
-    Adapter instances may keep hidden evaluator data on these task objects, but
-    only `agent_payload()` should be sent to the agent.
+    Compiled tasks may keep hidden evaluator data on these objects, but only
+    `agent_payload()` should be sent to a candidate-producing harness.
     """
 
     id: str
@@ -80,16 +80,6 @@ def task_from_spec(spec: TaskSpec) -> SecureBenchTask:
             resources=resources,
         )
 
-    if task_type == "github_patch":
-        _require_resources(resources, task_type, ("repo", "base_commit", "instructions"))
-        return GitHubPatchTask(
-            id=task_id,
-            benchmark_id=benchmark_id,
-            task_type="github_patch",
-            metadata=metadata,
-            resources=resources,
-        )
-
     return SecureBenchTask(
         id=task_id,
         benchmark_id=benchmark_id,
@@ -106,11 +96,6 @@ class MultipleChoiceTask(SecureBenchTask):
 
 @dataclass(frozen=True)
 class CodeCompletionTask(SecureBenchTask):
-    pass
-
-
-@dataclass(frozen=True)
-class GitHubPatchTask(SecureBenchTask):
     pass
 
 
@@ -198,7 +183,7 @@ def _test_groups(value: Any) -> dict[str, tuple[str, ...]]:
     if value is None:
         return {}
     if not isinstance(value, dict):
-        raise ValueError("github_patch test_groups resource must be an object")
+        raise ValueError("test_groups resource must be an object")
     return {str(name): _tuple_of_str(tests) for name, tests in value.items()}
 
 

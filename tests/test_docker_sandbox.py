@@ -19,7 +19,7 @@ def test_docker_sandbox_reuses_persistent_container_and_passes_env_names(monkeyp
     monkeypatch.setattr("subprocess.run", fake_run)
 
     sandbox = DockerSandbox(image="agent-image", root=tmp_path, env_names=("OPENAI_API_KEY",))
-    result = sandbox.run(["python", "-m", "securebench_agent.run"], workdir="repo", timeout=3)
+    result = sandbox.run(["python", "-m", "tool.run"], workdir="repo", timeout=3)
     sandbox.run(["python", "--version"], workdir="repo", timeout=4)
     sandbox.close()
 
@@ -48,7 +48,7 @@ def test_docker_sandbox_reuses_persistent_container_and_passes_env_names(monkeyp
     assert "OPENAI_API_KEY" in seen["commands"][0]
     assert "secret-value" not in seen["commands"][0]
     assert seen["commands"][1][:2] == ["docker", "exec"]
-    assert seen["commands"][1][-3:] == ["python", "-m", "securebench_agent.run"]
+    assert seen["commands"][1][-3:] == ["python", "-m", "tool.run"]
     assert seen["commands"][2][:2] == ["docker", "exec"]
     assert seen["commands"][3][:3] == ["docker", "rm", "-f"]
     assert seen["kwargs"][1]["timeout"] == 3

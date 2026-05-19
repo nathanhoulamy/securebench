@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 
-from securebench.candidates import OpenAICompatibleError
 from securebench.errors import ConfigError
 from securebench.env import load_env_file
 from securebench.tester_config import load_tester_config
@@ -35,7 +34,7 @@ def _run(args: argparse.Namespace) -> int:
         config = load_tester_config(args.config)
         config = with_tester_overrides(config, output_dir=args.output_dir)
         summary = run_tester_config(config, limit=args.limit)
-    except (ConfigError, ImportError, OSError, OpenAICompatibleError, ValueError) as exc:
+    except (ConfigError, ImportError, OSError, ValueError) as exc:
         print(f"securebench: error: {exc}")
         return 1
 

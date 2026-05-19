@@ -9,14 +9,11 @@ description = "Benchmark evaluation framework with separated trusted and untrust
 requires-python = ">=3.11"
 dependencies = ["PyYAML>=6.0"]
 
-[project.optional-dependencies]
-hf = ["datasets>=2.19"]
-
 [project.scripts]
 securebench = "securebench.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["securebench*", "securebench_agent*"]
+include = ["securebench*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

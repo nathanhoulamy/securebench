@@ -20,8 +20,8 @@ class CandidateArtifact:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def for_task(self, task: SecureBenchTask) -> str:
-        """Return the artifact value expected by the task's runner."""
-        if task.task_type in {"github_patch", "repo_patch"}:
+        """Return the artifact value expected by the task's verifier."""
+        if task.task_type == "repo_patch":
             return self.patch or ""
         return self.text or ""
 

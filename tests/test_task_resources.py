@@ -1,8 +1,8 @@
 from securebench.resources import REDACTED, Resource, ResourceBundle
 from securebench.tasks import (
     CodeCompletionTask,
-    GitHubPatchTask,
     MultipleChoiceTask,
+    SecureBenchTask,
     resource_tuple,
     resource_value,
     task_from_spec,
@@ -41,11 +41,11 @@ def code_completion_spec(*, tests_visibility="hidden"):
     }
 
 
-def github_patch_spec():
+def repo_patch_spec():
     return {
         "id": "example__repo-1",
         "benchmark_id": "example",
-        "task_type": "github_patch",
+        "task_type": "repo_patch",
         "resources": {
             "repo": {"value": "example/repo", "visibility": "public"},
             "base_commit": {"value": "abc123", "visibility": "public"},
@@ -102,10 +102,11 @@ def test_code_completion_task_hides_tests_and_solution_from_spec():
     }
 
 
-def test_github_patch_task_hides_patch_and_test_resources_from_spec():
-    task = task_from_spec(github_patch_spec())
+def test_repo_patch_task_hides_patch_and_test_resources_from_spec():
+    task = task_from_spec(repo_patch_spec())
 
-    assert isinstance(task, GitHubPatchTask)
+    assert type(task) is SecureBenchTask
+    assert task.task_type == "repo_patch"
     payload = task.agent_payload()
     assert payload == {
         "repo": "example/repo",

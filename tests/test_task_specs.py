@@ -2,7 +2,6 @@ import pytest
 
 from securebench.tasks import (
     CodeCompletionTask,
-    GitHubPatchTask,
     MultipleChoiceTask,
     SecureBenchTask,
     resource_test_groups,
@@ -61,12 +60,12 @@ def test_code_completion_spec_converts_to_task_with_hidden_tests():
     }
 
 
-def test_github_patch_spec_converts_json_lists_to_task_resources():
+def test_repo_patch_spec_converts_json_lists_to_task_resources():
     task = task_from_spec(
         {
             "id": "example__repo-1",
             "benchmark_id": "example",
-            "task_type": "github_patch",
+            "task_type": "repo_patch",
             "resources": {
                 "repo": {"value": "example/repo", "visibility": "public"},
                 "base_commit": {"value": "abc123", "visibility": "public"},
@@ -81,7 +80,8 @@ def test_github_patch_spec_converts_json_lists_to_task_resources():
         }
     )
 
-    assert isinstance(task, GitHubPatchTask)
+    assert type(task) is SecureBenchTask
+    assert task.task_type == "repo_patch"
     assert resource_tuple(task, "fail_to_pass") == ("tests/test_bug.py::test_fixed",)
     assert resource_test_groups(task) == {"fail_to_pass": ("tests/test_bug.py::test_fixed",)}
     assert "gold_patch" not in task.agent_payload()

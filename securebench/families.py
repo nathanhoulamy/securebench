@@ -49,8 +49,8 @@ def validate_benchmark_row_family(row: Any, *, context: str | None = None) -> No
     """Validate active family-specific row fields.
 
     Unknown and deferred families intentionally remain permissive here so pack
-    loading and compilation can keep accepting benchmark families whose runners
-    are not implemented yet.
+    loading and compilation can keep accepting benchmark families whose
+    verifiers are not implemented yet.
     """
     validator = FAMILY_VALIDATORS.get(row.family)
     if validator is None:

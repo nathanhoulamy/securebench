@@ -18,7 +18,7 @@ class CommandResult:
 
 
 class Sandbox(ABC):
-    """Minimal file and process API exposed to runners."""
+    """Minimal file and process API exposed to harnesses and verifiers."""
 
     @abstractmethod
     def run(
