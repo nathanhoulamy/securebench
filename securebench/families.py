@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, TypeGuard
 
 from securebench.errors import ConfigError
-
 
 CandidateKind = Literal["text", "code", "patch"]
 
@@ -71,7 +70,9 @@ def _validate_short_answer(row: Any, context: str) -> None:
     _reject_unknown(row.eval, {"accepted_answers", "tolerance"}, f"{context}.eval")
     _required_non_empty_string(row.input, "question", f"{context}.input")
     _optional_non_empty_string(row.input, "answer_format", f"{context}.input")
-    _required_non_empty_string_or_number_array(row.eval, "accepted_answers", f"{context}.eval")
+    _required_non_empty_string_or_number_array(
+        row.eval, "accepted_answers", f"{context}.eval"
+    )
     _optional_non_negative_number(row.eval, "tolerance", f"{context}.eval")
 
 
@@ -139,13 +140,17 @@ def _required(values: dict[str, object], key: str, context: str) -> object:
     return values[key]
 
 
-def _required_non_empty_string(values: dict[str, object], key: str, context: str) -> None:
+def _required_non_empty_string(
+    values: dict[str, object], key: str, context: str
+) -> None:
     value = _required(values, key, context)
     if not _is_non_empty_string(value):
         raise ConfigError(f"{context}.{key} must be a non-empty string")
 
 
-def _optional_non_empty_string(values: dict[str, object], key: str, context: str) -> None:
+def _optional_non_empty_string(
+    values: dict[str, object], key: str, context: str
+) -> None:
     if key in values and not _is_non_empty_string(values[key]):
         raise ConfigError(f"{context}.{key} must be a non-empty string")
 
@@ -155,7 +160,9 @@ def _optional_string(values: dict[str, object], key: str, context: str) -> None:
         raise ConfigError(f"{context}.{key} must be a string")
 
 
-def _required_non_empty_string_array(values: dict[str, object], key: str, context: str) -> None:
+def _required_non_empty_string_array(
+    values: dict[str, object], key: str, context: str
+) -> None:
     value = _required(values, key, context)
     if not isinstance(value, list) or not value:
         raise ConfigError(f"{context}.{key} must be a non-empty string array")
@@ -172,14 +179,22 @@ def _required_non_empty_string_or_number_array(
     if not isinstance(value, list) or not value:
         raise ConfigError(f"{context}.{key} must be a non-empty string-or-number array")
     if not all(_is_string_or_number(item) for item in value):
-        raise ConfigError(f"{context}.{key} must contain only non-empty strings or numbers")
+        raise ConfigError(
+            f"{context}.{key} must contain only non-empty strings or numbers"
+        )
 
 
-def _required_string_number_or_array(values: dict[str, object], key: str, context: str) -> None:
+def _required_string_number_or_array(
+    values: dict[str, object], key: str, context: str
+) -> None:
     value = _required(values, key, context)
     if _is_string_or_number(value):
         return
-    if isinstance(value, list) and value and all(_is_string_or_number(item) for item in value):
+    if (
+        isinstance(value, list)
+        and value
+        and all(_is_string_or_number(item) for item in value)
+    ):
         return
     raise ConfigError(
         f"{context}.{key} must be a non-empty string, number, or string-or-number array"
@@ -192,14 +207,18 @@ def _required_object(values: dict[str, object], key: str, context: str) -> None:
         raise ConfigError(f"{context}.{key} must be an object")
 
 
-def _required_string_or_object(values: dict[str, object], key: str, context: str) -> None:
+def _required_string_or_object(
+    values: dict[str, object], key: str, context: str
+) -> None:
     value = _required(values, key, context)
     if _is_non_empty_string(value) or isinstance(value, dict):
         return
     raise ConfigError(f"{context}.{key} must be a non-empty string or object")
 
 
-def _optional_string_or_object(values: dict[str, object], key: str, context: str) -> None:
+def _optional_string_or_object(
+    values: dict[str, object], key: str, context: str
+) -> None:
     if key not in values:
         return
     value = values[key]
@@ -208,7 +227,9 @@ def _optional_string_or_object(values: dict[str, object], key: str, context: str
     raise ConfigError(f"{context}.{key} must be a non-empty string or object")
 
 
-def _optional_non_negative_number(values: dict[str, object], key: str, context: str) -> None:
+def _optional_non_negative_number(
+    values: dict[str, object], key: str, context: str
+) -> None:
     if key not in values:
         return
     value = values[key]
@@ -220,7 +241,7 @@ def _is_non_empty_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def _is_number(value: object) -> bool:
+def _is_number(value: object) -> TypeGuard[int | float]:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 

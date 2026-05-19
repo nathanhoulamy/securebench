@@ -69,6 +69,35 @@ defaults:
     return manifest, tasks
 
 
+def write_multiple_choice_pack(tmp_path):
+    manifest = tmp_path / "manifest.yaml"
+    tasks = tmp_path / "tasks.jsonl"
+    manifest.write_text(
+        """
+id: tester-run-pack
+version: 1
+defaults:
+  family: multiple_choice
+"""
+    )
+    tasks.write_text(
+        json.dumps(
+            {
+                "id": "tester-run-pack/addition",
+                "input": {
+                    "question": "2 + 2?",
+                    "choices": ["1", "2", "4", "5"],
+                },
+                "eval": {
+                    "answer": 2,
+                },
+            }
+        )
+        + "\n"
+    )
+    return manifest, tasks
+
+
 def make_config(tmp_path, manifest, tasks):
     return Config(
         schema_version="0.2",
@@ -112,6 +141,39 @@ def test_run_tester_config_writes_verified_code_completion_record(monkeypatch, t
     assert records[0]["score"] == 1.0
     assert records[0]["verifier_stdout"] == "tests passed"
     assert records[0]["verifier_metadata"] == {"exit_code": 0}
+    assert records[0]["hidden_values"] == "<redacted>"
+
+
+def test_run_tester_config_verifies_multiple_choice_record(monkeypatch, tmp_path):
+    manifest, tasks = write_multiple_choice_pack(tmp_path)
+    config = make_config(tmp_path, manifest, tasks)
+
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: FakeProducer(
+            CandidateArtifact(
+                text="Final answer is C",
+                stdout="producer out",
+                metadata={"harness": "fake"},
+            )
+        ),
+    )
+
+    summary = run_tester_config(config)
+
+    assert summary.total == 1
+    assert summary.verified == 1
+    assert summary.passed == 1
+    assert summary.score_sum == 1.0
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "out" / "candidates.jsonl").read_text().splitlines()
+    ]
+    assert records[0]["verification_status"] == "passed"
+    assert records[0]["passed"] is True
+    assert records[0]["score"] == 1.0
+    assert records[0]["verifier_metadata"]["verifier"] == "multiple_choice"
+    assert records[0]["verifier_metadata"]["expected_answer"] == "<redacted>"
     assert records[0]["hidden_values"] == "<redacted>"
 
 

@@ -1,0 +1,12 @@
+id: multiple-choice-smoke
+version: 1
+
+defaults:
+  family: multiple_choice
+
+asset_roots:
+  public: assets/
+  eval: hidden/
+
+asset_defaults:
+  read_only: true
