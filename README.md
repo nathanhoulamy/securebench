@@ -85,6 +85,17 @@ The CLI loads `.env` by default. Use another env file when needed:
   --env-file path/to/.env
 ```
 
+## Documentation
+
+Canonical references live in `docs/`:
+
+- `benchmark-family-standard.html`: benchmark pack and family schema standard.
+- `benchmark-family-examples.html`: practical family examples.
+- `tester-yaml-standard.html`: tester YAML and harness configuration.
+- `security-presentation.html`: visual overview for presenting the system.
+- `next.md`: current engineering follow-ups.
+- `legacy.md`: where archived prototype code and notes live.
+
 ## Development
 
 Run tests:
