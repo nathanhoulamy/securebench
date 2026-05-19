@@ -35,6 +35,7 @@ from securebench.tasks import SecureBenchTask
 
 
 COMMAND_CONFIG_FIELDS = {"command", "artifact_path", "task_file", "timeout_seconds"}
+COMMAND_DEFAULT_TASK_FILE = "task.json"
 
 
 class CommandHarnessProducer(CandidateProducer):
@@ -47,7 +48,7 @@ class CommandHarnessProducer(CandidateProducer):
         command: str | tuple[str, ...],
         env_names: tuple[str, ...] = (),
         artifact_path: str | None = None,
-        task_file: str = "securebench_task.json",
+        task_file: str = COMMAND_DEFAULT_TASK_FILE,
         timeout_seconds: float | None = None,
         workspace_root: str | Path | None = None,
     ) -> None:
@@ -141,7 +142,7 @@ def command_config(config: dict[str, Any]) -> dict[str, Any]:
             config.get("artifact_path"), "harness.config.artifact_path"
         ),
         "task_file": workspace_path(
-            config.get("task_file", "securebench_task.json"),
+            config.get("task_file", COMMAND_DEFAULT_TASK_FILE),
             "harness.config.task_file",
         ),
         "timeout_seconds": optional_positive_number(

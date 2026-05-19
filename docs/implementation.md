@@ -330,13 +330,13 @@ harness:
   config:
     command: ["python", "-m", "my_harness"]
     artifact_path: candidate.txt
-    task_file: securebench_task.json
+    task_file: task.json
     timeout_seconds: 120
 ```
 
 `command` is required and may be a non-empty string or string array.
 `artifact_path` is optional; when omitted, stdout becomes the candidate.
-`task_file` defaults to `securebench_task.json`. `timeout_seconds`, when
+`task_file` defaults to `task.json`. `timeout_seconds`, when
 provided, must be positive. Command config rejects unknown fields, and
 `artifact_path` / `task_file` must be safe workspace-relative paths.
 

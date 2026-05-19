@@ -133,7 +133,7 @@ def test_command_harness_host_mode_writes_public_task_file_and_uses_stdout(monke
     assert artifact.metadata["candidate_kind"] == "text"
     run_sandbox = FakeHostSandbox.instances[-1]
     assert run_sandbox.commands == [(("produce",), None, 7.0)]
-    task_payload = json.loads((tmp_path / "mc-1" / "securebench_task.json").read_text())
+    task_payload = json.loads((tmp_path / "mc-1" / "task.json").read_text())
     assert task_payload == {"question": "2 + 2?", "choices": ["1", "2", "4"]}
     assert "answer" not in task_payload
 

@@ -12,7 +12,7 @@ harness:
     command:
       - python3
       - ./.securebench/produce_candidate.py
-      - securebench_task.json
+      - task.json
       - candidate.patch
     artifact_path: candidate.patch
     timeout_seconds: 30
