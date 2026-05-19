@@ -24,8 +24,8 @@ automated unless a concrete scorer is chosen.
 
 Key decisions to preserve:
 
-- verifier dispatch uses standard family names, not `runner_key` aliases.
-- `repo_patch` is not silently translated to legacy `github_patch`.
+- verifier dispatch uses standard family names.
+- `repo_patch` remains the public repository-editing family name.
 - hidden resources may be read by trusted evaluator code, but are not mounted
   into harness or ordinary test-sandbox workspaces.
 - tests that execute candidate code with hidden/evaluation files present should

@@ -7,9 +7,7 @@ filled in as each step is designed and implemented.
 ## 1. Benchmark Pack Loading
 
 Add a family-agnostic loader for benchmark packs made of a `manifest.yaml` file
-plus JSONL benchmark rows. This is separate from the current executable run config,
-while keeping the existing Hugging Face adapter flow available as a
-compatibility path.
+plus JSONL benchmark rows. This is the active execution path; older Hugging Face adapter and direct-producer experiments now live under `legacy/` for reference.
 
 The first pass supports this manifest envelope:
 
@@ -249,9 +247,9 @@ Active contracts:
 - `repo_patch`: `patch`, requires a mutable workspace
 
 Do not add visibility-derived fields such as `uses_evaluation_inputs` or
-`uses_hidden`; those remain available from each task's `ResourceBundle`. Do not
-add `legacy_task_type` or `runner_key`; dispatch should use standard
-family names directly. `submission` is a harness mode, not a candidate kind.
+`uses_hidden`; those remain available from each task's `ResourceBundle`.
+Dispatch should use standard family names directly. `submission` is a harness
+mode, not a candidate kind.
 
 Deferred families: `terminal_task`, `tool_call`, `browser_task`,
 `desktop_task`, `artifact_task`, `multimodal_qa`, and `preference_pair`. Future
