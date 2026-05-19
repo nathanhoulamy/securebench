@@ -271,7 +271,7 @@ objects or implement scoring.
 
 The standardized harness path now starts with `harness.type: command`.
 SecureBench prepares a per-task public workspace, writes the public task payload
-to `securebench_task.json` by default, materializes public resources/assets,
+to `task.json` by default, materializes public resources/assets,
 and then runs the tester-provided command in either host or container mode.
 Hidden and `evaluation_inputs` resources are not materialized into the harness
 workspace. Workspace directory names are derived from task ids, with a short
