@@ -1,7 +1,7 @@
 import pytest
 
-from securebench.materialization import MaterializationPlan, MaterializedResource
-from securebench.path_policy import (
+from securebench.workspaces.materialization import MaterializationPlan, MaterializedResource
+from securebench.workspaces.path_policy import (
     PathPolicy,
     PathPolicyError,
     validate_materialization_plan,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from securebench.candidates import CandidateArtifact
+from securebench.candidates.base import CandidateArtifact
 from securebench.errors import ConfigError
 from securebench.families import family_contract_for
 from securebench.sandboxes import CommandResult, Sandbox

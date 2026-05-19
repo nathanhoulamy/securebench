@@ -4,7 +4,7 @@ import pytest
 
 from securebench.benchmark_compiler import compile_benchmark_row
 from securebench.benchmark_pack import BenchmarkPackManifest, BenchmarkRow
-from securebench.candidate_extraction import (
+from securebench.candidates.extraction import (
     default_extraction_spec,
     extract_candidate,
     extraction_instructions,

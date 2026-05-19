@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import securebench.harnesses as harnesses
+import securebench.harnesses.codex as codex_harnesses
 from securebench.benchmark_compiler import compile_benchmark_row
 from securebench.benchmark_pack import AssetDefaults, BenchmarkPackManifest, BenchmarkRow
 from securebench.errors import ConfigError
@@ -119,7 +119,7 @@ def harness_section(*, mode="host", config=None, harness_type="command"):
 
 
 def test_command_harness_host_mode_writes_public_task_file_and_uses_stdout(monkeypatch, tmp_path):
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
     producer = build_harness_producer(
         harness_section(config={"command": ["produce"], "timeout_seconds": 7}),
         workspace_root=tmp_path,
@@ -139,7 +139,7 @@ def test_command_harness_host_mode_writes_public_task_file_and_uses_stdout(monke
 
 
 def test_command_harness_file_backed_candidate(monkeypatch, tmp_path):
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
     producer = build_harness_producer(
         harness_section(config={"command": ["write-artifact"], "artifact_path": "candidate.txt"}),
         workspace_root=tmp_path,
@@ -153,7 +153,7 @@ def test_command_harness_file_backed_candidate(monkeypatch, tmp_path):
 
 
 def test_command_harness_code_family_uses_text_candidate(monkeypatch, tmp_path):
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
     producer = build_harness_producer(
         harness_section(config={"command": "produce code"}),
         workspace_root=tmp_path,
@@ -167,7 +167,7 @@ def test_command_harness_code_family_uses_text_candidate(monkeypatch, tmp_path):
 
 
 def test_command_harness_patch_family_uses_patch_candidate(monkeypatch, tmp_path):
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
     producer = build_harness_producer(
         harness_section(config={"command": ["patch"]}),
         workspace_root=tmp_path,
@@ -181,7 +181,7 @@ def test_command_harness_patch_family_uses_patch_candidate(monkeypatch, tmp_path
 
 
 def test_command_harness_materializes_public_assets(monkeypatch, tmp_path):
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
     manifest_path = tmp_path / "manifest.yaml"
     manifest_path.write_text("id: pack\nversion: 1\n")
     assets_root = tmp_path / "assets"
@@ -205,8 +205,8 @@ def test_command_harness_materializes_public_assets(monkeypatch, tmp_path):
 
 
 def test_command_harness_container_mode_uses_docker_and_read_only_asset_mounts(monkeypatch, tmp_path):
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.DockerSandbox", FakeDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
     manifest_path = tmp_path / "manifest.yaml"
     manifest_path.write_text("id: pack\nversion: 1\n")
     assets_root = tmp_path / "assets"
@@ -239,8 +239,8 @@ def test_command_harness_container_mode_uses_docker_and_read_only_asset_mounts(m
 
 
 def test_command_harness_container_mode_requires_benchmark_environment_image(monkeypatch, tmp_path):
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.DockerSandbox", FakeDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
     producer = build_harness_producer(
         harness_section(
             mode="container",
@@ -256,12 +256,12 @@ def test_command_harness_container_mode_requires_benchmark_environment_image(mon
 def test_codex_mounted_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_path):
     monkeypatch.setenv("CODEX_API_KEY", "secret")
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.DockerSandbox", FakeDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", FakeDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
     overlay_path.mkdir()
     monkeypatch.setattr(
-        "securebench.harnesses._codex_overlay_for_image",
+        "securebench.harnesses.codex.codex_overlay_for_image",
         lambda image, version: CodexOverlay(
             path=overlay_path,
             platform=DockerPlatform(os="linux", architecture="arm64"),
@@ -318,12 +318,12 @@ def test_codex_mounted_harness_extracts_code_completion_candidate_file(monkeypat
             return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
 
     monkeypatch.setenv("CODEX_API_KEY", "secret")
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.DockerSandbox", CodeWritingDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", CodeWritingDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
     overlay_path.mkdir()
     monkeypatch.setattr(
-        "securebench.harnesses._codex_overlay_for_image",
+        "securebench.harnesses.codex.codex_overlay_for_image",
         lambda image, version: CodexOverlay(
             path=overlay_path,
             platform=DockerPlatform(os="linux", architecture="amd64"),
@@ -346,12 +346,12 @@ def test_codex_mounted_harness_extracts_code_completion_candidate_file(monkeypat
 
 def test_codex_mounted_harness_fails_when_code_candidate_file_missing(monkeypatch, tmp_path):
     monkeypatch.setenv("CODEX_API_KEY", "secret")
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.DockerSandbox", FakeDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", FakeDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
     overlay_path.mkdir()
     monkeypatch.setattr(
-        "securebench.harnesses._codex_overlay_for_image",
+        "securebench.harnesses.codex.codex_overlay_for_image",
         lambda image, version: CodexOverlay(
             path=overlay_path,
             platform=DockerPlatform(os="linux", architecture="amd64"),
@@ -378,12 +378,12 @@ def test_codex_mounted_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
             return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
 
     monkeypatch.setenv("CODEX_API_KEY", "secret")
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.DockerSandbox", DiffingDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", DiffingDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
     overlay_path.mkdir()
     monkeypatch.setattr(
-        "securebench.harnesses._codex_overlay_for_image",
+        "securebench.harnesses.codex.codex_overlay_for_image",
         lambda image, version: CodexOverlay(
             path=overlay_path,
             platform=DockerPlatform(os="linux", architecture="amd64"),
@@ -411,12 +411,12 @@ def test_codex_mounted_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
 
 def test_codex_mounted_harness_defaults_to_codex_api_key(monkeypatch, tmp_path):
     monkeypatch.setenv("CODEX_API_KEY", "secret")
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.DockerSandbox", FakeDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", FakeDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
     overlay_path.mkdir()
     monkeypatch.setattr(
-        "securebench.harnesses._codex_overlay_for_image",
+        "securebench.harnesses.codex.codex_overlay_for_image",
         lambda image, version: CodexOverlay(
             path=overlay_path,
             platform=DockerPlatform(os="linux", architecture="amd64"),
@@ -485,12 +485,12 @@ def test_codex_mounted_harness_reports_preflight_failure(monkeypatch, tmp_path):
             return CommandResult(("sh", "-lc", command), 127, "", "codex: not found")
 
     monkeypatch.setenv("CODEX_API_KEY", "secret")
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.DockerSandbox", FailingPreflightDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", FailingPreflightDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
     overlay_path.mkdir()
     monkeypatch.setattr(
-        "securebench.harnesses._codex_overlay_for_image",
+        "securebench.harnesses.codex.codex_overlay_for_image",
         lambda image, version: CodexOverlay(
             path=overlay_path,
             platform=DockerPlatform(os="linux", architecture="amd64"),
@@ -521,7 +521,7 @@ def test_codex_platform_resolver_maps_docker_inspect(monkeypatch, inspect_payloa
 
     monkeypatch.setattr("subprocess.run", fake_run)
 
-    platform = harnesses._docker_image_platform("benchmark-image")
+    platform = codex_harnesses.docker_image_platform("benchmark-image")
 
     assert platform.cache_key == cache_key
     assert platform.docker_platform == docker_platform
@@ -530,8 +530,8 @@ def test_codex_platform_resolver_maps_docker_inspect(monkeypatch, inspect_payloa
 def test_codex_overlay_cache_key_includes_version_and_platform(monkeypatch, tmp_path):
     monkeypatch.setenv("SECUREBENCH_AGENT_CACHE", str(tmp_path / "cache"))
     monkeypatch.setattr(
-        harnesses,
-        "_docker_image_platform",
+        codex_harnesses,
+        "docker_image_platform",
         lambda image: DockerPlatform(os="linux", architecture="arm64"),
     )
 
@@ -539,9 +539,9 @@ def test_codex_overlay_cache_key_includes_version_and_platform(monkeypatch, tmp_
         (path / "bin").mkdir(parents=True)
         (path / "bin" / "codex").write_text("binary")
 
-    monkeypatch.setattr(harnesses, "_populate_codex_overlay_cache", fake_populate)
+    monkeypatch.setattr(codex_harnesses, "populate_codex_overlay_cache", fake_populate)
 
-    overlay = harnesses._codex_overlay_for_image("benchmark-image", "0.30.0")
+    overlay = codex_harnesses.codex_overlay_for_image("benchmark-image", "0.30.0")
 
     assert overlay.path == tmp_path / "cache" / "codex" / "0.30.0" / "linux-arm64"
     assert overlay.platform.docker_platform == "linux/arm64"
@@ -579,7 +579,7 @@ def test_deferred_harness_types_fail_clearly(harness_type):
 
 
 def test_command_harness_workspace_names_avoid_sanitized_id_collisions(monkeypatch, tmp_path):
-    monkeypatch.setattr("securebench.harnesses.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
     producer = build_harness_producer(
         harness_section(config={"command": ["produce"]}),
         workspace_root=tmp_path,

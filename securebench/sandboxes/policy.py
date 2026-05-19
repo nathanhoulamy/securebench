@@ -6,7 +6,7 @@ import shlex
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
-from securebench.sandboxes import CommandResult, Sandbox
+from securebench.sandboxes.base import CommandResult, Sandbox
 
 
 class PolicyViolation(RuntimeError):

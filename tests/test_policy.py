@@ -1,6 +1,6 @@
 import pytest
 
-from securebench.policy import CommandPolicy, PolicySandbox, PolicyViolation, normalize_command
+from securebench.sandboxes.policy import CommandPolicy, PolicySandbox, PolicyViolation, normalize_command
 from securebench.sandboxes import CommandResult, Sandbox
 
 

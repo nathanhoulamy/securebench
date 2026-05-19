@@ -1,12 +1,12 @@
 import pytest
 
-from securebench.materialization import (
+from securebench.workspaces.materialization import (
     MaterializationError,
     ResourceMaterializer,
     VisibilityAwareMaterializer,
     docker_read_only_mounts,
 )
-from securebench.path_policy import PathPolicyError
+from securebench.workspaces.path_policy import PathPolicyError
 from securebench.resources import Resource, ResourceBundle
 from securebench.tasks import task_from_spec
 
@@ -131,7 +131,7 @@ def test_materialization_validates_plan_before_writing(monkeypatch):
     def reject_plan(plan):
         raise PathPolicyError("rejected before write")
 
-    monkeypatch.setattr("securebench.materialization.validate_materialization_plan", reject_plan)
+    monkeypatch.setattr("securebench.workspaces.materialization.validate_materialization_plan", reject_plan)
 
     with pytest.raises(PathPolicyError, match="rejected before write"):
         ResourceMaterializer().materialize(make_bundle(), target, "agent")

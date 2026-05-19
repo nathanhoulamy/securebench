@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
-from securebench.path_policy import validate_materialization_plan
+from securebench.workspaces.path_policy import validate_materialization_plan
 from securebench.resources import Component, Resource, ResourceBundle, ResourceKind, ResourceVisibility
 
 if TYPE_CHECKING:
