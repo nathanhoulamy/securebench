@@ -2,8 +2,10 @@
 
 The active package is organized around the benchmark-pack execution pipeline:
 
-- `benchmark_pack.py`, `benchmark_compiler.py`, `families.py`, `tasks.py`, and
-  `resources.py` define the core benchmark/task model.
+- `benchmark_pack.py`, `benchmark_compiler.py`, `tasks.py`, and `resources.py`
+  define the core benchmark/task model.
+- `families/` contains benchmark family contracts and row schema validators.
+  Add new benchmark family schemas here, one module per family.
 - `tester_config.py`, `tester_run.py`, and `cli.py` parse tester YAML and run
   benchmark packs end to end.
 - `harnesses/` contains candidate-producing harness implementations. Add new
@@ -25,7 +27,6 @@ extension points are visible from the directory tree.
 - `securebench/__init__.py`: Public package exports for core run and verifier APIs.
 - `securebench/benchmark_pack.py`: Loads benchmark pack manifests and JSONL task rows.
 - `securebench/benchmark_compiler.py`: Converts raw benchmark rows into normalized `SecureBenchTask` objects.
-- `securebench/families.py`: Defines benchmark family contracts and validates family-specific row schemas.
 - `securebench/tasks.py`: Defines normalized task models and helpers for reading task resources.
 - `securebench/resources.py`: Defines resource visibility, redaction, and component-specific resource views.
 - `securebench/tester_config.py`: Parses and validates tester YAML config files.
@@ -39,6 +40,17 @@ extension points are visible from the directory tree.
 - `securebench/candidates/__init__.py`: Public exports for candidate artifact APIs.
 - `securebench/candidates/base.py`: Defines `CandidateArtifact` and `CandidateProducer`.
 - `securebench/candidates/extraction.py`: Extracts family-shaped candidates from stdout, files, or git diffs.
+
+## Families
+
+- `securebench/families/__init__.py`: Public exports for family contracts and schema validators.
+- `securebench/families/base.py`: Defines `FamilyContract`, candidate kinds, validator types, and shared schema helper functions.
+- `securebench/families/registry.py`: Registers known family contracts and dispatches row validation to each family module.
+- `securebench/families/multiple_choice.py`: Validates `multiple_choice` row input and eval schema.
+- `securebench/families/short_answer.py`: Validates `short_answer` row input and eval schema.
+- `securebench/families/free_response.py`: Validates `free_response` row input and eval schema.
+- `securebench/families/code_completion.py`: Validates `code_completion` row input and eval schema.
+- `securebench/families/repo_patch.py`: Validates `repo_patch` row input and eval schema.
 
 ## Harnesses
 
