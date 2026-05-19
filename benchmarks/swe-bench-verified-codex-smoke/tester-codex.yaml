@@ -1,0 +1,20 @@
+schema_version: "0.2"
+
+run:
+  id: swe-bench-verified-codex-smoke-gpt-5.5
+  output_dir: ../../runs/swe-bench-verified-codex-smoke-gpt-5.5
+
+benchmark:
+  manifest: manifest.yaml
+  tasks: tasks.jsonl
+
+harness:
+  type: codex
+  mode: mounted
+  env:
+    - CODEX_API_KEY
+  config:
+    model: gpt-5.5
+    version: latest
+    task_file: task.json
+    timeout_seconds: 900

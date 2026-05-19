@@ -102,7 +102,7 @@ def repo_patch_task(*, environment=None):
             id="repo-1",
             family="repo_patch",
             input={"repo": "repo/", "base_commit": "abc123", "instructions": "Fix it."},
-            eval={"tests": {"path": "tests/test_bug.py"}},
+            eval={"tests": {"source": "command", "command": "pytest -q"}},
             environment={} if environment is None else environment,
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),
@@ -284,6 +284,7 @@ def test_codex_mounted_harness_uses_benchmark_image_and_overlay_mounts(monkeypat
     assert docker.image == "python:3.11-slim"
     assert docker.env_names == ("OPENAI_API_KEY", "CODEX_API_KEY")
     assert docker.kwargs["network"] == "bridge"
+    assert docker.kwargs["read_only"] is False
     assert len(docker.mounts) == 2
     assert docker.mounts[0].source == overlay_path
     assert docker.mounts[0].target == "/opt/securebench/codex"
@@ -295,6 +296,8 @@ def test_codex_mounted_harness_uses_benchmark_image_and_overlay_mounts(monkeypat
     assert "codex exec --model 'gpt-5.1-codex' --json" in docker.commands[1][0]
     assert "--skip-git-repo-check" in docker.commands[1][0]
     assert "--dangerously-bypass-approvals-and-sandbox" in docker.commands[1][0]
+    assert "/workspace/task.json" in docker.commands[1][0]
+    assert docker.commands[1][1] is None
     assert docker.commands[0][2] == 11.0
     assert docker.commands[1][2] == 11.0
     assert (tmp_path / "runs" / "mc-1" / "task.json").exists()
@@ -405,7 +408,24 @@ def test_codex_mounted_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
     assert artifact.metadata["candidate_extraction"] == "git_diff"
     assert artifact.metadata["candidate_workdir"] == "/workspace/repo"
     assert artifact.metadata["candidate_diff_exit_code"] == 0
+    assert artifact.metadata["repo_patch_baseline"] == "committed"
     docker = FakeDockerSandbox.instances[-1]
+    assert docker.commands[1] == (["git", "status", "--porcelain=v1"], "/workspace/repo", 900.0)
+    assert docker.commands[2] == (["git", "add", "-A"], "/workspace/repo", 900.0)
+    assert docker.commands[3][0][:6] == [
+        "git",
+        "-c",
+        "user.name=SecureBench",
+        "-c",
+        "user.email=securebench@example.invalid",
+        "commit",
+    ]
+    assert docker.commands[3][1] == "/workspace/repo"
+    assert docker.commands[4][1] == "/workspace/repo"
+    assert "/workspace/task.json" in docker.commands[4][0]
+    assert "current working directory" in docker.commands[4][0]
+    assert "Do not clone the repository" in docker.commands[4][0]
+    assert "do not edit tests" in docker.commands[4][0]
     assert docker.commands[-1] == (["git", "diff", "--binary"], "/workspace/repo", 900.0)
 
 
@@ -538,6 +558,7 @@ def test_codex_overlay_cache_key_includes_version_and_platform(monkeypatch, tmp_
     def fake_populate(path, version, platform):
         (path / "bin").mkdir(parents=True)
         (path / "bin" / "codex").write_text("binary")
+        (path / "bin" / "node").write_text("node")
 
     monkeypatch.setattr(codex_harnesses, "populate_codex_overlay_cache", fake_populate)
 
@@ -546,6 +567,31 @@ def test_codex_overlay_cache_key_includes_version_and_platform(monkeypatch, tmp_
     assert overlay.path == tmp_path / "cache" / "codex" / "0.30.0" / "linux-arm64"
     assert overlay.platform.docker_platform == "linux/arm64"
     assert overlay.version == "0.30.0"
+
+
+def test_codex_overlay_repopulates_when_node_runtime_is_missing(monkeypatch, tmp_path):
+    monkeypatch.setenv("SECUREBENCH_AGENT_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(
+        codex_harnesses,
+        "docker_image_platform",
+        lambda image: DockerPlatform(os="linux", architecture="amd64"),
+    )
+    overlay_path = tmp_path / "cache" / "codex" / "0.30.0" / "linux-amd64"
+    (overlay_path / "bin").mkdir(parents=True)
+    (overlay_path / "bin" / "codex").write_text("binary")
+    calls = []
+
+    def fake_populate(path, version, platform):
+        calls.append((path, version, platform.cache_key))
+        (path / "bin" / "node").write_text("node")
+
+    monkeypatch.setattr(codex_harnesses, "populate_codex_overlay_cache", fake_populate)
+
+    overlay = codex_harnesses.codex_overlay_for_image("benchmark-image", "0.30.0")
+
+    assert overlay.path == overlay_path
+    assert calls == [(overlay_path, "0.30.0", "linux-amd64")]
+    assert (overlay_path / "bin" / "node").exists()
 
 
 @pytest.mark.parametrize(

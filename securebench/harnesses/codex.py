@@ -8,7 +8,7 @@ import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from securebench.candidates.extraction import (
@@ -40,6 +40,7 @@ CODEX_HOME_TARGET = "/opt/securebench/codex-home"
 CODEX_DEFAULT_VERSION = "latest"
 CODEX_DEFAULT_TASK_FILE = "task.json"
 CODEX_DEFAULT_TIMEOUT_SECONDS = 900.0
+CODEX_RUNTIME_NODE_IMAGE = "node:22-bookworm"
 
 
 @dataclass(frozen=True)
@@ -120,6 +121,7 @@ class CodexHarnessProducer(CandidateProducer):
                 root=task_workspace,
                 env_names=self.env_names,
                 network="bridge",
+                read_only=False,
                 mounts=(
                     *docker_read_only_mounts(plan, task_workspace),
                     DockerBindMount(
@@ -145,12 +147,21 @@ class CodexHarnessProducer(CandidateProducer):
                         f"{image!r}: codex --version failed with exit code {preflight.exit_code}; "
                         f"stderr: {preflight.stderr.strip()}"
                     )
+                task_file_for_agent = container_workspace_path(self.task_file)
+                agent_workdir = codex_agent_workdir(task)
+                baseline = prepare_repo_patch_baseline(
+                    sandbox,
+                    task,
+                    agent_workdir,
+                    context.get("timeout", self.timeout_seconds),
+                )
                 result = sandbox.run(
                     codex_shell_command(
                         f"codex exec --model {shell_quote(self.model)} --json --skip-git-repo-check "
                         f"--dangerously-bypass-approvals-and-sandbox "
-                        f"{shell_quote(codex_prompt(task, self.task_file))}"
+                        f"{shell_quote(codex_prompt(task, task_file_for_agent))}"
                     ),
+                    workdir=agent_workdir,
                     timeout=context.get("timeout", self.timeout_seconds),
                 )
                 extraction = default_extraction_spec(task, allow_stdout=False)
@@ -178,6 +189,7 @@ class CodexHarnessProducer(CandidateProducer):
                         "overlay_mode": "mounted",
                         "overlay_platform": overlay.platform.docker_platform,
                         "overlay_cache_path": str(overlay.path),
+                        **baseline,
                         **candidate.metadata,
                     },
                 )
@@ -242,10 +254,13 @@ def codex_overlay_for_image(image: str, version: str) -> CodexOverlay:
     platform = docker_image_platform(image)
     overlay_path = codex_overlay_cache_root() / "codex" / version / platform.cache_key
     codex_binary = overlay_path / "bin" / "codex"
-    if not codex_binary.exists():
+    node_binary = overlay_path / "bin" / "node"
+    if not codex_binary.exists() or not node_binary.exists():
         populate_codex_overlay_cache(overlay_path, version, platform)
     if not codex_binary.exists():
         raise ConfigError(f"Codex overlay cache did not produce expected binary: {codex_binary}")
+    if not node_binary.exists():
+        raise ConfigError(f"Codex overlay cache did not produce expected Node runtime: {node_binary}")
     return CodexOverlay(path=overlay_path, platform=platform, version=version)
 
 
@@ -321,10 +336,14 @@ def populate_codex_overlay_cache(
             platform.docker_platform,
             "-v",
             f"{cache_root}:/cache",
-            "node:22-bookworm",
+            CODEX_RUNTIME_NODE_IMAGE,
             "sh",
             "-lc",
-            f"npm install -g @openai/codex@{version} --prefix {install_prefix}",
+            (
+                f"npm install -g @openai/codex@{version} --prefix {install_prefix} && "
+                f"cp $(command -v node) {install_prefix}/bin/node && "
+                f"chmod +x {install_prefix}/bin/node"
+            ),
         ]
     )
     if result.returncode != 0:
@@ -343,8 +362,83 @@ def codex_shell_command(inner: str) -> str:
     )
 
 
+def prepare_repo_patch_baseline(
+    sandbox: DockerSandbox,
+    task: SecureBenchTask,
+    workdir: str | None,
+    timeout: float | None,
+) -> dict[str, object]:
+    """Commit image-provided dirty state so extracted diffs only include agent changes."""
+    if task.task_type != "repo_patch" or workdir is None:
+        return {}
+    status = sandbox.run(["git", "status", "--porcelain=v1"], workdir=workdir, timeout=timeout)
+    if status.exit_code != 0:
+        raise ConfigError(
+            f"failed to inspect repo_patch baseline state for task {task.id!r}: "
+            f"{status.stderr.strip()}"
+        )
+    if not status.stdout.strip():
+        return {"repo_patch_baseline": "clean"}
+    add = sandbox.run(["git", "add", "-A"], workdir=workdir, timeout=timeout)
+    if add.exit_code != 0:
+        raise ConfigError(
+            f"failed to stage repo_patch baseline state for task {task.id!r}: {add.stderr.strip()}"
+        )
+    commit = sandbox.run(
+        [
+            "git",
+            "-c",
+            "user.name=SecureBench",
+            "-c",
+            "user.email=securebench@example.invalid",
+            "commit",
+            "--no-verify",
+            "-m",
+            "securebench baseline",
+        ],
+        workdir=workdir,
+        timeout=timeout,
+    )
+    if commit.exit_code != 0:
+        raise ConfigError(
+            f"failed to commit repo_patch baseline state for task {task.id!r}: "
+            f"{commit.stderr.strip()}"
+        )
+    return {"repo_patch_baseline": "committed"}
+
+
+def codex_agent_workdir(task: SecureBenchTask) -> str | None:
+    """Return the container workdir where Codex should operate."""
+    if task.task_type != "repo_patch":
+        return None
+    metadata = task.metadata if isinstance(task.metadata, dict) else {}
+    environment = metadata.get("environment")
+    workdir = environment.get("workdir") if isinstance(environment, dict) else None
+    if isinstance(workdir, str) and workdir.strip():
+        return workdir.strip()
+    return None
+
+
+def container_workspace_path(path: str) -> str:
+    """Return a path to the harness workspace inside the benchmark container."""
+    candidate = PurePosixPath(path)
+    if candidate.is_absolute():
+        return str(candidate)
+    return str(PurePosixPath("/workspace") / candidate)
+
+
 def codex_prompt(task: SecureBenchTask, task_file: str) -> str:
     extraction = default_extraction_spec(task, allow_stdout=False)
+    if task.task_type == "repo_patch":
+        return (
+            f"Read {task_file} and solve the benchmark task using only public workspace data. "
+            "The repository checkout to edit is the current working directory. "
+            "Do not clone the repository. "
+            "Edit only the implementation files needed for the fix; do not edit tests, "
+            "evaluation files, dependency files, lock files, or build configuration unless the "
+            "task explicitly requires those files. "
+            f"{extraction_instructions(extraction)}"
+        )
     base = f"Read {task_file} and solve the benchmark task using only public workspace data."
     return f"{base} {extraction_instructions(extraction)}"
 
