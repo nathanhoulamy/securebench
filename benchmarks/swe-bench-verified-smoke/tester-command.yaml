@@ -1,0 +1,18 @@
+schema_version: "0.2"
+run:
+  id: swe-bench-verified-smoke-command
+  output_dir: ../../runs/swe-bench-verified-smoke-command
+benchmark:
+  manifest: manifest.yaml
+  tasks: tasks.jsonl
+harness:
+  type: command
+  mode: host
+  config:
+    command:
+      - python3
+      - ./.securebench/produce_candidate.py
+      - securebench_task.json
+      - candidate.patch
+    artifact_path: candidate.patch
+    timeout_seconds: 30

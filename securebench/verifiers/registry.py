@@ -5,6 +5,7 @@ from __future__ import annotations
 from securebench.verifiers.base import Verifier
 from securebench.verifiers.code_completion import CodeCompletionVerifier
 from securebench.verifiers.multiple_choice import MultipleChoiceVerifier
+from securebench.verifiers.repo_patch import RepoPatchVerifier
 
 
 def verifier_for_task_type(task_type: str) -> Verifier | None:
@@ -13,4 +14,6 @@ def verifier_for_task_type(task_type: str) -> Verifier | None:
         return MultipleChoiceVerifier()
     if task_type == "code_completion":
         return CodeCompletionVerifier()
+    if task_type == "repo_patch":
+        return RepoPatchVerifier()
     return None

@@ -62,7 +62,7 @@ def repo_patch_task(*, environment=None):
             id="repo-1",
             family="repo_patch",
             input={"repo": "repo/", "base_commit": "abc123", "instructions": "Fix it."},
-            eval={"tests": {"path": "tests/test_bug.py"}},
+            eval={"tests": {"source": "command", "command": "pytest -q"}},
             environment={} if environment is None else environment,
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),

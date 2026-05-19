@@ -67,6 +67,7 @@ extension points are visible from the directory tree.
 - `securebench/verifiers/registry.py`: Chooses the verifier for a benchmark family.
 - `securebench/verifiers/code_completion.py`: Verifies Python code-completion candidates using inline tests.
 - `securebench/verifiers/multiple_choice.py`: Verifies text candidates against hidden multiple-choice answers.
+- `securebench/verifiers/repo_patch.py`: Verifies repo patches by applying candidate/test patches in the benchmark image and running command checks.
 
 ## Sandboxes
 

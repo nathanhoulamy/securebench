@@ -57,7 +57,13 @@ def row_for(family, *, input=None, eval=None):
                 "instructions": "Fix the failing test.",
                 "hints": "Look at parser.py",
             },
-            eval={"tests": {"path": "tests/test_parser.py"}, "gold_patch": "diff --git ..."},
+            eval={
+                "tests": {
+                    "source": "command",
+                    "command": ["python", "-m", "pytest", "tests/test_parser.py"],
+                },
+                "gold_patch": "diff --git ...",
+            },
         ),
     ],
 )
@@ -88,7 +94,7 @@ def test_active_family_valid_rows_pass_schema_validation(row):
             row_for(
                 "repo_patch",
                 input={"repo": "repo/", "instructions": "Fix"},
-                eval={"tests": {}},
+                eval={"tests": {"source": "command", "command": "pytest -q"}},
             ),
             "input.base_commit is required",
         ),
@@ -134,7 +140,7 @@ def test_active_family_missing_required_fields_raise(row, match):
             row_for(
                 "repo_patch",
                 input={"repo": "repo/", "base_commit": "abc", "instructions": ""},
-                eval={"tests": {}},
+                eval={"tests": {"source": "command", "command": "pytest -q"}},
             ),
             "input.instructions must be a non-empty string",
         ),
@@ -247,7 +253,13 @@ def test_compiled_active_family_rows_keep_expected_resource_visibility():
                 "base_commit": "abc123",
                 "instructions": "Fix the bug.",
             },
-            eval={"tests": {"path": "tests/test_bug.py"}, "gold_patch": "diff --git ..."},
+            eval={
+                "tests": {
+                    "source": "command",
+                    "command": ["python", "-m", "pytest", "tests/test_bug.py"],
+                },
+                "gold_patch": "diff --git ...",
+            },
         ),
         manifest=manifest(),
     )
@@ -257,5 +269,8 @@ def test_compiled_active_family_rows_keep_expected_resource_visibility():
         "base_commit": "abc123",
         "instructions": "Fix the bug.",
     }
-    assert task.evaluation_payload()["tests"] == {"path": "tests/test_bug.py"}
+    assert task.evaluation_payload()["tests"] == {
+        "source": "command",
+        "command": ["python", "-m", "pytest", "tests/test_bug.py"],
+    }
     assert task.hidden_payload()["gold_patch"] == "diff --git ..."

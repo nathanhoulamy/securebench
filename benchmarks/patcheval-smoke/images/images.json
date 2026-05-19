@@ -1,0 +1,7 @@
+[
+  {
+    "image": "ghcr.io/anonymous2578-data/cve-2021-37712:latest",
+    "instance_id": "CVE-2021-37712",
+    "workdir": "/workspace/node-tar"
+  }
+]

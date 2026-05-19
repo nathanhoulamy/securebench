@@ -75,6 +75,42 @@ def test_docker_sandbox_can_use_disposable_container_per_command(monkeypatch, tm
     assert seen["command"][-2:] == ["python", "--version"]
 
 
+def test_docker_sandbox_preserves_absolute_container_workdir(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    sandbox = DockerSandbox(image="agent-image", root=tmp_path, persistent=False)
+    sandbox.run(["git", "status"], workdir="/testbed")
+
+    assert seen["command"][seen["command"].index("-w") + 1] == "/testbed"
+
+
+def test_docker_sandbox_can_mount_workspace_at_non_default_target(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path,
+        persistent=False,
+        workspace_mount_target="/securebench-workspace",
+    )
+    sandbox.run(["git", "status"], workdir="/workspace/repo")
+
+    assert f"{tmp_path}:/securebench-workspace" in seen["command"]
+    assert seen["command"][seen["command"].index("-w") + 1] == "/workspace/repo"
+
+
 def test_docker_sandbox_accepts_explicit_hardening_options(monkeypatch, tmp_path):
     seen = {}
 

@@ -1,0 +1,11 @@
+id: swe-smith-smoke
+version: 1
+defaults:
+  family: repo_patch
+  environment:
+    workdir: /testbed
+asset_roots:
+  public: assets/
+  eval: hidden/
+asset_defaults:
+  read_only: true

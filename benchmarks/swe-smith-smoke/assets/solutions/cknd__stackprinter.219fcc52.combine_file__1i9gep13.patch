@@ -1,0 +1,51 @@
+diff --git b/stackprinter/__init__.py a/stackprinter/__init__.py
+index ed75301..94ae70c 100644
+--- b/stackprinter/__init__.py
++++ a/stackprinter/__init__.py
+@@ -11,12 +11,15 @@ from stackprinter.tracing import TracePrinter, trace
+ def _guess_thing(f):
+     """ default to the current exception or current stack frame"""
+ 
++    # the only reason this happens up here is to keep sys._getframe at the same
++    # call depth relative to an invocation of `show` or `format`, even when
++    # `format` is called _by_ `show`.
+     @wraps(f)
+     def show_or_format(thing=None, *args, **kwargs):
+         if thing is None:
+             thing = sys.exc_info()
+             if thing == (None, None, None):
+-                thing = sys._getframe(2)
++                thing = sys._getframe(1)
+         return f(thing, *args, **kwargs)
+     return show_or_format
+ 
+@@ -152,11 +155,12 @@ def format(thing=None, **kwargs):
+         exc_info = (thing.__class__, thing, thing.__traceback__)
+         return format(exc_info, **kwargs)
+     elif _is_exc_info(thing):
++        return fmt.format_exc_info(*thing, **kwargs)
++    else:
+         raise ValueError("Can't format %s. "\
+                          "Expected an exception instance, sys.exc_info() tuple,"\
+                          "a frame or a thread object." % repr(thing))
+-    else:
+-        return fmt.format_exc_info(*thing, **kwargs)
++
+ 
+ @_guess_thing
+ def show(thing=None, file='stderr', **kwargs):
+@@ -331,11 +335,11 @@ def _unpatch_ipython_excepthook():
+ 
+ 
+ def _is_exc_info(thing):
+-    if not isinstance(thing, tuple) or len(thing) != 2:
++    if not isinstance(thing, tuple) or len(thing) != 3:
+         return False
+     a, b, c = thing
+-    return ((a is not None and (isinstance(a, type) and BaseException in a.mro())) and
+-            (b is not None or (isinstance(b, BaseException))))
++    return ((a is None or (isinstance(a, type) and BaseException in a.mro())) and
++            (b is None or (isinstance(b, BaseException))))
+ 
+ def format_thread(thread, add_summary=False, **kwargs):
+     try:
