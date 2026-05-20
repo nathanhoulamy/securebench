@@ -1,3 +1,0 @@
-{"id":"multiple-choice-smoke/arithmetic","input":{"question":"What is 2 + 2?","choices":["1","2","4","5"]},"eval":{"answer":2}}
-{"id":"multiple-choice-smoke/protocol","input":{"question":"Which protocol commonly secures HTTP traffic?","choices":["DNS","TLS","NTP","FTP"]},"eval":{"answer":"B"}}
-{"id":"multiple-choice-smoke/hash","input":{"question":"Which digest length matches SHA-256 output in bytes?","choices":["16","20","32","64"]},"eval":{"answer":"32"}}
