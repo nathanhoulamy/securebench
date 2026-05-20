@@ -13,10 +13,13 @@ and tester YAML references are the HTML standards in this directory.
 
 ## Verifiers
 
-- Add a `short_answer` verifier using `eval.accepted_answers` and optional
-  numeric `eval.tolerance`.
-- Decide whether `free_response` should stay pending, use a rubric-only result,
-  or gain a concrete scorer interface.
+- Replace the current `free_response` mini-benchmark scorer with a stronger
+  rubric representation before treating TruthfulQA-style pass rates as model
+  quality. The temporary deterministic scorer uses accepted/rejected sentence
+  containment plus token overlap, which can falsely reject correct contrastive
+  answers when accepted and rejected explanations share many words. Prefer
+  explicit required/forbidden concepts, or a dedicated judge interface, over
+  full-sentence overlap.
 - Continue hardening `repo_patch` verification around hidden/evaluation file
   placement, read-only mounts, and audit metadata.
 

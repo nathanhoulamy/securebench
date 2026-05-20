@@ -89,11 +89,13 @@ def test_default_extraction_spec_uses_git_diff_for_repo_patch_workdir():
     assert spec.workdir == "/workspace/repo"
 
 
-def test_default_extraction_spec_disables_stdout_when_requested():
+def test_default_extraction_spec_uses_candidate_file_for_text_when_stdout_disabled():
     spec = default_extraction_spec(mc_task(), allow_stdout=False)
 
-    assert spec.mode == "unsupported"
+    assert spec.mode == "file"
     assert spec.candidate_kind == "text"
+    assert spec.path == "candidate.txt"
+    assert "candidate.txt" in extraction_instructions(spec)
 
 
 def test_extract_candidate_from_stdout_shapes_text_artifact(tmp_path):

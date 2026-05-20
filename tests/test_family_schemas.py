@@ -29,7 +29,7 @@ def row_for(family, *, input=None, eval=None):
         ),
         row_for(
             "short_answer",
-            input={"question": "Name a primary color.", "answer_format": "lowercase"},
+            input={"question": "Name a primary color.", "answer_format": "lowercase", "context": "Colors include red."},
             eval={"accepted_answers": ["red", "blue"], "tolerance": 0},
         ),
         row_for(

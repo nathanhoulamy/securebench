@@ -13,6 +13,7 @@ from securebench.tasks import SecureBenchTask
 
 
 DEFAULT_CODE_CANDIDATE_FILE = "candidate.py"
+DEFAULT_TEXT_CANDIDATE_FILE = "candidate.txt"
 
 ExtractionMode = Literal["stdout", "file", "git_diff", "unsupported"]
 
@@ -46,8 +47,14 @@ def default_extraction_spec(
             candidate_kind=contract.candidate_kind,
             workdir=_task_workdir(task),
         )
-    if contract.candidate_kind == "text" and allow_stdout:
-        return CandidateExtractionSpec(mode="stdout", candidate_kind=contract.candidate_kind)
+    if contract.candidate_kind == "text":
+        if allow_stdout:
+            return CandidateExtractionSpec(mode="stdout", candidate_kind=contract.candidate_kind)
+        return CandidateExtractionSpec(
+            mode="file",
+            candidate_kind=contract.candidate_kind,
+            path=DEFAULT_TEXT_CANDIDATE_FILE,
+        )
     return CandidateExtractionSpec(mode="unsupported", candidate_kind=contract.candidate_kind)
 
 

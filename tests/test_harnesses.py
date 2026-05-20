@@ -256,10 +256,19 @@ def test_command_harness_requires_benchmark_environment_image(monkeypatch, tmp_p
 
 
 def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_path):
+    class TextWritingDockerSandbox(FakeDockerSandbox):
+        instances = []
+
+        def run(self, command, *, workdir=None, timeout=None):
+            self.commands.append((command, workdir, timeout))
+            if isinstance(command, str) and "codex exec" in command:
+                self.write_file("candidate.txt", "FILE-CANDIDATE")
+            return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
+
     monkeypatch.setenv("CODEX_API_KEY", "secret")
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", FakeDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", TextWritingDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
     overlay_path.mkdir()
     monkeypatch.setattr(
@@ -302,12 +311,13 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
     assert docker.commands[0][2] == 11.0
     assert docker.commands[1][2] == 11.0
     assert (tmp_path / "runs" / "mc-1" / "task.json").exists()
-    assert artifact.text is None
+    assert artifact.text == "FILE-CANDIDATE"
     assert artifact.patch is None
     assert artifact.metadata["harness"] == "codex"
     assert artifact.metadata["codex_model"] == "gpt-5.1-codex"
     assert artifact.metadata["overlay_platform"] == "linux/arm64"
-    assert artifact.metadata["candidate_extraction"] == "unsupported"
+    assert artifact.metadata["candidate_extraction"] == "file"
+    assert artifact.metadata["candidate_path"] == "candidate.txt"
 
 
 def test_codex_harness_extracts_code_completion_candidate_file(monkeypatch, tmp_path):
@@ -430,9 +440,18 @@ def test_codex_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
 
 
 def test_codex_harness_defaults_to_codex_api_key(monkeypatch, tmp_path):
+    class TextWritingDockerSandbox(FakeDockerSandbox):
+        instances = []
+
+        def run(self, command, *, workdir=None, timeout=None):
+            self.commands.append((command, workdir, timeout))
+            if isinstance(command, str) and "codex exec" in command:
+                self.write_file("candidate.txt", "C")
+            return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
+
     monkeypatch.setenv("CODEX_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", FakeDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", TextWritingDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
     overlay_path.mkdir()
     monkeypatch.setattr(
