@@ -1,0 +1,19 @@
+schema_version: "0.2"
+
+run:
+  id: mmlu-abstract-algebra-mini-codex-gpt-5.4-mini
+  output_dir: ../../runs/mmlu-abstract-algebra-mini-codex-gpt-5.4-mini
+
+benchmark:
+  manifest: manifest.yaml
+  tasks: tasks.jsonl
+
+harness:
+  type: codex
+  env:
+    - CODEX_API_KEY
+  config:
+    model: gpt-5.4-mini
+    version: latest
+    task_file: task.json
+    timeout_seconds: 300

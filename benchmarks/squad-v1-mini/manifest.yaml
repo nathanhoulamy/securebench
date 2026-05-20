@@ -1,0 +1,15 @@
+id: squad-v1-mini
+version: 1
+
+defaults:
+  family: short_answer
+  environment:
+    image: python:3.11-slim
+    timeout_seconds: 120
+
+asset_roots:
+  public: assets/
+  eval: hidden/
+
+asset_defaults:
+  read_only: true
