@@ -58,6 +58,7 @@ extension points are visible from the directory tree.
 - `securebench/harnesses/registry.py`: Builds the right harness producer from tester YAML.
 - `securebench/harnesses/command.py`: Implements the containerized command harness.
 - `securebench/harnesses/codex.py`: Implements the Codex harness and mounted overlay handling.
+- `securebench/harnesses/claude_code.py`: Implements the Claude Code harness and mounted overlay handling.
 - `securebench/harnesses/shared.py`: Shared harness helpers for workspaces, config parsing, and cleanup.
 
 ## Verifiers

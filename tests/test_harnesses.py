@@ -4,11 +4,12 @@ from types import SimpleNamespace
 
 import pytest
 
+import securebench.harnesses.claude_code as claude_code_harnesses
 import securebench.harnesses.codex as codex_harnesses
 from securebench.benchmark_compiler import compile_benchmark_row
 from securebench.benchmark_pack import AssetDefaults, BenchmarkPackManifest, BenchmarkRow
 from securebench.errors import ConfigError
-from securebench.harnesses import CodexOverlay, DockerPlatform, build_harness_producer
+from securebench.harnesses import ClaudeCodeOverlay, CodexOverlay, DockerPlatform, build_harness_producer
 from securebench.sandboxes import CommandResult
 from securebench.tester_config import TesterHarnessSection as HarnessSection
 
@@ -625,11 +626,151 @@ def test_command_harness_rejects_invalid_config(config, match):
         build_harness_producer(harness_section(config=config))
 
 
-def test_deferred_harness_types_fail_clearly():
-    harness = HarnessSection(type="claude_code")
+def test_claude_code_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_path):
+    class TextWritingDockerSandbox(FakeDockerSandbox):
+        instances = []
 
-    with pytest.raises(ConfigError, match="not implemented yet"):
-        build_harness_producer(harness)
+        def run(self, command, *, workdir=None, timeout=None):
+            self.commands.append((command, workdir, timeout))
+            if isinstance(command, str) and "claude -p" in command:
+                self.write_file("candidate.txt", "FILE-CANDIDATE")
+            return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
+    monkeypatch.setattr("securebench.harnesses.claude_code.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.claude_code.DockerSandbox", TextWritingDockerSandbox)
+    overlay_path = tmp_path / "claude-code-overlay"
+    overlay_path.mkdir()
+    monkeypatch.setattr(
+        "securebench.harnesses.claude_code.claude_code_overlay_for_image",
+        lambda image, version: ClaudeCodeOverlay(
+            path=overlay_path,
+            platform=DockerPlatform(os="linux", architecture="arm64"),
+            version=version,
+        ),
+    )
+    task = mc_task(environment={"image": "python:3.11-slim"})
+    producer = build_harness_producer(
+        HarnessSection(
+            type="claude_code",
+            config={"model": "claude-sonnet-4-5", "version": "1.2.3", "timeout_seconds": 13},
+        ),
+        workspace_root=tmp_path / "runs",
+    )
+
+    artifact = producer.produce(task)
+
+    docker = FakeDockerSandbox.instances[-1]
+    assert docker.image == "python:3.11-slim"
+    assert docker.env_names == ("ANTHROPIC_API_KEY",)
+    assert docker.kwargs["network"] == "bridge"
+    assert docker.kwargs["read_only"] is False
+    assert len(docker.mounts) == 2
+    assert docker.mounts[0].source == overlay_path
+    assert docker.mounts[0].target == "/opt/securebench/claude-code"
+    assert docker.mounts[0].read_only is True
+    assert docker.mounts[1].target == "/opt/securebench/claude-home"
+    assert docker.mounts[1].read_only is False
+    assert docker.commands[0][0].startswith("export HOME=")
+    assert "claude --version" in docker.commands[0][0]
+    assert "claude -p --model 'claude-sonnet-4-5' --output-format json" in docker.commands[1][0]
+    assert "--dangerously-skip-permissions" in docker.commands[1][0]
+    assert "--no-session-persistence" in docker.commands[1][0]
+    assert "/workspace/task.json" in docker.commands[1][0]
+    assert docker.commands[1][1] is None
+    assert docker.commands[0][2] == 13.0
+    assert docker.commands[1][2] == 13.0
+    assert artifact.text == "FILE-CANDIDATE"
+    assert artifact.patch is None
+    assert artifact.metadata["harness"] == "claude_code"
+    assert artifact.metadata["claude_code_model"] == "claude-sonnet-4-5"
+    assert artifact.metadata["overlay_platform"] == "linux/arm64"
+    assert artifact.metadata["candidate_extraction"] == "file"
+    assert artifact.metadata["candidate_path"] == "candidate.txt"
+
+
+def test_claude_code_harness_defaults_to_anthropic_api_key(monkeypatch, tmp_path):
+    class TextWritingDockerSandbox(FakeDockerSandbox):
+        instances = []
+
+        def run(self, command, *, workdir=None, timeout=None):
+            self.commands.append((command, workdir, timeout))
+            if isinstance(command, str) and "claude -p" in command:
+                self.write_file("candidate.txt", "C")
+            return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
+    monkeypatch.setattr("securebench.harnesses.claude_code.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.claude_code.DockerSandbox", TextWritingDockerSandbox)
+    overlay_path = tmp_path / "claude-code-overlay"
+    overlay_path.mkdir()
+    monkeypatch.setattr(
+        "securebench.harnesses.claude_code.claude_code_overlay_for_image",
+        lambda image, version: ClaudeCodeOverlay(
+            path=overlay_path,
+            platform=DockerPlatform(os="linux", architecture="amd64"),
+            version=version,
+        ),
+    )
+
+    producer = build_harness_producer(
+        HarnessSection(type="claude_code"),
+        workspace_root=tmp_path / "runs",
+    )
+    producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
+
+    docker = FakeDockerSandbox.instances[-1]
+    assert docker.env_names == ("ANTHROPIC_API_KEY",)
+    assert "claude -p --model 'sonnet'" in docker.commands[1][0]
+
+
+@pytest.mark.parametrize(
+    ("config", "match"),
+    [
+        ({"model": ""}, "model"),
+        ({"model": "bad/model"}, "model"),
+        ({"version": ""}, "version"),
+        ({"timeout_seconds": 0}, "timeout_seconds"),
+        ({"task_file": "../task.json"}, "task_file"),
+        ({"unknown": True}, "unsupported field"),
+    ],
+)
+def test_claude_code_harness_rejects_invalid_config(config, match):
+    with pytest.raises(ConfigError, match=match):
+        build_harness_producer(HarnessSection(type="claude_code", config=config))
+
+
+def test_claude_code_harness_requires_anthropic_api_key(monkeypatch, tmp_path):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    producer = build_harness_producer(
+        HarnessSection(type="claude_code"),
+        workspace_root=tmp_path / "runs",
+    )
+
+    with pytest.raises(ConfigError, match="ANTHROPIC_API_KEY"):
+        producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
+
+
+def test_claude_code_overlay_cache_key_includes_version_and_platform(monkeypatch, tmp_path):
+    monkeypatch.setenv("SECUREBENCH_AGENT_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(
+        claude_code_harnesses,
+        "docker_image_platform",
+        lambda image: DockerPlatform(os="linux", architecture="arm64"),
+    )
+
+    def fake_populate(path, version, platform):
+        (path / "bin").mkdir(parents=True)
+        (path / "bin" / "claude").write_text("binary")
+        (path / "bin" / "node").write_text("node")
+
+    monkeypatch.setattr(claude_code_harnesses, "populate_claude_code_overlay_cache", fake_populate)
+
+    overlay = claude_code_harnesses.claude_code_overlay_for_image("benchmark-image", "1.2.3")
+
+    assert overlay.path == tmp_path / "cache" / "claude-code" / "1.2.3" / "linux-arm64"
+    assert overlay.platform.docker_platform == "linux/arm64"
+    assert overlay.version == "1.2.3"
 
 
 def test_command_harness_workspace_names_avoid_sanitized_id_collisions(monkeypatch, tmp_path):

@@ -5,8 +5,7 @@ and tester YAML references are the HTML standards in this directory.
 
 ## Harnesses
 
-- Implement `claude_code` as a named harness that runs inside the benchmark
-  `environment.image` with a mounted tooling overlay, matching the Codex model.
+- Add smoke benchmark tester YAML examples for `claude_code`.
 - Keep `command` as the containerized custom-command harness for tests and
   advanced integrations.
 - Do not reintroduce harness `mode` or host execution for candidate production.

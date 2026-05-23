@@ -6,6 +6,7 @@ from pathlib import Path
 
 from securebench.candidates import CandidateProducer
 from securebench.errors import ConfigError
+from securebench.harnesses.claude_code import ClaudeCodeHarnessProducer, claude_code_config
 from securebench.harnesses.codex import CodexHarnessProducer, codex_config
 from securebench.harnesses.command import CommandHarnessProducer, command_config
 from securebench.tester_config import TesterHarnessSection
@@ -27,6 +28,13 @@ def build_harness_producer(
     if harness.type == "codex":
         config = codex_config(harness.config)
         return CodexHarnessProducer(
+            env_names=harness.env,
+            workspace_root=workspace_root,
+            **config,
+        )
+    if harness.type == "claude_code":
+        config = claude_code_config(harness.config)
+        return ClaudeCodeHarnessProducer(
             env_names=harness.env,
             workspace_root=workspace_root,
             **config,
