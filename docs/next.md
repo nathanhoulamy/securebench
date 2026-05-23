@@ -20,8 +20,10 @@ and tester YAML references are the HTML standards in this directory.
   answers when accepted and rejected explanations share many words. Prefer
   explicit required/forbidden concepts, or a dedicated judge interface, over
   full-sentence overlap.
-- Continue hardening `repo_patch` verification around hidden/evaluation file
-  placement, read-only mounts, and audit metadata.
+- Continue hardening `repo_patch` verification around protected hidden-test
+  execution, read-only trusted harness files, post-apply integrity checks, and
+  audit metadata. Candidate patches now have a pre-apply path policy, but the
+  check command still runs in the candidate-mutated repository.
 
 ## Schema Tightening
 

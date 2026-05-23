@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import fnmatch
+import re
 from pathlib import PurePosixPath
 from typing import Any, Callable
 
@@ -15,6 +17,46 @@ from securebench.verifiers.code_completion import environment_image_for_task
 SandboxFactory = Callable[..., Sandbox]
 DEFAULT_CANDIDATE_PATCH = "securebench/candidate.patch"
 DEFAULT_TEST_PATCH = "securebench/evaluation_inputs/test.patch"
+DEFAULT_DENIED_PATH_NAMES = {
+    "cargo.lock",
+    "cargo.toml",
+    "conftest.py",
+    "go.mod",
+    "go.sum",
+    "package.json",
+    "package-lock.json",
+    "pipfile",
+    "pipfile.lock",
+    "pnpm-lock.yaml",
+    "poetry.lock",
+    "pyproject.toml",
+    "requirements-dev.txt",
+    "requirements-test.txt",
+    "requirements.txt",
+    "setup.cfg",
+    "setup.py",
+    "tox.ini",
+    "yarn.lock",
+}
+DEFAULT_DENIED_PATH_SUFFIXES = (
+    ".lock",
+)
+DEFAULT_DENIED_ROOTS = (
+    ".github",
+    ".gitlab",
+    "ci",
+    "securebench",
+)
+DEFAULT_DENIED_PARTS = (
+    "__pycache__",
+    "test",
+    "tests",
+)
+DEFAULT_DENIED_SHELL_SUFFIXES = (
+    ".bash",
+    ".sh",
+    ".zsh",
+)
 
 
 class RepoPatchVerifier(Verifier):
@@ -43,6 +85,7 @@ class RepoPatchVerifier(Verifier):
         image = environment_image_for_task(task)
         workdir = tests.workdir or environment_workdir_for_task(task)
         timeout = float(context.get("timeout_seconds", tests.timeout_seconds or self.timeout_seconds))
+        policy_decision = evaluate_candidate_patch_policy(candidate, tests.candidate_policy)
         if not candidate.strip():
             return _failed_result(
                 task,
@@ -61,6 +104,26 @@ class RepoPatchVerifier(Verifier):
             head = sandbox.run(["git", "rev-parse", "HEAD"], workdir=workdir, timeout=timeout)
             if head.exit_code != 0:
                 return _failed_result(task, "repo_patch", image, workdir, "base_commit", head)
+
+            if not policy_decision.allowed:
+                return _failed_result(
+                    task,
+                    "repo_patch",
+                    image,
+                    workdir,
+                    "candidate_policy",
+                    CommandResult(
+                        ("candidate_policy",),
+                        1,
+                        "",
+                        candidate_policy_error(policy_decision),
+                    ),
+                    base_commit=base_commit,
+                    image_commit=head.stdout.strip(),
+                    candidate_patch_paths=policy_decision.paths,
+                    denied_candidate_patch_paths=policy_decision.denied_paths,
+                    failure_reason="candidate_patch_policy_violation",
+                )
 
             if tests.setup_patch is not None:
                 setup_patch_path = str(context.get("setup_patch_path", "securebench/evaluation_inputs/setup.patch"))
@@ -139,6 +202,7 @@ class RepoPatchVerifier(Verifier):
                     "command": result.command,
                     "exit_code": result.exit_code,
                     "phase": "checks",
+                    "candidate_patch_paths": policy_decision.paths,
                 },
             )
         finally:
@@ -171,12 +235,40 @@ class CommandTests:
         timeout_seconds: float | None,
         setup_patch: str | None,
         test_patch: str | None,
+        candidate_policy: "CandidatePatchPolicy",
     ) -> None:
         self.command = command
         self.workdir = workdir
         self.timeout_seconds = timeout_seconds
         self.setup_patch = setup_patch
         self.test_patch = test_patch
+        self.candidate_policy = candidate_policy
+
+
+class CandidatePatchPolicy:
+    def __init__(
+        self,
+        *,
+        allow_paths: tuple[str, ...] = (),
+        allow_sensitive_paths: tuple[str, ...] = (),
+    ) -> None:
+        self.allow_paths = allow_paths
+        self.allow_sensitive_paths = allow_sensitive_paths
+
+
+class CandidatePatchPolicyDecision:
+    def __init__(
+        self,
+        *,
+        paths: tuple[str, ...],
+        denied_paths: tuple[str, ...],
+    ) -> None:
+        self.paths = paths
+        self.denied_paths = denied_paths
+
+    @property
+    def allowed(self) -> bool:
+        return not self.denied_paths
 
 
 def command_tests(task: SecureBenchTask) -> CommandTests:
@@ -191,13 +283,110 @@ def command_tests(task: SecureBenchTask) -> CommandTests:
     timeout_seconds = _optional_positive_number(tests.get("timeout_seconds"), "tests.timeout_seconds")
     setup_patch = _test_patch(tests.get("setup_patch"), task.id)
     test_patch = _test_patch(tests.get("test_patch"), task.id)
+    candidate_policy = _candidate_patch_policy(tests.get("candidate_policy"))
     return CommandTests(
         command=command,
         workdir=workdir,
         timeout_seconds=timeout_seconds,
         setup_patch=setup_patch,
         test_patch=test_patch,
+        candidate_policy=candidate_policy,
     )
+
+
+def evaluate_candidate_patch_policy(
+    candidate: str,
+    policy: CandidatePatchPolicy | None = None,
+) -> CandidatePatchPolicyDecision:
+    """Return whether a candidate patch only touches verifier-safe paths."""
+    policy = policy or CandidatePatchPolicy()
+    paths = changed_paths_from_patch(candidate)
+    denied = []
+    for path in paths:
+        if policy.allow_paths and not _matches_any(path, policy.allow_paths):
+            denied.append(path)
+            continue
+        if _is_sensitive_candidate_path(path) and not _matches_any(path, policy.allow_sensitive_paths):
+            denied.append(path)
+    return CandidatePatchPolicyDecision(paths=paths, denied_paths=tuple(denied))
+
+
+def candidate_policy_error(decision: CandidatePatchPolicyDecision) -> str:
+    denied = ", ".join(decision.denied_paths)
+    return f"candidate patch touches denied path(s): {denied}"
+
+
+def changed_paths_from_patch(patch: str) -> tuple[str, ...]:
+    """Extract repository paths mentioned as changed by a git-style patch."""
+    paths: list[str] = []
+    for line in patch.splitlines():
+        for path in _paths_from_patch_line(line):
+            normalized = _normalize_patch_path(path)
+            if normalized is not None and normalized not in paths:
+                paths.append(normalized)
+    return tuple(paths)
+
+
+def _paths_from_patch_line(line: str) -> tuple[str, ...]:
+    if line.startswith("diff --git "):
+        match = re.match(r"diff --git (?:\"?a/(.+?)\"?) (?:\"?b/(.+?)\"?)$", line)
+        if match is None:
+            return ()
+        return (match.group(1), match.group(2))
+    if line.startswith("rename from ") or line.startswith("rename to "):
+        return (line.split(" ", 2)[2],)
+    if line.startswith("--- ") or line.startswith("+++ "):
+        value = line[4:].split("\t", 1)[0]
+        if value == "/dev/null":
+            return ()
+        return (value,)
+    return ()
+
+
+def _normalize_patch_path(path: str) -> str | None:
+    raw = path.strip().strip('"')
+    if raw.startswith("a/") or raw.startswith("b/"):
+        raw = raw[2:]
+    if raw in ("", "/dev/null"):
+        return None
+    candidate = PurePosixPath(raw)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return raw
+    return str(candidate)
+
+
+def _is_sensitive_candidate_path(path: str) -> bool:
+    candidate = PurePosixPath(path)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return True
+    parts = tuple(part.lower() for part in candidate.parts)
+    name = parts[-1] if parts else ""
+    if parts and parts[0] in DEFAULT_DENIED_ROOTS:
+        return True
+    if any(part in DEFAULT_DENIED_PARTS for part in parts):
+        return True
+    if name in DEFAULT_DENIED_PATH_NAMES:
+        return True
+    if name.startswith("pytest.") or name.startswith("noxfile."):
+        return True
+    if name.endswith(DEFAULT_DENIED_SHELL_SUFFIXES):
+        return True
+    if name.endswith(DEFAULT_DENIED_PATH_SUFFIXES) and name not in {"readme.md"}:
+        return True
+    return False
+
+
+def _matches_any(path: str, patterns: tuple[str, ...]) -> bool:
+    return any(_path_matches(path, pattern) for pattern in patterns)
+
+
+def _path_matches(path: str, pattern: str) -> bool:
+    normalized = str(PurePosixPath(pattern))
+    if fnmatch.fnmatch(path, normalized):
+        return True
+    if normalized.endswith("/"):
+        return path.startswith(normalized)
+    return path == normalized or path.startswith(normalized + "/")
 
 
 def environment_workdir_for_task(task: SecureBenchTask) -> str:
@@ -231,6 +420,28 @@ def _test_patch(value: object, task_id: str) -> str | None:
         if value.get("source") == "inline" and isinstance(patch, str) and patch.strip():
             return patch
     raise ConfigError(f"repo_patch task {task_id!r} has invalid tests.test_patch")
+
+
+def _candidate_patch_policy(value: object) -> CandidatePatchPolicy:
+    if value is None:
+        return CandidatePatchPolicy()
+    if not isinstance(value, dict):
+        raise ConfigError("tests.candidate_policy must be an object")
+    return CandidatePatchPolicy(
+        allow_paths=_string_tuple(value.get("allow_paths"), "tests.candidate_policy.allow_paths"),
+        allow_sensitive_paths=_string_tuple(
+            value.get("allow_sensitive_paths"),
+            "tests.candidate_policy.allow_sensitive_paths",
+        ),
+    )
+
+
+def _string_tuple(value: object, field: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, list) and all(isinstance(item, str) and item.strip() for item in value):
+        return tuple(item.strip() for item in value)
+    raise ConfigError(f"{field} must be a string array")
 
 
 def _optional_string(value: object, field: str) -> str | None:

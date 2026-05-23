@@ -37,7 +37,15 @@ def _validate_command_tests(tests: object, context: str) -> None:
         return
     reject_unknown(
         tests,
-        {"source", "command", "workdir", "timeout_seconds", "setup_patch", "test_patch"},
+        {
+            "source",
+            "command",
+            "workdir",
+            "timeout_seconds",
+            "setup_patch",
+            "test_patch",
+            "candidate_policy",
+        },
         context,
     )
     source = tests.get("source")
@@ -50,6 +58,8 @@ def _validate_command_tests(tests: object, context: str) -> None:
         _validate_test_patch(tests["setup_patch"], f"{context}.setup_patch")
     if "test_patch" in tests:
         _validate_test_patch(tests["test_patch"], f"{context}.test_patch")
+    if "candidate_policy" in tests:
+        _validate_candidate_policy(tests["candidate_policy"], f"{context}.candidate_policy")
 
 
 def _required_command(values: dict[str, object], key: str, context: str) -> None:
@@ -71,3 +81,18 @@ def _validate_test_patch(value: object, context: str) -> None:
         raise ConfigError(f"{context}.source must be 'inline'")
     if not is_non_empty_string(value.get("patch")):
         raise ConfigError(f"{context}.patch must be a non-empty string")
+
+
+def _validate_candidate_policy(value: object, context: str) -> None:
+    if not isinstance(value, dict):
+        raise ConfigError(f"{context} must be an object")
+    reject_unknown(value, {"allow_paths", "allow_sensitive_paths"}, context)
+    if "allow_paths" in value:
+        _validate_policy_paths(value["allow_paths"], f"{context}.allow_paths")
+    if "allow_sensitive_paths" in value:
+        _validate_policy_paths(value["allow_sensitive_paths"], f"{context}.allow_sensitive_paths")
+
+
+def _validate_policy_paths(value: object, context: str) -> None:
+    if not isinstance(value, list) or not all(is_non_empty_string(item) for item in value):
+        raise ConfigError(f"{context} must be a string array")

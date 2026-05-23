@@ -156,22 +156,23 @@ Current protections:
 - Repo-patch verification runs in Docker with network disabled by default.
 - Test patches are stored under an evaluation-input path before application.
 - Empty candidate patches fail.
+- Candidate patches are checked against a verifier-side path policy before they are written or applied.
+- By default, candidate patches are denied when they touch test directories, hidden/evaluation paths, CI configuration, build/dependency configuration, lockfiles, test runners, shell scripts, or unsafe paths.
+- Benchmark authors can explicitly override the default path policy with `tests.candidate_policy.allow_sensitive_paths` when a task intentionally requires editing an otherwise-denied path.
 
 Known gaps:
 
-- The verifier currently applies the candidate patch before applying hidden tests and running the trusted command.
-- There is no enforced policy preventing candidate patches from modifying tests, test runners, build configuration, dependency manifests, lockfiles, import hooks, CI files, or command targets.
-- Prompt text tells agents not to edit sensitive files, but prompt text is not a security boundary.
-- The verifier does not yet compare the post-candidate tree against an allowed path set.
+- The verifier still applies the candidate patch before applying hidden tests and running the trusted command, so the path policy is the main protection against test-infrastructure tampering.
+- The default deny list is conservative but not a complete semantic model of every benchmark image's test trust base.
+- The verifier does not yet verify that command targets and imported test helpers remain unchanged after candidate application beyond the configured path policy.
 - The check command runs in the candidate-mutated repository, so candidate changes can tamper with the command's trust base.
 
 Needed hardening:
 
-- Add a verifier-side patch policy before applying candidate patches.
-- Deny candidate changes to tests, hidden/evaluation paths, harness code, build config, dependency files, lockfiles, CI config, and command targets unless explicitly allowed by the task.
+- Expand path policy configuration as real repo-patch benchmarks need narrower implementation-file allowlists.
 - Apply hidden tests from a protected location after candidate patching.
 - Run trusted check orchestration from a read-only harness path outside the candidate-controlled repository.
-- Record patch file lists and rejected-path reasons in verifier metadata.
+- Add post-apply integrity checks for command targets, test runners, and trusted helper files.
 - Add regression tests for malicious patches that alter test infrastructure rather than implementation code.
 
 ## Deferred And Planned Families

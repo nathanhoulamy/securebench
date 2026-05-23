@@ -727,7 +727,10 @@
   "eval": {
     "tests": {
       "command": "python -m pytest ...",
-      "test_patch": "diff --git a/tests/..."
+      "test_patch": "diff --git a/tests/...",
+      "candidate_policy": {
+        "allow_paths": ["astropy/modeling/"]
+      }
     },
     "gold_patch": "diff --git a/astropy/..."
   }
@@ -757,6 +760,9 @@ NOT PRESENT:
           <h3>3. Verifier receives private inputs</h3>
           <pre>candidate.patch
   diff --git a/astropy/...
+
+candidate policy
+  reject tests, CI, lockfiles, shell scripts
 
 eval.tests
   apply test_patch
