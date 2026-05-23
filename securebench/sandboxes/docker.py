@@ -76,7 +76,7 @@ class DockerSandbox(Sandbox):
         timeout: float | None = None,
     ) -> CommandResult:
         normalized = _normalize_command(command)
-        docker_workdir = _docker_path(workdir or ".")
+        docker_workdir = _docker_path(workdir or ".", workspace_mount_target=self.workspace_mount_target)
         emit_progress(
             "sandbox_command",
             kind="docker",
@@ -116,7 +116,7 @@ class DockerSandbox(Sandbox):
                 "--rm",
                 "-v",
                 f"{self.root}:{self.workspace_mount_target}",
-                *_docker_bind_mount_args(self.mounts),
+                *_docker_bind_mount_args(self.mounts, workspace_mount_target=self.workspace_mount_target),
                 "-w",
                 docker_workdir,
                 *_docker_hardening_args(
@@ -217,9 +217,9 @@ class DockerSandbox(Sandbox):
                 self._container_name,
                 "-v",
                 f"{self.root}:{self.workspace_mount_target}",
-                *_docker_bind_mount_args(self.mounts),
+                *_docker_bind_mount_args(self.mounts, workspace_mount_target=self.workspace_mount_target),
                 "-w",
-                "/workspace",
+                self.workspace_mount_target,
                 *_docker_hardening_args(
                     network=self.network,
                     cap_drop=self.cap_drop,
@@ -314,13 +314,13 @@ def _run_streaming_agent_command(
     )
 
 
-def _docker_path(path: str) -> str:
+def _docker_path(path: str, *, workspace_mount_target: str = "/workspace") -> str:
     if path.startswith("/workspace"):
         return path
     relative = PurePosixPath(path)
     if relative.is_absolute():
         return str(relative)
-    return str(PurePosixPath("/workspace") / relative)
+    return str(PurePosixPath(workspace_mount_target) / relative)
 
 
 def _docker_env_args(env_names: tuple[str, ...]) -> tuple[str, ...]:
@@ -332,7 +332,11 @@ def _docker_env_args(env_names: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(args)
 
 
-def _docker_bind_mount_args(mounts: tuple[DockerBindMount, ...]) -> tuple[str, ...]:
+def _docker_bind_mount_args(
+    mounts: tuple[DockerBindMount, ...],
+    *,
+    workspace_mount_target: str = "/workspace",
+) -> tuple[str, ...]:
     args: list[str] = []
     for mount in mounts:
         if not isinstance(mount, DockerBindMount):
@@ -340,7 +344,7 @@ def _docker_bind_mount_args(mounts: tuple[DockerBindMount, ...]) -> tuple[str, .
         source = str(Path(mount.source))
         if not source:
             raise ValueError("Docker bind mount source must be non-empty")
-        target = _docker_bind_mount_target(mount.target)
+        target = _docker_bind_mount_target(mount.target, workspace_mount_target=workspace_mount_target)
         option = f"type=bind,source={source},target={target}"
         if mount.read_only:
             option += ",readonly"
@@ -348,7 +352,12 @@ def _docker_bind_mount_args(mounts: tuple[DockerBindMount, ...]) -> tuple[str, .
     return tuple(args)
 
 
-def _docker_bind_mount_target(path: str, *, allow_workspace_root: bool = False) -> str:
+def _docker_bind_mount_target(
+    path: str,
+    *,
+    allow_workspace_root: bool = False,
+    workspace_mount_target: str = "/workspace",
+) -> str:
     if not isinstance(path, str) or not path:
         raise ValueError("Docker bind mount target must be a non-empty workspace path")
     if "\\" in path:
@@ -356,6 +365,21 @@ def _docker_bind_mount_target(path: str, *, allow_workspace_root: bool = False) 
     candidate = PurePosixPath(path)
     if candidate.is_absolute():
         workspace_root = PurePosixPath("/workspace")
+        allowed_workspace_roots = (
+            workspace_root,
+            PurePosixPath("/app"),
+            PurePosixPath("/securebench-workspace"),
+            PurePosixPath("/testbed"),
+        )
+        if allow_workspace_root:
+            if ".." in candidate.parts or str(candidate) == "/":
+                raise ValueError(f"Docker workspace mount target is invalid: {path!r}")
+            if not any(candidate == root or candidate.is_relative_to(root) for root in allowed_workspace_roots):
+                raise ValueError(
+                    "Docker workspace mount target must be under "
+                    f"{', '.join(str(root) for root in allowed_workspace_roots)}: {path!r}"
+                )
+            return str(candidate)
         allowed_external_roots = (
             PurePosixPath("/opt/securebench"),
             PurePosixPath("/securebench-workspace"),
@@ -383,7 +407,7 @@ def _docker_bind_mount_target(path: str, *, allow_workspace_root: bool = False) 
         raise ValueError("Docker bind mount target must not be the workspace root")
     if candidate.is_absolute():
         return str(relative)
-    return str(PurePosixPath("/workspace") / relative)
+    return str(PurePosixPath(workspace_mount_target) / relative)
 
 
 def _docker_hardening_args(

@@ -1,0 +1,12 @@
+id: terminal-bench-first5
+version: 1
+
+defaults:
+  family: terminal_task
+
+asset_roots:
+  public: assets/
+  eval: hidden/
+
+asset_defaults:
+  read_only: true

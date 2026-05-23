@@ -15,6 +15,7 @@ class CandidateArtifact:
 
     text: str | None = None
     patch: str | None = None
+    workspace: str | None = None
     stdout: str = ""
     stderr: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -23,6 +24,8 @@ class CandidateArtifact:
         """Return the artifact value expected by the task's verifier."""
         if task.task_type == "repo_patch":
             return self.patch or ""
+        if task.task_type == "terminal_task":
+            return self.workspace or ""
         return self.text or ""
 
 

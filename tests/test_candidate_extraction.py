@@ -69,6 +69,19 @@ def repo_patch_task(*, environment=None):
     )
 
 
+def terminal_task(*, environment=None):
+    return compile_benchmark_row(
+        BenchmarkRow(
+            id="term-1",
+            family="terminal_task",
+            input={"instructions": "Create output.txt."},
+            eval={"checker": {"command": "test -f output.txt"}},
+            environment={} if environment is None else environment,
+        ),
+        manifest=BenchmarkPackManifest(id="pack", version=1),
+    )
+
+
 def test_default_extraction_spec_uses_candidate_file_for_code_completion():
     spec = default_extraction_spec(code_task(), allow_stdout=False)
 
@@ -87,6 +100,14 @@ def test_default_extraction_spec_uses_git_diff_for_repo_patch_workdir():
     assert spec.mode == "git_diff"
     assert spec.candidate_kind == "patch"
     assert spec.workdir == "/workspace/repo"
+
+
+def test_default_extraction_spec_uses_workspace_for_terminal_task():
+    spec = default_extraction_spec(terminal_task(), allow_stdout=False)
+
+    assert spec.mode == "workspace"
+    assert spec.candidate_kind == "workspace"
+    assert "final workspace state" in extraction_instructions(spec)
 
 
 def test_default_extraction_spec_uses_candidate_file_for_text_when_stdout_disabled():
@@ -154,3 +175,19 @@ def test_extract_candidate_from_git_diff_shapes_patch_artifact(tmp_path):
     assert artifact.metadata["candidate_extraction"] == "git_diff"
     assert artifact.metadata["candidate_workdir"] == "/workspace/repo"
     assert sandbox.commands == [(["git", "diff", "--binary"], "/workspace/repo", 30)]
+
+
+def test_extract_candidate_from_workspace_shapes_workspace_artifact(tmp_path):
+    task = terminal_task()
+    artifact = extract_candidate(
+        task,
+        FakeSandbox(tmp_path),
+        CommandResult(("codex",), 0, "events", ""),
+        default_extraction_spec(task, allow_stdout=False),
+    )
+
+    assert artifact.text is None
+    assert artifact.patch is None
+    assert artifact.workspace == str(tmp_path)
+    assert artifact.metadata["candidate_kind"] == "workspace"
+    assert artifact.metadata["candidate_extraction"] == "workspace"

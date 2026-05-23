@@ -11,6 +11,7 @@ from securebench.families.free_response import validate as validate_free_respons
 from securebench.families.multiple_choice import validate as validate_multiple_choice
 from securebench.families.repo_patch import validate as validate_repo_patch
 from securebench.families.short_answer import validate as validate_short_answer
+from securebench.families.terminal_task import validate as validate_terminal_task
 
 
 FAMILY_CONTRACTS: dict[str, FamilyContract] = {
@@ -19,6 +20,7 @@ FAMILY_CONTRACTS: dict[str, FamilyContract] = {
     "free_response": FamilyContract("free_response", "text"),
     "code_completion": FamilyContract("code_completion", "code"),
     "repo_patch": FamilyContract("repo_patch", "patch", requires_workspace=True),
+    "terminal_task": FamilyContract("terminal_task", "workspace", requires_workspace=True),
 }
 
 
@@ -28,6 +30,7 @@ FAMILY_VALIDATORS: dict[str, FamilyValidator] = {
     "free_response": validate_free_response,
     "code_completion": validate_code_completion,
     "repo_patch": validate_repo_patch,
+    "terminal_task": validate_terminal_task,
 }
 
 

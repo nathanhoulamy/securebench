@@ -16,6 +16,7 @@ from securebench.families import family_contract_for, known_family_contracts
         ("free_response", "text", False),
         ("code_completion", "code", False),
         ("repo_patch", "patch", True),
+        ("terminal_task", "workspace", True),
     ],
 )
 def test_family_contracts_return_candidate_kind(family, candidate_kind, requires_workspace):
@@ -42,12 +43,13 @@ def test_known_family_contracts_returns_only_active_families():
         "free_response",
         "code_completion",
         "repo_patch",
+        "terminal_task",
     ]
 
 
 def test_unknown_family_contract_errors_when_execution_contract_is_requested():
     with pytest.raises(ConfigError, match="Unknown benchmark family contract"):
-        family_contract_for("terminal_task")
+        family_contract_for("custom_family")
 
 
 def test_compiled_repo_patch_task_can_lookup_contract_by_task_type():

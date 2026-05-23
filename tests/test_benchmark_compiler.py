@@ -105,6 +105,7 @@ def test_assets_are_public_when_non_empty():
             family="terminal_task",
             input={"instructions": "Read the file"},
             assets=({"path": "auth.log", "mount": "auth.log"},),
+            eval={"checker": {"command": "true"}},
         ),
         manifest=manifest(),
     )
@@ -118,6 +119,7 @@ def test_environment_and_pack_details_are_metadata_not_agent_payload():
         id="meta-1",
         family="terminal_task",
         input={"instructions": "Do it"},
+        eval={"checker": {"command": "true"}},
         environment={"image": "python:3.12-slim", "timeout_seconds": 30},
         metadata={"difficulty": "easy"},
     )
@@ -156,11 +158,11 @@ def test_unknown_family_defaults_eval_fields_to_hidden():
     assert task.hidden_payload()["private_key"] == "secret"
 
 
-def test_unknown_eval_key_in_known_family_defaults_to_hidden():
+def test_unknown_eval_key_in_deferred_family_defaults_to_hidden():
     task = compile_benchmark_row(
         BenchmarkRow(
-            id="terminal-unknown-eval",
-            family="terminal_task",
+            id="tool-call-unknown-eval",
+            family="tool_call",
             input={"instructions": "Do it"},
             eval={"secret_rubric": "private"},
         ),
@@ -174,9 +176,9 @@ def test_unknown_eval_key_in_known_family_defaults_to_hidden():
 @pytest.mark.parametrize(
     "row",
     [
-        BenchmarkRow(id="collision-1", family="terminal_task", input={"assets": "bad"}, assets=({"path": "x"},)),
-        BenchmarkRow(id="collision-2", family="terminal_task", input={"checker": "public"}, eval={"checker": "private"}),
-        BenchmarkRow(id="collision-3", family="terminal_task", assets=({"path": "x"},), eval={"assets": "private"}),
+        BenchmarkRow(id="collision-1", family="custom_family", input={"assets": "bad"}, assets=({"path": "x"},)),
+        BenchmarkRow(id="collision-2", family="custom_family", input={"checker": "public"}, eval={"checker": "private"}),
+        BenchmarkRow(id="collision-3", family="custom_family", assets=({"path": "x"},), eval={"assets": "private"}),
     ],
 )
 def test_resource_name_collisions_are_rejected(row):
@@ -194,7 +196,10 @@ def test_compile_benchmark_pack_iterates_rows(tmp_path):
     manifest_path = tmp_path / "manifest.yaml"
     tasks_path = tmp_path / "tasks.jsonl"
     manifest_path.write_text("id: example-pack\nversion: 1\ndefaults:\n  family: terminal_task\n")
-    tasks_path.write_text('{"id":"task-1","input":{"instructions":"one"}}\n{"id":"task-2","input":{"instructions":"two"}}\n')
+    tasks_path.write_text(
+        '{"id":"task-1","input":{"instructions":"one"},"eval":{"checker":{"command":"true"}}}\n'
+        '{"id":"task-2","input":{"instructions":"two"},"eval":{"checker":{"command":"true"}}}\n'
+    )
     pack = BenchmarkPack(manifest=manifest(), tasks_path=tasks_path)
 
     tasks = list(compile_benchmark_pack(pack, limit=1))

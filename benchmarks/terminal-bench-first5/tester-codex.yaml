@@ -1,0 +1,19 @@
+schema_version: "0.2"
+
+run:
+  id: terminal-bench-first5-codex
+  output_dir: ../../runs/terminal-bench-first5-codex
+
+benchmark:
+  manifest: manifest.yaml
+  tasks: tasks.jsonl
+
+harness:
+  type: codex
+  env:
+    - CODEX_API_KEY
+  config:
+    model: gpt-5.5
+    version: latest
+    task_file: task.json
+    timeout_seconds: 900

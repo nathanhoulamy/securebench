@@ -18,7 +18,6 @@ from securebench.candidates.extraction import (
 from securebench.errors import ConfigError
 from securebench.harnesses.codex import (
     DockerPlatform,
-    container_workspace_path,
     docker_image_platform,
     prepare_repo_patch_baseline,
     run_docker,
@@ -28,9 +27,12 @@ from securebench.harnesses.shared import (
     agent_task_json,
     close_sandbox,
     container_image_for_task,
+    container_workspace_path,
     optional_positive_number,
     reject_task_file_collision,
     reject_unknown_fields,
+    task_workdir,
+    workspace_mount_target_for_task,
     workspace_path,
     workspace_root,
 )
@@ -103,6 +105,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
             staging.write_file(self.task_file, agent_task_json(task))
 
             overlay = claude_code_overlay_for_image(image, self.version)
+            workspace_mount_target = workspace_mount_target_for_task(task)
             sandbox = DockerSandbox(
                 image=image,
                 root=task_workspace,
@@ -122,6 +125,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                         read_only=False,
                     ),
                 ),
+                workspace_mount_target=workspace_mount_target,
             )
             try:
                 timeout = context.get("timeout", self.timeout_seconds)
@@ -135,7 +139,10 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                         f"{image!r}: claude --version failed with exit code {preflight.exit_code}; "
                         f"stderr: {preflight.stderr.strip()}"
                     )
-                task_file_for_agent = container_workspace_path(self.task_file)
+                task_file_for_agent = container_workspace_path(
+                    self.task_file,
+                    mount_target=workspace_mount_target,
+                )
                 agent_workdir = claude_code_agent_workdir(task)
                 baseline = prepare_repo_patch_baseline(sandbox, task, agent_workdir, timeout)
                 result = sandbox.run(
@@ -159,6 +166,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                 return CandidateArtifact(
                     text=candidate.text,
                     patch=candidate.patch,
+                    workspace=candidate.workspace,
                     stdout=result.stdout,
                     stderr=result.stderr,
                     metadata={
@@ -302,13 +310,8 @@ def claude_code_shell_command(inner: str) -> str:
 
 
 def claude_code_agent_workdir(task: SecureBenchTask) -> str | None:
-    if task.task_type != "repo_patch":
-        return None
-    metadata = task.metadata if isinstance(task.metadata, dict) else {}
-    environment = metadata.get("environment")
-    workdir = environment.get("workdir") if isinstance(environment, dict) else None
-    if isinstance(workdir, str) and workdir.strip():
-        return workdir.strip()
+    if task.task_type in {"repo_patch", "terminal_task"}:
+        return task_workdir(task)
     return None
 
 

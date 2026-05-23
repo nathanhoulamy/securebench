@@ -1,6 +1,7 @@
 import json
 
 from securebench.candidates import CandidateArtifact
+from securebench.harnesses.shared import workspace_dir_name
 from securebench.tester_config import (
     TesterBenchmarkSection as BenchmarkSection,
     TesterConfig as Config,
@@ -178,7 +179,7 @@ def test_run_tester_config_verifies_multiple_choice_record(monkeypatch, tmp_path
 
 
 def test_run_tester_config_leaves_unsupported_family_pending(monkeypatch, tmp_path):
-    manifest, tasks = write_pack(tmp_path, family="terminal_task")
+    manifest, tasks = write_pack(tmp_path, family="custom_family")
     config = make_config(tmp_path, manifest, tasks)
 
     monkeypatch.setattr(
@@ -233,3 +234,34 @@ def test_run_tester_config_resume_keeps_valid_records_and_skips_completed(monkey
         for line in (config.run.output_dir / "candidates.jsonl").read_text().splitlines()
     ]
     assert records == [existing]
+
+
+def test_run_tester_config_cleans_stale_task_workspace_before_producer(monkeypatch, tmp_path):
+    manifest, tasks = write_pack(tmp_path)
+    config = make_config(tmp_path, manifest, tasks)
+
+    class Producer:
+        def __init__(self, workspace_root):
+            self.workspace_root = workspace_root
+
+        def produce(self, task):
+            task_workspace = self.workspace_root / workspace_dir_name(task)
+            assert not (task_workspace / "securebench" / "evaluation_inputs" / "checker.json").exists()
+            task_workspace.mkdir(parents=True)
+            (task_workspace / "fresh.txt").write_text("fresh")
+            return CandidateArtifact(text="def add_numbers(a, b):\n    return a + b\n")
+
+    def fake_producer(harness, workspace_root=None):
+        assert workspace_root is not None
+        stale_workspace = workspace_root / "tester-run-pack_add_numbers-9e7c852a"
+        (stale_workspace / "securebench" / "evaluation_inputs").mkdir(parents=True)
+        (stale_workspace / "securebench" / "evaluation_inputs" / "checker.json").write_text("{}")
+        return Producer(workspace_root)
+
+    monkeypatch.setattr("securebench.tester_run.build_harness_producer", fake_producer)
+    monkeypatch.setattr("securebench.tester_run.verifier_for_task_type", lambda task_type: FakeVerifier())
+
+    run_tester_config(config)
+
+    task_workspace = config.run.output_dir / "workspaces" / "tester-run-pack_add_numbers-9e7c852a"
+    assert (task_workspace / "fresh.txt").exists()

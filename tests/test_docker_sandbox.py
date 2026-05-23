@@ -111,6 +111,61 @@ def test_docker_sandbox_can_mount_workspace_at_non_default_target(monkeypatch, t
     assert seen["command"][seen["command"].index("-w") + 1] == "/workspace/repo"
 
 
+def test_docker_sandbox_can_mount_workspace_at_app_target(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path,
+        persistent=False,
+        workspace_mount_target="/app",
+    )
+    sandbox.run(["ls"], workdir="/app")
+
+    assert f"{tmp_path}:/app" in seen["command"]
+    assert seen["command"][seen["command"].index("-w") + 1] == "/app"
+
+
+def test_docker_sandbox_resolves_relative_paths_against_workspace_target(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    source = tmp_path / "input.txt"
+    source.write_text("data")
+
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path / "workspace",
+        persistent=False,
+        workspace_mount_target="/app",
+        mounts=(DockerBindMount(source=source, target="input.txt", read_only=True),),
+    )
+    sandbox.run(["python", "--version"], workdir="subdir")
+
+    mount_index = seen["command"].index("--mount")
+    assert seen["command"][mount_index + 1] == f"type=bind,source={source},target=/app/input.txt,readonly"
+    assert seen["command"][seen["command"].index("-w") + 1] == "/app/subdir"
+
+
+def test_docker_sandbox_rejects_unsafe_workspace_mount_target(tmp_path):
+    with pytest.raises(ValueError, match="workspace mount target"):
+        DockerSandbox(
+            image="agent-image",
+            root=tmp_path,
+            workspace_mount_target="/etc",
+        )
+
+
 def test_docker_sandbox_accepts_explicit_hardening_options(monkeypatch, tmp_path):
     seen = {}
 

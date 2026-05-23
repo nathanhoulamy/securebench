@@ -65,6 +65,17 @@ def row_for(family, *, input=None, eval=None):
                 "gold_patch": "diff --git ...",
             },
         ),
+        row_for(
+            "terminal_task",
+            input={"instructions": "Create output.txt", "context": {"cwd": "/workspace"}},
+            eval={
+                "checker": {
+                    "command": ["python", "securebench/evaluation_inputs/checker.py"],
+                    "timeout_seconds": 30,
+                },
+                "expected_state": {"file": "output.txt"},
+            },
+        ),
     ],
 )
 def test_active_family_valid_rows_pass_schema_validation(row):
@@ -97,6 +108,10 @@ def test_active_family_valid_rows_pass_schema_validation(row):
                 eval={"tests": {"source": "command", "command": "pytest -q"}},
             ),
             "input.base_commit is required",
+        ),
+        (
+            row_for("terminal_task", input={}, eval={"checker": {"command": "test -f output.txt"}}),
+            "input.instructions is required",
         ),
     ],
 )
@@ -144,6 +159,10 @@ def test_active_family_missing_required_fields_raise(row, match):
             ),
             "input.instructions must be a non-empty string",
         ),
+        (
+            row_for("terminal_task", input={"instructions": "Do it"}, eval={"checker": {"command": []}}),
+            "eval.checker.command must be a non-empty string or string array",
+        ),
     ],
 )
 def test_active_family_malformed_fields_raise(row, match):
@@ -170,6 +189,14 @@ def test_active_family_malformed_fields_raise(row, match):
             ),
             "eval has unknown field",
         ),
+        (
+            row_for(
+                "terminal_task",
+                input={"instructions": "Do it", "extra": "no"},
+                eval={"checker": {"command": "true"}},
+            ),
+            "input has unknown field",
+        ),
     ],
 )
 def test_active_family_unknown_input_or_eval_keys_raise(row, match):
@@ -178,13 +205,6 @@ def test_active_family_unknown_input_or_eval_keys_raise(row, match):
 
 
 def test_unknown_or_deferred_family_rows_do_not_fail_schema_validation():
-    validate_benchmark_row_family(
-        row_for(
-            "terminal_task",
-            input={"arbitrary": []},
-            eval={"private": object()},
-        )
-    )
     validate_benchmark_row_family(
         row_for(
             "custom_family",

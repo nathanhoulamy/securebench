@@ -15,7 +15,7 @@ from securebench.tasks import SecureBenchTask
 DEFAULT_CODE_CANDIDATE_FILE = "candidate.py"
 DEFAULT_TEXT_CANDIDATE_FILE = "candidate.txt"
 
-ExtractionMode = Literal["stdout", "file", "git_diff", "unsupported"]
+ExtractionMode = Literal["stdout", "file", "git_diff", "workspace", "unsupported"]
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,12 @@ def default_extraction_spec(
     if contract.candidate_kind == "patch":
         return CandidateExtractionSpec(
             mode="git_diff",
+            candidate_kind=contract.candidate_kind,
+            workdir=_task_workdir(task),
+        )
+    if contract.candidate_kind == "workspace":
+        return CandidateExtractionSpec(
+            mode="workspace",
             candidate_kind=contract.candidate_kind,
             workdir=_task_workdir(task),
         )
@@ -84,6 +90,8 @@ def extraction_instructions(spec: CandidateExtractionSpec) -> str:
         )
     if spec.mode == "stdout":
         return "Print the final candidate to stdout."
+    if spec.mode == "workspace":
+        return "Make the required changes in the workspace. SecureBench will verify the final workspace state."
     return "Leave your final work in the workspace."
 
 
@@ -130,6 +138,19 @@ def extract_candidate(
                 **_metadata(spec),
                 "candidate_diff_exit_code": diff_result.exit_code,
                 "candidate_diff_stderr": diff_result.stderr,
+            },
+        )
+    if spec.mode == "workspace":
+        workspace = str(getattr(sandbox, "root", ""))
+        if not workspace:
+            raise ConfigError("workspace candidate extraction requires sandbox.root")
+        return CandidateArtifact(
+            workspace=workspace,
+            stdout=run_result.stdout,
+            stderr=run_result.stderr,
+            metadata={
+                **_metadata(spec),
+                "candidate_workspace": workspace,
             },
         )
     return CandidateArtifact(

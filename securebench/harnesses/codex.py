@@ -8,7 +8,7 @@ import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from securebench.candidates.extraction import (
@@ -21,11 +21,14 @@ from securebench.errors import ConfigError
 from securebench.harnesses.shared import (
     agent_task_json,
     close_sandbox,
+    container_workspace_path,
     container_image_for_task,
     optional_positive_number,
     reject_task_file_collision,
     reject_unknown_fields,
+    task_workdir,
     workspace_path,
+    workspace_mount_target_for_task,
     workspace_root,
 )
 from securebench.workspaces.materialization import VisibilityAwareMaterializer, docker_read_only_mounts
@@ -112,6 +115,7 @@ class CodexHarnessProducer(CandidateProducer):
             staging.write_file(self.task_file, agent_task_json(task))
 
             overlay = codex_overlay_for_image(image, self.version)
+            workspace_mount_target = workspace_mount_target_for_task(task)
             sandbox = DockerSandbox(
                 image=image,
                 root=task_workspace,
@@ -131,6 +135,7 @@ class CodexHarnessProducer(CandidateProducer):
                         read_only=False,
                     ),
                 ),
+                workspace_mount_target=workspace_mount_target,
             )
             try:
                 preflight = sandbox.run(
@@ -143,7 +148,10 @@ class CodexHarnessProducer(CandidateProducer):
                         f"{image!r}: codex --version failed with exit code {preflight.exit_code}; "
                         f"stderr: {preflight.stderr.strip()}"
                     )
-                task_file_for_agent = container_workspace_path(self.task_file)
+                task_file_for_agent = container_workspace_path(
+                    self.task_file,
+                    mount_target=workspace_mount_target,
+                )
                 agent_workdir = codex_agent_workdir(task)
                 baseline = prepare_repo_patch_baseline(
                     sandbox,
@@ -171,6 +179,7 @@ class CodexHarnessProducer(CandidateProducer):
                 return CandidateArtifact(
                     text=candidate.text,
                     patch=candidate.patch,
+                    workspace=candidate.workspace,
                     stdout=result.stdout,
                     stderr=result.stderr,
                     metadata={
@@ -403,22 +412,9 @@ def prepare_repo_patch_baseline(
 
 def codex_agent_workdir(task: SecureBenchTask) -> str | None:
     """Return the container workdir where Codex should operate."""
-    if task.task_type != "repo_patch":
-        return None
-    metadata = task.metadata if isinstance(task.metadata, dict) else {}
-    environment = metadata.get("environment")
-    workdir = environment.get("workdir") if isinstance(environment, dict) else None
-    if isinstance(workdir, str) and workdir.strip():
-        return workdir.strip()
+    if task.task_type in {"repo_patch", "terminal_task"}:
+        return task_workdir(task)
     return None
-
-
-def container_workspace_path(path: str) -> str:
-    """Return a path to the harness workspace inside the benchmark container."""
-    candidate = PurePosixPath(path)
-    if candidate.is_absolute():
-        return str(candidate)
-    return str(PurePosixPath("/workspace") / candidate)
 
 
 def codex_prompt(task: SecureBenchTask, task_file: str) -> str:

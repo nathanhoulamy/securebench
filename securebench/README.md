@@ -39,7 +39,7 @@ extension points are visible from the directory tree.
 
 - `securebench/candidates/__init__.py`: Public exports for candidate artifact APIs.
 - `securebench/candidates/base.py`: Defines `CandidateArtifact` and `CandidateProducer`.
-- `securebench/candidates/extraction.py`: Extracts family-shaped candidates from stdout, files, or git diffs.
+- `securebench/candidates/extraction.py`: Extracts family-shaped candidates from stdout, files, git diffs, or workspaces.
 
 ## Families
 
@@ -51,6 +51,7 @@ extension points are visible from the directory tree.
 - `securebench/families/free_response.py`: Validates `free_response` row input and eval schema.
 - `securebench/families/code_completion.py`: Validates `code_completion` row input and eval schema.
 - `securebench/families/repo_patch.py`: Validates `repo_patch` row input and eval schema.
+- `securebench/families/terminal_task.py`: Validates terminal workspace task input and checker schema.
 
 ## Harnesses
 
@@ -69,6 +70,7 @@ extension points are visible from the directory tree.
 - `securebench/verifiers/code_completion.py`: Verifies Python code-completion candidates using inline tests.
 - `securebench/verifiers/multiple_choice.py`: Verifies text candidates against hidden multiple-choice answers.
 - `securebench/verifiers/repo_patch.py`: Verifies repo patches by applying candidate/test patches in the benchmark image and running command checks.
+- `securebench/verifiers/terminal_task.py`: Verifies final workspace state by materializing trusted eval inputs and running a checker command in the benchmark image.
 
 ## Sandboxes
 

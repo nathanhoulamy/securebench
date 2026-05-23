@@ -12,7 +12,7 @@ The current implementation is centered on benchmark packs and tester YAML:
 - containerized command harness smoke runs
 - Codex CLI harness execution with a mounted tooling overlay
 - shared candidate artifact extraction
-- code-completion verification with JSONL result output
+- code-completion, repo-patch, and terminal-task verification with JSONL result output
 
 Additional family verifiers are still being added.
 
@@ -37,6 +37,13 @@ Run the code-completion smoke pack through candidate extraction and verification
 .venv/bin/python -m securebench.cli run \
   --config benchmarks/code-completion-smoke/tester-codex.yaml \
   --limit 1
+```
+
+Run the terminal-task smoke pack through a command harness:
+
+```bash
+.venv/bin/python -m securebench.cli run \
+  --config benchmarks/terminal-task-smoke/tester-command.yaml
 ```
 
 Candidate records are written to:

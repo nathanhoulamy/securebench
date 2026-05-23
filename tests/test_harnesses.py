@@ -110,6 +110,19 @@ def repo_patch_task(*, environment=None):
     )
 
 
+def terminal_task(*, environment=None):
+    return compile_benchmark_row(
+        BenchmarkRow(
+            id="term-1",
+            family="terminal_task",
+            input={"instructions": "Create output.txt."},
+            eval={"checker": {"command": "test -f output.txt"}},
+            environment={} if environment is None else environment,
+        ),
+        manifest=BenchmarkPackManifest(id="pack", version=1),
+    )
+
+
 def harness_section(*, config=None, harness_type="command"):
     return HarnessSection(
         type=harness_type,
@@ -182,6 +195,23 @@ def test_command_harness_patch_family_uses_patch_candidate(monkeypatch, tmp_path
     assert artifact.text is None
     assert artifact.patch == "diff --git a/file.py b/file.py\n"
     assert artifact.metadata["candidate_kind"] == "patch"
+
+
+def test_command_harness_terminal_family_uses_workspace_candidate(monkeypatch, tmp_path):
+    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
+    producer = build_harness_producer(
+        harness_section(config={"command": ["produce"]}),
+        workspace_root=tmp_path,
+    )
+
+    artifact = producer.produce(terminal_task(environment={"image": "python:3.11-slim"}))
+
+    assert artifact.text is None
+    assert artifact.patch is None
+    assert artifact.workspace == str(tmp_path / "term-1")
+    assert artifact.metadata["candidate_kind"] == "workspace"
+    assert artifact.metadata["candidate_extraction"] == "workspace"
 
 
 def test_command_harness_materializes_public_assets(monkeypatch, tmp_path):

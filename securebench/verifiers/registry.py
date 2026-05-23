@@ -8,6 +8,7 @@ from securebench.verifiers.free_response import FreeResponseVerifier
 from securebench.verifiers.multiple_choice import MultipleChoiceVerifier
 from securebench.verifiers.repo_patch import RepoPatchVerifier
 from securebench.verifiers.short_answer import ShortAnswerVerifier
+from securebench.verifiers.terminal_task import TerminalTaskVerifier
 
 
 def verifier_for_task_type(task_type: str) -> Verifier | None:
@@ -22,4 +23,6 @@ def verifier_for_task_type(task_type: str) -> Verifier | None:
         return CodeCompletionVerifier()
     if task_type == "repo_patch":
         return RepoPatchVerifier()
+    if task_type == "terminal_task":
+        return TerminalTaskVerifier()
     return None

@@ -26,10 +26,27 @@ def container_image_for_task(task: SecureBenchTask) -> str:
     return image.strip()
 
 
+def workspace_mount_target_for_task(task: SecureBenchTask) -> str:
+    """Return where the harness workspace should be mounted in the container."""
+    environment = task_environment(task)
+    workdir = environment.get("workdir")
+    if task.task_type == "terminal_task" and isinstance(workdir, str) and workdir.strip():
+        return _absolute_container_path(workdir.strip(), "benchmark environment.workdir")
+    return "/workspace"
+
+
 def task_environment(task: SecureBenchTask) -> dict[str, Any]:
     metadata = task.metadata if isinstance(task.metadata, dict) else {}
     environment = metadata.get("environment")
     return environment if isinstance(environment, dict) else {}
+
+
+def task_workdir(task: SecureBenchTask) -> str | None:
+    environment = task_environment(task)
+    workdir = environment.get("workdir")
+    if isinstance(workdir, str) and workdir.strip():
+        return workdir.strip()
+    return None
 
 
 def optional_workspace_path(value: Any, field: str) -> str | None:
@@ -45,6 +62,14 @@ def workspace_path(value: Any, field: str) -> str:
         return validate_workspace_mount_for_component("agent", value).path
     except PathPolicyError as exc:
         raise ConfigError(f"{field} is unsafe: {exc}") from exc
+
+
+def container_workspace_path(path: str, *, mount_target: str = "/workspace") -> str:
+    """Return a path to the harness workspace inside the benchmark container."""
+    candidate = PurePosixPath(path)
+    if candidate.is_absolute():
+        return str(candidate)
+    return str(PurePosixPath(mount_target) / candidate)
 
 
 def optional_positive_number(value: Any, field: str) -> float | None:
@@ -112,3 +137,12 @@ def close_sandbox(sandbox: Sandbox) -> None:
     close = getattr(sandbox, "close", None)
     if callable(close):
         close()
+
+
+def _absolute_container_path(value: str, field: str) -> str:
+    if "\\" in value:
+        raise ConfigError(f"{field} may not contain backslashes")
+    path = PurePosixPath(value)
+    if not path.is_absolute() or ".." in path.parts:
+        raise ConfigError(f"{field} must be an absolute container path without '..'")
+    return str(path)

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from securebench.candidates.extraction import (
+    default_extraction_spec,
     extract_candidate,
     file_extraction_spec,
     stdout_extraction_spec,
@@ -22,7 +23,9 @@ from securebench.harnesses.shared import (
     reject_artifact_collision,
     reject_task_file_collision,
     reject_unknown_fields,
+    task_workdir,
     workspace_path,
+    workspace_mount_target_for_task,
     workspace_root,
 )
 from securebench.workspaces.materialization import (
@@ -81,12 +84,13 @@ class CommandHarnessProducer(CandidateProducer):
             try:
                 result = sandbox.run(
                     self.command,
+                    workdir=task_workdir(task) if task.task_type == "terminal_task" else None,
                     timeout=context.get("timeout", self.timeout_seconds),
                 )
                 extraction = (
                     file_extraction_spec(task, self.artifact_path)
                     if self.artifact_path is not None
-                    else stdout_extraction_spec(task)
+                    else _default_command_extraction_spec(task)
                 )
                 candidate = extract_candidate(
                     task,
@@ -98,6 +102,7 @@ class CommandHarnessProducer(CandidateProducer):
                 return CandidateArtifact(
                     text=candidate.text,
                     patch=candidate.patch,
+                    workspace=candidate.workspace,
                     stdout=candidate.stdout,
                     stderr=candidate.stderr,
                     metadata={
@@ -124,6 +129,7 @@ class CommandHarnessProducer(CandidateProducer):
             root=task_workspace,
             env_names=self.env_names,
             mounts=docker_read_only_mounts(plan, task_workspace),
+            workspace_mount_target=workspace_mount_target_for_task(task),
         )
 
 
@@ -154,3 +160,9 @@ def command_value(value: Any) -> str | tuple[str, ...]:
     ):
         return tuple(value)
     raise ConfigError("harness.config.command must be a non-empty string or string array")
+
+
+def _default_command_extraction_spec(task: SecureBenchTask):
+    if task.task_type == "terminal_task":
+        return default_extraction_spec(task)
+    return stdout_extraction_spec(task)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from typing import Any
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import CandidateArtifact
+from securebench.harnesses.shared import workspace_dir_name
 from securebench.harnesses import build_harness_producer
 from securebench.progress import ProgressReporter, emit_progress, progress_context
 from securebench.resources import REDACTED
@@ -101,6 +103,7 @@ def run_tester_config(
                     family=task.task_type,
                 )
                 emit_progress("producer_start", task_id=task.id)
+                _reset_task_workspace(workspace_root, task)
                 candidate = producer.produce(task)
                 emit_progress(
                     "producer_done",
@@ -144,6 +147,16 @@ def run_tester_config(
     )
 
 
+def _reset_task_workspace(workspace_root: Path, task: Any) -> None:
+    """Remove stale per-task workspace state before a fresh producer run."""
+    task_workspace = (workspace_root / workspace_dir_name(task)).resolve()
+    root = workspace_root.resolve()
+    if not task_workspace.is_relative_to(root):
+        raise ValueError(f"task workspace escapes workspace root: {task_workspace}")
+    if task_workspace.exists():
+        shutil.rmtree(task_workspace)
+
+
 def _resume_records(output_path: Path) -> list[dict[str, Any]]:
     if not output_path.exists():
         return []
@@ -175,6 +188,8 @@ def _record_score(record: dict[str, Any]) -> float:
 def _candidate_kind(candidate: CandidateArtifact) -> str:
     if candidate.patch is not None:
         return "patch"
+    if candidate.workspace is not None:
+        return "workspace"
     if candidate.text is not None:
         return "text"
     return "none"
@@ -220,6 +235,7 @@ def candidate_record(
         "verification_status": UNSUPPORTED_VERIFICATION_STATUS,
         "candidate_text": candidate.text,
         "candidate_patch": candidate.patch,
+        "candidate_workspace": candidate.workspace,
         "producer_stdout": candidate.stdout,
         "producer_stderr": candidate.stderr,
         "producer_metadata": candidate.metadata,

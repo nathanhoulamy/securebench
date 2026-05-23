@@ -8,7 +8,7 @@ from typing import Any, Callable, Literal, TypeGuard
 from securebench.errors import ConfigError
 
 
-CandidateKind = Literal["text", "code", "patch"]
+CandidateKind = Literal["text", "code", "patch", "workspace"]
 FamilyValidator = Callable[[Any, str], None]
 
 
