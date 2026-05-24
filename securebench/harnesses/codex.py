@@ -26,6 +26,7 @@ from securebench.harnesses.shared import (
     optional_positive_number,
     reject_task_file_collision,
     reject_unknown_fields,
+    run_timeout_seconds,
     task_workdir,
     workspace_path,
     workspace_mount_target_for_task,
@@ -138,9 +139,14 @@ class CodexHarnessProducer(CandidateProducer):
                 workspace_mount_target=workspace_mount_target,
             )
             try:
+                timeout = run_timeout_seconds(
+                    task,
+                    context_timeout=context.get("timeout"),
+                    fallback_timeout=self.timeout_seconds,
+                )
                 preflight = sandbox.run(
                     codex_shell_command("codex --version"),
-                    timeout=context.get("timeout", self.timeout_seconds),
+                    timeout=timeout,
                 )
                 if preflight.exit_code != 0:
                     raise ConfigError(
@@ -157,7 +163,7 @@ class CodexHarnessProducer(CandidateProducer):
                     sandbox,
                     task,
                     agent_workdir,
-                    context.get("timeout", self.timeout_seconds),
+                    timeout,
                 )
                 result = sandbox.run(
                     codex_shell_command(
@@ -166,7 +172,7 @@ class CodexHarnessProducer(CandidateProducer):
                         f"{shell_quote(codex_prompt(task, task_file_for_agent))}"
                     ),
                     workdir=agent_workdir,
-                    timeout=context.get("timeout", self.timeout_seconds),
+                    timeout=timeout,
                 )
                 extraction = default_extraction_spec(task, allow_stdout=False)
                 candidate = extract_candidate(
@@ -174,7 +180,7 @@ class CodexHarnessProducer(CandidateProducer):
                     sandbox,
                     result,
                     extraction,
-                    timeout=context.get("timeout", self.timeout_seconds),
+                    timeout=timeout,
                 )
                 return CandidateArtifact(
                     text=candidate.text,

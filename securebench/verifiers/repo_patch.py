@@ -10,7 +10,7 @@ from typing import Any, Callable
 from securebench.errors import ConfigError
 from securebench.sandboxes import CommandResult, DockerSandbox, Sandbox
 from securebench.tasks import SecureBenchTask, resource_text, resource_value
-from securebench.verifiers.base import VerificationResult, Verifier
+from securebench.verifiers.base import VerificationResult, Verifier, timeout_metadata
 from securebench.verifiers.code_completion import environment_image_for_task
 
 
@@ -203,6 +203,7 @@ class RepoPatchVerifier(Verifier):
                     "exit_code": result.exit_code,
                     "phase": "checks",
                     "candidate_patch_paths": policy_decision.paths,
+                    **timeout_metadata(result),
                 },
             )
         finally:
@@ -483,6 +484,7 @@ def _failed_result(
             "command": result.command,
             "exit_code": result.exit_code,
             "phase": phase,
+            **timeout_metadata(result),
             **metadata,
         },
     )
@@ -492,3 +494,4 @@ def _close_sandbox(sandbox: Sandbox) -> None:
     close = getattr(sandbox, "close", None)
     if callable(close):
         close()
+

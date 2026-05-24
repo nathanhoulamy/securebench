@@ -5,6 +5,7 @@ import pytest
 from securebench.benchmark_compiler import compile_benchmark_row
 from securebench.benchmark_pack import BenchmarkPackManifest, BenchmarkRow
 from securebench.candidates.extraction import (
+    CandidateProductionTimeout,
     default_extraction_spec,
     extract_candidate,
     extraction_instructions,
@@ -191,3 +192,39 @@ def test_extract_candidate_from_workspace_shapes_workspace_artifact(tmp_path):
     assert artifact.workspace == str(tmp_path)
     assert artifact.metadata["candidate_kind"] == "workspace"
     assert artifact.metadata["candidate_extraction"] == "workspace"
+
+
+def test_extract_candidate_from_workspace_rejects_failed_harness_command(tmp_path):
+    task = terminal_task()
+
+    with pytest.raises(ConfigError, match="harness command failed"):
+        extract_candidate(
+            task,
+            FakeSandbox(tmp_path),
+            CommandResult(("codex",), 1, "", "docker unavailable"),
+            default_extraction_spec(task, allow_stdout=False),
+        )
+
+
+def test_extract_candidate_reports_producer_timeout_before_reading_artifacts(tmp_path):
+    task = terminal_task()
+    run_result = CommandResult(
+        ("codex",),
+        124,
+        "partial out",
+        "partial err",
+        timed_out=True,
+        timeout_seconds=5,
+    )
+
+    with pytest.raises(CandidateProductionTimeout) as excinfo:
+        extract_candidate(
+            task,
+            FakeSandbox(tmp_path),
+            run_result,
+            default_extraction_spec(task, allow_stdout=False),
+        )
+
+    assert excinfo.value.result is run_result
+    assert excinfo.value.phase == "producer"
+    assert "5 seconds" in str(excinfo.value)

@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+from securebench.sandboxes.base import CommandResult
 from securebench.tasks import SecureBenchTask
 
 
@@ -28,3 +29,14 @@ class Verifier(ABC):
     @abstractmethod
     def verify(self, task: SecureBenchTask, candidate: str, **context: Any) -> VerificationResult:
         """Run family-specific verification and return a structured result."""
+
+
+def timeout_metadata(result: CommandResult) -> dict[str, object]:
+    """Return common verifier metadata for sandbox command timeouts."""
+    if not result.timed_out:
+        return {}
+    return {
+        "failure_reason": "verifier_timeout",
+        "timed_out": True,
+        "timeout_seconds": result.timeout_seconds,
+    }

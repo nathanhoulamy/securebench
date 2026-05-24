@@ -31,6 +31,7 @@ from securebench.harnesses.shared import (
     optional_positive_number,
     reject_task_file_collision,
     reject_unknown_fields,
+    run_timeout_seconds,
     task_workdir,
     workspace_mount_target_for_task,
     workspace_path,
@@ -128,7 +129,11 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                 workspace_mount_target=workspace_mount_target,
             )
             try:
-                timeout = context.get("timeout", self.timeout_seconds)
+                timeout = run_timeout_seconds(
+                    task,
+                    context_timeout=context.get("timeout"),
+                    fallback_timeout=self.timeout_seconds,
+                )
                 preflight = sandbox.run(
                     claude_code_shell_command("claude --version"),
                     timeout=timeout,

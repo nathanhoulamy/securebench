@@ -1,6 +1,23 @@
 import pytest
+import subprocess
 
-from securebench.sandboxes import HostSandbox
+from securebench.sandboxes import TIMEOUT_EXIT_CODE, HostSandbox
+
+
+def test_host_sandbox_run_reports_timeout(monkeypatch, tmp_path):
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], kwargs["timeout"], output="partial out", stderr="partial err")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    sandbox = HostSandbox(root=tmp_path)
+
+    result = sandbox.run(["sleep", "10"], timeout=2)
+
+    assert result.exit_code == TIMEOUT_EXIT_CODE
+    assert result.timed_out is True
+    assert result.timeout_seconds == 2
+    assert result.stdout == "partial out"
+    assert result.stderr == "partial err"
 
 
 def test_host_sandbox_read_file_rejects_symlink_escape(tmp_path):

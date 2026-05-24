@@ -24,6 +24,8 @@ class FakeSandbox(Sandbox):
         self.commands.append((command, workdir, timeout))
         if self.results:
             result = self.results.pop(0)
+            if isinstance(result, CommandResult):
+                return result
             return CommandResult(normalized, result[0], result[1], result[2])
         return CommandResult(normalized, 0, "", "")
 
@@ -277,3 +279,25 @@ def test_repo_patch_verifier_reports_failed_checks():
     assert result.score == 0.0
     assert result.stderr == "failed"
     assert result.metadata["exit_code"] == 1
+
+
+def test_repo_patch_verifier_reports_timeout_metadata():
+    timeout_result = CommandResult(
+        ("python", "-m", "pytest", "tests/test_bug.py"),
+        124,
+        "partial out",
+        "partial err",
+        timed_out=True,
+        timeout_seconds=99,
+    )
+    sandbox = FakeSandbox(results=[(0, "abc123\n", ""), (0, "", ""), (0, "", ""), (0, "", ""), timeout_result])
+    verifier = RepoPatchVerifier(sandbox_factory=lambda **kwargs: sandbox, timeout_seconds=99)
+
+    result = verifier.verify(make_task(), "diff --git a/app.py b/app.py\n")
+
+    assert result.status == "failed"
+    assert result.passed is False
+    assert result.score == 0.0
+    assert result.metadata["failure_reason"] == "verifier_timeout"
+    assert result.metadata["timed_out"] is True
+    assert result.metadata["timeout_seconds"] == 99

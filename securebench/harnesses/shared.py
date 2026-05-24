@@ -49,6 +49,27 @@ def task_workdir(task: SecureBenchTask) -> str | None:
     return None
 
 
+def task_timeout_seconds(task: SecureBenchTask) -> float | None:
+    environment = task_environment(task)
+    timeout = environment.get("timeout_seconds")
+    if timeout is None:
+        return None
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+        raise ConfigError("benchmark environment.timeout_seconds must be a positive number")
+    return float(timeout)
+
+
+def run_timeout_seconds(
+    task: SecureBenchTask,
+    *,
+    context_timeout: Any = None,
+    fallback_timeout: float | None = None,
+) -> float | None:
+    if context_timeout is not None:
+        return optional_positive_number(context_timeout, "timeout")
+    return task_timeout_seconds(task) or fallback_timeout
+
+
 def optional_workspace_path(value: Any, field: str) -> str | None:
     if value is None:
         return None

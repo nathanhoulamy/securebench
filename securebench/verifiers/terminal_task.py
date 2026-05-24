@@ -8,9 +8,9 @@ from typing import Any, Callable
 from securebench.errors import ConfigError
 from securebench.sandboxes import CommandResult, DockerSandbox, HostSandbox, Sandbox
 from securebench.tasks import SecureBenchTask, resource_value
-from securebench.verifiers.base import VerificationResult, Verifier
+from securebench.verifiers.base import VerificationResult, Verifier, timeout_metadata
 from securebench.verifiers.code_completion import environment_image_for_task
-from securebench.harnesses.shared import workspace_mount_target_for_task
+from securebench.harnesses.shared import task_timeout_seconds, workspace_mount_target_for_task
 from securebench.workspaces.materialization import VisibilityAwareMaterializer, docker_read_only_mounts
 
 
@@ -41,7 +41,12 @@ class TerminalTaskVerifier(Verifier):
 
         checker = checker_for_task(task)
         image = environment_image_for_task(task)
-        timeout = float(context.get("timeout_seconds", checker.timeout_seconds or self.timeout_seconds))
+        timeout = float(
+            context.get(
+                "timeout_seconds",
+                checker.timeout_seconds or task_timeout_seconds(task) or self.timeout_seconds,
+            )
+        )
 
         staging = HostSandbox(root=workspace_root)
         plan = self.materializer.materialize(task, staging, "test_sandbox")
@@ -65,6 +70,7 @@ class TerminalTaskVerifier(Verifier):
                     "command": result.command,
                     "exit_code": result.exit_code,
                     "phase": "checker",
+                    **timeout_metadata(result),
                 },
             )
         finally:
@@ -137,3 +143,4 @@ def _close_sandbox(sandbox: Sandbox) -> None:
     close = getattr(sandbox, "close", None)
     if callable(close):
         close()
+

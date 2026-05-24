@@ -15,18 +15,37 @@ from securebench.verifiers.code_completion import (
 
 
 class FakeSandbox(Sandbox):
-    def __init__(self, *, image=None, root=None, exit_code=0, stdout="", stderr=""):
+    def __init__(
+        self,
+        *,
+        image=None,
+        root=None,
+        exit_code=0,
+        stdout="",
+        stderr="",
+        timed_out=False,
+        timeout_seconds=None,
+    ):
         self.image = image
         self.root = root
         self.exit_code = exit_code
         self.stdout = stdout
         self.stderr = stderr
+        self.timed_out = timed_out
+        self.timeout_seconds = timeout_seconds
         self.files = {}
         self.commands = []
 
     def run(self, command, *, workdir=None, timeout=None):
         self.commands.append((tuple(command), workdir, timeout))
-        return CommandResult(tuple(command), self.exit_code, self.stdout, self.stderr)
+        return CommandResult(
+            tuple(command),
+            self.exit_code,
+            self.stdout,
+            self.stderr,
+            timed_out=self.timed_out,
+            timeout_seconds=self.timeout_seconds if self.timeout_seconds is not None else timeout,
+        )
 
     def write_file(self, path, content):
         self.files[str(path)] = content
@@ -143,6 +162,20 @@ def test_code_completion_verifier_reports_failed_tests():
     assert result.passed is False
     assert result.score == 0.0
     assert result.stderr == "assertion failed"
+
+
+def test_code_completion_verifier_reports_timeout_metadata():
+    sandbox = FakeSandbox(exit_code=124, stderr="partial err", timed_out=True)
+    verifier = CodeCompletionVerifier(sandbox_factory=lambda **kwargs: sandbox, timeout_seconds=7)
+
+    result = verifier.verify(make_task(), "def add_numbers(a, b):\n    return a + b\n")
+
+    assert result.status == "failed"
+    assert result.passed is False
+    assert result.score == 0.0
+    assert result.metadata["failure_reason"] == "verifier_timeout"
+    assert result.metadata["timed_out"] is True
+    assert result.metadata["timeout_seconds"] == 7.0
 
 
 def test_code_completion_runner_treats_system_exit_as_failure(tmp_path):

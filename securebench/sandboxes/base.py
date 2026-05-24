@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 
+TIMEOUT_EXIT_CODE = 124
+
+
 @dataclass(frozen=True)
 class CommandResult:
     """Result from a sandboxed command."""
@@ -15,6 +18,35 @@ class CommandResult:
     exit_code: int
     stdout: str = ""
     stderr: str = ""
+    timed_out: bool = False
+    timeout_seconds: float | None = None
+
+
+def timeout_command_result(
+    command: tuple[str, ...],
+    timeout: float | None,
+    *,
+    stdout: str | bytes | None = None,
+    stderr: str | bytes | None = None,
+) -> CommandResult:
+    """Build a structured result for a sandbox command timeout."""
+    return CommandResult(
+        command=command,
+        exit_code=TIMEOUT_EXIT_CODE,
+        stdout=timeout_output(stdout),
+        stderr=timeout_output(stderr),
+        timed_out=True,
+        timeout_seconds=timeout,
+    )
+
+
+def timeout_output(value: str | bytes | None) -> str:
+    """Normalize partial timeout output from subprocess APIs."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value
 
 
 class Sandbox(ABC):

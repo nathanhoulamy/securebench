@@ -28,6 +28,20 @@ class CandidateExtractionSpec:
     workdir: str | None = None
 
 
+class CandidateProductionTimeout(Exception):
+    """Raised when candidate production exceeded the benchmark time budget."""
+
+    def __init__(self, result: CommandResult, *, phase: str = "producer") -> None:
+        self.result = result
+        self.phase = phase
+        timeout = result.timeout_seconds
+        if timeout is None:
+            message = "candidate production timed out"
+        else:
+            message = f"candidate production timed out after {timeout:g} seconds"
+        super().__init__(message)
+
+
 def default_extraction_spec(
     task: SecureBenchTask,
     *,
@@ -104,6 +118,8 @@ def extract_candidate(
     timeout: float | None = None,
 ) -> CandidateArtifact:
     """Collect a candidate artifact according to a shared extraction spec."""
+    if run_result.timed_out:
+        raise CandidateProductionTimeout(run_result)
     if spec.mode == "stdout":
         candidate = run_result.stdout
         return _candidate_artifact(
@@ -129,6 +145,8 @@ def extract_candidate(
         )
     if spec.mode == "git_diff":
         diff_result = sandbox.run(["git", "diff", "--binary"], workdir=spec.workdir, timeout=timeout)
+        if diff_result.timed_out:
+            raise CandidateProductionTimeout(diff_result, phase="candidate_extraction")
         return _candidate_artifact(
             spec,
             diff_result.stdout,
@@ -141,6 +159,11 @@ def extract_candidate(
             },
         )
     if spec.mode == "workspace":
+        if run_result.exit_code != 0:
+            raise ConfigError(
+                "harness command failed before producing a workspace candidate "
+                f"(exit code {run_result.exit_code})"
+            )
         workspace = str(getattr(sandbox, "root", ""))
         if not workspace:
             raise ConfigError("workspace candidate extraction requires sandbox.root")

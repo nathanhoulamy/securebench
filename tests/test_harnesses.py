@@ -214,6 +214,49 @@ def test_command_harness_terminal_family_uses_workspace_candidate(monkeypatch, t
     assert artifact.metadata["candidate_extraction"] == "workspace"
 
 
+def test_command_harness_uses_task_environment_timeout(monkeypatch, tmp_path):
+    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
+    producer = build_harness_producer(
+        harness_section(config={"command": ["produce"], "timeout_seconds": 7}),
+        workspace_root=tmp_path,
+    )
+
+    producer.produce(mc_task(environment={"image": "python:3.11-slim", "timeout_seconds": 42}))
+
+    docker = FakeDockerSandbox.instances[-1]
+    assert docker.commands == [(("produce",), None, 42.0)]
+
+
+def test_command_harness_context_timeout_overrides_task_environment_timeout(monkeypatch, tmp_path):
+    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
+    producer = build_harness_producer(
+        harness_section(config={"command": ["produce"], "timeout_seconds": 7}),
+        workspace_root=tmp_path,
+    )
+
+    producer.produce(
+        mc_task(environment={"image": "python:3.11-slim", "timeout_seconds": 42}),
+        timeout=3,
+    )
+
+    docker = FakeDockerSandbox.instances[-1]
+    assert docker.commands == [(("produce",), None, 3.0)]
+
+
+def test_command_harness_rejects_invalid_task_environment_timeout(monkeypatch, tmp_path):
+    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
+    producer = build_harness_producer(
+        harness_section(config={"command": ["produce"]}),
+        workspace_root=tmp_path,
+    )
+
+    with pytest.raises(ConfigError, match="environment.timeout_seconds"):
+        producer.produce(mc_task(environment={"image": "python:3.11-slim", "timeout_seconds": 0}))
+
+
 def test_command_harness_materializes_public_assets(monkeypatch, tmp_path):
     monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
     monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)

@@ -3,6 +3,7 @@
 from securebench.candidates.base import CandidateArtifact, CandidateProducer
 from securebench.candidates.extraction import (
     CandidateExtractionSpec,
+    CandidateProductionTimeout,
     default_extraction_spec,
     extract_candidate,
 )
@@ -10,6 +11,7 @@ from securebench.candidates.extraction import (
 __all__ = [
     "CandidateArtifact",
     "CandidateExtractionSpec",
+    "CandidateProductionTimeout",
     "CandidateProducer",
     "default_extraction_spec",
     "extract_candidate",

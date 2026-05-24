@@ -9,7 +9,12 @@ import tempfile
 from pathlib import Path, PurePosixPath
 
 from securebench.progress import emit_progress
-from securebench.sandboxes.base import CommandResult, Sandbox, resolve_sandbox_host_path
+from securebench.sandboxes.base import (
+    CommandResult,
+    Sandbox,
+    resolve_sandbox_host_path,
+    timeout_command_result,
+)
 
 
 class HostSandbox(Sandbox):
@@ -52,15 +57,32 @@ class HostSandbox(Sandbox):
             workdir=str(self._host_path(workdir or ".")),
             command=" ".join(normalized),
         )
-        completed = subprocess.run(
-            normalized,
-            cwd=self._host_path(workdir or "."),
-            env=_host_env(self.env_names),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        try:
+            completed = subprocess.run(
+                normalized,
+                cwd=self._host_path(workdir or "."),
+                env=_host_env(self.env_names),
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            result = timeout_command_result(
+                normalized,
+                timeout,
+                stdout=exc.stdout,
+                stderr=exc.stderr,
+            )
+            emit_progress(
+                "sandbox_result",
+                kind="host",
+                exit_code=result.exit_code,
+                command=" ".join(normalized),
+                stdout=result.stdout,
+                stderr=result.stderr,
+            )
+            return result
         emit_progress(
             "sandbox_result",
             kind="host",

@@ -1,8 +1,9 @@
+import subprocess
 from types import SimpleNamespace
 
 import pytest
 
-from securebench.sandboxes import DockerBindMount, DockerSandbox
+from securebench.sandboxes import TIMEOUT_EXIT_CODE, DockerBindMount, DockerSandbox
 
 
 def test_docker_sandbox_reuses_persistent_container_and_passes_env_names(monkeypatch, tmp_path):
@@ -73,6 +74,32 @@ def test_docker_sandbox_can_use_disposable_container_per_command(monkeypatch, tm
     assert "--read-only" in seen["command"]
     assert "--mount" not in seen["command"]
     assert seen["command"][-2:] == ["python", "--version"]
+
+
+def test_docker_sandbox_run_reports_timeout_and_closes_persistent_container(monkeypatch, tmp_path):
+    seen = {"commands": []}
+
+    def fake_run(command, **kwargs):
+        seen["commands"].append(command)
+        if command[:2] == ["docker", "run"]:
+            return SimpleNamespace(returncode=0, stdout="container-id\n", stderr="")
+        if command[:2] == ["docker", "exec"]:
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"], output="partial out", stderr="partial err")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    sandbox = DockerSandbox(image="agent-image", root=tmp_path)
+    result = sandbox.run(["sleep", "10"], timeout=2)
+
+    assert result.exit_code == TIMEOUT_EXIT_CODE
+    assert result.timed_out is True
+    assert result.timeout_seconds == 2
+    assert result.stdout == "partial out"
+    assert result.stderr == "partial err"
+    assert seen["commands"][0][:2] == ["docker", "run"]
+    assert seen["commands"][1][:2] == ["docker", "exec"]
+    assert seen["commands"][2][:3] == ["docker", "rm", "-f"]
 
 
 def test_docker_sandbox_preserves_absolute_container_workdir(monkeypatch, tmp_path):

@@ -10,7 +10,7 @@ from typing import Any
 
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
-from securebench.candidates import CandidateArtifact
+from securebench.candidates import CandidateArtifact, CandidateProductionTimeout
 from securebench.harnesses.shared import workspace_dir_name
 from securebench.harnesses import build_harness_producer
 from securebench.progress import ProgressReporter, emit_progress, progress_context
@@ -104,7 +104,29 @@ def run_tester_config(
                 )
                 emit_progress("producer_start", task_id=task.id)
                 _reset_task_workspace(workspace_root, task)
-                candidate = producer.produce(task)
+                try:
+                    candidate = producer.produce(task)
+                except CandidateProductionTimeout as exc:
+                    record = candidate_timeout_record(config.run.id, task, exc)
+                    output_file.write(json.dumps(record, sort_keys=True) + "\n")
+                    output_file.flush()
+                    total += 1
+                    verified += 1
+                    emit_progress(
+                        "producer_done",
+                        task_id=task.id,
+                        candidate_kind="none",
+                        status="failed",
+                        failure_reason=record["failure_reason"],
+                    )
+                    emit_progress(
+                        "task_done",
+                        task_id=task.id,
+                        status=record["verification_status"],
+                        passed=record.get("passed"),
+                        score=record.get("score"),
+                    )
+                    continue
                 emit_progress(
                     "producer_done",
                     task_id=task.id,
@@ -256,6 +278,42 @@ def candidate_record(
         }
     )
     return record
+
+
+def candidate_timeout_record(
+    run_id: str,
+    task: Any,
+    timeout: CandidateProductionTimeout,
+) -> dict[str, object]:
+    """Serialize a scored candidate-production timeout failure."""
+    result = timeout.result
+    message = str(timeout)
+    return {
+        "run_id": run_id,
+        "task_id": task.id,
+        "benchmark_id": task.benchmark_id,
+        "task_type": task.task_type,
+        "verification_status": "failed",
+        "passed": False,
+        "score": 0.0,
+        "failure_reason": "producer_timeout",
+        "failure_phase": timeout.phase,
+        "failure_message": message,
+        "candidate_text": None,
+        "candidate_patch": None,
+        "candidate_workspace": None,
+        "producer_stdout": result.stdout,
+        "producer_stderr": result.stderr,
+        "producer_metadata": {
+            "timed_out": True,
+            "timeout_seconds": result.timeout_seconds,
+            "command": result.command,
+            "exit_code": result.exit_code,
+            "phase": timeout.phase,
+        },
+        "resource_summary": task.resource_summary(),
+        "hidden_values": REDACTED,
+    }
 
 
 def _redact_verifier_metadata(metadata: dict[str, Any], task: Any) -> dict[str, Any]:

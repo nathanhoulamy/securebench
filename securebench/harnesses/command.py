@@ -23,6 +23,7 @@ from securebench.harnesses.shared import (
     reject_artifact_collision,
     reject_task_file_collision,
     reject_unknown_fields,
+    run_timeout_seconds,
     task_workdir,
     workspace_path,
     workspace_mount_target_for_task,
@@ -82,10 +83,15 @@ class CommandHarnessProducer(CandidateProducer):
 
             sandbox = self._sandbox(task, task_workspace, plan)
             try:
+                timeout = run_timeout_seconds(
+                    task,
+                    context_timeout=context.get("timeout"),
+                    fallback_timeout=self.timeout_seconds,
+                )
                 result = sandbox.run(
                     self.command,
                     workdir=task_workdir(task) if task.task_type == "terminal_task" else None,
-                    timeout=context.get("timeout", self.timeout_seconds),
+                    timeout=timeout,
                 )
                 extraction = (
                     file_extraction_spec(task, self.artifact_path)
@@ -97,7 +103,7 @@ class CommandHarnessProducer(CandidateProducer):
                     sandbox,
                     result,
                     extraction,
-                    timeout=context.get("timeout", self.timeout_seconds),
+                    timeout=timeout,
                 )
                 return CandidateArtifact(
                     text=candidate.text,

@@ -74,6 +74,24 @@ def app_terminal_task():
     )
 
 
+def environment_timeout_terminal_task():
+    return compile_benchmark_row(
+        BenchmarkRow(
+            id="term-env-timeout",
+            family="terminal_task",
+            input={"instructions": "Create output.txt"},
+            eval={
+                "checker": {
+                    "command": "test -f output.txt",
+                    "workdir": "/workspace",
+                },
+            },
+            environment={"image": "python:3.12-slim", "timeout_seconds": 77},
+        ),
+        manifest=BenchmarkPackManifest(id="pack", version=1),
+    )
+
+
 def test_terminal_task_verifier_runs_checker_against_workspace(tmp_path):
     verifier = TerminalTaskVerifier(sandbox_factory=FakeSandbox)
 
@@ -89,6 +107,40 @@ def test_terminal_task_verifier_runs_checker_against_workspace(tmp_path):
     assert (tmp_path / "securebench" / "evaluator" / "expected_state.json").exists() is False
     sandbox = FakeSandbox.instances[-1]
     assert sandbox.commands == [(("python", "securebench/evaluation_inputs/checker.json"), "/workspace", 12.0)]
+
+
+def test_terminal_task_verifier_uses_environment_timeout_when_checker_timeout_missing(tmp_path):
+    verifier = TerminalTaskVerifier(sandbox_factory=FakeSandbox)
+
+    verifier.verify(environment_timeout_terminal_task(), str(tmp_path))
+
+    sandbox = FakeSandbox.instances[-1]
+    assert sandbox.commands == [("test -f output.txt", "/workspace", 77.0)]
+
+
+def test_terminal_task_verifier_reports_checker_timeout(tmp_path):
+    class TimeoutSandbox(FakeSandbox):
+        def run(self, command, *, workdir=None, timeout=None):
+            self.commands.append((command, workdir, timeout))
+            return CommandResult(
+                ("sh", "-lc", command) if isinstance(command, str) else tuple(command),
+                124,
+                "partial out",
+                "partial err",
+                timed_out=True,
+                timeout_seconds=timeout,
+            )
+
+    verifier = TerminalTaskVerifier(sandbox_factory=TimeoutSandbox)
+
+    result = verifier.verify(terminal_task(), str(tmp_path))
+
+    assert result.status == "failed"
+    assert result.passed is False
+    assert result.score == 0.0
+    assert result.metadata["failure_reason"] == "verifier_timeout"
+    assert result.metadata["timed_out"] is True
+    assert result.metadata["timeout_seconds"] == 12.0
 
 
 def test_terminal_task_verifier_mounts_app_workspace(monkeypatch, tmp_path):

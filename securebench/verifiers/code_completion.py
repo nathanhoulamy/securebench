@@ -8,7 +8,7 @@ from typing import Any, Callable
 from securebench.errors import ConfigError
 from securebench.sandboxes import DockerSandbox, Sandbox
 from securebench.tasks import CodeCompletionTask, SecureBenchTask, resource_text, resource_value
-from securebench.verifiers.base import VerificationResult, Verifier
+from securebench.verifiers.base import VerificationResult, Verifier, timeout_metadata
 
 
 SandboxFactory = Callable[..., Sandbox]
@@ -75,6 +75,7 @@ class CodeCompletionVerifier(Verifier):
                     "candidate_file": candidate_file,
                     "supervisor_file": supervisor_file,
                     "exit_code": result.exit_code,
+                    **timeout_metadata(result),
                 },
             )
         finally:
@@ -261,3 +262,4 @@ def _close_sandbox(sandbox: Sandbox) -> None:
     close = getattr(sandbox, "close", None)
     if callable(close):
         close()
+

@@ -11,7 +11,12 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from securebench.progress import emit_progress, wants_agent_output
-from securebench.sandboxes.base import CommandResult, Sandbox, resolve_sandbox_host_path
+from securebench.sandboxes.base import (
+    CommandResult,
+    Sandbox,
+    resolve_sandbox_host_path,
+    timeout_command_result,
+)
 
 
 @dataclass(frozen=True)
@@ -132,16 +137,35 @@ class DockerSandbox(Sandbox):
                 self.image,
                 *normalized,
             ]
-        if _is_codex_agent_command(normalized) and wants_agent_output():
-            completed = _run_streaming_agent_command(docker_command, timeout=timeout)
-        else:
-            completed = subprocess.run(
-                docker_command,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
+        try:
+            if _is_codex_agent_command(normalized) and wants_agent_output():
+                completed = _run_streaming_agent_command(docker_command, timeout=timeout)
+            else:
+                completed = subprocess.run(
+                    docker_command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+        except subprocess.TimeoutExpired as exc:
+            if self.persistent:
+                self.close()
+            result = timeout_command_result(
+                normalized,
+                timeout,
+                stdout=exc.stdout,
+                stderr=exc.stderr,
             )
+            emit_progress(
+                "sandbox_result",
+                kind="docker",
+                exit_code=result.exit_code,
+                command=" ".join(normalized),
+                stdout=result.stdout,
+                stderr=result.stderr,
+            )
+            return result
         emit_progress(
             "sandbox_result",
             kind="docker",
@@ -285,7 +309,10 @@ def _run_streaming_agent_command(
         while selector.get_map():
             if timeout is not None and time.monotonic() - started > timeout:
                 process.kill()
-                raise subprocess.TimeoutExpired(docker_command, timeout)
+                exc = subprocess.TimeoutExpired(docker_command, timeout)
+                exc.stdout = "".join(stdout_parts)
+                exc.stderr = "".join(stderr_parts)
+                raise exc
             events = selector.select(timeout=0.2)
             if not events and process.poll() is not None:
                 for key in list(selector.get_map().values()):
@@ -306,14 +333,16 @@ def _run_streaming_agent_command(
         selector.close()
         if process.poll() is None:
             process.kill()
+            try:
+                process.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                pass
     return subprocess.CompletedProcess(
         docker_command,
         exit_code,
         stdout="".join(stdout_parts),
         stderr="".join(stderr_parts),
     )
-
-
 def _docker_path(path: str, *, workspace_mount_target: str = "/workspace") -> str:
     if path.startswith("/workspace"):
         return path

@@ -1,6 +1,7 @@
 import json
 
-from securebench.candidates import CandidateArtifact
+from securebench.candidates import CandidateArtifact, CandidateProductionTimeout
+from securebench.sandboxes import CommandResult
 from securebench.harnesses.shared import workspace_dir_name
 from securebench.tester_config import (
     TesterBenchmarkSection as BenchmarkSection,
@@ -196,6 +197,48 @@ def test_run_tester_config_leaves_unsupported_family_pending(monkeypatch, tmp_pa
     records = [json.loads(line) for line in (tmp_path / "out" / "candidates.jsonl").read_text().splitlines()]
     assert records[0]["verification_status"] == "pending"
     assert "passed" not in records[0]
+
+
+def test_run_tester_config_records_producer_timeout_as_failed_result(monkeypatch, tmp_path):
+    manifest, tasks = write_multiple_choice_pack(tmp_path)
+    config = make_config(tmp_path, manifest, tasks)
+
+    class TimeoutProducer:
+        def produce(self, task):
+            raise CandidateProductionTimeout(
+                CommandResult(
+                    ("produce",),
+                    124,
+                    "partial out",
+                    "partial err",
+                    timed_out=True,
+                    timeout_seconds=5,
+                )
+            )
+
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: TimeoutProducer(),
+    )
+
+    summary = run_tester_config(config)
+
+    assert summary.total == 1
+    assert summary.verified == 1
+    assert summary.passed == 0
+    assert summary.score_sum == 0.0
+    assert summary.verification_status == "complete"
+    records = [json.loads(line) for line in (tmp_path / "out" / "candidates.jsonl").read_text().splitlines()]
+    assert records[0]["verification_status"] == "failed"
+    assert records[0]["passed"] is False
+    assert records[0]["score"] == 0.0
+    assert records[0]["failure_reason"] == "producer_timeout"
+    assert records[0]["failure_phase"] == "producer"
+    assert records[0]["failure_message"] == "candidate production timed out after 5 seconds"
+    assert records[0]["producer_stdout"] == "partial out"
+    assert records[0]["producer_stderr"] == "partial err"
+    assert records[0]["producer_metadata"]["timed_out"] is True
+    assert records[0]["producer_metadata"]["timeout_seconds"] == 5
 
 
 def test_run_tester_config_resume_keeps_valid_records_and_skips_completed(monkeypatch, tmp_path):

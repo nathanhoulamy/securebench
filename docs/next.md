@@ -43,3 +43,18 @@ and tester YAML references are the HTML standards in this directory.
 - Treat command allow/deny policy as guidance and audit logging, not isolation.
 - Persist compact sanitized harness traces when useful, without storing secrets,
   hidden tests, hidden patches, or full sensitive artifacts.
+
+## Timeout Semantics
+
+- Treat producer and verifier command timeouts as scored benchmark failures, not
+  infrastructure failures. A model or agent that exceeds the benchmark time
+  budget receives `passed: false`, `score: 0.0`, and an explicit timeout
+  failure reason in the output record.
+- Keep sandbox setup, Docker startup, missing images, missing credentials,
+  malformed tester YAML, and invalid benchmark configuration on the
+  infrastructure/config error path. Those should still abort clearly rather than
+  being scored as model quality.
+- Preserve timeout metadata in records: producer timeouts use top-level
+  `failure_reason: producer_timeout`; verifier timeouts use verifier metadata
+  with `failure_reason: verifier_timeout`, `timed_out: true`, and the timeout
+  budget that was applied.
