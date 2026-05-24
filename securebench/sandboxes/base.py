@@ -83,9 +83,10 @@ def resolve_sandbox_host_path(
 ) -> Path:
     """Resolve a sandbox-relative host path without following escapes.
 
-    The syntactic check rejects explicit traversal, and the resolved-path check
+    The syntactic check rejects explicit traversal, the resolved-path check
     blocks symlinks inside the sandbox from pointing reads or writes outside the
-    sandbox root.
+    sandbox root, and write resolution rejects existing symlink components so
+    framework-owned writes cannot be redirected within the workspace.
     """
     sandbox_path = PurePosixPath(path)
     if sandbox_path.is_absolute():
@@ -104,8 +105,19 @@ def resolve_sandbox_host_path(
             target_resolved = target.resolve()
             if not target_resolved.is_relative_to(root_resolved):
                 raise ValueError(f"Sandbox path may not escape root: {path}")
+        _reject_write_symlinks(root_path, sandbox_path)
     else:
         target_resolved = target.resolve()
         if not target_resolved.is_relative_to(root_resolved):
             raise ValueError(f"Sandbox path may not escape root: {path}")
     return target
+
+
+def _reject_write_symlinks(root: Path, relative_path: PurePosixPath) -> None:
+    current = root
+    for part in relative_path.parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError(f"Sandbox path may not write through symlink: {relative_path}")
+        if not current.exists():
+            break

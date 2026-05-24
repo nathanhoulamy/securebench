@@ -57,6 +57,7 @@ def test_test_sandbox_materialization_writes_public_and_evaluation_inputs():
         "securebench/public/metadata.json",
         "securebench/evaluation_inputs/cases.json",
     ]
+    assert [item.read_only for item in plan.resources] == [False, False, True]
     assert target.files["securebench/evaluation_inputs/cases.json"] == '[\n  {\n    "args": [\n      1,\n      2\n    ]\n  }\n]\n'
     assert "answer" not in str(plan)
     assert "answer" not in str(target.files)
@@ -340,6 +341,7 @@ def test_evaluation_input_file_reference_is_test_sandbox_only(tmp_path):
         "securebench/evaluation_inputs/checks/check.py",
         "securebench/evaluation_inputs/cases.json",
     ]
+    assert [item.read_only for item in plan.resources] == [True, True]
     assert target.files["securebench/evaluation_inputs/checks/check.py"] == b"assert True"
     assert target.files["securebench/evaluation_inputs/cases.json"].startswith("[")
     assert VisibilityAwareMaterializer().build_plan(task, "agent").resources == ()
@@ -431,4 +433,26 @@ def test_docker_read_only_mounts_are_derived_from_copy_plan(tmp_path):
     assert len(mounts) == 1
     assert mounts[0].source == tmp_path / "workspace" / "input.txt"
     assert mounts[0].target == "input.txt"
+    assert mounts[0].read_only is True
+
+
+def test_docker_read_only_mounts_include_json_evaluation_inputs(tmp_path):
+    task = pack_task(
+        tmp_path,
+        {
+            "checker": {
+                "value": {"command": "pytest"},
+                "visibility": "evaluation_inputs",
+            },
+        },
+    )
+    plan = VisibilityAwareMaterializer().build_plan(task, "test_sandbox")
+
+    mounts = docker_read_only_mounts(plan, tmp_path / "workspace")
+
+    assert len(mounts) == 1
+    assert mounts[0].source == (
+        tmp_path / "workspace" / "securebench" / "evaluation_inputs" / "checker.json"
+    )
+    assert mounts[0].target == "securebench/evaluation_inputs/checker.json"
     assert mounts[0].read_only is True

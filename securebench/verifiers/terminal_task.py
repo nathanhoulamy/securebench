@@ -84,7 +84,6 @@ class TerminalTaskVerifier(Verifier):
             image=image,
             root=workspace_root,
             network="none",
-            cap_drop=(),
             read_only=False,
             mounts=docker_read_only_mounts(plan, workspace_root),
             workspace_mount_target=workspace_mount_target_for_task(task),
@@ -143,4 +142,3 @@ def _close_sandbox(sandbox: Sandbox) -> None:
     close = getattr(sandbox, "close", None)
     if callable(close):
         close()
-

@@ -157,7 +157,26 @@ def test_terminal_task_verifier_mounts_app_workspace(monkeypatch, tmp_path):
 
     assert result.passed is True
     assert created["workspace_mount_target"] == "/app"
-    assert created["cap_drop"] == ()
+    assert "cap_drop" not in created
+
+
+def test_terminal_task_verifier_mounts_checker_inputs_read_only(monkeypatch, tmp_path):
+    created = {}
+
+    class CapturingSandbox(FakeSandbox):
+        def __init__(self, **kwargs):
+            created.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr("securebench.verifiers.terminal_task.DockerSandbox", CapturingSandbox)
+
+    TerminalTaskVerifier().verify(terminal_task(), str(tmp_path))
+
+    mounts = created["mounts"]
+    assert len(mounts) == 1
+    assert mounts[0].source == tmp_path / "securebench" / "evaluation_inputs" / "checker.json"
+    assert mounts[0].target == "securebench/evaluation_inputs/checker.json"
+    assert mounts[0].read_only is True
 
 
 def test_terminal_task_verifier_requires_workspace(tmp_path):

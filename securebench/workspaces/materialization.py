@@ -73,6 +73,7 @@ class ResourceMaterializer:
                     kind=resource.kind,
                     component=target_component,
                     relative_path=_resource_path(resource, target_component),
+                    read_only=_resource_default_read_only(resource, target_component),
                 )
             )
         plan = MaterializationPlan(component=target_component, resources=tuple(planned))
@@ -121,6 +122,7 @@ class VisibilityAwareMaterializer:
                     kind=resource.kind,
                     component=target_component,
                     relative_path=_resource_path(resource, target_component),
+                    read_only=_resource_default_read_only(resource, target_component),
                 )
             )
 
@@ -149,13 +151,13 @@ class VisibilityAwareMaterializer:
 
 
 def docker_read_only_mounts(plan: MaterializationPlan, workspace_root: str | Path) -> tuple[DockerBindMount, ...]:
-    """Return Docker bind mounts for read-only copied resources in a plan."""
+    """Return Docker bind mounts for read-only materialized resources in a plan."""
     from securebench.sandboxes import DockerBindMount
 
     root = Path(workspace_root)
     mounts = []
     for item in plan.resources:
-        if item.serialization == "copy" and item.read_only:
+        if item.read_only:
             mounts.append(
                 DockerBindMount(
                     source=root.joinpath(*PurePosixPath(item.relative_path).parts),
@@ -188,6 +190,13 @@ def _validate_materializable_resource(resource: Resource) -> None:
         raise MaterializationError(f"resource kind {resource.kind!r} is not supported for materialization")
     _safe_resource_name(resource.name)
     _serialize_json(resource.value)
+
+
+def _resource_default_read_only(resource: Resource, component: MaterializationComponent) -> bool:
+    return component in ("test_sandbox", "evaluator") and resource.visibility in (
+        "evaluation_inputs",
+        "hidden",
+    )
 
 
 def _resource_path(resource: Resource, component: MaterializationComponent) -> str:
