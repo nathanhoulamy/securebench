@@ -163,6 +163,14 @@ def test_active_family_missing_required_fields_raise(row, match):
             row_for("terminal_task", input={"instructions": "Do it"}, eval={"checker": {"command": []}}),
             "eval.checker.command must be a non-empty string or string array",
         ),
+        (
+            row_for(
+                "terminal_task",
+                input={"instructions": "Do it"},
+                eval={"checker": {"command": "true", "timeout_seconds": 0}},
+            ),
+            "eval.checker.timeout_seconds must be a positive number",
+        ),
     ],
 )
 def test_active_family_malformed_fields_raise(row, match):

@@ -7,7 +7,7 @@ from typing import Any
 from securebench.errors import ConfigError
 from securebench.families.base import (
     is_non_empty_string,
-    optional_non_negative_number,
+    optional_positive_number,
     optional_string_or_object,
     reject_unknown,
     required_non_empty_string,
@@ -35,7 +35,7 @@ def _validate_checker(value: object, context: str) -> None:
     _required_command(value, "command", context)
     if "workdir" in value and not is_non_empty_string(value["workdir"]):
         raise ConfigError(f"{context}.workdir must be a non-empty string")
-    optional_non_negative_number(value, "timeout_seconds", context)
+    optional_positive_number(value, "timeout_seconds", context)
 
 
 def _required_command(values: dict[str, object], key: str, context: str) -> None:

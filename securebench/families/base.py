@@ -130,6 +130,16 @@ def optional_non_negative_number(
         raise ConfigError(f"{context}.{key} must be a non-negative number")
 
 
+def optional_positive_number(
+    values: dict[str, object], key: str, context: str
+) -> None:
+    if key not in values:
+        return
+    value = values[key]
+    if not is_number(value) or value <= 0:
+        raise ConfigError(f"{context}.{key} must be a positive number")
+
+
 def is_non_empty_string(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
