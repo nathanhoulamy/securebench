@@ -23,6 +23,14 @@ and tester YAML references are the HTML standards in this directory.
   execution, read-only trusted harness files, post-apply integrity checks, and
   audit metadata. Candidate patches now have a pre-apply path policy, but the
   check command still runs in the candidate-mutated repository.
+- Prefer task-specific implementation-file allowlists for future `repo_patch`
+  benchmark standards. The current default deny policy is useful as a safety
+  net, but benchmark-authored allowlists such as `src/**` make the intended
+  candidate edit surface clearer and easier to audit.
+- Consider optional post-apply integrity checks for `repo_patch` trust-base
+  paths such as tests, test runners, dependency/build configuration, and
+  framework-owned paths. This needs explicit standard support because some
+  benchmarks may legitimately require edits to otherwise sensitive files.
 
 ## Schema Tightening
 

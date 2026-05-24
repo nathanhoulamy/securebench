@@ -13,9 +13,10 @@ from securebench.verifiers.repo_patch import (
 
 
 class FakeSandbox(Sandbox):
-    def __init__(self, *, image=None, results=None):
+    def __init__(self, *, image=None, results=None, mounts=()):
         self.image = image
         self.results = list(results or [])
+        self.mounts = tuple(mounts)
         self.commands = []
         self.files = {}
 
@@ -60,7 +61,7 @@ def make_task(*, image="repo-image:latest", workdir="/testbed", tests=None):
                         "command": ["python", "-m", "pytest", "tests/test_bug.py"],
                         "test_patch": {
                             "source": "inline",
-                        "patch": "diff --git a/tests/test_bug.py b/tests/test_bug.py\n",
+                            "patch": "diff --git a/tests/test_bug.py b/tests/test_bug.py\n",
                         },
                         "setup_patch": {
                             "source": "inline",
@@ -193,13 +194,11 @@ def test_repo_patch_verifier_applies_candidate_and_test_patch_then_runs_checks()
 
     assert sandbox.image is None
     assert sandbox.files["securebench/candidate.patch"] == "diff --git a/app.py b/app.py\n"
-    assert sandbox.files["securebench/evaluation_inputs/setup.patch"].startswith("diff --git")
-    assert sandbox.files["securebench/evaluation_inputs/test.patch"].startswith("diff --git")
     assert sandbox.commands == [
         (["git", "rev-parse", "HEAD"], "/testbed", 99.0),
-        (["git", "apply", "--binary", "/securebench-workspace/securebench/evaluation_inputs/setup.patch"], "/testbed", 99.0),
+        (["git", "apply", "--binary", "/opt/securebench/evaluation_inputs/setup.patch"], "/testbed", 99.0),
         (["git", "apply", "--binary", "/securebench-workspace/securebench/candidate.patch"], "/testbed", 99.0),
-        (["git", "apply", "--binary", "/securebench-workspace/securebench/evaluation_inputs/test.patch"], "/testbed", 99.0),
+        (["git", "apply", "--binary", "/opt/securebench/evaluation_inputs/test.patch"], "/testbed", 99.0),
         (("python", "-m", "pytest", "tests/test_bug.py"), "/testbed", 99.0),
     ]
     assert result.status == "passed"
@@ -208,6 +207,50 @@ def test_repo_patch_verifier_applies_candidate_and_test_patch_then_runs_checks()
     assert result.metadata["image"] == "repo-image:latest"
     assert result.metadata["phase"] == "checks"
     assert result.metadata["candidate_patch_paths"] == ("app.py",)
+
+
+def test_repo_patch_verifier_mounts_trusted_eval_patches_read_only():
+    created = {}
+
+    def sandbox_factory(**kwargs):
+        created.update(kwargs)
+        mount_source = kwargs["mounts"][0].source
+        created["setup_patch"] = (mount_source / "setup.patch").read_text()
+        created["test_patch"] = (mount_source / "test.patch").read_text()
+        return FakeSandbox(results=[(0, "abc123\n", ""), (0, "", ""), (0, "", ""), (0, "", ""), (0, "passed", "")])
+
+    verifier = RepoPatchVerifier(sandbox_factory=sandbox_factory)
+
+    result = verifier.verify(make_task(), "diff --git a/app.py b/app.py\n")
+
+    assert result.status == "passed"
+    mounts = created["mounts"]
+    assert len(mounts) == 1
+    assert mounts[0].target == "/opt/securebench/evaluation_inputs"
+    assert mounts[0].read_only is True
+    assert created["setup_patch"].startswith("diff --git")
+    assert created["test_patch"].startswith("diff --git")
+
+
+def test_repo_patch_verifier_applies_trusted_patch_from_protected_mount_not_workspace_copy():
+    sandbox = FakeSandbox(results=[(0, "abc123\n", ""), (0, "", ""), (0, "", ""), (0, "", ""), (0, "passed", "")])
+    sandbox.files["securebench/evaluation_inputs/test.patch"] = "malicious workspace replacement"
+    verifier = RepoPatchVerifier(sandbox_factory=lambda **kwargs: sandbox)
+
+    result = verifier.verify(make_task(), "diff --git a/app.py b/app.py\n")
+
+    assert result.status == "passed"
+    assert sandbox.files["securebench/evaluation_inputs/test.patch"] == "malicious workspace replacement"
+    assert all(
+        "/securebench-workspace/securebench/evaluation_inputs/test.patch" not in tuple(command)
+        for command, _, _ in sandbox.commands
+        if not isinstance(command, str)
+    )
+    assert (
+        ["git", "apply", "--binary", "/opt/securebench/evaluation_inputs/test.patch"],
+        "/testbed",
+        300.0,
+    ) in sandbox.commands
 
 
 def test_repo_patch_verifier_reports_candidate_patch_failure():

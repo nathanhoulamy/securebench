@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import fnmatch
 import re
-from pathlib import PurePosixPath
+import tempfile
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from securebench.errors import ConfigError
-from securebench.sandboxes import CommandResult, DockerSandbox, Sandbox
+from securebench.sandboxes import CommandResult, DockerBindMount, DockerSandbox, Sandbox
 from securebench.tasks import SecureBenchTask, resource_text, resource_value
 from securebench.verifiers.base import VerificationResult, Verifier, timeout_metadata
 from securebench.verifiers.code_completion import environment_image_for_task
@@ -16,7 +17,9 @@ from securebench.verifiers.code_completion import environment_image_for_task
 
 SandboxFactory = Callable[..., Sandbox]
 DEFAULT_CANDIDATE_PATCH = "securebench/candidate.patch"
-DEFAULT_TEST_PATCH = "securebench/evaluation_inputs/test.patch"
+DEFAULT_SETUP_PATCH = "setup.patch"
+DEFAULT_TEST_PATCH = "test.patch"
+DEFAULT_EVALUATION_INPUTS_TARGET = "/opt/securebench/evaluation_inputs"
 DEFAULT_DENIED_PATH_NAMES = {
     "cargo.lock",
     "cargo.toml",
@@ -69,12 +72,17 @@ class RepoPatchVerifier(Verifier):
         timeout_seconds: float = 300.0,
         candidate_patch_path: str = DEFAULT_CANDIDATE_PATCH,
         test_patch_path: str = DEFAULT_TEST_PATCH,
+        evaluation_inputs_target: str = DEFAULT_EVALUATION_INPUTS_TARGET,
         workspace_mount_target: str = "/securebench-workspace",
     ) -> None:
         self.sandbox_factory = sandbox_factory
         self.timeout_seconds = timeout_seconds
         self.candidate_patch_path = candidate_patch_path
         self.test_patch_path = test_patch_path
+        self.evaluation_inputs_target = _absolute_container_path(
+            evaluation_inputs_target,
+            "evaluation_inputs_target",
+        )
         self.workspace_mount_target = workspace_mount_target
 
     def verify(self, task: SecureBenchTask, candidate: str, **context: Any) -> VerificationResult:
@@ -96,127 +104,173 @@ class RepoPatchVerifier(Verifier):
                 CommandResult(("candidate_patch",), 1, "", "empty candidate patch"),
                 failure_reason="empty_candidate_patch",
             )
-        sandbox = self._sandbox(image)
-        close_sandbox = self.sandbox_factory is None
-
-        try:
-            base_commit = resource_text(task, "base_commit")
-            head = sandbox.run(["git", "rev-parse", "HEAD"], workdir=workdir, timeout=timeout)
-            if head.exit_code != 0:
-                return _failed_result(task, "repo_patch", image, workdir, "base_commit", head)
-
-            if not policy_decision.allowed:
-                return _failed_result(
-                    task,
-                    "repo_patch",
-                    image,
-                    workdir,
-                    "candidate_policy",
-                    CommandResult(
-                        ("candidate_policy",),
-                        1,
-                        "",
-                        candidate_policy_error(policy_decision),
-                    ),
-                    base_commit=base_commit,
-                    image_commit=head.stdout.strip(),
-                    candidate_patch_paths=policy_decision.paths,
-                    denied_candidate_patch_paths=policy_decision.denied_paths,
-                    failure_reason="candidate_patch_policy_violation",
-                )
-
+        with tempfile.TemporaryDirectory(prefix="securebench-repo-patch-eval-") as eval_dir:
+            eval_root = Path(eval_dir)
+            setup_patch_path = None
+            test_patch_path = None
             if tests.setup_patch is not None:
-                setup_patch_path = str(context.get("setup_patch_path", "securebench/evaluation_inputs/setup.patch"))
-                sandbox.write_file(setup_patch_path, tests.setup_patch)
-                apply_setup = sandbox.run(
-                    ["git", "apply", "--binary", self._workspace_path(setup_patch_path)],
+                setup_patch_path = str(context.get("setup_patch_path", DEFAULT_SETUP_PATCH))
+                _write_trusted_patch(eval_root, setup_patch_path, tests.setup_patch)
+            if tests.test_patch is not None:
+                test_patch_path = str(context.get("test_patch_path", self.test_patch_path))
+                _write_trusted_patch(eval_root, test_patch_path, tests.test_patch)
+
+            sandbox = self._sandbox(
+                image,
+                mounts=(
+                    DockerBindMount(
+                        source=eval_root,
+                        target=self.evaluation_inputs_target,
+                        read_only=True,
+                    ),
+                ),
+            )
+            close_sandbox = self.sandbox_factory is None
+
+            try:
+                return self._verify_in_sandbox(
+                    task,
+                    candidate,
+                    tests,
+                    sandbox,
+                    image=image,
                     workdir=workdir,
                     timeout=timeout,
+                    policy_decision=policy_decision,
+                    setup_patch_path=setup_patch_path,
+                    test_patch_path=test_patch_path,
+                    context=context,
                 )
-                if apply_setup.exit_code != 0:
-                    return _failed_result(
-                        task,
-                        "repo_patch",
-                        image,
-                        workdir,
-                        "setup_patch",
-                        apply_setup,
-                        base_commit=base_commit,
-                        image_commit=head.stdout.strip(),
-                    )
+            finally:
+                if close_sandbox:
+                    _close_sandbox(sandbox)
 
-            candidate_path = str(context.get("candidate_patch_path", self.candidate_patch_path))
-            sandbox.write_file(candidate_path, candidate)
-            apply_candidate = sandbox.run(
-                ["git", "apply", "--binary", self._workspace_path(candidate_path)],
+    def _verify_in_sandbox(
+        self,
+        task: SecureBenchTask,
+        candidate: str,
+        tests: "CommandTests",
+        sandbox: Sandbox,
+        *,
+        image: str,
+        workdir: str,
+        timeout: float,
+        policy_decision: "CandidatePatchPolicyDecision",
+        setup_patch_path: str | None,
+        test_patch_path: str | None,
+        context: dict[str, Any],
+    ) -> VerificationResult:
+        base_commit = resource_text(task, "base_commit")
+        head = sandbox.run(["git", "rev-parse", "HEAD"], workdir=workdir, timeout=timeout)
+        if head.exit_code != 0:
+            return _failed_result(task, "repo_patch", image, workdir, "base_commit", head)
+
+        if not policy_decision.allowed:
+            return _failed_result(
+                task,
+                "repo_patch",
+                image,
+                workdir,
+                "candidate_policy",
+                CommandResult(
+                    ("candidate_policy",),
+                    1,
+                    "",
+                    candidate_policy_error(policy_decision),
+                ),
+                base_commit=base_commit,
+                image_commit=head.stdout.strip(),
+                candidate_patch_paths=policy_decision.paths,
+                denied_candidate_patch_paths=policy_decision.denied_paths,
+                failure_reason="candidate_patch_policy_violation",
+            )
+
+        if setup_patch_path is not None:
+            apply_setup = sandbox.run(
+                ["git", "apply", "--binary", self._evaluation_input_path(setup_patch_path)],
                 workdir=workdir,
                 timeout=timeout,
             )
-            if apply_candidate.exit_code != 0:
+            if apply_setup.exit_code != 0:
                 return _failed_result(
                     task,
                     "repo_patch",
                     image,
                     workdir,
-                    "candidate_patch",
-                    apply_candidate,
+                    "setup_patch",
+                    apply_setup,
                     base_commit=base_commit,
                     image_commit=head.stdout.strip(),
                 )
 
-            if tests.test_patch is not None:
-                test_patch_path = str(context.get("test_patch_path", self.test_patch_path))
-                sandbox.write_file(test_patch_path, tests.test_patch)
-                apply_tests = sandbox.run(
-                    ["git", "apply", "--binary", self._workspace_path(test_patch_path)],
-                    workdir=workdir,
-                    timeout=timeout,
-                )
-                if apply_tests.exit_code != 0:
-                    return _failed_result(
-                        task,
-                        "repo_patch",
-                        image,
-                        workdir,
-                        "test_patch",
-                        apply_tests,
-                        base_commit=base_commit,
-                        image_commit=head.stdout.strip(),
-                    )
-
-            result = sandbox.run(tests.command, workdir=workdir, timeout=timeout)
-            passed = result.exit_code == 0
-            return VerificationResult(
-                task_id=task.id,
-                status="passed" if passed else "failed",
-                passed=passed,
-                score=1.0 if passed else 0.0,
-                stdout=result.stdout,
-                stderr=result.stderr,
-                metadata={
-                    "verifier": "repo_patch",
-                    "image": image,
-                    "workdir": workdir,
-                    "base_commit": base_commit,
-                    "image_commit": head.stdout.strip(),
-                    "command": result.command,
-                    "exit_code": result.exit_code,
-                    "phase": "checks",
-                    "candidate_patch_paths": policy_decision.paths,
-                    **timeout_metadata(result),
-                },
+        candidate_path = str(context.get("candidate_patch_path", self.candidate_patch_path))
+        sandbox.write_file(candidate_path, candidate)
+        apply_candidate = sandbox.run(
+            ["git", "apply", "--binary", self._workspace_path(candidate_path)],
+            workdir=workdir,
+            timeout=timeout,
+        )
+        if apply_candidate.exit_code != 0:
+            return _failed_result(
+                task,
+                "repo_patch",
+                image,
+                workdir,
+                "candidate_patch",
+                apply_candidate,
+                base_commit=base_commit,
+                image_commit=head.stdout.strip(),
             )
-        finally:
-            if close_sandbox:
-                _close_sandbox(sandbox)
 
-    def _sandbox(self, image: str) -> Sandbox:
+        if test_patch_path is not None:
+            apply_tests = sandbox.run(
+                ["git", "apply", "--binary", self._evaluation_input_path(test_patch_path)],
+                workdir=workdir,
+                timeout=timeout,
+            )
+            if apply_tests.exit_code != 0:
+                return _failed_result(
+                    task,
+                    "repo_patch",
+                    image,
+                    workdir,
+                    "test_patch",
+                    apply_tests,
+                    base_commit=base_commit,
+                    image_commit=head.stdout.strip(),
+                )
+
+        result = sandbox.run(tests.command, workdir=workdir, timeout=timeout)
+        passed = result.exit_code == 0
+        return VerificationResult(
+            task_id=task.id,
+            status="passed" if passed else "failed",
+            passed=passed,
+            score=1.0 if passed else 0.0,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            metadata={
+                "verifier": "repo_patch",
+                "image": image,
+                "workdir": workdir,
+                "base_commit": base_commit,
+                "image_commit": head.stdout.strip(),
+                "command": result.command,
+                "exit_code": result.exit_code,
+                "phase": "checks",
+                "candidate_patch_paths": policy_decision.paths,
+                **timeout_metadata(result),
+            },
+        )
+
+    def _sandbox(self, image: str, *, mounts: tuple[DockerBindMount, ...] = ()) -> Sandbox:
         if self.sandbox_factory is not None:
-            return self.sandbox_factory(image=image)
+            return self.sandbox_factory(image=image, mounts=mounts)
         return DockerSandbox(
             image=image,
             network="none",
             read_only=False,
+            mounts=mounts,
             workspace_mount_target=self.workspace_mount_target,
         )
 
@@ -225,6 +279,10 @@ class RepoPatchVerifier(Verifier):
         if candidate.is_absolute():
             return str(candidate)
         return str(PurePosixPath(self.workspace_mount_target) / candidate)
+
+    def _evaluation_input_path(self, path: str) -> str:
+        relative = _safe_relative_patch_path(path)
+        return str(PurePosixPath(self.evaluation_inputs_target) / relative)
 
 
 class CommandTests:
@@ -403,6 +461,42 @@ def environment_workdir_for_task(task: SecureBenchTask) -> str:
     return workdir.strip()
 
 
+def _write_trusted_patch(root: Path, path: str, content: str) -> None:
+    relative = _safe_relative_patch_path(path)
+    target = root.joinpath(*relative.parts)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content)
+
+
+def _safe_relative_patch_path(path: str) -> PurePosixPath:
+    if not isinstance(path, str) or not path:
+        raise ConfigError("trusted patch path must be a non-empty relative path")
+    if "\\" in path:
+        raise ConfigError(f"trusted patch path may not contain backslashes: {path!r}")
+    candidate = PurePosixPath(path)
+    if candidate.is_absolute():
+        raise ConfigError(f"trusted patch path may not be absolute: {path!r}")
+    if ".." in candidate.parts:
+        raise ConfigError(f"trusted patch path may not contain '..': {path!r}")
+    if str(candidate) in ("", "."):
+        raise ConfigError("trusted patch path must be a non-empty relative path")
+    return candidate
+
+
+def _absolute_container_path(path: str, field: str) -> str:
+    if not isinstance(path, str) or not path:
+        raise ConfigError(f"{field} must be a non-empty absolute container path")
+    if "\\" in path:
+        raise ConfigError(f"{field} may not contain backslashes")
+    candidate = PurePosixPath(path)
+    allowed_root = PurePosixPath("/opt/securebench")
+    if not candidate.is_absolute() or ".." in candidate.parts:
+        raise ConfigError(f"{field} must be an absolute container path without '..'")
+    if not (candidate == allowed_root or candidate.is_relative_to(allowed_root)):
+        raise ConfigError(f"{field} must be under {allowed_root}")
+    return str(candidate)
+
+
 def _command(value: object, task_id: str) -> str | tuple[str, ...]:
     if isinstance(value, str) and value.strip():
         return value
@@ -494,4 +588,3 @@ def _close_sandbox(sandbox: Sandbox) -> None:
     close = getattr(sandbox, "close", None)
     if callable(close):
         close()
-
