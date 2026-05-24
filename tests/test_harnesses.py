@@ -296,7 +296,6 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
                 self.write_file("candidate.txt", "FILE-CANDIDATE")
             return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
 
-    monkeypatch.setenv("CODEX_API_KEY", "secret")
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
     monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", TextWritingDockerSandbox)
@@ -323,7 +322,7 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
 
     docker = FakeDockerSandbox.instances[-1]
     assert docker.image == "python:3.11-slim"
-    assert docker.env_names == ("OPENAI_API_KEY", "CODEX_API_KEY")
+    assert docker.env_names == ("OPENAI_API_KEY",)
     assert docker.kwargs["network"] == "bridge"
     assert docker.kwargs["read_only"] is False
     assert len(docker.mounts) == 2
@@ -361,7 +360,7 @@ def test_codex_harness_extracts_code_completion_candidate_file(monkeypatch, tmp_
                 self.write_file("candidate.py", "def add(a, b):\n    return a + b\n")
             return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
 
-    monkeypatch.setenv("CODEX_API_KEY", "secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
     monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", CodeWritingDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
@@ -389,7 +388,7 @@ def test_codex_harness_extracts_code_completion_candidate_file(monkeypatch, tmp_
 
 
 def test_codex_harness_fails_when_code_candidate_file_missing(monkeypatch, tmp_path):
-    monkeypatch.setenv("CODEX_API_KEY", "secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
     monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", FakeDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
@@ -421,7 +420,7 @@ def test_codex_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
                 return CommandResult(tuple(command), 0, "diff --git a/app.py b/app.py\n", "")
             return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
 
-    monkeypatch.setenv("CODEX_API_KEY", "secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
     monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", DiffingDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
@@ -470,7 +469,7 @@ def test_codex_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
     assert docker.commands[-1] == (["git", "diff", "--binary"], "/workspace/repo", 900.0)
 
 
-def test_codex_harness_defaults_to_codex_api_key(monkeypatch, tmp_path):
+def test_codex_harness_defaults_to_openai_api_key(monkeypatch, tmp_path):
     class TextWritingDockerSandbox(FakeDockerSandbox):
         instances = []
 
@@ -480,7 +479,7 @@ def test_codex_harness_defaults_to_codex_api_key(monkeypatch, tmp_path):
                 self.write_file("candidate.txt", "C")
             return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
 
-    monkeypatch.setenv("CODEX_API_KEY", "secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
     monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", TextWritingDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
@@ -499,7 +498,7 @@ def test_codex_harness_defaults_to_codex_api_key(monkeypatch, tmp_path):
     producer = build_harness_producer(harness, workspace_root=tmp_path / "runs")
     producer.produce(task)
 
-    assert FakeDockerSandbox.instances[-1].env_names == ("CODEX_API_KEY",)
+    assert FakeDockerSandbox.instances[-1].env_names == ("OPENAI_API_KEY",)
 
 
 @pytest.mark.parametrize(
@@ -517,7 +516,7 @@ def test_codex_harness_rejects_invalid_config(config, match):
 
 
 def test_codex_harness_requires_benchmark_environment_image(monkeypatch, tmp_path):
-    monkeypatch.setenv("CODEX_API_KEY", "secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
     producer = build_harness_producer(
         HarnessSection(type="codex", config={"model": "gpt-5.1-codex"}),
         workspace_root=tmp_path / "runs",
@@ -527,14 +526,14 @@ def test_codex_harness_requires_benchmark_environment_image(monkeypatch, tmp_pat
         producer.produce(mc_task())
 
 
-def test_codex_harness_requires_codex_api_key(monkeypatch, tmp_path):
-    monkeypatch.delenv("CODEX_API_KEY", raising=False)
+def test_codex_harness_requires_openai_api_key(monkeypatch, tmp_path):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     producer = build_harness_producer(
         HarnessSection(type="codex", config={"model": "gpt-5.1-codex"}),
         workspace_root=tmp_path / "runs",
     )
 
-    with pytest.raises(ConfigError, match="CODEX_API_KEY"):
+    with pytest.raises(ConfigError, match="OPENAI_API_KEY"):
         producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
 
 
@@ -546,7 +545,7 @@ def test_codex_harness_reports_preflight_failure(monkeypatch, tmp_path):
             self.commands.append((command, workdir, timeout))
             return CommandResult(("sh", "-lc", command), 127, "", "codex: not found")
 
-    monkeypatch.setenv("CODEX_API_KEY", "secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
     monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", FailingPreflightDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"

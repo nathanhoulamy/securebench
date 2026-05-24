@@ -222,8 +222,8 @@ def codex_config(config: dict[str, Any]) -> dict[str, Any]:
 
 def codex_env_names(env_names: tuple[str, ...]) -> tuple[str, ...]:
     names = tuple(env_names)
-    if "CODEX_API_KEY" not in names:
-        names = (*names, "CODEX_API_KEY")
+    if "OPENAI_API_KEY" not in names:
+        names = (*names, "OPENAI_API_KEY")
     return names
 
 
@@ -361,6 +361,8 @@ def codex_shell_command(inner: str) -> str:
     return (
         f"export HOME={shell_quote(CODEX_HOME_TARGET)}; "
         f"export PATH={shell_quote(CODEX_OVERLAY_TARGET + '/bin')}:$PATH; "
+        'if [ -z "$OPENAI_API_KEY" ] && [ -n "$CODEX_API_KEY" ]; then export OPENAI_API_KEY="$CODEX_API_KEY"; fi; '
+        'if [ -z "$CODEX_API_KEY" ] && [ -n "$OPENAI_API_KEY" ]; then export CODEX_API_KEY="$OPENAI_API_KEY"; fi; '
         f"{inner}"
     )
 

@@ -222,7 +222,7 @@ Codex harness:
 - Runs Codex in the benchmark image with a tooling overlay.
 - Materializes only public task data for the agent.
 - Uses a separate temporary Codex home directory.
-- Currently forwards `CODEX_API_KEY` into the same container where agent tool commands can run.
+- Currently forwards `OPENAI_API_KEY` into the same container where agent tool commands can run.
 - Currently enables Docker bridge networking.
 - Invokes Codex with approval and sandbox bypass flags.
 

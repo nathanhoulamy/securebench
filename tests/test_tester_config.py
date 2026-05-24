@@ -19,7 +19,7 @@ def valid_tester_config(**overrides):
         },
         "harness": {
             "type": "codex",
-            "env": ["CODEX_API_KEY"],
+            "env": ["OPENAI_API_KEY"],
         },
     }
     data.update(overrides)
@@ -35,7 +35,7 @@ def test_parse_tester_config_accepts_codex_harness():
     assert config.benchmark.manifest == Path("benchmarks/repo-repair/manifest.yaml")
     assert config.benchmark.tasks == Path("benchmarks/repo-repair/tasks.jsonl")
     assert config.harness.type == "codex"
-    assert config.harness.env == ("CODEX_API_KEY",)
+    assert config.harness.env == ("OPENAI_API_KEY",)
     assert config.harness.config == {}
 
 
@@ -44,13 +44,13 @@ def test_parse_tester_config_accepts_codex_harness_without_image():
         valid_tester_config(
             harness={
                 "type": "codex",
-                "env": ["CODEX_API_KEY"],
+                "env": ["OPENAI_API_KEY"],
             }
         )
     )
 
     assert config.harness.type == "codex"
-    assert config.harness.env == ("CODEX_API_KEY",)
+    assert config.harness.env == ("OPENAI_API_KEY",)
 
 
 def test_parse_tester_config_accepts_claude_code_harness():

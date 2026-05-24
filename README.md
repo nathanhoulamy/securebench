@@ -28,7 +28,7 @@ python3 -m venv .venv
 For Codex harness runs, put your key in `.env`:
 
 ```bash
-CODEX_API_KEY=...
+OPENAI_API_KEY=...
 ```
 
 Run the code-completion smoke pack through candidate extraction and verification:
@@ -76,7 +76,7 @@ benchmark:
 harness:
   type: codex
   env:
-    - CODEX_API_KEY
+    - OPENAI_API_KEY
   config:
     model: gpt-5.4-mini
     version: latest
