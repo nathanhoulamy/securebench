@@ -37,6 +37,7 @@ class DockerSandbox(Sandbox):
         image: str = "python:3.11-slim",
         root: str | Path | None = None,
         env_names: tuple[str, ...] = (),
+        env: dict[str, str] | None = None,
         persistent: bool = True,
         network: str = "none",
         cap_drop: tuple[str, ...] = ("ALL",),
@@ -50,6 +51,7 @@ class DockerSandbox(Sandbox):
     ) -> None:
         self.image = image
         self.env_names = tuple(env_names)
+        self.env = {} if env is None else dict(env)
         self.persistent = persistent
         self.network = network
         self.cap_drop = tuple(cap_drop)
@@ -134,6 +136,7 @@ class DockerSandbox(Sandbox):
                     security_opt=self.security_opt,
                 ),
                 *_docker_env_args(self.env_names),
+                *_docker_explicit_env_args(self.env),
                 self.image,
                 *normalized,
             ]
@@ -254,6 +257,7 @@ class DockerSandbox(Sandbox):
                     security_opt=self.security_opt,
                 ),
                 *_docker_env_args(self.env_names),
+                *_docker_explicit_env_args(self.env),
                 self.image,
                 "sleep",
                 "infinity",
@@ -358,6 +362,15 @@ def _docker_env_args(env_names: tuple[str, ...]) -> tuple[str, ...]:
         if not name or "=" in name:
             raise ValueError(f"Docker environment variable name is invalid: {name!r}")
         args.extend(["-e", name])
+    return tuple(args)
+
+
+def _docker_explicit_env_args(env: dict[str, str]) -> tuple[str, ...]:
+    args: list[str] = []
+    for name, value in env.items():
+        if not name or "=" in name:
+            raise ValueError(f"Docker environment variable name is invalid: {name!r}")
+        args.extend(["-e", f"{name}={value}"])
     return tuple(args)
 
 

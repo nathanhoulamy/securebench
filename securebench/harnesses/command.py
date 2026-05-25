@@ -29,6 +29,12 @@ from securebench.harnesses.shared import (
     workspace_mount_target_for_task,
     workspace_root,
 )
+from securebench.harnesses.network import (
+    HarnessEgress,
+    allowed_domains_config,
+    docker_egress_policy,
+    effective_allowed_domains,
+)
 from securebench.workspaces.materialization import (
     MaterializationPlan,
     VisibilityAwareMaterializer,
@@ -38,7 +44,13 @@ from securebench.sandboxes import DockerSandbox, HostSandbox, Sandbox
 from securebench.tasks import SecureBenchTask
 
 
-COMMAND_CONFIG_FIELDS = {"command", "artifact_path", "task_file", "timeout_seconds"}
+COMMAND_CONFIG_FIELDS = {
+    "command",
+    "artifact_path",
+    "task_file",
+    "timeout_seconds",
+    "allowed_domains",
+}
 COMMAND_DEFAULT_TASK_FILE = "task.json"
 
 
@@ -53,6 +65,7 @@ class CommandHarnessProducer(CandidateProducer):
         artifact_path: str | None = None,
         task_file: str = COMMAND_DEFAULT_TASK_FILE,
         timeout_seconds: float | None = None,
+        allowed_domains: tuple[str, ...] = (),
         workspace_root: str | Path | None = None,
     ) -> None:
         self.env_names = tuple(env_names)
@@ -60,6 +73,7 @@ class CommandHarnessProducer(CandidateProducer):
         self.artifact_path = artifact_path
         self.task_file = task_file
         self.timeout_seconds = timeout_seconds
+        self.allowed_domains = tuple(allowed_domains)
         self.workspace_root = None if workspace_root is None else Path(workspace_root)
         self.materializer = VisibilityAwareMaterializer()
 
@@ -81,59 +95,68 @@ class CommandHarnessProducer(CandidateProducer):
             reject_artifact_collision(self.artifact_path, plan)
             staging.write_file(self.task_file, agent_task_json(task))
 
-            sandbox = self._sandbox(task, task_workspace, plan)
-            try:
-                timeout = run_timeout_seconds(
-                    task,
-                    context_timeout=context.get("timeout"),
-                    fallback_timeout=self.timeout_seconds,
-                )
-                result = sandbox.run(
-                    self.command,
-                    workdir=task_workdir(task) if task.task_type == "terminal_task" else None,
-                    timeout=timeout,
-                )
-                extraction = (
-                    file_extraction_spec(task, self.artifact_path)
-                    if self.artifact_path is not None
-                    else _default_command_extraction_spec(task)
-                )
-                candidate = extract_candidate(
-                    task,
-                    sandbox,
-                    result,
-                    extraction,
-                    timeout=timeout,
-                )
-                return CandidateArtifact(
-                    text=candidate.text,
-                    patch=candidate.patch,
-                    workspace=candidate.workspace,
-                    stdout=candidate.stdout,
-                    stderr=candidate.stderr,
-                    metadata={
-                        "harness": "command",
-                        "exit_code": result.exit_code,
-                        "task_file": self.task_file,
-                        "artifact_path": self.artifact_path,
-                        "workspace_root": str(task_workspace),
-                        **candidate.metadata,
-                    },
-                )
-            finally:
-                close_sandbox(sandbox)
+            allowed_domains = effective_allowed_domains("command", self.allowed_domains)
+            with docker_egress_policy(allowed_domains) as egress:
+                sandbox = self._sandbox(task, task_workspace, plan, egress)
+                try:
+                    timeout = run_timeout_seconds(
+                        task,
+                        context_timeout=context.get("timeout"),
+                        fallback_timeout=self.timeout_seconds,
+                    )
+                    result = sandbox.run(
+                        self.command,
+                        workdir=task_workdir(task) if task.task_type == "terminal_task" else None,
+                        timeout=timeout,
+                    )
+                    extraction = (
+                        file_extraction_spec(task, self.artifact_path)
+                        if self.artifact_path is not None
+                        else _default_command_extraction_spec(task)
+                    )
+                    candidate = extract_candidate(
+                        task,
+                        sandbox,
+                        result,
+                        extraction,
+                        timeout=timeout,
+                    )
+                    return CandidateArtifact(
+                        text=candidate.text,
+                        patch=candidate.patch,
+                        workspace=candidate.workspace,
+                        stdout=candidate.stdout,
+                        stderr=candidate.stderr,
+                        metadata={
+                            "harness": "command",
+                            "exit_code": result.exit_code,
+                            "task_file": self.task_file,
+                            "artifact_path": self.artifact_path,
+                            "workspace_root": str(task_workspace),
+                            "allowed_domains": allowed_domains,
+                            **candidate.metadata,
+                        },
+                    )
+                finally:
+                    close_sandbox(sandbox)
         finally:
             if cleanup is not None:
                 cleanup.cleanup()
 
     def _sandbox(
-        self, task: SecureBenchTask, task_workspace: Path, plan: MaterializationPlan
+        self,
+        task: SecureBenchTask,
+        task_workspace: Path,
+        plan: MaterializationPlan,
+        egress: HarnessEgress,
     ) -> Sandbox:
         image = container_image_for_task(task)
         return DockerSandbox(
             image=image,
             root=task_workspace,
             env_names=self.env_names,
+            env=egress.env,
+            network=egress.network,
             mounts=docker_read_only_mounts(plan, task_workspace),
             workspace_mount_target=workspace_mount_target_for_task(task),
         )
@@ -153,6 +176,7 @@ def command_config(config: dict[str, Any]) -> dict[str, Any]:
         "timeout_seconds": optional_positive_number(
             config.get("timeout_seconds"), "harness.config.timeout_seconds"
         ),
+        "allowed_domains": allowed_domains_config(config.get("allowed_domains")),
     }
 
 

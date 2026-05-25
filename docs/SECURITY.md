@@ -208,7 +208,7 @@ Needed hardening:
 
 ## Harness Security
 
-SecureBench currently has two active harness styles.
+SecureBench currently has command and provider CLI harness styles.
 
 Command harness:
 
@@ -217,21 +217,23 @@ Command harness:
 - Mounts file-backed public assets read-only by default.
 - Should be considered trusted-tester configuration, not an untrusted-agent-selected command surface.
 
-Codex harness:
+Provider CLI harnesses:
 
-- Runs Codex in the benchmark image with a tooling overlay.
+- Run Codex or Claude Code in the benchmark image with a tooling overlay.
 - Materializes only public task data for the agent.
-- Uses a separate temporary Codex home directory.
-- Currently forwards `OPENAI_API_KEY` into the same container where agent tool commands can run.
-- Currently enables Docker bridge networking.
-- Invokes Codex with approval and sandbox bypass flags.
+- Use separate temporary tool home directories.
+- Currently forward provider API keys into the same container where agent tool
+  commands can run.
+- Runs on an isolated Docker network with egress routed through a
+  framework-owned allowlisting HTTP(S) proxy. The default egress allowlist is
+  the provider API domain required by the harness, plus any tester-configured
+  `harness.config.allowed_domains`.
+- Invoke provider CLIs with approval and sandbox bypass flags.
 
-Needed Codex hardening:
+Needed provider CLI hardening:
 
 - Do not expose long-lived API keys to the same environment where an evaluated agent can run shell commands.
 - Prefer a brokered model-client design or short-lived scoped credentials.
-- Add a safe-by-default no-egress mode.
-- Make unsafe credential/network behavior require explicit opt-in.
 - Redact known secret values from producer stdout, stderr, progress, and metadata.
 
 ## Result And Audit Integrity

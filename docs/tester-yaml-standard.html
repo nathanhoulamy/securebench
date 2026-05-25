@@ -249,7 +249,9 @@ harness:
     model: gpt-5.4-mini
     version: latest
     task_file: task.json
-    timeout_seconds: 900</pre>
+    timeout_seconds: 900
+    allowed_domains:
+      - docs.python.org</pre>
       <div class="note">Tester YAML cannot relax benchmark security constraints. SecureBench should fail preflight if the selected harness cannot satisfy the benchmark requirements.</div>
     </section>
 
@@ -264,9 +266,9 @@ harness:
     <section>
       <h2>Harness Execution</h2>
       <div class="grid">
-        <div class="mini-card"><h3>command</h3><p>SecureBench runs the tester-provided command inside the benchmark environment image with only public workspace data and allowlisted credentials.</p></div>
-        <div class="mini-card"><h3>codex</h3><p>SecureBench runs Codex inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state.</p></div>
-        <div class="mini-card"><h3>claude_code</h3><p>SecureBench runs Claude Code inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state.</p></div>
+        <div class="mini-card"><h3>command</h3><p>SecureBench runs the tester-provided command inside the benchmark environment image with only public workspace data, allowlisted credentials, and optional domain allowlisted egress.</p></div>
+        <div class="mini-card"><h3>codex</h3><p>SecureBench runs Codex inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state. Egress is limited to the provider API domain and optional tester domains.</p></div>
+        <div class="mini-card"><h3>claude_code</h3><p>SecureBench runs Claude Code inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state. Egress is limited to the provider API domain and optional tester domains.</p></div>
       </div>
       <pre class="schema"># Codex tooling overlay
 harness:
@@ -275,6 +277,8 @@ harness:
     - OPENAI_API_KEY
   config:
     model: gpt-5.4-mini
+    allowed_domains:
+      - docs.python.org
 
 # Containerized command harness
 harness:
@@ -282,7 +286,9 @@ harness:
   env:
     - CUSTOM_API_KEY
   config:
-    command: [&quot;python&quot;, &quot;-m&quot;, &quot;my_harness&quot;]</pre>
+    command: [&quot;python&quot;, &quot;-m&quot;, &quot;my_harness&quot;]
+    allowed_domains:
+      - pypi.org</pre>
     </section>
 
     <section>

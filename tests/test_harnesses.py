@@ -64,10 +64,43 @@ class FakeDockerSandbox(FakeHostSandbox):
         FakeDockerSandbox.instances.append(self)
 
 
+class FakeEgressPolicy:
+    calls = []
+
+    def __init__(self, allowed_domains):
+        self.allowed_domains = tuple(allowed_domains)
+        FakeEgressPolicy.calls.append(self.allowed_domains)
+
+    def __enter__(self):
+        if not self.allowed_domains:
+            return SimpleNamespace(network="none", env={}, allowed_domains=())
+        return SimpleNamespace(
+            network="securebench-egress",
+            env={
+                "HTTP_PROXY": "http://securebench-egress-proxy:8080",
+                "HTTPS_PROXY": "http://securebench-egress-proxy:8080",
+                "ALL_PROXY": "http://securebench-egress-proxy:8080",
+                "NO_PROXY": "localhost,127.0.0.1,::1",
+                "http_proxy": "http://securebench-egress-proxy:8080",
+                "https_proxy": "http://securebench-egress-proxy:8080",
+                "all_proxy": "http://securebench-egress-proxy:8080",
+                "no_proxy": "localhost,127.0.0.1,::1",
+            },
+            allowed_domains=self.allowed_domains,
+        )
+
+    def __exit__(self, exc_type, exc, traceback):
+        return None
+
+
 @pytest.fixture(autouse=True)
-def reset_fakes():
+def reset_fakes(monkeypatch):
     FakeHostSandbox.instances = []
     FakeDockerSandbox.instances = []
+    FakeEgressPolicy.calls = []
+    monkeypatch.setattr("securebench.harnesses.command.docker_egress_policy", FakeEgressPolicy)
+    monkeypatch.setattr("securebench.harnesses.codex.docker_egress_policy", FakeEgressPolicy)
+    monkeypatch.setattr("securebench.harnesses.claude_code.docker_egress_policy", FakeEgressPolicy)
 
 
 def mc_task(manifest=None, *, assets=(), environment=None):
@@ -146,10 +179,29 @@ def test_command_harness_writes_public_task_file_and_uses_stdout(monkeypatch, tm
     assert artifact.metadata["candidate_kind"] == "text"
     docker = FakeDockerSandbox.instances[-1]
     assert docker.image == "python:3.11-slim"
+    assert docker.kwargs["network"] == "none"
+    assert docker.kwargs["env"] == {}
     assert docker.commands == [(("produce",), None, 7.0)]
     task_payload = json.loads((tmp_path / "mc-1" / "task.json").read_text())
     assert task_payload == {"question": "2 + 2?", "choices": ["1", "2", "4"]}
     assert "answer" not in task_payload
+
+
+def test_command_harness_uses_proxy_network_when_domains_are_allowed(monkeypatch, tmp_path):
+    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
+    producer = build_harness_producer(
+        harness_section(config={"command": ["produce"], "allowed_domains": ["docs.python.org"]}),
+        workspace_root=tmp_path,
+    )
+
+    artifact = producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
+
+    docker = FakeDockerSandbox.instances[-1]
+    assert docker.kwargs["network"] == "securebench-egress"
+    assert docker.kwargs["env"]["HTTPS_PROXY"] == "http://securebench-egress-proxy:8080"
+    assert artifact.metadata["allowed_domains"] == ("docs.python.org",)
+    assert FakeEgressPolicy.calls[-1] == ("docs.python.org",)
 
 
 def test_command_harness_file_backed_candidate(monkeypatch, tmp_path):
@@ -309,6 +361,7 @@ def test_command_harness_uses_docker_and_read_only_asset_mounts(monkeypatch, tmp
     docker = FakeDockerSandbox.instances[-1]
     assert docker.image == "python:3.11-slim"
     assert docker.env_names == ("OPENAI_API_KEY",)
+    assert docker.kwargs["network"] == "none"
     assert len(docker.mounts) == 1
     assert docker.mounts[0].target == "input.txt"
     assert docker.mounts[0].read_only is True
@@ -366,7 +419,8 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
     docker = FakeDockerSandbox.instances[-1]
     assert docker.image == "python:3.11-slim"
     assert docker.env_names == ("OPENAI_API_KEY",)
-    assert docker.kwargs["network"] == "bridge"
+    assert docker.kwargs["network"] == "securebench-egress"
+    assert docker.kwargs["env"]["HTTPS_PROXY"] == "http://securebench-egress-proxy:8080"
     assert docker.kwargs["read_only"] is False
     assert len(docker.mounts) == 2
     assert docker.mounts[0].source == overlay_path
@@ -388,6 +442,8 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
     assert artifact.patch is None
     assert artifact.metadata["harness"] == "codex"
     assert artifact.metadata["codex_model"] == "gpt-5.1-codex"
+    assert artifact.metadata["allowed_domains"] == ("api.openai.com",)
+    assert FakeEgressPolicy.calls[-1] == ("api.openai.com",)
     assert artifact.metadata["overlay_platform"] == "linux/arm64"
     assert artifact.metadata["candidate_extraction"] == "file"
     assert artifact.metadata["candidate_path"] == "candidate.txt"
@@ -542,6 +598,7 @@ def test_codex_harness_defaults_to_openai_api_key(monkeypatch, tmp_path):
     producer.produce(task)
 
     assert FakeDockerSandbox.instances[-1].env_names == ("OPENAI_API_KEY",)
+    assert FakeEgressPolicy.calls[-1] == ("api.openai.com",)
 
 
 @pytest.mark.parametrize(
@@ -551,6 +608,7 @@ def test_codex_harness_defaults_to_openai_api_key(monkeypatch, tmp_path):
         ({"model": ""}, "model"),
         ({"model": "bad/model"}, "model"),
         ({"model": "gpt-5.1-codex", "unknown": True}, "unsupported field"),
+        ({"model": "gpt-5.1-codex", "allowed_domains": ["https://example.com"]}, "allowed_domains"),
     ],
 )
 def test_codex_harness_rejects_invalid_config(config, match):
@@ -690,6 +748,7 @@ def test_codex_overlay_repopulates_when_node_runtime_is_missing(monkeypatch, tmp
         ({"command": ["python"], "artifact_path": "   "}, "artifact_path"),
         ({"command": ["python"], "artifact_path": "../candidate.txt"}, "artifact_path"),
         ({"command": ["python"], "task_file": "securebench/evaluation_inputs/task.json"}, "task_file"),
+        ({"command": ["python"], "allowed_domains": ["127.0.0.1"]}, "allowed_domains"),
         ({"command": ["python"], "unknown": True}, "unsupported field"),
     ],
 )
@@ -735,7 +794,8 @@ def test_claude_code_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch
     docker = FakeDockerSandbox.instances[-1]
     assert docker.image == "python:3.11-slim"
     assert docker.env_names == ("ANTHROPIC_API_KEY",)
-    assert docker.kwargs["network"] == "bridge"
+    assert docker.kwargs["network"] == "securebench-egress"
+    assert docker.kwargs["env"]["HTTPS_PROXY"] == "http://securebench-egress-proxy:8080"
     assert docker.kwargs["read_only"] is False
     assert len(docker.mounts) == 2
     assert docker.mounts[0].source == overlay_path
@@ -756,6 +816,8 @@ def test_claude_code_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch
     assert artifact.patch is None
     assert artifact.metadata["harness"] == "claude_code"
     assert artifact.metadata["claude_code_model"] == "claude-sonnet-4-5"
+    assert artifact.metadata["allowed_domains"] == ("api.anthropic.com",)
+    assert FakeEgressPolicy.calls[-1] == ("api.anthropic.com",)
     assert artifact.metadata["overlay_platform"] == "linux/arm64"
     assert artifact.metadata["candidate_extraction"] == "file"
     assert artifact.metadata["candidate_path"] == "candidate.txt"
@@ -793,6 +855,7 @@ def test_claude_code_harness_defaults_to_anthropic_api_key(monkeypatch, tmp_path
 
     docker = FakeDockerSandbox.instances[-1]
     assert docker.env_names == ("ANTHROPIC_API_KEY",)
+    assert FakeEgressPolicy.calls[-1] == ("api.anthropic.com",)
     assert "claude -p --model 'sonnet'" in docker.commands[1][0]
 
 
@@ -804,6 +867,7 @@ def test_claude_code_harness_defaults_to_anthropic_api_key(monkeypatch, tmp_path
         ({"version": ""}, "version"),
         ({"timeout_seconds": 0}, "timeout_seconds"),
         ({"task_file": "../task.json"}, "task_file"),
+        ({"allowed_domains": ["localhost"]}, "allowed_domains"),
         ({"unknown": True}, "unsupported field"),
     ],
 )

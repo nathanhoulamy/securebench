@@ -37,6 +37,11 @@ from securebench.harnesses.shared import (
     workspace_path,
     workspace_root,
 )
+from securebench.harnesses.network import (
+    allowed_domains_config,
+    docker_egress_policy,
+    effective_allowed_domains,
+)
 from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
 from securebench.tasks import SecureBenchTask
@@ -46,7 +51,13 @@ from securebench.workspaces.materialization import (
 )
 
 
-CLAUDE_CODE_CONFIG_FIELDS = {"model", "version", "task_file", "timeout_seconds"}
+CLAUDE_CODE_CONFIG_FIELDS = {
+    "model",
+    "version",
+    "task_file",
+    "timeout_seconds",
+    "allowed_domains",
+}
 CLAUDE_CODE_OVERLAY_TARGET = "/opt/securebench/claude-code"
 CLAUDE_CODE_HOME_TARGET = "/opt/securebench/claude-home"
 CLAUDE_CODE_DEFAULT_MODEL = "sonnet"
@@ -74,6 +85,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
         version: str = CLAUDE_CODE_DEFAULT_VERSION,
         task_file: str = CLAUDE_CODE_DEFAULT_TASK_FILE,
         timeout_seconds: float | None = CLAUDE_CODE_DEFAULT_TIMEOUT_SECONDS,
+        allowed_domains: tuple[str, ...] = (),
         workspace_root: str | Path | None = None,
     ) -> None:
         self.model = claude_code_model(model)
@@ -81,6 +93,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
         self.version = claude_code_version(version)
         self.task_file = task_file
         self.timeout_seconds = timeout_seconds
+        self.allowed_domains = tuple(allowed_domains)
         self.workspace_root = None if workspace_root is None else Path(workspace_root)
         self.materializer = VisibilityAwareMaterializer()
 
@@ -107,89 +120,93 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
 
             overlay = claude_code_overlay_for_image(image, self.version)
             workspace_mount_target = workspace_mount_target_for_task(task)
-            sandbox = DockerSandbox(
-                image=image,
-                root=task_workspace,
-                env_names=self.env_names,
-                network="bridge",
-                read_only=False,
-                mounts=(
-                    *docker_read_only_mounts(plan, task_workspace),
-                    DockerBindMount(
-                        source=overlay.path,
-                        target=CLAUDE_CODE_OVERLAY_TARGET,
-                        read_only=True,
+            allowed_domains = effective_allowed_domains("claude_code", self.allowed_domains)
+            with docker_egress_policy(allowed_domains) as egress:
+                sandbox = DockerSandbox(
+                    image=image,
+                    root=task_workspace,
+                    env_names=self.env_names,
+                    env=egress.env,
+                    network=egress.network,
+                    read_only=False,
+                    mounts=(
+                        *docker_read_only_mounts(plan, task_workspace),
+                        DockerBindMount(
+                            source=overlay.path,
+                            target=CLAUDE_CODE_OVERLAY_TARGET,
+                            read_only=True,
+                        ),
+                        DockerBindMount(
+                            source=state_root,
+                            target=CLAUDE_CODE_HOME_TARGET,
+                            read_only=False,
+                        ),
                     ),
-                    DockerBindMount(
-                        source=state_root,
-                        target=CLAUDE_CODE_HOME_TARGET,
-                        read_only=False,
-                    ),
-                ),
-                workspace_mount_target=workspace_mount_target,
-            )
-            try:
-                timeout = run_timeout_seconds(
-                    task,
-                    context_timeout=context.get("timeout"),
-                    fallback_timeout=self.timeout_seconds,
+                    workspace_mount_target=workspace_mount_target,
                 )
-                preflight = sandbox.run(
-                    claude_code_shell_command("claude --version"),
-                    timeout=timeout,
-                )
-                if preflight.exit_code != 0:
-                    raise ConfigError(
-                        "claude_code overlay is incompatible with benchmark environment image "
-                        f"{image!r}: claude --version failed with exit code {preflight.exit_code}; "
-                        f"stderr: {preflight.stderr.strip()}"
+                try:
+                    timeout = run_timeout_seconds(
+                        task,
+                        context_timeout=context.get("timeout"),
+                        fallback_timeout=self.timeout_seconds,
                     )
-                task_file_for_agent = container_workspace_path(
-                    self.task_file,
-                    mount_target=workspace_mount_target,
-                )
-                agent_workdir = claude_code_agent_workdir(task)
-                baseline = prepare_repo_patch_baseline(sandbox, task, agent_workdir, timeout)
-                result = sandbox.run(
-                    claude_code_shell_command(
-                        f"claude -p --model {shell_quote(self.model)} "
-                        "--output-format json --dangerously-skip-permissions "
-                        "--no-session-persistence "
-                        f"{shell_quote(claude_code_prompt(task, task_file_for_agent))}"
-                    ),
-                    workdir=agent_workdir,
-                    timeout=timeout,
-                )
-                extraction = default_extraction_spec(task, allow_stdout=False)
-                candidate = extract_candidate(
-                    task,
-                    sandbox,
-                    result,
-                    extraction,
-                    timeout=timeout,
-                )
-                return CandidateArtifact(
-                    text=candidate.text,
-                    patch=candidate.patch,
-                    workspace=candidate.workspace,
-                    stdout=result.stdout,
-                    stderr=result.stderr,
-                    metadata={
-                        "harness": "claude_code",
-                        "exit_code": result.exit_code,
-                        "task_file": self.task_file,
-                        "workspace_root": str(task_workspace),
-                        "benchmark_environment_image": image,
-                        "claude_code_version": overlay.version,
-                        "claude_code_model": self.model,
-                        "overlay_platform": overlay.platform.docker_platform,
-                        "overlay_cache_path": str(overlay.path),
-                        **baseline,
-                        **candidate.metadata,
-                    },
-                )
-            finally:
-                close_sandbox(sandbox)
+                    preflight = sandbox.run(
+                        claude_code_shell_command("claude --version"),
+                        timeout=timeout,
+                    )
+                    if preflight.exit_code != 0:
+                        raise ConfigError(
+                            "claude_code overlay is incompatible with benchmark environment image "
+                            f"{image!r}: claude --version failed with exit code {preflight.exit_code}; "
+                            f"stderr: {preflight.stderr.strip()}"
+                        )
+                    task_file_for_agent = container_workspace_path(
+                        self.task_file,
+                        mount_target=workspace_mount_target,
+                    )
+                    agent_workdir = claude_code_agent_workdir(task)
+                    baseline = prepare_repo_patch_baseline(sandbox, task, agent_workdir, timeout)
+                    result = sandbox.run(
+                        claude_code_shell_command(
+                            f"claude -p --model {shell_quote(self.model)} "
+                            "--output-format json --dangerously-skip-permissions "
+                            "--no-session-persistence "
+                            f"{shell_quote(claude_code_prompt(task, task_file_for_agent))}"
+                        ),
+                        workdir=agent_workdir,
+                        timeout=timeout,
+                    )
+                    extraction = default_extraction_spec(task, allow_stdout=False)
+                    candidate = extract_candidate(
+                        task,
+                        sandbox,
+                        result,
+                        extraction,
+                        timeout=timeout,
+                    )
+                    return CandidateArtifact(
+                        text=candidate.text,
+                        patch=candidate.patch,
+                        workspace=candidate.workspace,
+                        stdout=result.stdout,
+                        stderr=result.stderr,
+                        metadata={
+                            "harness": "claude_code",
+                            "exit_code": result.exit_code,
+                            "task_file": self.task_file,
+                            "workspace_root": str(task_workspace),
+                            "benchmark_environment_image": image,
+                            "claude_code_version": overlay.version,
+                            "claude_code_model": self.model,
+                            "overlay_platform": overlay.platform.docker_platform,
+                            "overlay_cache_path": str(overlay.path),
+                            "allowed_domains": allowed_domains,
+                            **baseline,
+                            **candidate.metadata,
+                        },
+                    )
+                finally:
+                    close_sandbox(sandbox)
         finally:
             state_cleanup.cleanup()
             if cleanup is not None:
@@ -209,6 +226,7 @@ def claude_code_config(config: dict[str, Any]) -> dict[str, Any]:
             config.get("timeout_seconds", CLAUDE_CODE_DEFAULT_TIMEOUT_SECONDS),
             "harness.config.timeout_seconds",
         ),
+        "allowed_domains": allowed_domains_config(config.get("allowed_domains")),
     }
 
 

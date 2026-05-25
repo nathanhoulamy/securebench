@@ -76,6 +76,28 @@ def test_docker_sandbox_can_use_disposable_container_per_command(monkeypatch, tm
     assert seen["command"][-2:] == ["python", "--version"]
 
 
+def test_docker_sandbox_passes_explicit_environment_values(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path,
+        persistent=False,
+        env={"HTTPS_PROXY": "http://proxy:8080"},
+    )
+    sandbox.run(["python", "--version"])
+
+    assert ["-e", "HTTPS_PROXY=http://proxy:8080"] == seen["command"][
+        seen["command"].index("-e") : seen["command"].index("-e") + 2
+    ]
+
+
 def test_docker_sandbox_run_reports_timeout_and_closes_persistent_container(monkeypatch, tmp_path):
     seen = {"commands": []}
 
