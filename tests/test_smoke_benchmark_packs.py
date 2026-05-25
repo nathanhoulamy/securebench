@@ -11,6 +11,7 @@ HUMANEVAL_MINI = ROOT / "benchmarks" / "humaneval-mini"
 MMLU_ABSTRACT_ALGEBRA_MINI = ROOT / "benchmarks" / "mmlu-abstract-algebra-mini"
 SQUAD_V1_MINI = ROOT / "benchmarks" / "squad-v1-mini"
 TERMINAL_TASK_SMOKE = ROOT / "benchmarks" / "terminal-task-smoke"
+TERMINAL_BENCH_FIRST10 = ROOT / "benchmarks" / "terminal-bench-first10"
 TRUTHFULQA_GENERATION_MINI = ROOT / "benchmarks" / "truthfulqa-generation-mini"
 
 
@@ -177,3 +178,33 @@ def test_terminal_task_smoke_tester_yaml_uses_command_harness():
     assert config.benchmark.manifest == TERMINAL_TASK_SMOKE / "manifest.yaml"
     assert config.benchmark.tasks == TERMINAL_TASK_SMOKE / "tasks.jsonl"
     assert config.harness.type == "command"
+
+
+def test_terminal_bench_first10_pack_loads_and_compiles():
+    pack = load_benchmark_pack(
+        TERMINAL_BENCH_FIRST10 / "manifest.yaml",
+        TERMINAL_BENCH_FIRST10 / "tasks.jsonl",
+    )
+
+    rows = pack.load_rows()
+    tasks = list(compile_benchmark_pack(pack))
+
+    assert len(rows) == 10
+    assert rows[0].id == "terminal-bench-first10/path-tracing"
+    assert rows[-1].id == "terminal-bench-first10/stable-parallel-kmeans"
+    assert all(row.family == "terminal_task" for row in rows)
+    assert all(task.task_type == "terminal_task" for task in tasks)
+    assert all("checker" not in task.agent_payload() for task in tasks)
+    assert any(
+        task.metadata["environment"].get("materialize_workdir_from_image") is True
+        for task in tasks
+    )
+
+
+def test_terminal_bench_first10_tester_yaml_uses_codex_harness():
+    config = load_tester_config(TERMINAL_BENCH_FIRST10 / "tester-codex.yaml")
+
+    assert config.run.id == "terminal-bench-first10-codex"
+    assert config.benchmark.manifest == TERMINAL_BENCH_FIRST10 / "manifest.yaml"
+    assert config.benchmark.tasks == TERMINAL_BENCH_FIRST10 / "tasks.jsonl"
+    assert config.harness.type == "codex"

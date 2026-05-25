@@ -1,5 +1,6 @@
 import pytest
 
+from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import (
     AssetDefaults,
     AssetRoots,
@@ -146,6 +147,38 @@ defaults:
         "network": "none",
         "timeout_seconds": 120,
     }
+
+
+def test_terminal_task_image_workdir_materialization_flag_is_preserved(tmp_path):
+    manifest_path = tmp_path / "manifest.yaml"
+    tasks_path = tmp_path / "tasks.jsonl"
+    manifest_path.write_text(
+        """
+id: example-pack
+version: 1
+defaults:
+  family: terminal_task
+  environment:
+    image: task-image:latest
+    workdir: /app
+"""
+    )
+    tasks_path.write_text(
+        '{"id":"task-1","environment":{"materialize_workdir_from_image":true},'
+        '"input":{"instructions":"Edit the image-prepared workspace."},'
+        '"eval":{"checker":{"command":"true"}}}\n'
+    )
+
+    pack = load_benchmark_pack(manifest_path, tasks_path)
+    row = pack.load_rows()[0]
+
+    assert row.environment == {
+        "image": "task-image:latest",
+        "workdir": "/app",
+        "materialize_workdir_from_image": True,
+    }
+    task = next(compile_benchmark_pack(pack))
+    assert task.metadata["environment"]["materialize_workdir_from_image"] is True
 
 
 def test_row_family_overrides_manifest_default(tmp_path):

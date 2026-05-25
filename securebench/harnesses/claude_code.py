@@ -28,6 +28,7 @@ from securebench.harnesses.shared import (
     close_sandbox,
     container_image_for_task,
     container_workspace_path,
+    materialize_workdir_from_image_if_requested,
     optional_positive_number,
     reject_task_file_collision,
     reject_unknown_fields,
@@ -108,11 +109,13 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
         if task_workspace is None:
             cleanup = tempfile.TemporaryDirectory(prefix="securebench-claude-code-")
             task_workspace = Path(cleanup.name)
-        task_workspace.mkdir(parents=True, exist_ok=True)
-        state_cleanup = tempfile.TemporaryDirectory(prefix="securebench-claude-home-")
-        state_root = Path(state_cleanup.name)
+        state_cleanup = None
 
         try:
+            task_workspace.mkdir(parents=True, exist_ok=True)
+            materialize_workdir_from_image_if_requested(task, task_workspace)
+            state_cleanup = tempfile.TemporaryDirectory(prefix="securebench-claude-home-")
+            state_root = Path(state_cleanup.name)
             staging = HostSandbox(root=task_workspace)
             plan = self.materializer.materialize(task, staging, "agent")
             reject_task_file_collision(self.task_file, plan)
@@ -208,7 +211,8 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                 finally:
                     close_sandbox(sandbox)
         finally:
-            state_cleanup.cleanup()
+            if state_cleanup is not None:
+                state_cleanup.cleanup()
             if cleanup is not None:
                 cleanup.cleanup()
 

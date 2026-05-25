@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
+import uuid
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -57,6 +59,54 @@ def task_timeout_seconds(task: SecureBenchTask) -> float | None:
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
         raise ConfigError("benchmark environment.timeout_seconds must be a positive number")
     return float(timeout)
+
+
+def materialize_workdir_from_image_if_requested(task: SecureBenchTask, destination: Path) -> bool:
+    """Copy a task image's workdir into the host workspace for image-backed terminal tasks."""
+    environment = task_environment(task)
+    requested = environment.get("materialize_workdir_from_image", False)
+    if requested is False:
+        return False
+    if requested is not True:
+        raise ConfigError("benchmark environment.materialize_workdir_from_image must be a boolean")
+    if task.task_type != "terminal_task":
+        raise ConfigError("environment.materialize_workdir_from_image is only supported for terminal_task")
+
+    image = container_image_for_task(task)
+    source = workspace_mount_target_for_task(task)
+    destination.mkdir(parents=True, exist_ok=True)
+    container = f"securebench-copy-{uuid.uuid4().hex}"
+    created = subprocess.run(
+        ["docker", "create", "--name", container, image],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if created.returncode != 0:
+        raise ConfigError(
+            "failed to create image materialization container "
+            f"for {image!r}: {created.stderr.strip()}"
+        )
+    try:
+        copied = subprocess.run(
+            ["docker", "cp", f"{container}:{source}/.", str(destination)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if copied.returncode != 0:
+            raise ConfigError(
+                "failed to materialize benchmark image workdir "
+                f"{source!r} from {image!r}: {copied.stderr.strip()}"
+            )
+    finally:
+        subprocess.run(
+            ["docker", "rm", "-f", container],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    return True
 
 
 def run_timeout_seconds(

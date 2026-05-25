@@ -24,6 +24,7 @@ from securebench.harnesses.shared import (
     container_workspace_path,
     container_image_for_task,
     optional_positive_number,
+    materialize_workdir_from_image_if_requested,
     reject_task_file_collision,
     reject_unknown_fields,
     run_timeout_seconds,
@@ -118,11 +119,13 @@ class CodexHarnessProducer(CandidateProducer):
         if task_workspace is None:
             cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-")
             task_workspace = Path(cleanup.name)
-        task_workspace.mkdir(parents=True, exist_ok=True)
-        state_cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-home-")
-        state_root = Path(state_cleanup.name)
+        state_cleanup = None
 
         try:
+            task_workspace.mkdir(parents=True, exist_ok=True)
+            materialize_workdir_from_image_if_requested(task, task_workspace)
+            state_cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-home-")
+            state_root = Path(state_cleanup.name)
             staging = HostSandbox(root=task_workspace)
             plan = self.materializer.materialize(task, staging, "agent")
             reject_task_file_collision(self.task_file, plan)
@@ -222,7 +225,8 @@ class CodexHarnessProducer(CandidateProducer):
                 finally:
                     close_sandbox(sandbox)
         finally:
-            state_cleanup.cleanup()
+            if state_cleanup is not None:
+                state_cleanup.cleanup()
             if cleanup is not None:
                 cleanup.cleanup()
 

@@ -18,6 +18,7 @@ from securebench.harnesses.shared import (
     agent_task_json,
     close_sandbox,
     container_image_for_task,
+    materialize_workdir_from_image_if_requested,
     optional_positive_number,
     optional_workspace_path,
     reject_artifact_collision,
@@ -86,9 +87,10 @@ class CommandHarnessProducer(CandidateProducer):
         if task_workspace is None:
             cleanup = tempfile.TemporaryDirectory(prefix="securebench-harness-")
             task_workspace = Path(cleanup.name)
-        task_workspace.mkdir(parents=True, exist_ok=True)
 
         try:
+            task_workspace.mkdir(parents=True, exist_ok=True)
+            materialize_workdir_from_image_if_requested(task, task_workspace)
             staging = HostSandbox(root=task_workspace)
             plan = self.materializer.materialize(task, staging, "agent")
             reject_task_file_collision(self.task_file, plan)
