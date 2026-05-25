@@ -1,8 +1,8 @@
 schema_version: "0.2"
 
 run:
-  id: terminal-bench-first10-codex
-  output_dir: ../../runs/terminal-bench-first10-codex
+  id: terminal-bench-first10-codex-gpt-5.4-mini
+  output_dir: ../../runs/terminal-bench-first10-codex-gpt-5.4-mini
 
 benchmark:
   manifest: manifest.yaml
@@ -13,7 +13,7 @@ harness:
   env:
     - OPENAI_API_KEY
   config:
-    model: gpt-5.5
+    model: gpt-5.4-mini
     version: latest
     task_file: task.json
     timeout_seconds: 900

@@ -10,6 +10,7 @@ CODE_COMPLETION_SMOKE = ROOT / "benchmarks" / "code-completion-smoke"
 HUMANEVAL_MINI = ROOT / "benchmarks" / "humaneval-mini"
 MMLU_ABSTRACT_ALGEBRA_MINI = ROOT / "benchmarks" / "mmlu-abstract-algebra-mini"
 SQUAD_V1_MINI = ROOT / "benchmarks" / "squad-v1-mini"
+SWE_BENCH_VERIFIED_CODEX_SMOKE = ROOT / "benchmarks" / "swe-bench-verified-codex-smoke"
 TERMINAL_TASK_SMOKE = ROOT / "benchmarks" / "terminal-task-smoke"
 TERMINAL_BENCH_FIRST10 = ROOT / "benchmarks" / "terminal-bench-first10"
 TRUTHFULQA_GENERATION_MINI = ROOT / "benchmarks" / "truthfulqa-generation-mini"
@@ -152,6 +153,33 @@ def test_truthfulqa_generation_mini_tester_yaml_uses_codex():
     assert config.harness.config["model"] == "gpt-5.4-mini"
 
 
+def test_swe_bench_verified_codex_smoke_pack_loads_and_compiles():
+    pack = load_benchmark_pack(
+        SWE_BENCH_VERIFIED_CODEX_SMOKE / "manifest.yaml",
+        SWE_BENCH_VERIFIED_CODEX_SMOKE / "tasks.jsonl",
+    )
+
+    rows = pack.load_rows()
+    tasks = list(compile_benchmark_pack(pack))
+
+    assert len(rows) == 10
+    assert rows[0].id == "astropy__astropy-12907"
+    assert rows[-1].id == "scikit-learn__scikit-learn-26323"
+    assert all(row.family == "repo_patch" for row in rows)
+    assert all(task.task_type == "repo_patch" for task in tasks)
+    assert all(task.metadata["environment"]["workdir"] == "/testbed" for task in tasks)
+
+
+def test_swe_bench_verified_codex_smoke_tester_yaml_uses_codex():
+    config = load_tester_config(SWE_BENCH_VERIFIED_CODEX_SMOKE / "tester-codex.yaml")
+
+    assert config.run.id == "swe-bench-verified-codex-smoke-gpt-5.4-mini"
+    assert config.benchmark.manifest == SWE_BENCH_VERIFIED_CODEX_SMOKE / "manifest.yaml"
+    assert config.benchmark.tasks == SWE_BENCH_VERIFIED_CODEX_SMOKE / "tasks.jsonl"
+    assert config.harness.type == "codex"
+    assert config.harness.config["model"] == "gpt-5.4-mini"
+
+
 def test_terminal_task_smoke_pack_loads_and_compiles():
     pack = load_benchmark_pack(
         TERMINAL_TASK_SMOKE / "manifest.yaml",
@@ -204,7 +232,8 @@ def test_terminal_bench_first10_pack_loads_and_compiles():
 def test_terminal_bench_first10_tester_yaml_uses_codex_harness():
     config = load_tester_config(TERMINAL_BENCH_FIRST10 / "tester-codex.yaml")
 
-    assert config.run.id == "terminal-bench-first10-codex"
+    assert config.run.id == "terminal-bench-first10-codex-gpt-5.4-mini"
     assert config.benchmark.manifest == TERMINAL_BENCH_FIRST10 / "manifest.yaml"
     assert config.benchmark.tasks == TERMINAL_BENCH_FIRST10 / "tasks.jsonl"
     assert config.harness.type == "codex"
+    assert config.harness.config["model"] == "gpt-5.4-mini"
