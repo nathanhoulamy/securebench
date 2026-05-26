@@ -58,6 +58,11 @@ def row_for(family, *, input=None, eval=None):
                 "hints": "Look at parser.py",
             },
             eval={
+                "candidate_policy": {
+                    "allow_paths": ["src/"],
+                    "allow_sensitive_paths": ["tests/fixtures/"],
+                    "patch_preserved_paths": ["tests/public_test.py"],
+                },
                 "tests": {
                     "source": "command",
                     "command": ["python", "-m", "pytest", "tests/test_parser.py"],
@@ -160,6 +165,17 @@ def test_active_family_missing_required_fields_raise(row, match):
             "input.instructions must be a non-empty string",
         ),
         (
+            row_for(
+                "repo_patch",
+                input={"repo": "repo/", "base_commit": "abc", "instructions": "Fix"},
+                eval={
+                    "candidate_policy": {"patch_preserved_paths": [""]},
+                    "tests": {"source": "command", "command": "pytest -q"},
+                },
+            ),
+            "eval.candidate_policy.patch_preserved_paths must be a string array",
+        ),
+        (
             row_for("terminal_task", input={"instructions": "Do it"}, eval={"checker": {"command": []}}),
             "eval.checker.command must be a non-empty string or string array",
         ),
@@ -204,6 +220,20 @@ def test_active_family_malformed_fields_raise(row, match):
                 eval={"checker": {"command": "true"}},
             ),
             "input has unknown field",
+        ),
+        (
+            row_for(
+                "repo_patch",
+                input={"repo": "repo/", "base_commit": "abc", "instructions": "Fix"},
+                eval={
+                    "tests": {
+                        "source": "command",
+                        "command": "pytest -q",
+                        "candidate_policy": {"allow_paths": ["src/"]},
+                    }
+                },
+            ),
+            "eval.tests has unknown field",
         ),
     ],
 )
@@ -282,6 +312,7 @@ def test_compiled_active_family_rows_keep_expected_resource_visibility():
                 "instructions": "Fix the bug.",
             },
             eval={
+                "candidate_policy": {"patch_preserved_paths": ["tests/public_test.py"]},
                 "tests": {
                     "source": "command",
                     "command": ["python", "-m", "pytest", "tests/test_bug.py"],
@@ -301,4 +332,5 @@ def test_compiled_active_family_rows_keep_expected_resource_visibility():
         "source": "command",
         "command": ["python", "-m", "pytest", "tests/test_bug.py"],
     }
+    assert task.evaluation_payload()["candidate_policy"] == {"patch_preserved_paths": ["tests/public_test.py"]}
     assert task.hidden_payload()["gold_patch"] == "diff --git ..."

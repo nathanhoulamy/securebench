@@ -725,12 +725,12 @@
     "workdir": "/testbed"
   },
   "eval": {
+    "candidate_policy": {
+      "allow_paths": ["astropy/modeling/"]
+    },
     "tests": {
       "command": "python -m pytest ...",
-      "test_patch": "diff --git a/tests/...",
-      "candidate_policy": {
-        "allow_paths": ["astropy/modeling/"]
-      }
+      "test_patch": "diff --git a/tests/..."
     },
     "gold_patch": "diff --git a/astropy/..."
   }

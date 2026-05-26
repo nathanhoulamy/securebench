@@ -173,7 +173,7 @@ Known gaps and guidance:
 Data split:
 
 - Public: repository identifier, base commit, instructions, optional hints.
-- Evaluation inputs: command tests, setup patch, test patch.
+- Evaluation inputs: candidate patch policy, command tests, setup patch, test patch.
 - Hidden: gold patch.
 - Candidate kind: patch.
 
@@ -184,14 +184,17 @@ Current protections:
 - Repo-patch verification runs in Docker with network disabled by default.
 - Test patches are stored under an evaluation-input path before application.
 - Empty candidate patches fail.
-- Candidate patches are checked against a verifier-side path policy before they are written or applied.
+- Candidate patches are checked against `eval.candidate_policy` before they are written or applied.
 - By default, candidate patches are denied when they touch test directories, hidden/evaluation paths, CI configuration, build/dependency configuration, lockfiles, test runners, shell scripts, or unsafe paths.
-- Benchmark authors can explicitly override the default path policy with `tests.candidate_policy.allow_sensitive_paths` when a task intentionally requires editing an otherwise-denied path.
+- Benchmark authors can explicitly override the default path policy with `eval.candidate_policy.allow_sensitive_paths` when a task intentionally requires editing an otherwise-denied path.
+- Benchmark authors can mark public verifier-supporting files with `eval.candidate_policy.patch_preserved_paths`; candidate edits to those files are stripped at whole-file diff granularity before verification.
+- Framework trust-boundary paths such as `securebench/`, absolute paths, and paths containing `..` are non-overridable and fail verification rather than being stripped.
 
 Known gaps:
 
 - The verifier still applies the candidate patch before applying hidden tests and running the trusted command, so the path policy is the main protection against test-infrastructure tampering.
 - The default deny list is conservative but not a complete semantic model of every benchmark image's test trust base.
+- Public tests can still be part of the verifier trust base when hidden/evaluation tests import, patch, or extend them; `patch_preserved_paths` is intended for those visible-but-immutable support files, not for hidden-test secrecy.
 - The verifier does not yet verify that command targets and imported test helpers remain unchanged after candidate application beyond the configured path policy.
 - The check command runs in the candidate-mutated repository, so candidate changes can tamper with the command's trust base.
 

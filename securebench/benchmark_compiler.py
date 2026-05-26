@@ -30,6 +30,7 @@ EVAL_VISIBILITY: dict[str, dict[str, ResourceVisibility]] = {
     },
     "repo_patch": {
         "tests": "evaluation_inputs",
+        "candidate_policy": "evaluation_inputs",
         "gold_patch": "hidden",
     },
     "terminal_task": {

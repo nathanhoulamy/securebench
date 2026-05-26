@@ -90,10 +90,11 @@ class RepoPatchVerifier(Verifier):
             raise TypeError(f"RepoPatchVerifier requires repo_patch task, got {task.task_type!r}")
 
         tests = command_tests(task)
+        policy = candidate_policy(task)
         image = environment_image_for_task(task)
         workdir = tests.workdir or environment_workdir_for_task(task)
         timeout = float(context.get("timeout_seconds", tests.timeout_seconds or self.timeout_seconds))
-        policy_decision = evaluate_candidate_patch_policy(candidate, tests.candidate_policy)
+        policy_decision = evaluate_candidate_patch_policy(candidate, policy)
         if not candidate.strip():
             return _failed_result(
                 task,
@@ -130,7 +131,6 @@ class RepoPatchVerifier(Verifier):
             try:
                 return self._verify_in_sandbox(
                     task,
-                    candidate,
                     tests,
                     sandbox,
                     image=image,
@@ -148,7 +148,6 @@ class RepoPatchVerifier(Verifier):
     def _verify_in_sandbox(
         self,
         task: SecureBenchTask,
-        candidate: str,
         tests: "CommandTests",
         sandbox: Sandbox,
         *,
@@ -181,8 +180,10 @@ class RepoPatchVerifier(Verifier):
                 base_commit=base_commit,
                 image_commit=head.stdout.strip(),
                 candidate_patch_paths=policy_decision.paths,
+                applied_candidate_patch_paths=policy_decision.applied_paths,
+                stripped_candidate_patch_paths=policy_decision.stripped_paths,
                 denied_candidate_patch_paths=policy_decision.denied_paths,
-                failure_reason="candidate_patch_policy_violation",
+                failure_reason=policy_decision.failure_reason or "candidate_patch_policy_violation",
             )
 
         if setup_patch_path is not None:
@@ -204,7 +205,7 @@ class RepoPatchVerifier(Verifier):
                 )
 
         candidate_path = str(context.get("candidate_patch_path", self.candidate_patch_path))
-        sandbox.write_file(candidate_path, candidate)
+        sandbox.write_file(candidate_path, policy_decision.filtered_patch)
         apply_candidate = sandbox.run(
             ["git", "apply", "--binary", self._workspace_path(candidate_path)],
             workdir=workdir,
@@ -220,6 +221,9 @@ class RepoPatchVerifier(Verifier):
                 apply_candidate,
                 base_commit=base_commit,
                 image_commit=head.stdout.strip(),
+                candidate_patch_paths=policy_decision.paths,
+                applied_candidate_patch_paths=policy_decision.applied_paths,
+                stripped_candidate_patch_paths=policy_decision.stripped_paths,
             )
 
         if test_patch_path is not None:
@@ -259,6 +263,8 @@ class RepoPatchVerifier(Verifier):
                 "exit_code": result.exit_code,
                 "phase": "checks",
                 "candidate_patch_paths": policy_decision.paths,
+                "applied_candidate_patch_paths": policy_decision.applied_paths,
+                "stripped_candidate_patch_paths": policy_decision.stripped_paths,
                 **timeout_metadata(result),
             },
         )
@@ -294,14 +300,12 @@ class CommandTests:
         timeout_seconds: float | None,
         setup_patch: str | None,
         test_patch: str | None,
-        candidate_policy: "CandidatePatchPolicy",
     ) -> None:
         self.command = command
         self.workdir = workdir
         self.timeout_seconds = timeout_seconds
         self.setup_patch = setup_patch
         self.test_patch = test_patch
-        self.candidate_policy = candidate_policy
 
 
 class CandidatePatchPolicy:
@@ -310,9 +314,11 @@ class CandidatePatchPolicy:
         *,
         allow_paths: tuple[str, ...] = (),
         allow_sensitive_paths: tuple[str, ...] = (),
+        patch_preserved_paths: tuple[str, ...] = (),
     ) -> None:
         self.allow_paths = allow_paths
         self.allow_sensitive_paths = allow_sensitive_paths
+        self.patch_preserved_paths = patch_preserved_paths
 
 
 class CandidatePatchPolicyDecision:
@@ -320,14 +326,22 @@ class CandidatePatchPolicyDecision:
         self,
         *,
         paths: tuple[str, ...],
+        applied_paths: tuple[str, ...],
+        stripped_paths: tuple[str, ...],
         denied_paths: tuple[str, ...],
+        filtered_patch: str,
+        failure_reason: str | None = None,
     ) -> None:
         self.paths = paths
+        self.applied_paths = applied_paths
+        self.stripped_paths = stripped_paths
         self.denied_paths = denied_paths
+        self.filtered_patch = filtered_patch
+        self.failure_reason = failure_reason
 
     @property
     def allowed(self) -> bool:
-        return not self.denied_paths
+        return not self.denied_paths and self.failure_reason is None
 
 
 def command_tests(task: SecureBenchTask) -> CommandTests:
@@ -342,15 +356,18 @@ def command_tests(task: SecureBenchTask) -> CommandTests:
     timeout_seconds = _optional_positive_number(tests.get("timeout_seconds"), "tests.timeout_seconds")
     setup_patch = _test_patch(tests.get("setup_patch"), task.id)
     test_patch = _test_patch(tests.get("test_patch"), task.id)
-    candidate_policy = _candidate_patch_policy(tests.get("candidate_policy"))
     return CommandTests(
         command=command,
         workdir=workdir,
         timeout_seconds=timeout_seconds,
         setup_patch=setup_patch,
         test_patch=test_patch,
-        candidate_policy=candidate_policy,
     )
+
+
+def candidate_policy(task: SecureBenchTask) -> CandidatePatchPolicy:
+    """Return structured candidate patch policy for a repo-patch task."""
+    return _candidate_patch_policy(resource_value(task, "candidate_policy", None))
 
 
 def evaluate_candidate_patch_policy(
@@ -360,17 +377,51 @@ def evaluate_candidate_patch_policy(
     """Return whether a candidate patch only touches verifier-safe paths."""
     policy = policy or CandidatePatchPolicy()
     paths = changed_paths_from_patch(candidate)
+
+    hard_denied = tuple(path for path in paths if _is_hard_denied_candidate_path(path))
+    if hard_denied:
+        return CandidatePatchPolicyDecision(
+            paths=paths,
+            applied_paths=paths,
+            stripped_paths=(),
+            denied_paths=hard_denied,
+            filtered_patch=candidate,
+            failure_reason="candidate_patch_policy_violation",
+        )
+
+    filtered_patch, stripped_paths = _filter_preserved_file_diffs(candidate, policy.patch_preserved_paths)
+    applied_paths = tuple(path for path in paths if path not in stripped_paths)
+    if paths and not applied_paths:
+        return CandidatePatchPolicyDecision(
+            paths=paths,
+            applied_paths=(),
+            stripped_paths=stripped_paths,
+            denied_paths=(),
+            filtered_patch=filtered_patch,
+            failure_reason="empty_filtered_candidate_patch",
+        )
+
     denied = []
-    for path in paths:
+    for path in applied_paths:
         if policy.allow_paths and not _matches_any(path, policy.allow_paths):
             denied.append(path)
             continue
         if _is_sensitive_candidate_path(path) and not _matches_any(path, policy.allow_sensitive_paths):
             denied.append(path)
-    return CandidatePatchPolicyDecision(paths=paths, denied_paths=tuple(denied))
+    return CandidatePatchPolicyDecision(
+        paths=paths,
+        applied_paths=applied_paths,
+        stripped_paths=stripped_paths,
+        denied_paths=tuple(denied),
+        filtered_patch=filtered_patch,
+        failure_reason="candidate_patch_policy_violation" if denied else None,
+    )
 
 
 def candidate_policy_error(decision: CandidatePatchPolicyDecision) -> str:
+    if decision.failure_reason == "empty_filtered_candidate_patch":
+        stripped = ", ".join(decision.stripped_paths)
+        return f"candidate patch has no remaining changes after stripping preserved path(s): {stripped}"
     denied = ", ".join(decision.denied_paths)
     return f"candidate patch touches denied path(s): {denied}"
 
@@ -433,6 +484,57 @@ def _is_sensitive_candidate_path(path: str) -> bool:
     if name.endswith(DEFAULT_DENIED_PATH_SUFFIXES) and name not in {"readme.md"}:
         return True
     return False
+
+
+def _is_hard_denied_candidate_path(path: str) -> bool:
+    candidate = PurePosixPath(path)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return True
+    parts = tuple(part.lower() for part in candidate.parts)
+    return bool(parts and parts[0] == "securebench")
+
+
+def _filter_preserved_file_diffs(patch: str, preserved_paths: tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
+    if not preserved_paths:
+        return patch, ()
+
+    preamble, sections = _git_file_diff_sections(patch)
+    if not sections:
+        return patch, ()
+
+    kept = [preamble]
+    stripped: list[str] = []
+    for section in sections:
+        paths = changed_paths_from_patch(section)
+        if any(_matches_any(path, preserved_paths) for path in paths):
+            for path in paths:
+                if path not in stripped:
+                    stripped.append(path)
+            continue
+        kept.append(section)
+    return "".join(kept), tuple(stripped)
+
+
+def _git_file_diff_sections(patch: str) -> tuple[str, tuple[str, ...]]:
+    lines = patch.splitlines(keepends=True)
+    preamble: list[str] = []
+    sections: list[str] = []
+    current: list[str] | None = None
+
+    for line in lines:
+        if line.startswith("diff --git "):
+            if current is not None:
+                sections.append("".join(current))
+            current = [line]
+            continue
+        if current is None:
+            preamble.append(line)
+        else:
+            current.append(line)
+
+    if current is not None:
+        sections.append("".join(current))
+    return "".join(preamble), tuple(sections)
 
 
 def _matches_any(path: str, patterns: tuple[str, ...]) -> bool:
@@ -521,12 +623,16 @@ def _candidate_patch_policy(value: object) -> CandidatePatchPolicy:
     if value is None:
         return CandidatePatchPolicy()
     if not isinstance(value, dict):
-        raise ConfigError("tests.candidate_policy must be an object")
+        raise ConfigError("eval.candidate_policy must be an object")
     return CandidatePatchPolicy(
-        allow_paths=_string_tuple(value.get("allow_paths"), "tests.candidate_policy.allow_paths"),
+        allow_paths=_string_tuple(value.get("allow_paths"), "eval.candidate_policy.allow_paths"),
         allow_sensitive_paths=_string_tuple(
             value.get("allow_sensitive_paths"),
-            "tests.candidate_policy.allow_sensitive_paths",
+            "eval.candidate_policy.allow_sensitive_paths",
+        ),
+        patch_preserved_paths=_string_tuple(
+            value.get("patch_preserved_paths"),
+            "eval.candidate_policy.patch_preserved_paths",
         ),
     )
 
