@@ -23,9 +23,10 @@ class FakeProducer:
 
 
 class FakeVerifier:
-    def verify(self, task, candidate):
+    def verify(self, task, candidate, **context):
         assert task.task_type == "code_completion"
         assert candidate == "def add_numbers(a, b):\n    return a + b\n"
+        assert context["verification_policy"].disallow_dangerous_commands is True
         return VerificationResult(
             task_id=task.id,
             status="passed",

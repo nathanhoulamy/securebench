@@ -6,6 +6,7 @@ from securebench.benchmark_compiler import compile_benchmark_row
 from securebench.benchmark_pack import BenchmarkPackManifest, BenchmarkRow
 from securebench.errors import ConfigError
 from securebench.sandboxes import CommandResult
+from securebench.dangerous_commands import VerificationPolicy
 from securebench.verifiers.terminal_task import TerminalTaskVerifier
 
 
@@ -69,6 +70,26 @@ def app_terminal_task():
                 },
             },
             environment={"image": "python:3.12-slim", "workdir": "/app"},
+        ),
+        manifest=BenchmarkPackManifest(id="pack", version=1),
+    )
+
+
+def chroot_terminal_task():
+    return compile_benchmark_row(
+        BenchmarkRow(
+            id="term-chroot",
+            family="terminal_task",
+            input={"instructions": "Create output.txt"},
+            eval={
+                "needed_commands": ["chroot"],
+                "checker": {
+                    "command": "chroot /jail /image",
+                    "workdir": "/workspace",
+                    "timeout_seconds": 12,
+                },
+            },
+            environment={"image": "python:3.12-slim"},
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),
     )
@@ -177,6 +198,94 @@ def test_terminal_task_verifier_mounts_checker_inputs_read_only(monkeypatch, tmp
     assert mounts[0].source == tmp_path / "securebench" / "evaluation_inputs" / "checker.json"
     assert mounts[0].target == "securebench/evaluation_inputs/checker.json"
     assert mounts[0].read_only is True
+
+
+def test_terminal_task_verifier_denies_dangerous_commands_by_default(monkeypatch, tmp_path):
+    created = {}
+
+    class CapturingSandbox(FakeSandbox):
+        def __init__(self, **kwargs):
+            created.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr("securebench.verifiers.terminal_task.DockerSandbox", CapturingSandbox)
+
+    result = TerminalTaskVerifier().verify(chroot_terminal_task(), str(tmp_path))
+
+    assert result.status == "failed"
+    assert result.passed is False
+    assert result.metadata["failure_reason"] == "verifier_dangerous_command_denied"
+    assert result.metadata["denied_command"] == "chroot"
+    assert result.metadata["needed_commands"] == ("chroot",)
+    assert result.metadata["tester_disallow_dangerous_commands"] is True
+    assert "dangerous verifier command" in result.stderr
+    assert created == {}
+
+
+def test_terminal_task_verifier_allows_declared_chroot_when_tester_opts_in(monkeypatch, tmp_path):
+    created = {}
+
+    class CapturingSandbox(FakeSandbox):
+        def __init__(self, **kwargs):
+            created.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr("securebench.verifiers.terminal_task.DockerSandbox", CapturingSandbox)
+
+    result = TerminalTaskVerifier().verify(
+        chroot_terminal_task(),
+        str(tmp_path),
+        verification_policy=VerificationPolicy(disallow_dangerous_commands=False),
+    )
+
+    assert result.passed is True
+    assert created["cap_add"] == ("SYS_CHROOT",)
+
+
+def test_terminal_task_verifier_tester_deny_overrides_dangerous_command_opt_in(monkeypatch, tmp_path):
+    created = {}
+
+    class CapturingSandbox(FakeSandbox):
+        def __init__(self, **kwargs):
+            created.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr("securebench.verifiers.terminal_task.DockerSandbox", CapturingSandbox)
+
+    result = TerminalTaskVerifier().verify(
+        chroot_terminal_task(),
+        str(tmp_path),
+        verification_policy=VerificationPolicy(
+            disallow_dangerous_commands=False,
+            deny_commands=("chroot",),
+        ),
+    )
+
+    assert result.status == "failed"
+    assert result.metadata["failure_reason"] == "verifier_dangerous_command_denied"
+    assert result.metadata["tester_disallow_dangerous_commands"] is False
+    assert result.metadata["tester_denied_commands"] == ("chroot",)
+    assert created == {}
+
+
+def test_terminal_task_verifier_does_not_pass_cap_add_without_needed_commands(monkeypatch, tmp_path):
+    created = {}
+
+    class CapturingSandbox(FakeSandbox):
+        def __init__(self, **kwargs):
+            created.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr("securebench.verifiers.terminal_task.DockerSandbox", CapturingSandbox)
+
+    result = TerminalTaskVerifier().verify(
+        terminal_task(),
+        str(tmp_path),
+        verification_policy=VerificationPolicy(disallow_dangerous_commands=False),
+    )
+
+    assert result.passed is True
+    assert "cap_add" not in created
 
 
 def test_terminal_task_verifier_requires_workspace(tmp_path):

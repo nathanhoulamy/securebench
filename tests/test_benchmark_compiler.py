@@ -85,6 +85,7 @@ def test_terminal_task_row_compiles_to_generic_task_with_eval_visibility():
             input={"instructions": "Create output.txt"},
             eval={
                 "checker": {"command": "python checks/check.py"},
+                "needed_commands": ["chroot"],
                 "expected_state": {"file": "output.txt"},
             },
         ),
@@ -95,7 +96,32 @@ def test_terminal_task_row_compiles_to_generic_task_with_eval_visibility():
     assert task.task_type == "terminal_task"
     assert task.agent_payload() == {"instructions": "Create output.txt"}
     assert task.evaluation_payload()["checker"] == {"command": "python checks/check.py"}
+    assert task.evaluation_payload()["needed_commands"] == ["chroot"]
     assert task.hidden_payload()["expected_state"] == {"file": "output.txt"}
+
+
+@pytest.mark.parametrize(
+    ("needed_commands", "match"),
+    [
+        ("chroot", "eval.needed_commands must be a list"),
+        ([""], r"eval.needed_commands\[0\] must be a non-empty"),
+        (["mount"], r"eval.needed_commands\[0\] must be one of"),
+    ],
+)
+def test_terminal_task_rejects_invalid_needed_commands(needed_commands, match):
+    with pytest.raises(ConfigError, match=match):
+        compile_benchmark_row(
+            BenchmarkRow(
+                id="terminal-needed-commands",
+                family="terminal_task",
+                input={"instructions": "Create output.txt"},
+                eval={
+                    "checker": {"command": "python checks/check.py"},
+                    "needed_commands": needed_commands,
+                },
+            ),
+            manifest=manifest(),
+        )
 
 
 def test_assets_are_public_when_non_empty():
@@ -188,6 +214,7 @@ def test_resource_name_collisions_are_rejected(row):
 
 def test_eval_visibility_registry_defaults_to_hidden():
     assert eval_visibility_for("terminal_task", "checker") == "evaluation_inputs"
+    assert eval_visibility_for("terminal_task", "needed_commands") == "evaluation_inputs"
     assert eval_visibility_for("terminal_task", "unknown") == "hidden"
     assert eval_visibility_for("unknown", "checker") == "hidden"
 

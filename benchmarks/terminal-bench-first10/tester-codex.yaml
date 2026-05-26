@@ -8,6 +8,10 @@ benchmark:
   manifest: manifest.yaml
   tasks: tasks.jsonl
 
+verification:
+  disallow_dangerous_commands: false
+  deny_commands: []
+
 harness:
   type: codex
   env:

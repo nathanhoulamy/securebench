@@ -37,6 +37,8 @@ def test_parse_tester_config_accepts_codex_harness():
     assert config.harness.type == "codex"
     assert config.harness.env == ("OPENAI_API_KEY",)
     assert config.harness.config == {}
+    assert config.verification.disallow_dangerous_commands is True
+    assert config.verification.deny_commands == ()
 
 
 def test_parse_tester_config_accepts_codex_harness_without_image():
@@ -84,6 +86,20 @@ def test_parse_tester_config_accepts_command_harness():
     assert config.harness.config == {"command": "produce"}
 
 
+def test_parse_tester_config_accepts_verification_policy():
+    config = parse_tester_config(
+        valid_tester_config(
+            verification={
+                "disallow_dangerous_commands": False,
+                "deny_commands": ["chroot"],
+            }
+        )
+    )
+
+    assert config.verification.disallow_dangerous_commands is False
+    assert config.verification.deny_commands == ("chroot",)
+
+
 def test_load_tester_config_resolves_relative_paths_against_config_file(tmp_path):
     config_path = tmp_path / "configs" / "tester.yaml"
     config_path.parent.mkdir()
@@ -119,6 +135,23 @@ harness:
         ({"benchmark": "bad"}, "root.benchmark must be an object"),
         ({"harness": "bad"}, "root.harness must be an object"),
         ({"extra": True}, "root contains unsupported field"),
+        ({"verification": "bad"}, "verification must be an object"),
+        (
+            {"verification": {"extra": True}},
+            "verification contains unsupported field",
+        ),
+        (
+            {"verification": {"disallow_dangerous_commands": "no"}},
+            "verification.disallow_dangerous_commands must be a boolean",
+        ),
+        (
+            {"verification": {"deny_commands": "chroot"}},
+            "verification.deny_commands must be a list",
+        ),
+        (
+            {"verification": {"deny_commands": ["mount"]}},
+            "verification.deny_commands\\[0\\] must be one of",
+        ),
         ({"run": {"id": "x", "output_dir": "runs/x", "limit": 1}}, "run contains unsupported field"),
         (
             {"benchmark": {"manifest": "manifest.yaml", "tasks": "tasks.jsonl", "split": "test"}},

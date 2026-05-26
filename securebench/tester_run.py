@@ -133,7 +133,7 @@ def run_tester_config(
                     candidate_kind=_candidate_kind(candidate),
                 )
                 emit_progress("verifier_start", task_id=task.id)
-                verification = verify_candidate(task, candidate)
+                verification = verify_candidate(task, candidate, verification_policy=config.verification)
                 emit_progress(
                     "verifier_done",
                     task_id=task.id,
@@ -234,12 +234,17 @@ def with_tester_overrides(
     return replace(config, run=replace(config.run, output_dir=Path(output_dir)))
 
 
-def verify_candidate(task: Any, candidate: CandidateArtifact) -> VerificationResult | None:
+def verify_candidate(
+    task: Any,
+    candidate: CandidateArtifact,
+    *,
+    verification_policy: Any = None,
+) -> VerificationResult | None:
     """Verify a candidate when SecureBench has a verifier for the task family."""
     verifier = verifier_for_task_type(task.task_type)
     if verifier is None:
         return None
-    return verifier.verify(task, candidate.for_task(task))
+    return verifier.verify(task, candidate.for_task(task), verification_policy=verification_policy)
 
 
 def candidate_record(

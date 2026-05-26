@@ -34,6 +34,7 @@ EVAL_VISIBILITY: dict[str, dict[str, ResourceVisibility]] = {
     },
     "terminal_task": {
         "checker": "evaluation_inputs",
+        "needed_commands": "evaluation_inputs",
         "run_tests": "evaluation_inputs",
         "test_files": "evaluation_inputs",
         "expected_state": "hidden",

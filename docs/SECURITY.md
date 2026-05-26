@@ -140,6 +140,34 @@ Needed hardening:
 - Add stricter controls for filesystem reads, imports, monkeypatching, process termination, and environment access during verification.
 - Add regression tests for additional process-control and introspection attacks.
 
+## Terminal Task Verifiers
+
+Terminal task checkers run in a fresh verifier sandbox with network disabled and
+evaluation inputs materialized only for verification. Some benchmark checkers
+execute agent-produced code as part of the test, so verifier sandbox hardening
+still matters even though the checker itself is trusted.
+
+Current protections:
+
+- The agent sandbox does not receive dangerous verifier command allowances.
+- Benchmark authors may declare verifier-only `eval.needed_commands` when a
+  checker needs a known dangerous command such as `chroot`.
+- Tester policy is fail-closed by default with
+  `verification.disallow_dangerous_commands: true`.
+- Tester `verification.deny_commands` overrides benchmark declarations and any
+  opt-in.
+- Allowed dangerous commands are implemented as narrowly mapped Docker
+  privileges, not as a general nested command interceptor.
+
+Known gaps and guidance:
+
+- A verifier allowance applies while verifier tests may run candidate-produced
+  code. Benchmark authors should avoid dangerous commands where practical.
+- Current command support is intentionally small; `chroot` maps to
+  `SYS_CHROOT`.
+- Denials fail the verifier before tests run and include the denied command and
+  reason in result metadata.
+
 ## Repo Patch
 
 Data split:

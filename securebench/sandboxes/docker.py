@@ -41,6 +41,7 @@ class DockerSandbox(Sandbox):
         persistent: bool = True,
         network: str = "none",
         cap_drop: tuple[str, ...] = ("ALL",),
+        cap_add: tuple[str, ...] = (),
         read_only: bool = True,
         tmpfs: tuple[str, ...] = ("/tmp",),
         mem_limit: str | None = "1g",
@@ -55,6 +56,7 @@ class DockerSandbox(Sandbox):
         self.persistent = persistent
         self.network = network
         self.cap_drop = tuple(cap_drop)
+        self.cap_add = tuple(cap_add)
         self.read_only = read_only
         self.tmpfs = tuple(tmpfs)
         self.mem_limit = mem_limit
@@ -129,6 +131,7 @@ class DockerSandbox(Sandbox):
                 *_docker_hardening_args(
                     network=self.network,
                     cap_drop=self.cap_drop,
+                    cap_add=self.cap_add,
                     read_only=self.read_only,
                     tmpfs=self.tmpfs,
                     mem_limit=self.mem_limit,
@@ -250,6 +253,7 @@ class DockerSandbox(Sandbox):
                 *_docker_hardening_args(
                     network=self.network,
                     cap_drop=self.cap_drop,
+                    cap_add=self.cap_add,
                     read_only=self.read_only,
                     tmpfs=self.tmpfs,
                     mem_limit=self.mem_limit,
@@ -456,6 +460,7 @@ def _docker_hardening_args(
     *,
     network: str,
     cap_drop: tuple[str, ...],
+    cap_add: tuple[str, ...],
     read_only: bool,
     tmpfs: tuple[str, ...],
     mem_limit: str | None,
@@ -465,6 +470,8 @@ def _docker_hardening_args(
     args: list[str] = ["--network", network]
     for capability in cap_drop:
         args.extend(["--cap-drop", capability])
+    for capability in cap_add:
+        args.extend(["--cap-add", capability])
     if read_only:
         args.append("--read-only")
     for mount in tmpfs:

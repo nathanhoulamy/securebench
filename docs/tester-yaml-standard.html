@@ -241,6 +241,10 @@ benchmark:
   manifest: ./benchmarks/repo-repair/manifest.yaml
   tasks: ./benchmarks/repo-repair/tasks.jsonl
 
+verification:
+  disallow_dangerous_commands: true
+  deny_commands: []
+
 harness:
   type: codex
   env:
@@ -252,14 +256,14 @@ harness:
     timeout_seconds: 900
     allowed_domains:
       - docs.python.org</pre>
-      <div class="note">Tester YAML cannot relax benchmark security constraints. SecureBench should fail preflight if the selected harness cannot satisfy the benchmark requirements.</div>
+      <div class="note">Tester YAML cannot expose hidden benchmark data to the harness. Verifier dangerous-command policy is fail-closed and can only activate known benchmark-declared verifier needs.</div>
     </section>
 
     <section>
       <h2>Top-Level Fields</h2>
       <article class="family">
         <div class="family-head"><div><h3>Minimal Tester File</h3><p>Only these sections are required for the first version.</p></div><div class="examples">Small by design</div></div>
-        <div class="table-wrap"><table><thead><tr><th>Field</th><th>Required</th><th>Purpose</th></tr></thead><tbody><tr><td class="field">schema_version</td><td class="required">yes</td><td class="">Version of the tester YAML format.</td></tr><tr><td class="field">run.id</td><td class="required">yes</td><td class="">Stable identifier for this execution.</td></tr><tr><td class="field">run.output_dir</td><td class="required">yes</td><td class="">Directory where SecureBench writes results, logs, and candidate artifacts.</td></tr><tr><td class="field">benchmark.manifest</td><td class="required">yes</td><td class="">Path to benchmark pack manifest.</td></tr><tr><td class="field">benchmark.tasks</td><td class="required">yes</td><td class="">Path to benchmark rows, usually JSONL or Parquet.</td></tr><tr><td class="field">harness</td><td class="required">yes</td><td class="">Candidate producer configuration: named agent harness or custom command.</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>Field</th><th>Required</th><th>Purpose</th></tr></thead><tbody><tr><td class="field">schema_version</td><td class="required">yes</td><td class="">Version of the tester YAML format.</td></tr><tr><td class="field">run.id</td><td class="required">yes</td><td class="">Stable identifier for this execution.</td></tr><tr><td class="field">run.output_dir</td><td class="required">yes</td><td class="">Directory where SecureBench writes results, logs, and candidate artifacts.</td></tr><tr><td class="field">benchmark.manifest</td><td class="required">yes</td><td class="">Path to benchmark pack manifest.</td></tr><tr><td class="field">benchmark.tasks</td><td class="required">yes</td><td class="">Path to benchmark rows, usually JSONL or Parquet.</td></tr><tr><td class="field">verification</td><td class="optional">optional</td><td class="">Tester-owned verifier policy. Dangerous verifier commands are denied by default and can be explicitly allowed or blacklisted here.</td></tr><tr><td class="field">harness</td><td class="required">yes</td><td class="">Candidate producer configuration: named agent harness or custom command.</td></tr></tbody></table></div>
       </article>
     </section>
 

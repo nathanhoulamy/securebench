@@ -53,6 +53,12 @@ applies it only when checking the candidate. The large CSV task regenerates
 `input.csv` during verification and creates `expected.csv` inside the hidden
 tests, so candidate code cannot rely on a modified workspace copy.
 
+The `path-tracing` checker uses `chroot` to run the compiled candidate program
+without access to the reference image. That row declares
+`eval.needed_commands: ["chroot"]`; the provided Codex tester config opts into
+dangerous verifier commands so SecureBench grants `SYS_CHROOT` only to the
+verifier sandbox. Agent sandboxes still run without this allowance.
+
 Build the local task images before running:
 
 ```bash

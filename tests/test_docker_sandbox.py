@@ -244,9 +244,32 @@ def test_docker_sandbox_accepts_explicit_hardening_options(monkeypatch, tmp_path
     assert ["--cap-drop", "NET_RAW"] == seen["command"][
         seen["command"].index("--cap-drop") : seen["command"].index("--cap-drop") + 2
     ]
+    assert "--cap-add" not in seen["command"]
     assert "--read-only" not in seen["command"]
     assert "--memory" not in seen["command"]
     assert "--pids-limit" not in seen["command"]
+
+
+def test_docker_sandbox_accepts_cap_add(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path,
+        persistent=False,
+        cap_add=("SYS_CHROOT",),
+    )
+    sandbox.run(["python", "--version"])
+
+    assert ["--cap-add", "SYS_CHROOT"] == seen["command"][
+        seen["command"].index("--cap-add") : seen["command"].index("--cap-add") + 2
+    ]
 
 
 def test_docker_sandbox_rejects_invalid_env_names(tmp_path):

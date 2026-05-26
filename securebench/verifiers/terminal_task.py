@@ -6,6 +6,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from securebench.errors import ConfigError
+from securebench.dangerous_commands import (
+    VerificationPolicy,
+    dangerous_command_list,
+    parse_verification_policy,
+    resolve_dangerous_commands,
+)
+from securebench.progress import emit_progress
 from securebench.sandboxes import CommandResult, DockerSandbox, HostSandbox, Sandbox
 from securebench.tasks import SecureBenchTask, resource_value
 from securebench.verifiers.base import VerificationResult, Verifier, timeout_metadata
@@ -41,6 +48,19 @@ class TerminalTaskVerifier(Verifier):
 
         checker = checker_for_task(task)
         image = environment_image_for_task(task)
+        verification_policy = verification_policy_from_context(context)
+        dangerous_command_decision = resolve_dangerous_commands(
+            needed_commands_for_task(task),
+            verification_policy,
+        )
+        if not dangerous_command_decision.allowed:
+            return dangerous_command_denial_result(
+                task,
+                checker,
+                image,
+                dangerous_command_decision,
+                verification_policy,
+            )
         timeout = float(
             context.get(
                 "timeout_seconds",
@@ -50,7 +70,13 @@ class TerminalTaskVerifier(Verifier):
 
         staging = HostSandbox(root=workspace_root)
         plan = self.materializer.materialize(task, staging, "test_sandbox")
-        sandbox = self._sandbox(task, image, workspace_root, plan)
+        sandbox = self._sandbox(
+            task,
+            image,
+            workspace_root,
+            plan,
+            cap_add=dangerous_command_decision.cap_add,
+        )
         close_sandbox = self.sandbox_factory is None
         try:
             result = sandbox.run(checker.command, workdir=checker.workdir, timeout=timeout)
@@ -77,9 +103,23 @@ class TerminalTaskVerifier(Verifier):
             if close_sandbox:
                 _close_sandbox(sandbox)
 
-    def _sandbox(self, task: SecureBenchTask, image: str, workspace_root: Path, plan: Any) -> Sandbox:
+    def _sandbox(
+        self,
+        task: SecureBenchTask,
+        image: str,
+        workspace_root: Path,
+        plan: Any,
+        *,
+        cap_add: tuple[str, ...] = (),
+    ) -> Sandbox:
         if self.sandbox_factory is not None:
-            return self.sandbox_factory(image=image, root=workspace_root)
+            kwargs: dict[str, Any] = {"image": image, "root": workspace_root}
+            if cap_add:
+                kwargs["cap_add"] = cap_add
+            return self.sandbox_factory(**kwargs)
+        docker_kwargs: dict[str, Any] = {}
+        if cap_add:
+            docker_kwargs["cap_add"] = cap_add
         return DockerSandbox(
             image=image,
             root=workspace_root,
@@ -87,6 +127,7 @@ class TerminalTaskVerifier(Verifier):
             read_only=False,
             mounts=docker_read_only_mounts(plan, workspace_root),
             workspace_mount_target=workspace_mount_target_for_task(task),
+            **docker_kwargs,
         )
 
 
@@ -111,6 +152,62 @@ def checker_for_task(task: SecureBenchTask) -> TerminalChecker:
         command=_command(checker.get("command"), task.id),
         workdir=_optional_string(checker.get("workdir"), "checker.workdir"),
         timeout_seconds=_optional_positive_number(checker.get("timeout_seconds"), "checker.timeout_seconds"),
+    )
+
+
+def needed_commands_for_task(task: SecureBenchTask) -> tuple[str, ...]:
+    return dangerous_command_list(
+        resource_value(task, "needed_commands"),
+        f"terminal_task task {task.id!r} eval.needed_commands",
+    )
+
+
+def verification_policy_from_context(context: dict[str, Any]) -> VerificationPolicy:
+    policy = context.get("verification_policy")
+    if isinstance(policy, VerificationPolicy):
+        return policy
+    return parse_verification_policy(policy)
+
+
+def dangerous_command_denial_result(
+    task: SecureBenchTask,
+    checker: TerminalChecker,
+    image: str,
+    decision: Any,
+    policy: VerificationPolicy,
+) -> VerificationResult:
+    denied_command = decision.denied_commands[0] if decision.denied_commands else ""
+    message = (
+        "Verifier sandbox denied dangerous command allowance"
+        f"{f' {denied_command!r}' if denied_command else ''}: {decision.reason}"
+    )
+    emit_progress(
+        "verifier_policy_denied",
+        task_id=task.id,
+        denied_command=denied_command,
+        reason=decision.reason,
+    )
+    return VerificationResult(
+        task_id=task.id,
+        status="failed",
+        passed=False,
+        score=0.0,
+        stderr=message + "\n",
+        metadata={
+            "verifier": "terminal_task",
+            "image": image,
+            "workdir": checker.workdir,
+            "command": checker.command,
+            "exit_code": None,
+            "phase": "checker",
+            "failure_reason": "verifier_dangerous_command_denied",
+            "denied_command": denied_command,
+            "denied_commands": decision.denied_commands,
+            "denial_reason": decision.reason,
+            "needed_commands": decision.needed_commands,
+            "tester_disallow_dangerous_commands": policy.disallow_dangerous_commands,
+            "tester_denied_commands": policy.deny_commands,
+        },
     )
 
 
