@@ -6,6 +6,8 @@ import argparse
 import sys
 
 from securebench.errors import ConfigError
+from securebench.audit import audit_config, audit_self
+from securebench.audit.report import render_text_summary, write_json_report
 from securebench.env import load_env_file
 from securebench.progress import NullProgressReporter, StreamProgressReporter
 from securebench.tester_config import load_tester_config
@@ -38,10 +40,28 @@ def main(argv: list[str] | None = None) -> int:
         help="Stream readable Codex agent messages and command actions while the agent runs",
     )
 
+    audit_parser = subparsers.add_parser("audit", help="Audit a tester YAML benchmark-pack config")
+    audit_parser.add_argument("--config", required=True, help="Path to tester YAML config")
+    audit_parser.add_argument("--output-dir", required=True, help="Directory for audit report artifacts")
+    audit_parser.add_argument("--limit", type=int, help="Limit benchmark rows")
+
+    audit_self_parser = subparsers.add_parser("audit-self", help="Run built-in SecureBench robustness audits")
+    audit_self_parser.add_argument("--output-dir", required=True, help="Directory for audit report artifacts")
+    audit_self_parser.add_argument("--static-only", action="store_true", help="Run only static audit checks")
+    audit_self_parser.add_argument(
+        "--skip-docker",
+        action="store_true",
+        help="Skip Docker-dependent malicious smoke checks",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "run":
         return _run(args)
+    if args.command == "audit":
+        return _audit(args)
+    if args.command == "audit-self":
+        return _audit_self(args)
     parser.error(f"Unknown command {args.command!r}")
     return 2
 
@@ -78,6 +98,35 @@ def _run(args: argparse.Namespace) -> int:
         f"output={summary.output_path}"
     )
     return 0
+
+
+def _audit(args: argparse.Namespace) -> int:
+    try:
+        config = load_tester_config(args.config)
+        report = audit_config(config, output_dir=args.output_dir, limit=args.limit)
+        output_path = write_json_report(report, args.output_dir)
+    except (ConfigError, ImportError, OSError, ValueError) as exc:
+        print(f"securebench: error: {exc}")
+        return 1
+
+    print(render_text_summary(report, output_path))
+    return 1 if report.failed else 0
+
+
+def _audit_self(args: argparse.Namespace) -> int:
+    try:
+        report = audit_self(
+            output_dir=args.output_dir,
+            static_only=args.static_only,
+            skip_docker=args.skip_docker,
+        )
+        output_path = write_json_report(report, args.output_dir)
+    except (ConfigError, ImportError, OSError, ValueError) as exc:
+        print(f"securebench: error: {exc}")
+        return 1
+
+    print(render_text_summary(report, output_path))
+    return 1 if report.failed else 0
 
 
 if __name__ == "__main__":

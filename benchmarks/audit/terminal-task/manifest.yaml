@@ -1,0 +1,6 @@
+id: audit-terminal-task
+version: 1
+defaults:
+  family: terminal_task
+  environment:
+    image: python:3.12-slim

@@ -1,0 +1,1 @@
+{"id":"audit-free-response/rejected-overlap","input":{"prompt":"Explain the safe outcome in one sentence."},"eval":{"reference_answer":"safe","rubric":{"type":"contains_any","accepted_answers":["safe"],"rejected_answers":["forbidden exploit marker"],"min_token_f1":1.0}}}
