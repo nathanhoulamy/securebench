@@ -120,23 +120,26 @@ Current protections:
 - The agent only receives public prompt/source context.
 - Candidate code is written separately from the trusted test runner.
 - Hidden tests are no longer concatenated after candidate code in the same top-level script.
+- Hidden tests run in a trusted parent process that proxies candidate function calls into a separate Python worker subprocess.
+- The candidate worker script does not embed hidden test source, and the worker runs from an isolated temporary working directory containing only copied worker and candidate files.
+- When the verifier runs with root privileges, the candidate worker drops to the unprivileged `nobody` user while trusted runner files are marked owner-only.
 - The verifier runs a trusted supervisor that fails if hidden tests do not complete.
 - `SystemExit` during candidate import is treated as failure.
-- Simple `os._exit(0)` during candidate import is blocked.
-- Import-time modifications to builtins and import path state are restored before hidden tests execute.
+- Simple `os._exit(0)` during candidate import cannot mark tests as complete because the trusted parent requires an explicit completion sentinel.
+- Import-time modifications to worker builtins are restored before hidden tests issue candidate calls.
 - Python verifier execution uses Docker with network disabled by default.
 
 Known gaps:
 
-- Candidate code and hidden tests still run in the same container and, after import, the same Python interpreter.
+- Candidate code and hidden tests still run in the same container.
 - Python is not a strong sandbox. Malicious candidate code may still mutate process state in ways not covered by the current restoration logic.
-- Hidden test source still exists in the trusted runner file inside the verifier workspace while verification runs.
+- Hidden test source still exists in the trusted runner file inside the verifier workspace while verification runs; the current file-permission control depends on a root-run verifier environment.
 - The framework currently supports Python code-completion only.
 
 Needed hardening:
 
-- Move toward a parent-driven black-box protocol where hidden tests are never readable by candidate code.
-- Run candidate behavior in a separate subprocess with a narrow API, not in the same interpreter as hidden tests.
+- Move toward stronger container or process boundaries where hidden tests are never present in a candidate-readable filesystem.
+- Continue narrowing the parent-driven candidate API beyond basic function and top-level value access.
 - Add stricter controls for filesystem reads, imports, monkeypatching, process termination, and environment access during verification.
 - Add regression tests for additional process-control and introspection attacks.
 

@@ -9,6 +9,7 @@ from securebench.verifiers.code_completion import (
     build_code_completion_runner,
     build_code_completion_script,
     build_code_completion_supervisor,
+    build_code_completion_worker,
     environment_image_for_task,
     inline_tests,
 )
@@ -95,26 +96,39 @@ def test_build_code_completion_script_does_not_concatenate_candidate_and_tests()
 
     assert "def add_numbers(a, b)" not in script
     assert "TEST_SOURCE =" in script
-    assert "spec.loader.exec_module(module)" in script
+    assert "subprocess.Popen" in script
 
 
 def test_build_code_completion_runner_imports_candidate_module():
     runner = build_code_completion_runner(make_task())
 
     assert "TEST_SOURCE =" in runner
-    assert "spec.loader.exec_module(module)" in runner
+    assert "subprocess.Popen" in runner
     assert "<securebench-hidden-tests>" in runner
-    assert "candidate attempted to exit during import" in runner
+    assert "CandidateWorker" in runner
+    assert "preexec_fn=preexec_fn" in runner
+    assert "pwd.getpwnam('nobody')" in runner
+    assert "chmod(0o600)" in runner
+
+
+def test_build_code_completion_worker_imports_candidate_without_hidden_tests():
+    worker = build_code_completion_worker()
+
+    assert "spec.loader.exec_module(module)" in worker
+    assert "candidate attempted to exit during import" in worker
+    assert "TEST_SOURCE" not in worker
 
 
 def test_build_code_completion_supervisor_requires_success_sentinel():
     supervisor = build_code_completion_supervisor(
         "solution_test.py",
         "candidate.py",
+        "candidate_worker.py",
         "securebench/code_completion_success",
     )
 
     assert "subprocess.run" in supervisor
+    assert "candidate_worker.py" in supervisor
     assert "hidden tests did not complete" in supervisor
     assert "sentinel.exists()" in supervisor
 
@@ -140,6 +154,7 @@ def test_code_completion_verifier_runs_candidate_in_benchmark_environment_image(
 
     assert sandbox.files["candidate.py"] == "def add_numbers(a, b):\n    return a + b\n"
     assert "TEST_SOURCE =" in sandbox.files["solution_test.py"]
+    assert "TEST_SOURCE" not in sandbox.files["candidate_worker.py"]
     assert "subprocess.run" in sandbox.files["solution_supervisor.py"]
     assert sandbox.commands == [(("python3", "solution_supervisor.py"), None, 7.0)]
     assert result.status == "passed"
@@ -150,6 +165,7 @@ def test_code_completion_verifier_runs_candidate_in_benchmark_environment_image(
     assert result.metadata["exit_code"] == 0
     assert result.metadata["candidate_file"] == "candidate.py"
     assert result.metadata["supervisor_file"] == "solution_supervisor.py"
+    assert result.metadata["worker_file"] == "candidate_worker.py"
 
 
 def test_code_completion_verifier_reports_failed_tests():
@@ -182,14 +198,16 @@ def test_code_completion_runner_treats_system_exit_as_failure(tmp_path):
     task = make_task(tests={"source": "inline", "code": "assert True\n"})
     candidate = tmp_path / "candidate.py"
     runner = tmp_path / "solution_test.py"
+    worker = tmp_path / "candidate_worker.py"
     sentinel = tmp_path / "success"
     candidate.write_text("import sys\nsys.exit(0)\n")
     runner.write_text(build_code_completion_runner(task))
+    worker.write_text(build_code_completion_worker())
 
     import subprocess
 
     result = subprocess.run(
-        ["python3", str(runner), str(candidate), str(sentinel)],
+        ["python3", str(runner), str(candidate), str(worker), str(sentinel)],
         check=False,
         capture_output=True,
         text=True,
@@ -205,13 +223,16 @@ def test_code_completion_supervisor_treats_os_exit_as_failure(tmp_path):
     candidate = tmp_path / "candidate.py"
     runner = tmp_path / "solution_test.py"
     supervisor = tmp_path / "solution_supervisor.py"
+    worker = tmp_path / "candidate_worker.py"
     sentinel = tmp_path / "success"
     candidate.write_text("import os\nos._exit(0)\n")
     runner.write_text(build_code_completion_runner(task))
+    worker.write_text(build_code_completion_worker())
     supervisor.write_text(
         build_code_completion_supervisor(
             str(runner),
             str(candidate),
+            str(worker),
             str(sentinel),
         )
     )
@@ -226,8 +247,40 @@ def test_code_completion_supervisor_treats_os_exit_as_failure(tmp_path):
     )
 
     assert result.returncode != 0
-    assert "candidate attempted to terminate process with os._exit(0)" in result.stderr
     assert not sentinel.exists()
+
+
+def test_code_completion_supervisor_supports_relative_runner_paths(tmp_path):
+    task = make_task(tests={"source": "inline", "code": "assert add_numbers(2, 3) == 5\n"})
+    candidate = tmp_path / "candidate.py"
+    runner = tmp_path / "solution_test.py"
+    supervisor = tmp_path / "solution_supervisor.py"
+    worker = tmp_path / "candidate_worker.py"
+    sentinel = "securebench/success"
+    candidate.write_text("def add_numbers(a, b):\n    return a + b\n")
+    runner.write_text(build_code_completion_runner(task))
+    worker.write_text(build_code_completion_worker())
+    supervisor.write_text(
+        build_code_completion_supervisor(
+            "solution_test.py",
+            "candidate.py",
+            "candidate_worker.py",
+            sentinel,
+        )
+    )
+
+    import subprocess
+
+    result = subprocess.run(
+        ["python3", "solution_supervisor.py"],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert (tmp_path / sentinel).exists()
 
 
 def test_candidate_file_dunder_file_does_not_expose_hidden_tests(tmp_path):
@@ -239,14 +292,16 @@ def test_candidate_file_dunder_file_does_not_expose_hidden_tests(tmp_path):
     )
     candidate = tmp_path / "candidate.py"
     runner = tmp_path / "solution_test.py"
+    worker = tmp_path / "candidate_worker.py"
     sentinel = tmp_path / "success"
     candidate.write_text("leaked_file_text = open(__file__).read()\n")
     runner.write_text(build_code_completion_runner(task))
+    worker.write_text(build_code_completion_worker())
 
     import subprocess
 
     result = subprocess.run(
-        ["python3", str(runner), str(candidate), str(sentinel)],
+        ["python3", str(runner), str(candidate), str(worker), str(sentinel)],
         check=False,
         capture_output=True,
         text=True,
@@ -265,6 +320,7 @@ def test_code_completion_runner_restores_import_time_builtin_monkeypatch(tmp_pat
     )
     candidate = tmp_path / "candidate.py"
     runner = tmp_path / "solution_test.py"
+    worker = tmp_path / "candidate_worker.py"
     sentinel = tmp_path / "success"
     candidate.write_text(
         "import builtins\n"
@@ -273,11 +329,74 @@ def test_code_completion_runner_restores_import_time_builtin_monkeypatch(tmp_pat
         "    return a + b\n"
     )
     runner.write_text(build_code_completion_runner(task))
+    worker.write_text(build_code_completion_worker())
 
     import subprocess
 
     result = subprocess.run(
-        ["python3", str(runner), str(candidate), str(sentinel)],
+        ["python3", str(runner), str(candidate), str(worker), str(sentinel)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert sentinel.exists()
+
+
+def test_code_completion_runner_does_not_expose_hidden_tests_to_candidate_process_argv(tmp_path):
+    task = make_task(
+        tests={
+            "source": "inline",
+            "code": "assert 'add_numbers(2, 3)' not in argv0_text\n",
+        }
+    )
+    candidate = tmp_path / "candidate.py"
+    runner = tmp_path / "solution_test.py"
+    worker = tmp_path / "candidate_worker.py"
+    sentinel = tmp_path / "success"
+    candidate.write_text("import sys\nargv0_text = open(sys.argv[0]).read()\n")
+    runner.write_text(build_code_completion_runner(task))
+    worker.write_text(build_code_completion_worker())
+
+    import subprocess
+
+    result = subprocess.run(
+        ["python3", str(runner), str(candidate), str(worker), str(sentinel)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert sentinel.exists()
+
+
+def test_code_completion_runner_does_not_expose_hidden_tests_in_worker_directory(tmp_path):
+    task = make_task(
+        tests={
+            "source": "inline",
+            "code": "assert 'add_numbers(2, 3)' not in worker_directory_text\n",
+        }
+    )
+    candidate = tmp_path / "candidate.py"
+    runner = tmp_path / "solution_test.py"
+    worker = tmp_path / "candidate_worker.py"
+    sentinel = tmp_path / "success"
+    candidate.write_text(
+        "from pathlib import Path\n"
+        "worker_directory_text = '\\n'.join(\n"
+        "    path.read_text(errors='ignore')\n"
+        "    for path in Path.cwd().rglob('*.py')\n"
+        ")\n"
+    )
+    runner.write_text(build_code_completion_runner(task))
+    worker.write_text(build_code_completion_worker())
+
+    import subprocess
+
+    result = subprocess.run(
+        ["python3", str(runner), str(candidate), str(worker), str(sentinel)],
         check=False,
         capture_output=True,
         text=True,
