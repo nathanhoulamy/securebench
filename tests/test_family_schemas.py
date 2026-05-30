@@ -75,7 +75,8 @@ def row_for(family, *, input=None, eval=None):
             input={"instructions": "Create output.txt", "context": {"cwd": "/workspace"}},
             eval={
                 "checker": {
-                    "command": ["python", "securebench/evaluation_inputs/checker.py"],
+                    "source": "pytest",
+                    "path": "checks",
                     "timeout_seconds": 30,
                 },
                 "expected_state": {"file": "output.txt"},
@@ -115,7 +116,7 @@ def test_active_family_valid_rows_pass_schema_validation(row):
             "input.base_commit is required",
         ),
         (
-            row_for("terminal_task", input={}, eval={"checker": {"command": "test -f output.txt"}}),
+            row_for("terminal_task", input={}, eval={"checker": {"source": "pytest", "path": "checks"}}),
             "input.instructions is required",
         ),
     ],
@@ -176,14 +177,14 @@ def test_active_family_missing_required_fields_raise(row, match):
             "eval.candidate_policy.patch_preserved_paths must be a string array",
         ),
         (
-            row_for("terminal_task", input={"instructions": "Do it"}, eval={"checker": {"command": []}}),
-            "eval.checker.command must be a non-empty string or string array",
+            row_for("terminal_task", input={"instructions": "Do it"}, eval={"checker": {"source": "pytest", "path": ""}}),
+            "eval.checker.path must be a non-empty string",
         ),
         (
             row_for(
                 "terminal_task",
                 input={"instructions": "Do it"},
-                eval={"checker": {"command": "true", "timeout_seconds": 0}},
+                eval={"checker": {"source": "pytest", "path": "checks", "timeout_seconds": 0}},
             ),
             "eval.checker.timeout_seconds must be a positive number",
         ),
@@ -217,7 +218,7 @@ def test_active_family_malformed_fields_raise(row, match):
             row_for(
                 "terminal_task",
                 input={"instructions": "Do it", "extra": "no"},
-                eval={"checker": {"command": "true"}},
+                eval={"checker": {"source": "pytest", "path": "checks"}},
             ),
             "input has unknown field",
         ),

@@ -76,7 +76,7 @@ def terminal_task(*, environment=None):
             id="term-1",
             family="terminal_task",
             input={"instructions": "Create output.txt."},
-            eval={"checker": {"command": "test -f output.txt"}},
+            eval={"checker": {"source": "pytest", "path": "checks"}},
             environment={} if environment is None else environment,
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),

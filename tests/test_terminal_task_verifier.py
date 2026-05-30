@@ -36,7 +36,23 @@ class FakeSandbox:
         return (self.root / path).read_bytes()
 
 
-def terminal_task():
+def manifest(tmp_path):
+    manifest_path = tmp_path / "manifest.yaml"
+    manifest_path.write_text("id: pack\nversion: 1\n")
+    hidden = tmp_path / "hidden"
+    hidden.mkdir(exist_ok=True)
+    return BenchmarkPackManifest(id="pack", version=1, path=manifest_path)
+
+
+def write_hidden(tmp_path, path, content="assert True\n"):
+    target = tmp_path / "hidden" / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content)
+    return target
+
+
+def terminal_task(tmp_path):
+    write_hidden(tmp_path, "checks/test_outputs.py")
     return compile_benchmark_row(
         BenchmarkRow(
             id="term-1",
@@ -44,19 +60,20 @@ def terminal_task():
             input={"instructions": "Create output.txt"},
             eval={
                 "checker": {
-                    "command": ["python", "securebench/evaluation_inputs/checker.json"],
-                    "workdir": "/workspace",
+                    "source": "pytest",
+                    "path": "checks/test_outputs.py",
                     "timeout_seconds": 12,
                 },
                 "expected_state": {"file": "output.txt"},
             },
             environment={"image": "python:3.12-slim"},
         ),
-        manifest=BenchmarkPackManifest(id="pack", version=1),
+        manifest=manifest(tmp_path),
     )
 
 
-def app_terminal_task():
+def app_terminal_task(tmp_path):
+    write_hidden(tmp_path, "checks/test_outputs.py")
     return compile_benchmark_row(
         BenchmarkRow(
             id="term-app",
@@ -64,18 +81,19 @@ def app_terminal_task():
             input={"instructions": "Create output.txt"},
             eval={
                 "checker": {
-                    "command": "test -f output.txt",
-                    "workdir": "/app",
+                    "source": "pytest",
+                    "path": "checks/test_outputs.py",
                     "timeout_seconds": 12,
                 },
             },
             environment={"image": "python:3.12-slim", "workdir": "/app"},
         ),
-        manifest=BenchmarkPackManifest(id="pack", version=1),
+        manifest=manifest(tmp_path),
     )
 
 
-def chroot_terminal_task():
+def chroot_terminal_task(tmp_path):
+    write_hidden(tmp_path, "checks/run-tests.sh", "#!/bin/sh\ntrue\n")
     return compile_benchmark_row(
         BenchmarkRow(
             id="term-chroot",
@@ -84,18 +102,19 @@ def chroot_terminal_task():
             eval={
                 "needed_commands": ["chroot"],
                 "checker": {
-                    "command": "chroot /jail /image",
-                    "workdir": "/workspace",
+                    "source": "script",
+                    "path": "checks/run-tests.sh",
                     "timeout_seconds": 12,
                 },
             },
             environment={"image": "python:3.12-slim"},
         ),
-        manifest=BenchmarkPackManifest(id="pack", version=1),
+        manifest=manifest(tmp_path),
     )
 
 
-def environment_timeout_terminal_task():
+def environment_timeout_terminal_task(tmp_path):
+    write_hidden(tmp_path, "checks/test_outputs.py")
     return compile_benchmark_row(
         BenchmarkRow(
             id="term-env-timeout",
@@ -103,20 +122,20 @@ def environment_timeout_terminal_task():
             input={"instructions": "Create output.txt"},
             eval={
                 "checker": {
-                    "command": "test -f output.txt",
-                    "workdir": "/workspace",
+                    "source": "pytest",
+                    "path": "checks/test_outputs.py",
                 },
             },
             environment={"image": "python:3.12-slim", "timeout_seconds": 77},
         ),
-        manifest=BenchmarkPackManifest(id="pack", version=1),
+        manifest=manifest(tmp_path),
     )
 
 
 def test_terminal_task_verifier_runs_checker_against_workspace(tmp_path):
     verifier = TerminalTaskVerifier(sandbox_factory=FakeSandbox)
 
-    result = verifier.verify(terminal_task(), str(tmp_path))
+    result = verifier.verify(terminal_task(tmp_path), str(tmp_path))
 
     assert result.passed is True
     assert result.score == 1.0
@@ -127,16 +146,25 @@ def test_terminal_task_verifier_runs_checker_against_workspace(tmp_path):
     assert (tmp_path / "securebench" / "evaluation_inputs" / "checker.json").exists()
     assert (tmp_path / "securebench" / "evaluator" / "expected_state.json").exists() is False
     sandbox = FakeSandbox.instances[-1]
-    assert sandbox.commands == [(("python", "securebench/evaluation_inputs/checker.json"), "/workspace", 12.0)]
+    command, workdir, timeout = sandbox.commands[0]
+    assert command.startswith(
+        "SECUREBENCH_WORKSPACE='/workspace' SECUREBENCH_EVALUATOR='/opt/securebench/evaluator' "
+        "SECUREBENCH_CHECKER_TARGET='/opt/securebench/evaluator/checks/test_outputs.py' python3 - <<'PY'"
+    )
+    assert workdir == "/workspace"
+    assert timeout == 12.0
 
 
 def test_terminal_task_verifier_uses_environment_timeout_when_checker_timeout_missing(tmp_path):
     verifier = TerminalTaskVerifier(sandbox_factory=FakeSandbox)
 
-    verifier.verify(environment_timeout_terminal_task(), str(tmp_path))
+    verifier.verify(environment_timeout_terminal_task(tmp_path), str(tmp_path))
 
     sandbox = FakeSandbox.instances[-1]
-    assert sandbox.commands == [("test -f output.txt", "/workspace", 77.0)]
+    command, workdir, timeout = sandbox.commands[0]
+    assert "SECUREBENCH_CHECKER_TARGET='/opt/securebench/evaluator/checks/test_outputs.py'" in command
+    assert workdir == "/workspace"
+    assert timeout == 77.0
 
 
 def test_terminal_task_verifier_reports_checker_timeout(tmp_path):
@@ -154,7 +182,7 @@ def test_terminal_task_verifier_reports_checker_timeout(tmp_path):
 
     verifier = TerminalTaskVerifier(sandbox_factory=TimeoutSandbox)
 
-    result = verifier.verify(terminal_task(), str(tmp_path))
+    result = verifier.verify(terminal_task(tmp_path), str(tmp_path))
 
     assert result.status == "failed"
     assert result.passed is False
@@ -174,7 +202,7 @@ def test_terminal_task_verifier_mounts_app_workspace(monkeypatch, tmp_path):
 
     monkeypatch.setattr("securebench.verifiers.terminal_task.DockerSandbox", CapturingSandbox)
 
-    result = TerminalTaskVerifier().verify(app_terminal_task(), str(tmp_path))
+    result = TerminalTaskVerifier().verify(app_terminal_task(tmp_path), str(tmp_path))
 
     assert result.passed is True
     assert created["workspace_mount_target"] == "/app"
@@ -191,13 +219,16 @@ def test_terminal_task_verifier_mounts_checker_inputs_read_only(monkeypatch, tmp
 
     monkeypatch.setattr("securebench.verifiers.terminal_task.DockerSandbox", CapturingSandbox)
 
-    TerminalTaskVerifier().verify(terminal_task(), str(tmp_path))
+    TerminalTaskVerifier().verify(terminal_task(tmp_path), str(tmp_path))
 
     mounts = created["mounts"]
-    assert len(mounts) == 1
+    assert len(mounts) == 2
     assert mounts[0].source == tmp_path / "securebench" / "evaluation_inputs" / "checker.json"
     assert mounts[0].target == "securebench/evaluation_inputs/checker.json"
     assert mounts[0].read_only is True
+    assert mounts[1].source == tmp_path / "hidden" / "checks"
+    assert mounts[1].target == "/opt/securebench/evaluator/checks"
+    assert mounts[1].read_only is True
 
 
 def test_terminal_task_verifier_denies_dangerous_commands_by_default(monkeypatch, tmp_path):
@@ -210,7 +241,7 @@ def test_terminal_task_verifier_denies_dangerous_commands_by_default(monkeypatch
 
     monkeypatch.setattr("securebench.verifiers.terminal_task.DockerSandbox", CapturingSandbox)
 
-    result = TerminalTaskVerifier().verify(chroot_terminal_task(), str(tmp_path))
+    result = TerminalTaskVerifier().verify(chroot_terminal_task(tmp_path), str(tmp_path))
 
     assert result.status == "failed"
     assert result.passed is False
@@ -233,7 +264,7 @@ def test_terminal_task_verifier_allows_declared_chroot_when_tester_opts_in(monke
     monkeypatch.setattr("securebench.verifiers.terminal_task.DockerSandbox", CapturingSandbox)
 
     result = TerminalTaskVerifier().verify(
-        chroot_terminal_task(),
+        chroot_terminal_task(tmp_path),
         str(tmp_path),
         verification_policy=VerificationPolicy(disallow_dangerous_commands=False),
     )
@@ -253,7 +284,7 @@ def test_terminal_task_verifier_tester_deny_overrides_dangerous_command_opt_in(m
     monkeypatch.setattr("securebench.verifiers.terminal_task.DockerSandbox", CapturingSandbox)
 
     result = TerminalTaskVerifier().verify(
-        chroot_terminal_task(),
+        chroot_terminal_task(tmp_path),
         str(tmp_path),
         verification_policy=VerificationPolicy(
             disallow_dangerous_commands=False,
@@ -279,7 +310,7 @@ def test_terminal_task_verifier_does_not_pass_cap_add_without_needed_commands(mo
     monkeypatch.setattr("securebench.verifiers.terminal_task.DockerSandbox", CapturingSandbox)
 
     result = TerminalTaskVerifier().verify(
-        terminal_task(),
+        terminal_task(tmp_path),
         str(tmp_path),
         verification_policy=VerificationPolicy(disallow_dangerous_commands=False),
     )
@@ -292,4 +323,4 @@ def test_terminal_task_verifier_requires_workspace(tmp_path):
     verifier = TerminalTaskVerifier(sandbox_factory=FakeSandbox)
 
     with pytest.raises(ConfigError, match="workspace directory"):
-        verifier.verify(terminal_task(), str(tmp_path / "missing"))
+        verifier.verify(terminal_task(tmp_path), str(tmp_path / "missing"))

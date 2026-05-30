@@ -70,7 +70,7 @@ extension points are visible from the directory tree.
 - `securebench/verifiers/code_completion.py`: Verifies Python code-completion candidates using inline tests.
 - `securebench/verifiers/multiple_choice.py`: Verifies text candidates against hidden multiple-choice answers.
 - `securebench/verifiers/repo_patch.py`: Verifies repo patches by applying candidate/test patches in the benchmark image and running command checks.
-- `securebench/verifiers/terminal_task.py`: Verifies final workspace state by materializing trusted eval inputs and running a checker command in the benchmark image.
+- `securebench/verifiers/terminal_task.py`: Verifies final workspace state by running trusted pytest/script checkers from read-only evaluator mounts in the benchmark image.
 
 ## Sandboxes
 

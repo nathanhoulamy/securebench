@@ -95,7 +95,7 @@ def test_unknown_task_type_converts_to_generic_securebench_task():
             "task_type": "terminal_task",
             "resources": {
                 "instructions": {"value": "Do it.", "visibility": "public"},
-                "checker": {"value": {"command": "pytest"}, "visibility": "evaluation_inputs"},
+                "checker": {"value": {"source": "pytest", "path": "checks"}, "visibility": "evaluation_inputs"},
             },
         }
     )
@@ -105,7 +105,7 @@ def test_unknown_task_type_converts_to_generic_securebench_task():
     assert task.agent_payload() == {"instructions": "Do it."}
     assert task.evaluation_payload() == {
         "instructions": "Do it.",
-        "checker": {"command": "pytest"},
+        "checker": {"source": "pytest", "path": "checks"},
     }
 
 

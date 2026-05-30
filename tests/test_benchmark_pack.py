@@ -166,7 +166,7 @@ defaults:
     tasks_path.write_text(
         '{"id":"task-1","environment":{"materialize_workdir_from_image":true},'
         '"input":{"instructions":"Edit the image-prepared workspace."},'
-        '"eval":{"checker":{"command":"true"}}}\n'
+        '"eval":{"checker":{"source":"pytest","path":"checks"}}}\n'
     )
 
     pack = load_benchmark_pack(manifest_path, tasks_path)

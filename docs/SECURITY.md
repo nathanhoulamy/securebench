@@ -146,13 +146,18 @@ Needed hardening:
 ## Terminal Task Verifiers
 
 Terminal task checkers run in a fresh verifier sandbox with network disabled and
-evaluation inputs materialized only for verification. Some benchmark checkers
-execute agent-produced code as part of the test, so verifier sandbox hardening
-still matters even though the checker itself is trusted.
+trusted checker files mounted read-only under `/opt/securebench/evaluator`.
+Some benchmark checkers execute or inspect agent-produced workspace artifacts as
+part of the test, so verifier sandbox hardening still matters even though the
+checker itself is trusted.
 
 Current protections:
 
 - The agent sandbox does not receive dangerous verifier command allowances.
+- Checker code is resolved from the benchmark pack's eval asset root and mounted
+  outside the candidate workspace.
+- Terminal tasks use structured `pytest` or `script` checker modes instead of
+  raw candidate-workspace commands.
 - Benchmark authors may declare verifier-only `eval.needed_commands` when a
   checker needs a known dangerous command such as `chroot`.
 - Tester policy is fail-closed by default with

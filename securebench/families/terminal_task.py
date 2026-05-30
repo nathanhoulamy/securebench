@@ -37,17 +37,10 @@ def validate(row: Any, context: str) -> None:
 def _validate_checker(value: object, context: str) -> None:
     if not isinstance(value, dict):
         return
-    reject_unknown(value, {"command", "workdir", "timeout_seconds"}, context)
-    _required_command(value, "command", context)
-    if "workdir" in value and not is_non_empty_string(value["workdir"]):
-        raise ConfigError(f"{context}.workdir must be a non-empty string")
+    reject_unknown(value, {"source", "path", "timeout_seconds"}, context)
+    source = value.get("source")
+    if source not in {"pytest", "script"}:
+        raise ConfigError(f"{context}.source must be 'pytest' or 'script'")
+    if not is_non_empty_string(value.get("path")):
+        raise ConfigError(f"{context}.path must be a non-empty string")
     optional_positive_number(value, "timeout_seconds", context)
-
-
-def _required_command(values: dict[str, object], key: str, context: str) -> None:
-    value = values.get(key)
-    if is_non_empty_string(value):
-        return
-    if isinstance(value, list) and value and all(is_non_empty_string(item) for item in value):
-        return
-    raise ConfigError(f"{context}.{key} must be a non-empty string or string array")

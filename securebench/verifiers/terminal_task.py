@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from securebench.errors import ConfigError
@@ -13,7 +13,7 @@ from securebench.dangerous_commands import (
     resolve_dangerous_commands,
 )
 from securebench.progress import emit_progress
-from securebench.sandboxes import CommandResult, DockerSandbox, HostSandbox, Sandbox
+from securebench.sandboxes import CommandResult, DockerBindMount, DockerSandbox, HostSandbox, Sandbox
 from securebench.tasks import SecureBenchTask, resource_value
 from securebench.verifiers.base import VerificationResult, Verifier, timeout_metadata
 from securebench.verifiers.code_completion import environment_image_for_task
@@ -23,6 +23,7 @@ from securebench.workspaces.materialization import VisibilityAwareMaterializer, 
 
 SandboxFactory = Callable[..., Sandbox]
 DEFAULT_TIMEOUT_SECONDS = 300.0
+EVALUATOR_ROOT = PurePosixPath("/opt/securebench/evaluator")
 
 
 class TerminalTaskVerifier(Verifier):
@@ -72,6 +73,7 @@ class TerminalTaskVerifier(Verifier):
         plan = self.materializer.materialize(task, staging, "test_sandbox")
         sandbox = self._sandbox(
             task,
+            checker,
             image,
             workspace_root,
             plan,
@@ -79,7 +81,11 @@ class TerminalTaskVerifier(Verifier):
         )
         close_sandbox = self.sandbox_factory is None
         try:
-            result = sandbox.run(checker.command, workdir=checker.workdir, timeout=timeout)
+            result = sandbox.run(
+                checker_command(task, checker),
+                workdir=workspace_mount_target_for_task(task),
+                timeout=timeout,
+            )
             passed = result.exit_code == 0
             return VerificationResult(
                 task_id=task.id,
@@ -92,10 +98,12 @@ class TerminalTaskVerifier(Verifier):
                     "verifier": "terminal_task",
                     "image": image,
                     "workspace_root": str(workspace_root),
-                    "workdir": checker.workdir,
+                    "workdir": workspace_mount_target_for_task(task),
                     "command": result.command,
                     "exit_code": result.exit_code,
                     "phase": "checker",
+                    "checker_source": checker.source,
+                    "checker_path": checker.path,
                     **timeout_metadata(result),
                 },
             )
@@ -106,6 +114,7 @@ class TerminalTaskVerifier(Verifier):
     def _sandbox(
         self,
         task: SecureBenchTask,
+        checker: "TerminalChecker",
         image: str,
         workspace_root: Path,
         plan: Any,
@@ -125,7 +134,10 @@ class TerminalTaskVerifier(Verifier):
             root=workspace_root,
             network="none",
             read_only=False,
-            mounts=docker_read_only_mounts(plan, workspace_root),
+            mounts=(
+                *docker_read_only_mounts(plan, workspace_root),
+                trusted_checker_mount(task, checker),
+            ),
             workspace_mount_target=workspace_mount_target_for_task(task),
             **docker_kwargs,
         )
@@ -135,12 +147,12 @@ class TerminalChecker:
     def __init__(
         self,
         *,
-        command: str | tuple[str, ...],
-        workdir: str | None,
+        source: str,
+        path: str,
         timeout_seconds: float | None,
     ) -> None:
-        self.command = command
-        self.workdir = workdir
+        self.source = source
+        self.path = path
         self.timeout_seconds = timeout_seconds
 
 
@@ -149,10 +161,54 @@ def checker_for_task(task: SecureBenchTask) -> TerminalChecker:
     if not isinstance(checker, dict):
         raise ConfigError(f"terminal_task task {task.id!r} requires structured checker")
     return TerminalChecker(
-        command=_command(checker.get("command"), task.id),
-        workdir=_optional_string(checker.get("workdir"), "checker.workdir"),
+        source=_checker_source(checker.get("source"), task.id),
+        path=_checker_path(checker.get("path"), task.id),
         timeout_seconds=_optional_positive_number(checker.get("timeout_seconds"), "checker.timeout_seconds"),
     )
+
+
+def checker_command(task: SecureBenchTask, checker: TerminalChecker) -> str:
+    """Return the trusted checker command run from the candidate workspace."""
+    workspace = workspace_mount_target_for_task(task)
+    evaluator = trusted_checker_target(checker)
+    exports = (
+        f"SECUREBENCH_WORKSPACE={_shell_quote(workspace)} "
+        f"SECUREBENCH_EVALUATOR={_shell_quote(str(EVALUATOR_ROOT))} "
+    )
+    if checker.source == "pytest":
+        return f"{exports}SECUREBENCH_CHECKER_TARGET={_shell_quote(str(evaluator))} python3 - <<'PY'\n{_PYTEST_COMPAT_RUNNER}\nPY"
+    if checker.source == "script":
+        test_dir = evaluator.parent / "tests"
+        return f"{exports}TEST_DIR={_shell_quote(str(test_dir))} bash {_shell_quote(str(evaluator))}"
+    raise ConfigError(f"terminal_task checker source is unsupported: {checker.source!r}")
+
+
+def trusted_checker_mount(task: SecureBenchTask, checker: TerminalChecker) -> DockerBindMount:
+    """Return the read-only mount for trusted checker code."""
+    source = trusted_checker_source(task, checker)
+    target = trusted_checker_target(checker)
+    if source.is_file():
+        return DockerBindMount(source=source.parent, target=str(target.parent), read_only=True)
+    return DockerBindMount(source=source, target=str(target), read_only=True)
+
+
+def trusted_checker_source(task: SecureBenchTask, checker: TerminalChecker) -> Path:
+    """Resolve checker.path under the benchmark eval asset root."""
+    manifest_dir = _manifest_dir(task)
+    eval_root = _eval_asset_root(task, manifest_dir)
+    source = (eval_root / checker.path).resolve()
+    if not source.is_relative_to(eval_root):
+        raise ConfigError(f"terminal_task checker.path escapes eval asset root: {checker.path}")
+    if not source.exists():
+        raise ConfigError(f"terminal_task checker.path does not exist: {checker.path}")
+    return source
+
+
+def trusted_checker_target(checker: TerminalChecker) -> PurePosixPath:
+    path = PurePosixPath(checker.path)
+    if path.is_absolute() or ".." in path.parts or str(path) in ("", "."):
+        raise ConfigError(f"terminal_task checker.path must be a safe relative path: {checker.path!r}")
+    return EVALUATOR_ROOT / path
 
 
 def needed_commands_for_task(task: SecureBenchTask) -> tuple[str, ...]:
@@ -196,10 +252,12 @@ def dangerous_command_denial_result(
         metadata={
             "verifier": "terminal_task",
             "image": image,
-            "workdir": checker.workdir,
-            "command": checker.command,
+            "workdir": None,
+            "command": None,
             "exit_code": None,
             "phase": "checker",
+            "checker_source": checker.source,
+            "checker_path": checker.path,
             "failure_reason": "verifier_dangerous_command_denied",
             "denied_command": denied_command,
             "denied_commands": decision.denied_commands,
@@ -211,20 +269,21 @@ def dangerous_command_denial_result(
     )
 
 
-def _command(value: object, task_id: str) -> str | tuple[str, ...]:
-    if isinstance(value, str) and value.strip():
-        return value
-    if isinstance(value, list) and value and all(isinstance(item, str) and item.strip() for item in value):
-        return tuple(value)
-    raise ConfigError(f"terminal_task task {task_id!r} requires checker.command as a non-empty string or string array")
+def _checker_source(value: object, task_id: str) -> str:
+    if value in {"pytest", "script"}:
+        return str(value)
+    raise ConfigError(f"terminal_task task {task_id!r} requires checker.source as 'pytest' or 'script'")
 
 
-def _optional_string(value: object, field: str) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    raise ConfigError(f"{field} must be a non-empty string")
+def _checker_path(value: object, task_id: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError(f"terminal_task task {task_id!r} requires checker.path as a non-empty string")
+    if "\\" in value:
+        raise ConfigError(f"terminal_task task {task_id!r} checker.path may not contain backslashes")
+    path = PurePosixPath(value)
+    if path.is_absolute() or ".." in path.parts or str(path) in ("", "."):
+        raise ConfigError(f"terminal_task task {task_id!r} checker.path must be a safe relative path")
+    return str(path)
 
 
 def _optional_positive_number(value: object, field: str) -> float | None:
@@ -233,6 +292,87 @@ def _optional_positive_number(value: object, field: str) -> float | None:
     if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
         return float(value)
     raise ConfigError(f"{field} must be a positive number")
+
+
+def _manifest_dir(task: SecureBenchTask) -> Path:
+    metadata = task.metadata if isinstance(task.metadata, dict) else {}
+    pack = metadata.get("benchmark_pack")
+    manifest_path = pack.get("manifest_path") if isinstance(pack, dict) else None
+    if not isinstance(manifest_path, str) or not manifest_path:
+        raise ConfigError("terminal_task checker.path requires benchmark_pack.manifest_path metadata")
+    return Path(manifest_path).parent.resolve()
+
+
+def _eval_asset_root(task: SecureBenchTask, manifest_dir: Path) -> Path:
+    metadata = task.metadata if isinstance(task.metadata, dict) else {}
+    roots = metadata.get("asset_roots")
+    root_value = roots.get("eval") if isinstance(roots, dict) else "hidden/"
+    if not isinstance(root_value, str) or not root_value:
+        raise ConfigError("terminal_task asset_roots.eval must be a non-empty string")
+    if "\\" in root_value:
+        raise ConfigError("terminal_task asset_roots.eval may not contain backslashes")
+    root_path = PurePosixPath(root_value)
+    if root_path.is_absolute() or ".." in root_path.parts or str(root_path) in ("", "."):
+        raise ConfigError("terminal_task asset_roots.eval must be a safe relative path")
+    root = (manifest_dir / root_value).resolve()
+    if not root.is_relative_to(manifest_dir):
+        raise ConfigError("terminal_task asset_roots.eval may not escape benchmark package")
+    return root
+
+
+def _shell_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+_PYTEST_COMPAT_RUNNER = r"""
+from __future__ import annotations
+
+import importlib.util
+import os
+import pathlib
+import subprocess
+import sys
+import traceback
+
+
+target = pathlib.Path(os.environ["SECUREBENCH_CHECKER_TARGET"])
+
+if importlib.util.find_spec("pytest") is not None:
+    raise SystemExit(subprocess.run([sys.executable, "-m", "pytest", str(target), "-rA"], check=False).returncode)
+
+
+def test_files(path: pathlib.Path) -> list[pathlib.Path]:
+    if path.is_file():
+        return [path]
+    return sorted(path.rglob("test_*.py"))
+
+
+failures = 0
+for index, file_path in enumerate(test_files(target)):
+    module_name = f"securebench_terminal_check_{index}"
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    if spec is None or spec.loader is None:
+        print(f"could not load checker file: {file_path}", file=sys.stderr)
+        failures += 1
+        continue
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        traceback.print_exc()
+        failures += 1
+        continue
+    for name in sorted(vars(module)):
+        value = getattr(module, name)
+        if name.startswith("test_") and callable(value):
+            try:
+                value()
+            except BaseException:
+                traceback.print_exc()
+                failures += 1
+
+raise SystemExit(1 if failures else 0)
+""".strip()
 
 
 def _close_sandbox(sandbox: Sandbox) -> None:

@@ -4,7 +4,8 @@ Minimal terminal benchmark pack for verifying workspace-state tasks.
 
 The candidate-producing harness receives only `input.instructions` and any public
 assets. After the harness exits, SecureBench preserves the workspace and runs the
-trusted `eval.checker.command` in the benchmark image.
+trusted pytest checker from the benchmark pack's hidden eval assets in the
+benchmark image.
 
 Run:
 

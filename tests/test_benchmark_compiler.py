@@ -84,7 +84,7 @@ def test_terminal_task_row_compiles_to_generic_task_with_eval_visibility():
             family="terminal_task",
             input={"instructions": "Create output.txt"},
             eval={
-                "checker": {"command": "python checks/check.py"},
+                "checker": {"source": "pytest", "path": "checks"},
                 "needed_commands": ["chroot"],
                 "expected_state": {"file": "output.txt"},
             },
@@ -95,7 +95,7 @@ def test_terminal_task_row_compiles_to_generic_task_with_eval_visibility():
     assert type(task) is SecureBenchTask
     assert task.task_type == "terminal_task"
     assert task.agent_payload() == {"instructions": "Create output.txt"}
-    assert task.evaluation_payload()["checker"] == {"command": "python checks/check.py"}
+    assert task.evaluation_payload()["checker"] == {"source": "pytest", "path": "checks"}
     assert task.evaluation_payload()["needed_commands"] == ["chroot"]
     assert task.hidden_payload()["expected_state"] == {"file": "output.txt"}
 
@@ -116,7 +116,7 @@ def test_terminal_task_rejects_invalid_needed_commands(needed_commands, match):
                 family="terminal_task",
                 input={"instructions": "Create output.txt"},
                 eval={
-                    "checker": {"command": "python checks/check.py"},
+                    "checker": {"source": "pytest", "path": "checks"},
                     "needed_commands": needed_commands,
                 },
             ),
@@ -131,7 +131,7 @@ def test_assets_are_public_when_non_empty():
             family="terminal_task",
             input={"instructions": "Read the file"},
             assets=({"path": "auth.log", "mount": "auth.log"},),
-            eval={"checker": {"command": "true"}},
+            eval={"checker": {"source": "pytest", "path": "checks"}},
         ),
         manifest=manifest(),
     )
@@ -145,7 +145,7 @@ def test_environment_and_pack_details_are_metadata_not_agent_payload():
         id="meta-1",
         family="terminal_task",
         input={"instructions": "Do it"},
-        eval={"checker": {"command": "true"}},
+        eval={"checker": {"source": "pytest", "path": "checks"}},
         environment={"image": "python:3.12-slim", "timeout_seconds": 30},
         metadata={"difficulty": "easy"},
     )
@@ -224,8 +224,8 @@ def test_compile_benchmark_pack_iterates_rows(tmp_path):
     tasks_path = tmp_path / "tasks.jsonl"
     manifest_path.write_text("id: example-pack\nversion: 1\ndefaults:\n  family: terminal_task\n")
     tasks_path.write_text(
-        '{"id":"task-1","input":{"instructions":"one"},"eval":{"checker":{"command":"true"}}}\n'
-        '{"id":"task-2","input":{"instructions":"two"},"eval":{"checker":{"command":"true"}}}\n'
+        '{"id":"task-1","input":{"instructions":"one"},"eval":{"checker":{"source":"pytest","path":"checks"}}}\n'
+        '{"id":"task-2","input":{"instructions":"two"},"eval":{"checker":{"source":"pytest","path":"checks"}}}\n'
     )
     pack = BenchmarkPack(manifest=manifest(), tasks_path=tasks_path)
 

@@ -15,7 +15,7 @@ def terminal_task(environment):
             id="terminal-1",
             family="terminal_task",
             input={"instructions": "Edit files in the terminal workspace."},
-            eval={"checker": {"command": "true"}},
+            eval={"checker": {"source": "pytest", "path": "checks"}},
             environment=environment,
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),
