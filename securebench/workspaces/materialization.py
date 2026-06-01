@@ -93,7 +93,7 @@ class ResourceMaterializer:
 
         for item in plan.resources:
             resource = bundle.resources[item.name]
-            target.write_file(item.relative_path, _serialize_json(resource.value))
+            _write_materialized_file(item, target, _serialize_json(resource.value))
         return plan
 
 
@@ -146,7 +146,7 @@ class VisibilityAwareMaterializer:
                 _copy_materialized_resource(item, target)
             else:
                 resource = bundle.resources[item.name]
-                target.write_file(item.relative_path, _serialize_json(resource.value))
+                _write_materialized_file(item, target, _serialize_json(resource.value))
         return plan
 
 
@@ -322,15 +322,47 @@ def _copy_materialized_resource(item: MaterializedResource, target: Materializat
         raise MaterializationError(f"copy resource {item.name!r} requires source_path")
     source = Path(item.source_path)
     if item.kind == "file":
-        target.write_file(item.relative_path, source.read_bytes())
+        _write_materialized_file(item, target, source.read_bytes())
         return
     if item.kind == "directory":
         for child in sorted(source.rglob("*")):
             if child.is_file():
                 relative_child = PurePosixPath(child.relative_to(source).as_posix())
-                target.write_file(PurePosixPath(item.relative_path) / relative_child, child.read_bytes())
+                child_item = MaterializedResource(
+                    name=item.name,
+                    visibility=item.visibility,
+                    kind="file",
+                    component=item.component,
+                    relative_path=str(PurePosixPath(item.relative_path) / relative_child),
+                    serialization=item.serialization,
+                    placement=item.placement,
+                    source_path=str(child),
+                    read_only=item.read_only,
+                )
+                _write_materialized_file(child_item, target, child.read_bytes())
         return
     raise MaterializationError(f"copy resource {item.name!r} must be a file or directory")
+
+
+def _write_materialized_file(item: MaterializedResource, target: MaterializationTarget, content: str | bytes) -> None:
+    _reject_existing_non_public_target(item, target)
+    target.write_file(item.relative_path, content)
+
+
+def _reject_existing_non_public_target(item: MaterializedResource, target: MaterializationTarget) -> None:
+    if item.visibility not in ("evaluation_inputs", "hidden"):
+        return
+    root = getattr(target, "root", None)
+    if root is None:
+        return
+    relative_path = PurePosixPath(item.relative_path)
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        raise MaterializationError(f"materialized path escapes root: {item.relative_path}")
+    host_path = Path(root).joinpath(*relative_path.parts)
+    if host_path.exists() or host_path.is_symlink():
+        raise MaterializationError(
+            f"non-public materialized target already exists and will not be overwritten: {item.relative_path}"
+        )
 
 
 def _asset_default_read_only(source: Any) -> bool:

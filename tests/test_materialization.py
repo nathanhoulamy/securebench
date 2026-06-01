@@ -1,5 +1,6 @@
 import pytest
 
+from securebench.sandboxes import HostSandbox
 from securebench.workspaces.materialization import (
     MaterializationError,
     ResourceMaterializer,
@@ -61,6 +62,20 @@ def test_test_sandbox_materialization_writes_public_and_evaluation_inputs():
     assert target.files["securebench/evaluation_inputs/cases.json"] == '[\n  {\n    "args": [\n      1,\n      2\n    ]\n  }\n]\n'
     assert "answer" not in str(plan)
     assert "answer" not in str(target.files)
+
+
+def test_non_public_json_materialization_rejects_existing_hardlink_alias(tmp_path):
+    workspace = tmp_path / "workspace"
+    target_path = workspace / "securebench" / "evaluation_inputs" / "cases.json"
+    alias_path = workspace / "candidate-alias.json"
+    target_path.parent.mkdir(parents=True)
+    alias_path.write_text("candidate-controlled")
+    target_path.hardlink_to(alias_path)
+
+    with pytest.raises(MaterializationError, match="already exists"):
+        ResourceMaterializer().materialize(make_bundle(), HostSandbox(root=workspace), "test_sandbox")
+
+    assert alias_path.read_text() == "candidate-controlled"
 
 
 def test_evaluator_materialization_uses_current_evaluator_visibility_semantics():
@@ -345,6 +360,32 @@ def test_evaluation_input_file_reference_is_test_sandbox_only(tmp_path):
     assert target.files["securebench/evaluation_inputs/checks/check.py"] == b"assert True"
     assert target.files["securebench/evaluation_inputs/cases.json"].startswith("[")
     assert VisibilityAwareMaterializer().build_plan(task, "agent").resources == ()
+
+
+def test_non_public_file_reference_rejects_existing_hardlink_alias(tmp_path):
+    source = tmp_path / "hidden" / "checks" / "check.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("assert True")
+    workspace = tmp_path / "workspace"
+    target_path = workspace / "securebench" / "evaluation_inputs" / "checks" / "check.py"
+    alias_path = workspace / "candidate-alias.py"
+    target_path.parent.mkdir(parents=True)
+    alias_path.write_text("candidate-controlled")
+    target_path.hardlink_to(alias_path)
+    task = pack_task(
+        tmp_path,
+        {
+            "checker": {
+                "value": {"path": "checks/check.py"},
+                "visibility": "evaluation_inputs",
+            },
+        },
+    )
+
+    with pytest.raises(MaterializationError, match="already exists"):
+        VisibilityAwareMaterializer().materialize(task, HostSandbox(root=workspace), "test_sandbox")
+
+    assert alias_path.read_text() == "candidate-controlled"
 
 
 def test_eval_object_with_path_and_extra_keys_remains_json(tmp_path):
