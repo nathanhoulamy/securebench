@@ -149,8 +149,10 @@ def test_terminal_task_verifier_runs_checker_against_workspace(tmp_path):
     command, workdir, timeout = sandbox.commands[0]
     assert command.startswith(
         "SECUREBENCH_WORKSPACE='/workspace' SECUREBENCH_EVALUATOR='/opt/securebench/evaluator' "
-        "SECUREBENCH_CHECKER_TARGET='/opt/securebench/evaluator/checks/test_outputs.py' python3 - <<'PY'"
+        "SECUREBENCH_CHECKER_TARGET='/opt/securebench/evaluator/checks/test_outputs.py' python3 -I - <<'PY'"
     )
+    assert "_remove_workspace_import_paths()" in command
+    assert '[sys.executable, "-I", "-m", "pytest"' in command
     assert workdir == "/workspace"
     assert timeout == 12.0
 

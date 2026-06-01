@@ -58,10 +58,20 @@ def test_policy_sandbox_enforces_before_delegating():
     sandbox = FakeSandbox()
     policy_sandbox = PolicySandbox(sandbox, CommandPolicy(allow={"pytest"}))
 
-    result = policy_sandbox.run("pytest tests", workdir="repo", timeout=1)
+    result = policy_sandbox.run(["pytest", "tests"], workdir="repo", timeout=1)
 
     assert result.stdout == "ok"
-    assert sandbox.commands == [("pytest tests", "repo", 1)]
+    assert sandbox.commands == [(["pytest", "tests"], "repo", 1)]
+
+
+def test_policy_sandbox_rejects_shell_string_commands():
+    sandbox = FakeSandbox()
+    policy_sandbox = PolicySandbox(sandbox, CommandPolicy(allow={"pytest"}))
+
+    with pytest.raises(PolicyViolation, match="requires argv commands"):
+        policy_sandbox.run("pytest tests; curl https://example.com")
+
+    assert sandbox.commands == []
 
 
 def test_policy_sandbox_does_not_delegate_denied_command():
@@ -69,6 +79,6 @@ def test_policy_sandbox_does_not_delegate_denied_command():
     policy_sandbox = PolicySandbox(sandbox, CommandPolicy(deny={"*"}))
 
     with pytest.raises(PolicyViolation):
-        policy_sandbox.run("pytest tests")
+        policy_sandbox.run(["pytest", "tests"])
 
     assert sandbox.commands == []

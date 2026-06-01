@@ -176,7 +176,7 @@ def checker_command(task: SecureBenchTask, checker: TerminalChecker) -> str:
         f"SECUREBENCH_EVALUATOR={_shell_quote(str(EVALUATOR_ROOT))} "
     )
     if checker.source == "pytest":
-        return f"{exports}SECUREBENCH_CHECKER_TARGET={_shell_quote(str(evaluator))} python3 - <<'PY'\n{_PYTEST_COMPAT_RUNNER}\nPY"
+        return f"{exports}SECUREBENCH_CHECKER_TARGET={_shell_quote(str(evaluator))} python3 -I - <<'PY'\n{_PYTEST_COMPAT_RUNNER}\nPY"
     if checker.source == "script":
         test_dir = evaluator.parent / "tests"
         return f"{exports}TEST_DIR={_shell_quote(str(test_dir))} bash {_shell_quote(str(evaluator))}"
@@ -336,9 +336,31 @@ import traceback
 
 
 target = pathlib.Path(os.environ["SECUREBENCH_CHECKER_TARGET"])
+workspace = pathlib.Path(os.environ["SECUREBENCH_WORKSPACE"]).resolve()
+
+
+def _remove_workspace_import_paths() -> None:
+    sanitized = []
+    for entry in sys.path:
+        if entry in ("", "."):
+            continue
+        try:
+            resolved = pathlib.Path(entry).resolve()
+        except OSError:
+            sanitized.append(entry)
+            continue
+        if resolved == workspace or resolved.is_relative_to(workspace):
+            continue
+        sanitized.append(entry)
+    sys.path[:] = sanitized
+
+
+_remove_workspace_import_paths()
 
 if importlib.util.find_spec("pytest") is not None:
-    raise SystemExit(subprocess.run([sys.executable, "-m", "pytest", str(target), "-rA"], check=False).returncode)
+    raise SystemExit(
+        subprocess.run([sys.executable, "-I", "-m", "pytest", str(target), "-rA"], check=False).returncode
+    )
 
 
 def test_files(path: pathlib.Path) -> list[pathlib.Path]:

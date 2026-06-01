@@ -73,6 +73,8 @@ class PolicySandbox(Sandbox):
         workdir: str | None = None,
         timeout: float | None = None,
     ) -> CommandResult:
+        if isinstance(command, str):
+            raise PolicyViolation("PolicySandbox requires argv commands; shell string commands are not allowed")
         self.policy.enforce(command)
         return self.sandbox.run(command, workdir=workdir, timeout=timeout)
 

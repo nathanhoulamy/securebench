@@ -38,11 +38,14 @@ DEFAULT_DENIED_PATH_NAMES = {
     "requirements.txt",
     "setup.cfg",
     "setup.py",
+    "sitecustomize.py",
     "tox.ini",
+    "usercustomize.py",
     "yarn.lock",
 }
 DEFAULT_DENIED_PATH_SUFFIXES = (
     ".lock",
+    ".pth",
 )
 DEFAULT_DENIED_ROOTS = (
     ".github",
@@ -454,7 +457,7 @@ def _paths_from_patch_line(line: str) -> tuple[str, ...]:
 
 
 def _normalize_patch_path(path: str) -> str | None:
-    raw = path.strip().strip('"')
+    raw = _decode_git_patch_path(path.strip().strip('"'))
     if raw.startswith("a/") or raw.startswith("b/"):
         raw = raw[2:]
     if raw in ("", "/dev/null"):
@@ -473,6 +476,8 @@ def _is_sensitive_candidate_path(path: str) -> bool:
     name = parts[-1] if parts else ""
     if parts and parts[0] in DEFAULT_DENIED_ROOTS:
         return True
+    if parts and parts[0] == "pytest":
+        return True
     if any(part in DEFAULT_DENIED_PARTS for part in parts):
         return True
     if name in DEFAULT_DENIED_PATH_NAMES:
@@ -484,6 +489,28 @@ def _is_sensitive_candidate_path(path: str) -> bool:
     if name.endswith(DEFAULT_DENIED_PATH_SUFFIXES) and name not in {"readme.md"}:
         return True
     return False
+
+
+def _decode_git_patch_path(path: str) -> str:
+    """Decode Git-style C escapes so policy checks match paths git applies."""
+    def replace(match: re.Match[str]) -> str:
+        value = match.group(1)
+        if value is not None:
+            return chr(int(value, 8))
+        escaped = match.group(2)
+        return {
+            "a": "\a",
+            "b": "\b",
+            "f": "\f",
+            "n": "\n",
+            "r": "\r",
+            "t": "\t",
+            "v": "\v",
+            "\\": "\\",
+            '"': '"',
+        }.get(escaped, escaped)
+
+    return re.sub(r"\\([0-7]{1,3})|\\(.)", replace, path)
 
 
 def _is_hard_denied_candidate_path(path: str) -> bool:

@@ -119,6 +119,12 @@ def test_changed_paths_from_patch_extracts_git_diff_paths():
     assert changed_paths_from_patch(patch) == ("app.py", "old.py", "new.py")
 
 
+def test_changed_paths_from_patch_decodes_git_c_style_escapes():
+    patch = 'diff --git "a/tests\\057test_bug.py" "b/tests\\057test_bug.py"\n'
+
+    assert changed_paths_from_patch(patch) == ("tests/test_bug.py",)
+
+
 @pytest.mark.parametrize(
     "path",
     [
@@ -126,10 +132,13 @@ def test_changed_paths_from_patch_extracts_git_diff_paths():
         "app/tests/test_bug.py",
         "pyproject.toml",
         "package.json",
+        "pytest/__main__.py",
         "requirements.txt",
         ".github/workflows/ci.yml",
         "scripts/run_tests.sh",
         "securebench/evaluation_inputs/test.patch",
+        "sitecustomize.py",
+        "usercustomize.py",
     ],
 )
 def test_candidate_patch_policy_rejects_sensitive_paths(path):
@@ -137,6 +146,15 @@ def test_candidate_patch_policy_rejects_sensitive_paths(path):
 
     assert decision.allowed is False
     assert decision.denied_paths == (path,)
+
+
+def test_candidate_patch_policy_rejects_git_c_style_sensitive_path():
+    patch = 'diff --git "a/tests\\057test_bug.py" "b/tests\\057test_bug.py"\n'
+
+    decision = evaluate_candidate_patch_policy(patch)
+
+    assert decision.allowed is False
+    assert decision.denied_paths == ("tests/test_bug.py",)
 
 
 def test_candidate_patch_policy_allows_application_yaml_by_default():
