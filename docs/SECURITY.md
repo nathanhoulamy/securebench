@@ -133,11 +133,25 @@ Known gaps:
 
 - Candidate code and hidden tests still run in the same container.
 - Python is not a strong sandbox. Malicious candidate code may still mutate process state in ways not covered by the current restoration logic.
+- The current parent/worker protocol uses Python object serialization across a
+  trust boundary. Untrusted candidate return values or exported values must not
+  be deserialized with `pickle` in the trusted parent: a malicious candidate can
+  return an object whose reducer executes trusted-parent code before hidden-test
+  assertions matter, allowing result forgery or hidden-test disclosure without
+  knowing the tests.
+- A plain JSON-only replacement would break existing Python benchmark behavior
+  such as tuple returns (`windowed`, HumanEval `sum_product`). If this design is
+  retained temporarily, it needs a small safe tagged serializer for simple
+  Python values rather than arbitrary object deserialization.
 - Hidden test source still exists in the trusted runner file inside the verifier workspace while verification runs; the current file-permission control depends on a root-run verifier environment.
 - The framework currently supports Python code-completion only.
 
 Needed hardening:
 
+- Prefer removing value-level IPC between trusted hidden tests and untrusted
+  candidate code. A cleaner design is to run candidate code and test execution
+  in an isolated test process, with the trusted supervisor observing only exit
+  status, timeout, and bounded output.
 - Move toward stronger container or process boundaries where hidden tests are never present in a candidate-readable filesystem.
 - Continue narrowing the parent-driven candidate API beyond basic function and top-level value access.
 - Add stricter controls for filesystem reads, imports, monkeypatching, process termination, and environment access during verification.
