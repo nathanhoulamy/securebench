@@ -729,7 +729,7 @@
       "allow_paths": ["astropy/modeling/"]
     },
     "tests": {
-      "command": "python -m pytest ...",
+      "command": ["python", "-m", "pytest", "..."],
       "test_patch": "diff --git a/tests/..."
     },
     "gold_patch": "diff --git a/astropy/..."
@@ -758,14 +758,14 @@ NOT PRESENT:
         </div>
         <div class="code-card box-eval">
           <h3>3. Verifier receives private inputs</h3>
-          <pre>candidate.patch
+          <pre>canonical candidate patch
   diff --git a/astropy/...
 
 candidate policy
   reject tests, CI, lockfiles, shell scripts
 
 eval.tests
-  apply test_patch
+  apply setup, candidate, and test patches over stdin
   run: python -m pytest astropy/modeling/...
 
 hidden evaluator data

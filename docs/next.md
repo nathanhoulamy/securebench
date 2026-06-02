@@ -19,18 +19,17 @@ and tester YAML references are the HTML standards in this directory.
   answers when accepted and rejected explanations share many words. Prefer
   explicit required/forbidden concepts, or a dedicated judge interface, over
   full-sentence overlap.
-- Continue hardening `repo_patch` verification around protected hidden-test
-  execution, read-only trusted harness files, post-apply integrity checks, and
-  audit metadata. Candidate patches now have a pre-apply path policy, but the
+- Continue hardening `repo_patch` toward separate candidate runtimes for tasks
+  that need strong hidden-test secrecy. Canonical patches, stdin application,
+  post-apply path checks, and containment metadata are now enforced, but the
   check command still runs in the candidate-mutated repository.
 - Prefer task-specific implementation-file allowlists for future `repo_patch`
   benchmark standards. The current default deny policy is useful as a safety
   net, but benchmark-authored allowlists such as `src/**` make the intended
   candidate edit surface clearer and easier to audit.
-- Consider optional post-apply integrity checks for `repo_patch` trust-base
-  paths such as tests, test runners, dependency/build configuration, and
-  framework-owned paths. This needs explicit standard support because some
-  benchmarks may legitimately require edits to otherwise sensitive files.
+- Consider adapter-based Python-call, CLI-case, and HTTP-case protocols that
+  keep hidden evaluators in a separate container and send only bounded inputs
+  to a no-egress candidate runtime.
 
 ## Schema Tightening
 

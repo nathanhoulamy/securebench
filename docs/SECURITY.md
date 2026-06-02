@@ -172,6 +172,11 @@ Current protections:
   outside the candidate workspace.
 - Terminal tasks use structured `pytest` or `script` checker modes instead of
   raw candidate-workspace commands.
+- `pytest` checker mode is preferred for ordinary Python checkers.
+- `script` checker mode starts trusted evaluator scripts with Bash profiles
+  disabled, removes Python startup-path environment overrides, disables user
+  site loading and unsafe Python paths, and exports isolated `python` and
+  `python3` launchers that add `-I`.
 - Benchmark authors may declare verifier-only `eval.needed_commands` when a
   checker needs a known dangerous command such as `chroot`.
 - Tester policy is fail-closed by default with
@@ -189,6 +194,9 @@ Known gaps and guidance:
   `SYS_CHROOT`.
 - Denials fail the verifier before tests run and include the denied command and
   reason in result metadata.
+- Evaluator scripts are trusted assets. They must use the exported `python` or
+  `python3` launchers for Python children and must not bypass isolation with an
+  absolute interpreter path.
 
 ## Repo Patch
 
@@ -202,30 +210,51 @@ Data split:
 Current protections:
 
 - The agent receives only public task instructions and public workspace data.
-- Candidate production for repo-patch tasks collects a git diff rather than trusting arbitrary result text.
+- Candidate production stages intent-to-add entries and collects a canonical
+  `git diff HEAD --binary --full-index --no-ext-diff --no-textconv --`, so
+  staged edits and new files are included without running external diff drivers.
 - Repo-patch verification runs in Docker with network disabled by default.
-- Test patches are stored under an evaluation-input path before application.
+- Candidate patches must contain unambiguous canonical `diff --git` file
+  sections. Headerless unified diffs fail closed.
+- The verifier checks that the image `HEAD` exactly matches `input.base_commit`
+  before applying patches.
+- Setup, candidate, and hidden test patches are applied through
+  `git apply --binary` over stdin. Patch files are not mounted or written into
+  the verifier workspace.
 - Empty candidate patches fail.
-- Candidate patches are checked against `eval.candidate_policy` before they are written or applied.
+- Candidate patches are checked against `eval.candidate_policy` before they are
+  applied and again against NUL-delimited Git paths collected after application.
+- Setup state is committed as a verifier-only baseline with hooks and commit
+  signing disabled before candidate paths are measured.
+- Repo-patch `eval.tests.command` is an argv array. Shell orchestration must be
+  explicit, for example `["bash", "-lc", "..."]`.
 - By default, candidate patches are denied when they touch test directories, hidden/evaluation paths, CI configuration, build/dependency configuration, lockfiles, test runners, shell scripts, or unsafe paths.
 - Benchmark authors can explicitly override the default path policy with `eval.candidate_policy.allow_sensitive_paths` when a task intentionally requires editing an otherwise-denied path.
 - Benchmark authors can mark public verifier-supporting files with `eval.candidate_policy.patch_preserved_paths`; candidate edits to those files are stripped at whole-file diff granularity before verification.
 - Framework trust-boundary paths such as `securebench/`, absolute paths, and paths containing `..` are non-overridable and fail verification rather than being stripped.
+- `eval.candidate_policy.allow_paths` remains optional, but static audit emits a
+  prominent warning when it is absent. Tasks without it rely more heavily on
+  trusted benchmark-author discipline.
 
 Known gaps:
 
-- The verifier still applies the candidate patch before applying hidden tests and running the trusted command, so the path policy is the main protection against test-infrastructure tampering.
+- Candidate code and hidden tests still share a verifier runtime while checks
+  execute. The containment profile is `shared_runtime`; hidden-test runtime
+  secrecy is explicitly `false`.
 - The default deny list is conservative but not a complete semantic model of every benchmark image's test trust base.
 - Public tests can still be part of the verifier trust base when hidden/evaluation tests import, patch, or extend them; `patch_preserved_paths` is intended for those visible-but-immutable support files, not for hidden-test secrecy.
-- The verifier does not yet verify that command targets and imported test helpers remain unchanged after candidate application beyond the configured path policy.
 - The check command runs in the candidate-mutated repository, so candidate changes can tamper with the command's trust base.
+- Benchmark authors remain part of the trusted computing base: commands,
+  allowlists, setup patches, and hidden checks must be designed accordingly.
 
 Needed hardening:
 
 - Expand path policy configuration as real repo-patch benchmarks need narrower implementation-file allowlists.
-- Apply hidden tests from a protected location after candidate patching.
-- Run trusted check orchestration from a read-only harness path outside the candidate-controlled repository.
-- Add post-apply integrity checks for command targets, test runners, and trusted helper files.
+- Introduce adapter-based candidate runtimes when strong hidden-test secrecy is
+  required: run hidden evaluators separately and expose only bounded case inputs
+  to a no-egress candidate container over a safe tagged protocol.
+- Run trusted check orchestration from a read-only harness path outside the
+  candidate-controlled repository where benchmark shape permits it.
 - Add regression tests for malicious patches that alter test infrastructure rather than implementation code.
 
 ## Deferred And Planned Families

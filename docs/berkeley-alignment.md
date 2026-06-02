@@ -121,6 +121,10 @@ root under `/opt/securebench/evaluator` and runs them against the candidate
 workspace as untrusted state. This removes the main class of attacks where a
 candidate replaces or shadows the checker inside the workspace.
 
+Prefer `pytest` checker mode for ordinary Python checks. Script-mode evaluator
+files are trusted assets: their Python children should use the exported
+isolated `python` or `python3` launchers rather than absolute interpreter paths.
+
 ## Remaining Work
 
 - Add stricter short-answer and free-response scoring modes.
