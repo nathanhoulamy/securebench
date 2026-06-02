@@ -45,13 +45,14 @@ task image workdir when this flag is enabled. Use SecureBench `assets[]` for
 small intentional public files and `eval.*` resources under `hidden/` for
 verifier-only files.
 
-The hidden verifier scripts were also adjusted for SecureBench's verifier
-sandbox model. They run without network access, so test-time downloads and
-package installs were moved into the task images. The Astropy task keeps its
-tester-provided regression test patch inside the hidden verifier script and
-applies it only when checking the candidate. The large CSV task regenerates
-`input.csv` during verification and creates `expected.csv` inside the hidden
-tests, so candidate code cannot rely on a modified workspace copy.
+Eight Python-only checker wrappers use SecureBench's preferred `pytest` checker
+mode directly. The remaining hidden verifier scripts run without network access,
+so test-time downloads and package installs were moved into the task images.
+The Astropy task keeps its tester-provided regression test patch inside the
+hidden verifier script and applies it only when checking the candidate. The
+large CSV task regenerates `input.csv` during verification and creates
+`expected.csv` inside the hidden tests, so candidate code cannot rely on a
+modified workspace copy.
 
 The `path-tracing` checker uses `chroot` to run the compiled candidate program
 without access to the reference image. That row declares

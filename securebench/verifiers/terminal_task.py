@@ -179,7 +179,11 @@ def checker_command(task: SecureBenchTask, checker: TerminalChecker) -> str:
         return f"{exports}SECUREBENCH_CHECKER_TARGET={_shell_quote(str(evaluator))} python3 -I - <<'PY'\n{_PYTEST_COMPAT_RUNNER}\nPY"
     if checker.source == "script":
         test_dir = evaluator.parent / "tests"
-        return f"{exports}TEST_DIR={_shell_quote(str(test_dir))} bash {_shell_quote(str(evaluator))}"
+        return (
+            f"{exports}TEST_DIR={_shell_quote(str(test_dir))} "
+            f"SECUREBENCH_CHECKER_SCRIPT={_shell_quote(str(evaluator))} "
+            f"/bin/bash --noprofile --norc -c {_shell_quote(_SCRIPT_CHECKER_RUNNER)}"
+        )
     raise ConfigError(f"terminal_task checker source is unsupported: {checker.source!r}")
 
 
@@ -322,6 +326,30 @@ def _eval_asset_root(task: SecureBenchTask, manifest_dir: Path) -> Path:
 
 def _shell_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+_SCRIPT_CHECKER_RUNNER = r"""
+unset PYTHONPATH PYTHONHOME BASH_ENV ENV
+export PYTHONNOUSERSITE=1
+export PYTHONSAFEPATH=1
+securebench_python() {
+    local name="$1"
+    local executable
+    shift
+    executable="$(type -P "$name")" || return 127
+    case "$executable" in
+        "$SECUREBENCH_WORKSPACE"|"$SECUREBENCH_WORKSPACE"/*)
+            printf 'securebench: refusing candidate-owned Python interpreter: %s\n' "$executable" >&2
+            return 126
+            ;;
+    esac
+    command "$executable" -I "$@"
+}
+python() { securebench_python python "$@"; }
+python3() { securebench_python python3 "$@"; }
+export -f securebench_python python python3
+exec /bin/bash --noprofile --norc "$SECUREBENCH_CHECKER_SCRIPT"
+""".strip()
 
 
 _PYTEST_COMPAT_RUNNER = r"""

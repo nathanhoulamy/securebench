@@ -6,7 +6,7 @@ if [ "$PWD" = "/" ]; then
     exit 1
 fi
 
-cat > test_patch.diff << 'EOF'
+patch --fuzz=5 -p1 << 'EOF'
 diff --git a/astropy/modeling/tests/test_separable.py b/astropy/modeling/tests/test_separable.py
 --- a/astropy/modeling/tests/test_separable.py
 +++ b/astropy/modeling/tests/test_separable.py
@@ -41,8 +41,7 @@ diff --git a/astropy/modeling/tests/test_separable.py b/astropy/modeling/tests/t
 +                        [False, False, False, True,  False],
 +                        [False, False, False, False, True]]))),
  }
- EOF
+EOF
 
- patch --fuzz=5 -p1 -i test_patch.diff
- source /opt/miniconda3/bin/activate testbed
- python -m pytest astropy/modeling/tests/test_separable.py -q
+source /opt/miniconda3/bin/activate testbed
+python -m pytest astropy/modeling/tests/test_separable.py -q

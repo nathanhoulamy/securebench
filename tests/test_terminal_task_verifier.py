@@ -1,4 +1,6 @@
+import os
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -7,7 +9,7 @@ from securebench.benchmark_pack import BenchmarkPackManifest, BenchmarkRow
 from securebench.errors import ConfigError
 from securebench.sandboxes import CommandResult
 from securebench.dangerous_commands import VerificationPolicy
-from securebench.verifiers.terminal_task import TerminalTaskVerifier
+from securebench.verifiers.terminal_task import _SCRIPT_CHECKER_RUNNER, TerminalTaskVerifier
 
 
 class FakeSandbox:
@@ -113,6 +115,25 @@ def chroot_terminal_task(tmp_path):
     )
 
 
+def script_terminal_task(tmp_path):
+    write_hidden(tmp_path, "checks/run-tests.sh", "#!/bin/bash\ntrue\n")
+    return compile_benchmark_row(
+        BenchmarkRow(
+            id="term-script",
+            family="terminal_task",
+            input={"instructions": "Create output.txt"},
+            eval={
+                "checker": {
+                    "source": "script",
+                    "path": "checks/run-tests.sh",
+                },
+            },
+            environment={"image": "python:3.12-slim"},
+        ),
+        manifest=manifest(tmp_path),
+    )
+
+
 def environment_timeout_terminal_task(tmp_path):
     write_hidden(tmp_path, "checks/test_outputs.py")
     return compile_benchmark_row(
@@ -167,6 +188,91 @@ def test_terminal_task_verifier_uses_environment_timeout_when_checker_timeout_mi
     assert "SECUREBENCH_CHECKER_TARGET='/opt/securebench/evaluator/checks/test_outputs.py'" in command
     assert workdir == "/workspace"
     assert timeout == 77.0
+
+
+def test_terminal_task_script_checker_uses_isolated_python_launcher(tmp_path):
+    verifier = TerminalTaskVerifier(sandbox_factory=FakeSandbox)
+
+    verifier.verify(script_terminal_task(tmp_path), str(tmp_path))
+
+    command, _, _ = FakeSandbox.instances[-1].commands[0]
+    assert "unset PYTHONPATH PYTHONHOME BASH_ENV ENV" in command
+    assert "export PYTHONNOUSERSITE=1" in command
+    assert "export PYTHONSAFEPATH=1" in command
+    assert "refusing candidate-owned Python interpreter" in command
+    assert "export -f securebench_python python python3" in command
+    assert "/bin/bash --noprofile --norc" in command
+
+
+def test_terminal_task_script_launcher_blocks_workspace_python_customizations_and_pytest(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    marker = workspace / "candidate-code-ran"
+    (workspace / "sitecustomize.py").write_text(f"open({str(marker)!r}, 'a').write('site\\n')\n")
+    (workspace / "usercustomize.py").write_text(f"open({str(marker)!r}, 'a').write('user\\n')\n")
+    pytest_package = workspace / "pytest"
+    pytest_package.mkdir()
+    (pytest_package / "__main__.py").write_text(f"open({str(marker)!r}, 'a').write('pytest\\n')\n")
+    checker = tmp_path / "trusted-checker.sh"
+    checker.write_text(
+        "#!/bin/bash\n"
+        "cd \"$SECUREBENCH_WORKSPACE\"\n"
+        "python3 -c 'import sys; assert sys.flags.isolated'\n"
+        "python3 -c 'import importlib.util, os, pathlib; "
+        "spec = importlib.util.find_spec(\"pytest\"); "
+        "assert spec is None or not pathlib.Path(spec.origin).resolve().is_relative_to(pathlib.Path(os.environ[\"SECUREBENCH_WORKSPACE\"]).resolve())'\n"
+    )
+    checker.chmod(0o755)
+    env = {
+        **os.environ,
+        "SECUREBENCH_WORKSPACE": str(workspace),
+        "SECUREBENCH_CHECKER_SCRIPT": str(checker),
+        "PYTHONPATH": str(workspace),
+        "PYTHONHOME": str(workspace),
+    }
+
+    completed = subprocess.run(
+        ["/bin/bash", "--noprofile", "--norc", "-c", _SCRIPT_CHECKER_RUNNER],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert marker.exists() is False
+
+
+def test_terminal_task_script_launcher_rejects_workspace_python_wrapper(tmp_path):
+    workspace = tmp_path / "workspace"
+    fake_bin = workspace / "bin"
+    fake_bin.mkdir(parents=True)
+    marker = workspace / "fake-python-ran"
+    for name in ("python", "python3"):
+        wrapper = fake_bin / name
+        wrapper.write_text(f"#!/bin/sh\ntouch {marker}\n")
+        wrapper.chmod(0o755)
+    checker = tmp_path / "trusted-checker.sh"
+    checker.write_text("#!/bin/bash\npython3 -c 'print(1)'\n")
+    checker.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "SECUREBENCH_WORKSPACE": str(workspace),
+        "SECUREBENCH_CHECKER_SCRIPT": str(checker),
+    }
+
+    completed = subprocess.run(
+        ["/bin/bash", "--noprofile", "--norc", "-c", _SCRIPT_CHECKER_RUNNER],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 126
+    assert "refusing candidate-owned Python interpreter" in completed.stderr
+    assert marker.exists() is False
 
 
 def test_terminal_task_verifier_reports_checker_timeout(tmp_path):
