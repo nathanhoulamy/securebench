@@ -59,6 +59,7 @@ class Sandbox(ABC):
         *,
         workdir: str | None = None,
         timeout: float | None = None,
+        stdin: str | bytes | None = None,
     ) -> CommandResult:
         """Run a command in the sandbox."""
 

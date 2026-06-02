@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -13,7 +14,7 @@ from securebench.candidates.extraction import (
     stdout_extraction_spec,
 )
 from securebench.errors import ConfigError
-from securebench.sandboxes import CommandResult
+from securebench.sandboxes import CommandResult, HostSandbox
 
 
 class FakeSandbox:
@@ -22,9 +23,9 @@ class FakeSandbox:
         self.root.mkdir(parents=True, exist_ok=True)
         self.commands = []
 
-    def run(self, command, *, workdir=None, timeout=None):
+    def run(self, command, *, workdir=None, timeout=None, stdin=None):
         self.commands.append((command, workdir, timeout))
-        if tuple(command) == ("git", "diff", "--binary"):
+        if tuple(command) == ("git", "diff", "HEAD", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--"):
             return CommandResult(tuple(command), 0, "diff --git a/app.py b/app.py\n", "")
         return CommandResult(tuple(command), 0, "", "")
 
@@ -63,7 +64,7 @@ def repo_patch_task(*, environment=None):
             id="repo-1",
             family="repo_patch",
             input={"repo": "repo/", "base_commit": "abc123", "instructions": "Fix it."},
-            eval={"tests": {"source": "command", "command": "pytest -q"}},
+            eval={"tests": {"source": "command", "command": ["pytest", "-q"]}},
             environment={} if environment is None else environment,
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),
@@ -175,7 +176,85 @@ def test_extract_candidate_from_git_diff_shapes_patch_artifact(tmp_path):
     assert artifact.patch == "diff --git a/app.py b/app.py\n"
     assert artifact.metadata["candidate_extraction"] == "git_diff"
     assert artifact.metadata["candidate_workdir"] == "/workspace/repo"
-    assert sandbox.commands == [(["git", "diff", "--binary"], "/workspace/repo", 30)]
+    assert sandbox.commands == [
+        (["git", "add", "--intent-to-add", "--all", "--"], "/workspace/repo", 30),
+        (
+            ["git", "diff", "HEAD", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--"],
+            "/workspace/repo",
+            30,
+        ),
+    ]
+
+
+def test_extract_candidate_git_diff_fails_closed_when_intent_to_add_fails(tmp_path):
+    class FailingSandbox(FakeSandbox):
+        def run(self, command, *, workdir=None, timeout=None, stdin=None):
+            return CommandResult(tuple(command), 1, "", "git add failed")
+
+    task = repo_patch_task(environment={"workdir": "/workspace/repo"})
+
+    with pytest.raises(ConfigError, match="failed to prepare repository candidate extraction"):
+        extract_candidate(
+            task,
+            FailingSandbox(tmp_path),
+            CommandResult(("codex",), 0, "", ""),
+            default_extraction_spec(task, allow_stdout=False),
+        )
+
+
+def test_extract_candidate_git_diff_reports_diff_timeout(tmp_path):
+    class TimeoutSandbox(FakeSandbox):
+        def run(self, command, *, workdir=None, timeout=None, stdin=None):
+            if tuple(command)[:2] == ("git", "diff"):
+                return CommandResult(tuple(command), 124, "", "", timed_out=True, timeout_seconds=timeout)
+            return CommandResult(tuple(command), 0, "", "")
+
+    task = repo_patch_task(environment={"workdir": "/workspace/repo"})
+
+    with pytest.raises(CandidateProductionTimeout) as excinfo:
+        extract_candidate(
+            task,
+            TimeoutSandbox(tmp_path),
+            CommandResult(("codex",), 0, "", ""),
+            default_extraction_spec(task, allow_stdout=False),
+            timeout=4,
+        )
+
+    assert excinfo.value.phase == "candidate_extraction"
+
+
+def test_extract_candidate_git_diff_includes_staged_and_new_files_without_external_diff_driver(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    marker = tmp_path / "external-diff-ran"
+    driver = tmp_path / "external-diff.sh"
+    driver.write_text(f"#!/bin/sh\ntouch {marker}\n")
+    driver.chmod(0o755)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "SecureBench Test"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "securebench@example.invalid"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "diff.attack.command", str(driver)], cwd=repo, check=True)
+    (repo / ".gitattributes").write_text("app.py diff=attack\n")
+    (repo / "app.py").write_text("old\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+    (repo / "app.py").write_text("new\n")
+    (repo / "staged.py").write_text("staged\n")
+    subprocess.run(["git", "add", "app.py", "staged.py"], cwd=repo, check=True)
+    (repo / "untracked.py").write_text("untracked\n")
+    task = repo_patch_task(environment={"workdir": "."})
+
+    artifact = extract_candidate(
+        task,
+        HostSandbox(root=repo),
+        CommandResult(("codex",), 0, "", ""),
+        default_extraction_spec(task, allow_stdout=False),
+    )
+
+    assert "diff --git a/app.py b/app.py" in artifact.patch
+    assert "diff --git a/staged.py b/staged.py" in artifact.patch
+    assert "diff --git a/untracked.py b/untracked.py" in artifact.patch
+    assert marker.exists() is False
 
 
 def test_extract_candidate_from_workspace_shapes_workspace_artifact(tmp_path):

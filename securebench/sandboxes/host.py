@@ -14,6 +14,7 @@ from securebench.sandboxes.base import (
     Sandbox,
     resolve_sandbox_host_path,
     timeout_command_result,
+    timeout_output,
 )
 
 
@@ -48,6 +49,7 @@ class HostSandbox(Sandbox):
         *,
         workdir: str | None = None,
         timeout: float | None = None,
+        stdin: str | bytes | None = None,
     ) -> CommandResult:
         normalized = _normalize_command(command)
         emit_progress(
@@ -64,7 +66,8 @@ class HostSandbox(Sandbox):
                 env=_host_env(self.env_names),
                 check=False,
                 capture_output=True,
-                text=True,
+                input=stdin,
+                text=not isinstance(stdin, bytes),
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired as exc:
@@ -83,19 +86,21 @@ class HostSandbox(Sandbox):
                 stderr=result.stderr,
             )
             return result
+        stdout = timeout_output(completed.stdout)
+        stderr = timeout_output(completed.stderr)
         emit_progress(
             "sandbox_result",
             kind="host",
             exit_code=completed.returncode,
             command=" ".join(normalized),
-            stdout=completed.stdout,
-            stderr=completed.stderr,
+            stdout=stdout,
+            stderr=stderr,
         )
         return CommandResult(
             command=normalized,
             exit_code=completed.returncode,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
+            stdout=stdout,
+            stderr=stderr,
         )
 
     def write_file(self, path: str | PurePosixPath, content: str | bytes) -> None:

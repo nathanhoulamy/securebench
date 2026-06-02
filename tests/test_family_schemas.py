@@ -177,6 +177,14 @@ def test_active_family_missing_required_fields_raise(row, match):
             "eval.candidate_policy.patch_preserved_paths must be a string array",
         ),
         (
+            row_for(
+                "repo_patch",
+                input={"repo": "repo/", "base_commit": "abc", "instructions": "Fix"},
+                eval={"tests": {"source": "command", "command": "pytest -q"}},
+            ),
+            "eval.tests.command must be a non-empty string array",
+        ),
+        (
             row_for("terminal_task", input={"instructions": "Do it"}, eval={"checker": {"source": "pytest", "path": ""}}),
             "eval.checker.path must be a non-empty string",
         ),

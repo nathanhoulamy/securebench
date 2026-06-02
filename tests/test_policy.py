@@ -8,8 +8,8 @@ class FakeSandbox(Sandbox):
     def __init__(self):
         self.commands = []
 
-    def run(self, command, *, workdir=None, timeout=None):
-        self.commands.append((command, workdir, timeout))
+    def run(self, command, *, workdir=None, timeout=None, stdin=None):
+        self.commands.append((command, workdir, timeout, stdin))
         normalized = tuple(command) if not isinstance(command, str) else ("sh", "-lc", command)
         return CommandResult(normalized, 0, "ok", "")
 
@@ -58,10 +58,10 @@ def test_policy_sandbox_enforces_before_delegating():
     sandbox = FakeSandbox()
     policy_sandbox = PolicySandbox(sandbox, CommandPolicy(allow={"pytest"}))
 
-    result = policy_sandbox.run(["pytest", "tests"], workdir="repo", timeout=1)
+    result = policy_sandbox.run(["pytest", "tests"], workdir="repo", timeout=1, stdin="patch")
 
     assert result.stdout == "ok"
-    assert sandbox.commands == [(["pytest", "tests"], "repo", 1)]
+    assert sandbox.commands == [(["pytest", "tests"], "repo", 1, "patch")]
 
 
 def test_policy_sandbox_rejects_shell_string_commands():

@@ -21,6 +21,20 @@ def test_static_checks_pass_builtin_multiple_choice_pack():
     assert any(finding.id.startswith("static.materialization.") for finding in findings)
 
 
+def test_static_checks_warn_when_repo_patch_task_omits_allow_paths():
+    pack = load_benchmark_pack(
+        "benchmarks/swe-bench-verified-codex-smoke/manifest.yaml",
+        "benchmarks/swe-bench-verified-codex-smoke/tasks.jsonl",
+    )
+
+    findings = run_static_checks(StaticAuditContext(pack=pack, target="repo-patch", limit=1))
+
+    assert any(
+        finding.id.startswith("static.repo_patch.allow_paths.") and finding.status == "warning"
+        for finding in findings
+    )
+
+
 def test_audit_self_static_only_writes_deterministic_json(tmp_path):
     report = audit_self(output_dir=tmp_path, static_only=True)
     output_path = write_json_report(report, tmp_path)

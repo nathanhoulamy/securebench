@@ -144,9 +144,30 @@ def extract_candidate(
             metadata=_metadata(spec),
         )
     if spec.mode == "git_diff":
-        diff_result = sandbox.run(["git", "diff", "--binary"], workdir=spec.workdir, timeout=timeout)
+        intent_result = sandbox.run(
+            ["git", "add", "--intent-to-add", "--all", "--"],
+            workdir=spec.workdir,
+            timeout=timeout,
+        )
+        if intent_result.timed_out:
+            raise CandidateProductionTimeout(intent_result, phase="candidate_extraction")
+        if intent_result.exit_code != 0:
+            raise ConfigError(
+                "failed to prepare repository candidate extraction "
+                f"(exit code {intent_result.exit_code}): {intent_result.stderr.strip()}"
+            )
+        diff_result = sandbox.run(
+            ["git", "diff", "HEAD", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--"],
+            workdir=spec.workdir,
+            timeout=timeout,
+        )
         if diff_result.timed_out:
             raise CandidateProductionTimeout(diff_result, phase="candidate_extraction")
+        if diff_result.exit_code != 0:
+            raise ConfigError(
+                "failed to extract repository candidate diff "
+                f"(exit code {diff_result.exit_code}): {diff_result.stderr.strip()}"
+            )
         return _candidate_artifact(
             spec,
             diff_result.stdout,

@@ -4,22 +4,17 @@ from __future__ import annotations
 
 import fnmatch
 import re
-import tempfile
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any, Callable
 
 from securebench.errors import ConfigError
-from securebench.sandboxes import CommandResult, DockerBindMount, DockerSandbox, Sandbox
+from securebench.sandboxes import CommandResult, DockerSandbox, Sandbox
 from securebench.tasks import SecureBenchTask, resource_text, resource_value
 from securebench.verifiers.base import VerificationResult, Verifier, timeout_metadata
 from securebench.verifiers.code_completion import environment_image_for_task
 
 
 SandboxFactory = Callable[..., Sandbox]
-DEFAULT_CANDIDATE_PATCH = "securebench/candidate.patch"
-DEFAULT_SETUP_PATCH = "setup.patch"
-DEFAULT_TEST_PATCH = "test.patch"
-DEFAULT_EVALUATION_INPUTS_TARGET = "/opt/securebench/evaluation_inputs"
 DEFAULT_DENIED_PATH_NAMES = {
     "cargo.lock",
     "cargo.toml",
@@ -73,19 +68,10 @@ class RepoPatchVerifier(Verifier):
         *,
         sandbox_factory: SandboxFactory | None = None,
         timeout_seconds: float = 300.0,
-        candidate_patch_path: str = DEFAULT_CANDIDATE_PATCH,
-        test_patch_path: str = DEFAULT_TEST_PATCH,
-        evaluation_inputs_target: str = DEFAULT_EVALUATION_INPUTS_TARGET,
         workspace_mount_target: str = "/securebench-workspace",
     ) -> None:
         self.sandbox_factory = sandbox_factory
         self.timeout_seconds = timeout_seconds
-        self.candidate_patch_path = candidate_patch_path
-        self.test_patch_path = test_patch_path
-        self.evaluation_inputs_target = _absolute_container_path(
-            evaluation_inputs_target,
-            "evaluation_inputs_target",
-        )
         self.workspace_mount_target = workspace_mount_target
 
     def verify(self, task: SecureBenchTask, candidate: str, **context: Any) -> VerificationResult:
@@ -108,45 +94,22 @@ class RepoPatchVerifier(Verifier):
                 CommandResult(("candidate_patch",), 1, "", "empty candidate patch"),
                 failure_reason="empty_candidate_patch",
             )
-        with tempfile.TemporaryDirectory(prefix="securebench-repo-patch-eval-") as eval_dir:
-            eval_root = Path(eval_dir)
-            setup_patch_path = None
-            test_patch_path = None
-            if tests.setup_patch is not None:
-                setup_patch_path = str(context.get("setup_patch_path", DEFAULT_SETUP_PATCH))
-                _write_trusted_patch(eval_root, setup_patch_path, tests.setup_patch)
-            if tests.test_patch is not None:
-                test_patch_path = str(context.get("test_patch_path", self.test_patch_path))
-                _write_trusted_patch(eval_root, test_patch_path, tests.test_patch)
-
-            sandbox = self._sandbox(
-                image,
-                mounts=(
-                    DockerBindMount(
-                        source=eval_root,
-                        target=self.evaluation_inputs_target,
-                        read_only=True,
-                    ),
-                ),
+        sandbox = self._sandbox(image)
+        close_sandbox = self.sandbox_factory is None
+        try:
+            return self._verify_in_sandbox(
+                task,
+                tests,
+                sandbox,
+                image=image,
+                workdir=workdir,
+                timeout=timeout,
+                policy=policy,
+                policy_decision=policy_decision,
             )
-            close_sandbox = self.sandbox_factory is None
-
-            try:
-                return self._verify_in_sandbox(
-                    task,
-                    tests,
-                    sandbox,
-                    image=image,
-                    workdir=workdir,
-                    timeout=timeout,
-                    policy_decision=policy_decision,
-                    setup_patch_path=setup_patch_path,
-                    test_patch_path=test_patch_path,
-                    context=context,
-                )
-            finally:
-                if close_sandbox:
-                    _close_sandbox(sandbox)
+        finally:
+            if close_sandbox:
+                _close_sandbox(sandbox)
 
     def _verify_in_sandbox(
         self,
@@ -157,15 +120,26 @@ class RepoPatchVerifier(Verifier):
         image: str,
         workdir: str,
         timeout: float,
+        policy: "CandidatePatchPolicy",
         policy_decision: "CandidatePatchPolicyDecision",
-        setup_patch_path: str | None,
-        test_patch_path: str | None,
-        context: dict[str, Any],
     ) -> VerificationResult:
         base_commit = resource_text(task, "base_commit")
         head = sandbox.run(["git", "rev-parse", "HEAD"], workdir=workdir, timeout=timeout)
         if head.exit_code != 0:
             return _failed_result(task, "repo_patch", image, workdir, "base_commit", head)
+        image_commit = head.stdout.strip()
+        if image_commit != base_commit:
+            return _failed_result(
+                task,
+                "repo_patch",
+                image,
+                workdir,
+                "base_commit",
+                CommandResult(("base_commit",), 1, "", "benchmark image HEAD does not match declared base commit"),
+                base_commit=base_commit,
+                image_commit=image_commit,
+                failure_reason="base_commit_mismatch",
+            )
 
         if not policy_decision.allowed:
             return _failed_result(
@@ -181,19 +155,18 @@ class RepoPatchVerifier(Verifier):
                     candidate_policy_error(policy_decision),
                 ),
                 base_commit=base_commit,
-                image_commit=head.stdout.strip(),
-                candidate_patch_paths=policy_decision.paths,
-                applied_candidate_patch_paths=policy_decision.applied_paths,
-                stripped_candidate_patch_paths=policy_decision.stripped_paths,
+                image_commit=image_commit,
+                **_containment_metadata(policy, policy_decision),
                 denied_candidate_patch_paths=policy_decision.denied_paths,
                 failure_reason=policy_decision.failure_reason or "candidate_patch_policy_violation",
             )
 
-        if setup_patch_path is not None:
+        if tests.setup_patch is not None:
             apply_setup = sandbox.run(
-                ["git", "apply", "--binary", self._evaluation_input_path(setup_patch_path)],
+                ["git", "apply", "--binary"],
                 workdir=workdir,
                 timeout=timeout,
+                stdin=tests.setup_patch,
             )
             if apply_setup.exit_code != 0:
                 return _failed_result(
@@ -204,15 +177,27 @@ class RepoPatchVerifier(Verifier):
                     "setup_patch",
                     apply_setup,
                     base_commit=base_commit,
-                    image_commit=head.stdout.strip(),
+                    image_commit=image_commit,
                 )
 
-        candidate_path = str(context.get("candidate_patch_path", self.candidate_patch_path))
-        sandbox.write_file(candidate_path, policy_decision.filtered_patch)
+        baseline = _commit_verifier_baseline(sandbox, workdir=workdir, timeout=timeout)
+        if baseline.exit_code != 0:
+            return _failed_result(
+                task,
+                "repo_patch",
+                image,
+                workdir,
+                "verifier_baseline",
+                baseline,
+                base_commit=base_commit,
+                image_commit=image_commit,
+            )
+
         apply_candidate = sandbox.run(
-            ["git", "apply", "--binary", self._workspace_path(candidate_path)],
+            ["git", "apply", "--binary"],
             workdir=workdir,
             timeout=timeout,
+            stdin=policy_decision.filtered_patch,
         )
         if apply_candidate.exit_code != 0:
             return _failed_result(
@@ -223,17 +208,58 @@ class RepoPatchVerifier(Verifier):
                 "candidate_patch",
                 apply_candidate,
                 base_commit=base_commit,
-                image_commit=head.stdout.strip(),
-                candidate_patch_paths=policy_decision.paths,
-                applied_candidate_patch_paths=policy_decision.applied_paths,
-                stripped_candidate_patch_paths=policy_decision.stripped_paths,
+                image_commit=image_commit,
+                **_containment_metadata(policy, policy_decision),
             )
 
-        if test_patch_path is not None:
+        actual_paths_result, actual_paths = _actual_candidate_paths(sandbox, workdir=workdir, timeout=timeout)
+        if actual_paths_result is not None:
+            return _failed_result(
+                task,
+                "repo_patch",
+                image,
+                workdir,
+                "candidate_paths",
+                actual_paths_result,
+                base_commit=base_commit,
+                image_commit=image_commit,
+                **_containment_metadata(policy, policy_decision),
+            )
+        actual_policy_decision = evaluate_candidate_paths_policy(actual_paths, policy)
+        if not actual_policy_decision.allowed:
+            return _failed_result(
+                task,
+                "repo_patch",
+                image,
+                workdir,
+                "candidate_policy",
+                CommandResult(("candidate_policy",), 1, "", candidate_policy_error(actual_policy_decision)),
+                base_commit=base_commit,
+                image_commit=image_commit,
+                **_containment_metadata(policy, policy_decision, actual_paths=actual_paths),
+                denied_candidate_patch_paths=actual_policy_decision.denied_paths,
+                failure_reason=actual_policy_decision.failure_reason or "candidate_patch_policy_violation",
+            )
+        if set(actual_paths) != set(policy_decision.applied_paths):
+            return _failed_result(
+                task,
+                "repo_patch",
+                image,
+                workdir,
+                "candidate_policy",
+                CommandResult(("candidate_policy",), 1, "", "candidate patch paths differ from post-apply repository paths"),
+                base_commit=base_commit,
+                image_commit=image_commit,
+                **_containment_metadata(policy, policy_decision, actual_paths=actual_paths),
+                failure_reason="candidate_patch_path_mismatch",
+            )
+
+        if tests.test_patch is not None:
             apply_tests = sandbox.run(
-                ["git", "apply", "--binary", self._evaluation_input_path(test_patch_path)],
+                ["git", "apply", "--binary"],
                 workdir=workdir,
                 timeout=timeout,
+                stdin=tests.test_patch,
             )
             if apply_tests.exit_code != 0:
                 return _failed_result(
@@ -244,7 +270,8 @@ class RepoPatchVerifier(Verifier):
                     "test_patch",
                     apply_tests,
                     base_commit=base_commit,
-                    image_commit=head.stdout.strip(),
+                    image_commit=image_commit,
+                    **_containment_metadata(policy, policy_decision, actual_paths=actual_paths),
                 )
 
         result = sandbox.run(tests.command, workdir=workdir, timeout=timeout)
@@ -261,44 +288,31 @@ class RepoPatchVerifier(Verifier):
                 "image": image,
                 "workdir": workdir,
                 "base_commit": base_commit,
-                "image_commit": head.stdout.strip(),
+                "image_commit": image_commit,
                 "command": result.command,
                 "exit_code": result.exit_code,
                 "phase": "checks",
-                "candidate_patch_paths": policy_decision.paths,
-                "applied_candidate_patch_paths": policy_decision.applied_paths,
-                "stripped_candidate_patch_paths": policy_decision.stripped_paths,
+                **_containment_metadata(policy, policy_decision, actual_paths=actual_paths),
                 **timeout_metadata(result),
             },
         )
 
-    def _sandbox(self, image: str, *, mounts: tuple[DockerBindMount, ...] = ()) -> Sandbox:
+    def _sandbox(self, image: str) -> Sandbox:
         if self.sandbox_factory is not None:
-            return self.sandbox_factory(image=image, mounts=mounts)
+            return self.sandbox_factory(image=image)
         return DockerSandbox(
             image=image,
             network="none",
             read_only=False,
-            mounts=mounts,
             workspace_mount_target=self.workspace_mount_target,
         )
-
-    def _workspace_path(self, path: str) -> str:
-        candidate = PurePosixPath(path)
-        if candidate.is_absolute():
-            return str(candidate)
-        return str(PurePosixPath(self.workspace_mount_target) / candidate)
-
-    def _evaluation_input_path(self, path: str) -> str:
-        relative = _safe_relative_patch_path(path)
-        return str(PurePosixPath(self.evaluation_inputs_target) / relative)
 
 
 class CommandTests:
     def __init__(
         self,
         *,
-        command: str | tuple[str, ...],
+        command: tuple[str, ...],
         workdir: str | None,
         timeout_seconds: float | None,
         setup_patch: str | None,
@@ -379,7 +393,16 @@ def evaluate_candidate_patch_policy(
 ) -> CandidatePatchPolicyDecision:
     """Return whether a candidate patch only touches verifier-safe paths."""
     policy = policy or CandidatePatchPolicy()
-    paths = changed_paths_from_patch(candidate)
+    paths = _canonical_patch_paths(candidate)
+    if paths is None:
+        return CandidatePatchPolicyDecision(
+            paths=changed_paths_from_patch(candidate),
+            applied_paths=(),
+            stripped_paths=(),
+            denied_paths=(),
+            filtered_patch=candidate,
+            failure_reason="noncanonical_candidate_patch",
+        )
 
     hard_denied = tuple(path for path in paths if _is_hard_denied_candidate_path(path))
     if hard_denied:
@@ -404,8 +427,24 @@ def evaluate_candidate_patch_policy(
             failure_reason="empty_filtered_candidate_patch",
         )
 
-    denied = []
-    for path in applied_paths:
+    decision = evaluate_candidate_paths_policy(applied_paths, policy)
+    decision.paths = paths
+    decision.stripped_paths = stripped_paths
+    decision.filtered_patch = filtered_patch
+    return decision
+
+
+def evaluate_candidate_paths_policy(
+    paths: tuple[str, ...],
+    policy: CandidatePatchPolicy | None = None,
+) -> CandidatePatchPolicyDecision:
+    """Return whether repository paths stay inside the candidate edit policy."""
+    policy = policy or CandidatePatchPolicy()
+    hard_denied = tuple(path for path in paths if _is_hard_denied_candidate_path(path))
+    denied = list(hard_denied)
+    for path in paths:
+        if path in hard_denied:
+            continue
         if policy.allow_paths and not _matches_any(path, policy.allow_paths):
             denied.append(path)
             continue
@@ -413,15 +452,17 @@ def evaluate_candidate_patch_policy(
             denied.append(path)
     return CandidatePatchPolicyDecision(
         paths=paths,
-        applied_paths=applied_paths,
-        stripped_paths=stripped_paths,
+        applied_paths=paths,
+        stripped_paths=(),
         denied_paths=tuple(denied),
-        filtered_patch=filtered_patch,
+        filtered_patch="",
         failure_reason="candidate_patch_policy_violation" if denied else None,
     )
 
 
 def candidate_policy_error(decision: CandidatePatchPolicyDecision) -> str:
+    if decision.failure_reason == "noncanonical_candidate_patch":
+        return "candidate patch must contain unambiguous canonical 'diff --git' file sections"
     if decision.failure_reason == "empty_filtered_candidate_patch":
         stripped = ", ".join(decision.stripped_paths)
         return f"candidate patch has no remaining changes after stripping preserved path(s): {stripped}"
@@ -440,12 +481,21 @@ def changed_paths_from_patch(patch: str) -> tuple[str, ...]:
     return tuple(paths)
 
 
+def _canonical_patch_paths(patch: str) -> tuple[str, ...] | None:
+    preamble, sections = _git_file_diff_sections(patch)
+    if preamble.strip() or not sections:
+        return None
+    for section in sections:
+        lines = section.splitlines()
+        if not lines or _diff_git_paths(lines[0]) is None:
+            return None
+    paths = changed_paths_from_patch(patch)
+    return paths or None
+
+
 def _paths_from_patch_line(line: str) -> tuple[str, ...]:
     if line.startswith("diff --git "):
-        match = re.match(r"diff --git (?:\"?a/(.+?)\"?) (?:\"?b/(.+?)\"?)$", line)
-        if match is None:
-            return ()
-        return (match.group(1), match.group(2))
+        return _diff_git_paths(line) or ()
     if line.startswith("rename from ") or line.startswith("rename to "):
         return (line.split(" ", 2)[2],)
     if line.startswith("--- ") or line.startswith("+++ "):
@@ -454,6 +504,57 @@ def _paths_from_patch_line(line: str) -> tuple[str, ...]:
             return ()
         return (value,)
     return ()
+
+
+def _diff_git_paths(line: str) -> tuple[str, str] | None:
+    tokens = _git_header_tokens(line.removeprefix("diff --git "))
+    if tokens is None:
+        return None
+    left, right = tokens
+    if not left.startswith("a/") or not right.startswith("b/"):
+        return None
+    paths = (left[2:], right[2:])
+    if any(_normalize_patch_path(path) is None for path in paths):
+        return None
+    return paths
+
+
+def _git_header_tokens(value: str) -> tuple[str, str] | None:
+    tokens: list[str] = []
+    index = 0
+    while index < len(value):
+        if value[index] == " ":
+            return None
+        if value[index] == '"':
+            index += 1
+            token: list[str] = []
+            while index < len(value) and value[index] != '"':
+                if value[index] == "\\":
+                    if index + 1 >= len(value):
+                        return None
+                    token.extend(value[index : index + 2])
+                    index += 2
+                    continue
+                token.append(value[index])
+                index += 1
+            if index >= len(value) or value[index] != '"':
+                return None
+            index += 1
+            tokens.append("".join(token))
+        else:
+            end = value.find(" ", index)
+            if end == -1:
+                end = len(value)
+            tokens.append(value[index:end])
+            index = end
+        if index == len(value):
+            break
+        if value[index] != " ":
+            return None
+        index += 1
+    if len(tokens) != 2 or not all(tokens):
+        return None
+    return tokens[0], tokens[1]
 
 
 def _normalize_patch_path(path: str) -> str | None:
@@ -577,6 +678,90 @@ def _path_matches(path: str, pattern: str) -> bool:
     return path == normalized or path.startswith(normalized + "/")
 
 
+def _commit_verifier_baseline(sandbox: Sandbox, *, workdir: str, timeout: float) -> CommandResult:
+    staged = sandbox.run(["git", "add", "--all", "--"], workdir=workdir, timeout=timeout)
+    if staged.exit_code != 0:
+        return staged
+    return sandbox.run(
+        [
+            "git",
+            "-c",
+            "user.name=SecureBench",
+            "-c",
+            "user.email=securebench@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "--no-verify",
+            "--allow-empty",
+            "-m",
+            "securebench verifier baseline",
+        ],
+        workdir=workdir,
+        timeout=timeout,
+    )
+
+
+def _actual_candidate_paths(
+    sandbox: Sandbox,
+    *,
+    workdir: str,
+    timeout: float,
+) -> tuple[CommandResult | None, tuple[str, ...]]:
+    tracked = sandbox.run(
+        ["git", "diff", "--name-only", "--no-ext-diff", "--no-renames", "-z", "HEAD", "--"],
+        workdir=workdir,
+        timeout=timeout,
+    )
+    if tracked.exit_code != 0:
+        return tracked, ()
+    untracked = sandbox.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z", "--"],
+        workdir=workdir,
+        timeout=timeout,
+    )
+    if untracked.exit_code != 0:
+        return untracked, ()
+    try:
+        paths = _nul_paths(tracked.stdout + untracked.stdout)
+    except ValueError as exc:
+        return CommandResult(("candidate_paths",), 1, "", str(exc)), ()
+    return None, paths
+
+
+def _nul_paths(output: str) -> tuple[str, ...]:
+    paths: list[str] = []
+    for value in output.split("\x00"):
+        if not value:
+            continue
+        candidate = PurePosixPath(value)
+        if candidate.is_absolute() or ".." in candidate.parts:
+            raise ValueError(f"post-apply repository path is unsafe: {value!r}")
+        normalized = str(candidate)
+        if normalized not in paths:
+            paths.append(normalized)
+    return tuple(paths)
+
+
+def _containment_metadata(
+    policy: CandidatePatchPolicy,
+    decision: CandidatePatchPolicyDecision,
+    *,
+    actual_paths: tuple[str, ...] = (),
+) -> dict[str, object]:
+    return {
+        "candidate_patch_paths": decision.paths,
+        "applied_candidate_patch_paths": decision.applied_paths,
+        "stripped_candidate_patch_paths": decision.stripped_paths,
+        "actual_candidate_patch_paths": actual_paths,
+        "candidate_allow_paths_configured": bool(policy.allow_paths),
+        "containment_profile": "shared_runtime",
+        "hidden_test_runtime_secrecy": False,
+    }
+
+
 def environment_workdir_for_task(task: SecureBenchTask) -> str:
     """Return the benchmark environment workdir selected for repo-patch checks."""
     metadata = task.metadata if isinstance(task.metadata, dict) else {}
@@ -590,48 +775,10 @@ def environment_workdir_for_task(task: SecureBenchTask) -> str:
     return workdir.strip()
 
 
-def _write_trusted_patch(root: Path, path: str, content: str) -> None:
-    relative = _safe_relative_patch_path(path)
-    target = root.joinpath(*relative.parts)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content)
-
-
-def _safe_relative_patch_path(path: str) -> PurePosixPath:
-    if not isinstance(path, str) or not path:
-        raise ConfigError("trusted patch path must be a non-empty relative path")
-    if "\\" in path:
-        raise ConfigError(f"trusted patch path may not contain backslashes: {path!r}")
-    candidate = PurePosixPath(path)
-    if candidate.is_absolute():
-        raise ConfigError(f"trusted patch path may not be absolute: {path!r}")
-    if ".." in candidate.parts:
-        raise ConfigError(f"trusted patch path may not contain '..': {path!r}")
-    if str(candidate) in ("", "."):
-        raise ConfigError("trusted patch path must be a non-empty relative path")
-    return candidate
-
-
-def _absolute_container_path(path: str, field: str) -> str:
-    if not isinstance(path, str) or not path:
-        raise ConfigError(f"{field} must be a non-empty absolute container path")
-    if "\\" in path:
-        raise ConfigError(f"{field} may not contain backslashes")
-    candidate = PurePosixPath(path)
-    allowed_root = PurePosixPath("/opt/securebench")
-    if not candidate.is_absolute() or ".." in candidate.parts:
-        raise ConfigError(f"{field} must be an absolute container path without '..'")
-    if not (candidate == allowed_root or candidate.is_relative_to(allowed_root)):
-        raise ConfigError(f"{field} must be under {allowed_root}")
-    return str(candidate)
-
-
-def _command(value: object, task_id: str) -> str | tuple[str, ...]:
-    if isinstance(value, str) and value.strip():
-        return value
+def _command(value: object, task_id: str) -> tuple[str, ...]:
     if isinstance(value, list) and value and all(isinstance(item, str) and item.strip() for item in value):
         return tuple(value)
-    raise ConfigError(f"repo_patch task {task_id!r} requires tests.command as a non-empty string or string array")
+    raise ConfigError(f"repo_patch task {task_id!r} requires tests.command as a non-empty string array")
 
 
 def _test_patch(value: object, task_id: str) -> str | None:

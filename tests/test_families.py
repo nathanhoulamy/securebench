@@ -62,7 +62,7 @@ def test_compiled_repo_patch_task_can_lookup_contract_by_task_type():
                 "base_commit": "abc123",
                 "instructions": "Fix the bug",
             },
-            eval={"tests": {"source": "command", "command": "pytest -q"}},
+            eval={"tests": {"source": "command", "command": ["pytest", "-q"]}},
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),
     )

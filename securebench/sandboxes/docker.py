@@ -16,6 +16,7 @@ from securebench.sandboxes.base import (
     Sandbox,
     resolve_sandbox_host_path,
     timeout_command_result,
+    timeout_output,
 )
 
 
@@ -83,6 +84,7 @@ class DockerSandbox(Sandbox):
         *,
         workdir: str | None = None,
         timeout: float | None = None,
+        stdin: str | bytes | None = None,
     ) -> CommandResult:
         normalized = _normalize_command(command)
         docker_workdir = _docker_path(workdir or ".", workspace_mount_target=self.workspace_mount_target)
@@ -113,6 +115,7 @@ class DockerSandbox(Sandbox):
             docker_command = [
                 "docker",
                 "exec",
+                *(("-i",) if stdin is not None else ()),
                 "-w",
                 docker_workdir,
                 self._container_name or "",
@@ -123,6 +126,7 @@ class DockerSandbox(Sandbox):
                 "docker",
                 "run",
                 "--rm",
+                *(("-i",) if stdin is not None else ()),
                 "-v",
                 f"{self.root}:{self.workspace_mount_target}",
                 *_docker_bind_mount_args(self.mounts, workspace_mount_target=self.workspace_mount_target),
@@ -145,13 +149,16 @@ class DockerSandbox(Sandbox):
             ]
         try:
             if _is_codex_agent_command(normalized) and wants_agent_output():
+                if stdin is not None:
+                    raise ValueError("Streaming agent commands do not support stdin")
                 completed = _run_streaming_agent_command(docker_command, timeout=timeout)
             else:
                 completed = subprocess.run(
                     docker_command,
                     check=False,
                     capture_output=True,
-                    text=True,
+                    input=stdin,
+                    text=not isinstance(stdin, bytes),
                     timeout=timeout,
                 )
         except subprocess.TimeoutExpired as exc:
@@ -172,19 +179,21 @@ class DockerSandbox(Sandbox):
                 stderr=result.stderr,
             )
             return result
+        stdout = timeout_output(completed.stdout)
+        stderr = timeout_output(completed.stderr)
         emit_progress(
             "sandbox_result",
             kind="docker",
             exit_code=completed.returncode,
             command=" ".join(normalized),
-            stdout=completed.stdout,
-            stderr=completed.stderr,
+            stdout=stdout,
+            stderr=stderr,
         )
         return CommandResult(
             command=normalized,
             exit_code=completed.returncode,
-            stdout=completed.stdout,
-            stderr=completed.stderr,
+            stdout=stdout,
+            stderr=stderr,
         )
 
     def close(self) -> None:

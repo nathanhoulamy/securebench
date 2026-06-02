@@ -72,11 +72,12 @@ class PolicySandbox(Sandbox):
         *,
         workdir: str | None = None,
         timeout: float | None = None,
+        stdin: str | bytes | None = None,
     ) -> CommandResult:
         if isinstance(command, str):
             raise PolicyViolation("PolicySandbox requires argv commands; shell string commands are not allowed")
         self.policy.enforce(command)
-        return self.sandbox.run(command, workdir=workdir, timeout=timeout)
+        return self.sandbox.run(command, workdir=workdir, timeout=timeout, stdin=stdin)
 
     def write_file(self, path: str | PurePosixPath, content: str | bytes) -> None:
         self.sandbox.write_file(path, content)

@@ -76,6 +76,51 @@ def test_docker_sandbox_can_use_disposable_container_per_command(monkeypatch, tm
     assert seen["command"][-2:] == ["python", "--version"]
 
 
+def test_docker_sandbox_forwards_stdin(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        seen["kwargs"] = kwargs
+        return SimpleNamespace(returncode=0, stdout=b"ok", stderr=b"")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    sandbox = DockerSandbox(image="agent-image", root=tmp_path, persistent=False)
+    result = sandbox.run(["git", "apply", "--binary"], stdin=b"trusted patch")
+
+    assert seen["kwargs"]["input"] == b"trusted patch"
+    assert seen["kwargs"]["text"] is False
+    assert "-i" in seen["command"]
+    assert result.stdout == "ok"
+
+
+def test_docker_sandbox_attaches_stdin_to_persistent_container(monkeypatch, tmp_path):
+    seen = {"commands": []}
+
+    def fake_run(command, **kwargs):
+        seen["commands"].append(command)
+        if command[:2] == ["docker", "run"]:
+            return SimpleNamespace(returncode=0, stdout="container-id\n", stderr="")
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    sandbox = DockerSandbox(image="agent-image", root=tmp_path)
+    result = sandbox.run(["git", "apply", "--binary"], stdin="trusted patch")
+
+    assert seen["commands"][1][:3] == ["docker", "exec", "-i"]
+    assert result.stdout == "ok"
+
+
+def test_docker_sandbox_rejects_stdin_for_streaming_agent_command(monkeypatch, tmp_path):
+    monkeypatch.setattr("securebench.sandboxes.docker.wants_agent_output", lambda: True)
+    sandbox = DockerSandbox(image="agent-image", root=tmp_path, persistent=False)
+
+    with pytest.raises(ValueError, match="Streaming agent commands do not support stdin"):
+        sandbox.run(["codex", "exec"], stdin="not supported")
+
+
 def test_docker_sandbox_passes_explicit_environment_values(monkeypatch, tmp_path):
     seen = {}
 

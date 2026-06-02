@@ -20,7 +20,7 @@ from securebench.benchmark_pack import BenchmarkPack
 from securebench.candidates import CandidateArtifact
 from securebench.errors import ConfigError
 from securebench.resources import REDACTED
-from securebench.tasks import SecureBenchTask
+from securebench.tasks import SecureBenchTask, resource_value
 from securebench.tester_run import candidate_record
 from securebench.verifiers.repo_patch import evaluate_candidate_patch_policy
 from securebench.workspaces.materialization import VisibilityAwareMaterializer
@@ -57,6 +57,7 @@ def run_static_checks(context: StaticAuditContext) -> tuple[AuditFinding, ...]:
     findings.extend(_check_materialization_visibility(tasks))
     findings.extend(_check_result_redaction(tasks))
     findings.append(_check_repo_patch_default_policy())
+    findings.extend(_check_repo_patch_allow_paths(tasks))
     findings.append(_check_result_integrity_metadata(tasks))
     return tuple(findings)
 
@@ -198,6 +199,34 @@ def _check_repo_patch_default_policy() -> AuditFinding:
         evidence={"missing_denials": missing, "denied_paths": denied},
         recommendation="Keep default repo-patch policy fail-closed for tests, CI, dependency files, and SecureBench paths.",
     )
+
+
+def _check_repo_patch_allow_paths(tasks: Iterable[SecureBenchTask]) -> tuple[AuditFinding, ...]:
+    findings = []
+    for task in tasks:
+        if task.task_type != "repo_patch":
+            continue
+        policy = resource_value(task, "candidate_policy", None)
+        allow_paths = policy.get("allow_paths") if isinstance(policy, dict) else None
+        configured = isinstance(allow_paths, list) and bool(allow_paths)
+        findings.append(
+            _finding(
+                check_id=f"static.repo_patch.allow_paths.{task.id}",
+                vulnerability=TEST_INFRA_TAMPERING,
+                family="repo_patch",
+                status="passed" if configured else "warning",
+                message=(
+                    "repo-patch task declares an implementation-path allowlist"
+                    if configured
+                    else "repo-patch task relies on the default deny policy without an implementation-path allowlist"
+                ),
+                evidence={"task_id": task.id, "allow_paths_configured": configured},
+                recommendation=(
+                    "Declare eval.candidate_policy.allow_paths so the intended implementation edit surface is explicit."
+                ),
+            )
+        )
+    return tuple(findings)
 
 
 def _check_result_integrity_metadata(tasks: tuple[SecureBenchTask, ...]) -> AuditFinding:

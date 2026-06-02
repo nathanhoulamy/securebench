@@ -20,6 +20,22 @@ def test_host_sandbox_run_reports_timeout(monkeypatch, tmp_path):
     assert result.stderr == "partial err"
 
 
+def test_host_sandbox_forwards_stdin(tmp_path):
+    sandbox = HostSandbox(root=tmp_path)
+
+    result = sandbox.run(["sh", "-c", "cat"], stdin="trusted patch")
+
+    assert result.stdout == "trusted patch"
+
+
+def test_host_sandbox_normalizes_output_when_stdin_is_bytes(tmp_path):
+    sandbox = HostSandbox(root=tmp_path)
+
+    result = sandbox.run(["sh", "-c", "cat"], stdin=b"binary patch")
+
+    assert result.stdout == "binary patch"
+
+
 def test_host_sandbox_read_file_rejects_symlink_escape(tmp_path):
     outside = tmp_path / "outside.txt"
     outside.write_text("host secret")

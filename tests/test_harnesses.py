@@ -136,7 +136,7 @@ def repo_patch_task(*, environment=None):
             id="repo-1",
             family="repo_patch",
             input={"repo": "repo/", "base_commit": "abc123", "instructions": "Fix it."},
-            eval={"tests": {"source": "command", "command": "pytest -q"}},
+            eval={"tests": {"source": "command", "command": ["pytest", "-q"]}},
             environment={} if environment is None else environment,
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),
@@ -513,9 +513,18 @@ def test_codex_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
     class DiffingDockerSandbox(FakeDockerSandbox):
         instances = []
 
-        def run(self, command, *, workdir=None, timeout=None):
+        def run(self, command, *, workdir=None, timeout=None, stdin=None):
             self.commands.append((command, workdir, timeout))
-            if tuple(command) == ("git", "diff", "--binary"):
+            if tuple(command) == (
+                "git",
+                "diff",
+                "HEAD",
+                "--binary",
+                "--full-index",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--",
+            ):
                 return CommandResult(tuple(command), 0, "diff --git a/app.py b/app.py\n", "")
             return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
 
@@ -565,7 +574,14 @@ def test_codex_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
     assert "current working directory" in docker.commands[4][0]
     assert "Do not clone the repository" in docker.commands[4][0]
     assert "do not edit tests" in docker.commands[4][0]
-    assert docker.commands[-1] == (["git", "diff", "--binary"], "/workspace/repo", 900.0)
+    assert docker.commands[-2:] == [
+        (["git", "add", "--intent-to-add", "--all", "--"], "/workspace/repo", 900.0),
+        (
+            ["git", "diff", "HEAD", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--"],
+            "/workspace/repo",
+            900.0,
+        ),
+    ]
 
 
 def test_codex_harness_defaults_to_openai_api_key(monkeypatch, tmp_path):

@@ -63,11 +63,9 @@ def _validate_command_tests(tests: object, context: str) -> None:
 
 def _required_command(values: dict[str, object], key: str, context: str) -> None:
     value = values.get(key)
-    if is_non_empty_string(value):
-        return
     if isinstance(value, list) and value and all(is_non_empty_string(item) for item in value):
         return
-    raise ConfigError(f"{context}.{key} must be a non-empty string or string array")
+    raise ConfigError(f"{context}.{key} must be a non-empty string array")
 
 
 def _validate_test_patch(value: object, context: str) -> None:
