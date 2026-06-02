@@ -98,6 +98,7 @@ class CodeCompletionVerifier(Verifier):
             image=image,
             root=None if workspace_root is None else Path(workspace_root),
             network="none",
+            cap_add=("SETGID", "SETUID"),
         )
 
 

@@ -275,7 +275,7 @@ def _malicious_artifact(case: SmokeCase, task: SecureBenchTask, output_dir: Path
                     "import builtins",
                     "builtins.__import__ = lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError('import blocked'))",
                     "def ok():",
-                    "    return True",
+                    "    return False",
                     "",
                 ]
             )

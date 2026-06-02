@@ -168,6 +168,16 @@ def test_code_completion_verifier_runs_candidate_in_benchmark_environment_image(
     assert result.metadata["worker_file"] == "candidate_worker.py"
 
 
+def test_code_completion_verifier_grants_only_privilege_drop_capabilities():
+    sandbox = CodeCompletionVerifier()._sandbox("python:3.12-slim", None)
+    try:
+        assert sandbox.cap_drop == ("ALL",)
+        assert sandbox.cap_add == ("SETGID", "SETUID")
+        assert sandbox.security_opt == ("no-new-privileges:true",)
+    finally:
+        sandbox.close()
+
+
 def test_code_completion_verifier_reports_failed_tests():
     sandbox = FakeSandbox(exit_code=1, stderr="assertion failed")
     verifier = CodeCompletionVerifier(sandbox_factory=lambda **kwargs: sandbox)
