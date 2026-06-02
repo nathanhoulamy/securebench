@@ -310,6 +310,9 @@ Provider CLI harnesses:
   framework-owned allowlisting HTTP(S) proxy. The default egress allowlist is
   the provider API domain required by the harness, plus any tester-configured
   `harness.config.allowed_domains`.
+- Resolves allowlisted hostnames inside the proxy, rejects DNS answers that
+  contain non-public or non-unicast addresses, and connects only to validated
+  numeric addresses. Intentionally private destinations are unsupported.
 - Invoke provider CLIs with approval and sandbox bypass flags.
 
 Needed provider CLI hardening:

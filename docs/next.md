@@ -48,6 +48,9 @@ and tester YAML references are the HTML standards in this directory.
 - Record audit metadata when candidate code must execute while evaluation files
   are present.
 - Treat command allow/deny policy as guidance and audit logging, not isolation.
+- If harnesses eventually need internal services, add an explicit
+  tester-controlled private-egress policy. Keep public-only DNS resolution and
+  address pinning as the default.
 - Persist compact sanitized harness traces when useful, without storing secrets,
   hidden tests, hidden patches, or full sensitive artifacts.
 - Add provider-key isolation for CLI harnesses. `OPENAI_API_KEY` and

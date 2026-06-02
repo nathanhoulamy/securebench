@@ -73,6 +73,7 @@ def test_proxy_connect_authority_parsing_rejects_malformed_ports():
     assert split_host_port("example.com:not-a-port", 443) is None
     assert split_host_port("example.com:70000", 443) is None
     assert split_host_port("[::1", 443) is None
+    assert split_host_port("[::1]suffix", 443) is None
 
 
 def test_docker_egress_policy_empty_allowlist_disables_network(monkeypatch):

@@ -3,15 +3,32 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import os
 import select
 import socket
 import socketserver
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler
+from typing import Any
 from urllib.parse import urlsplit
 
 
 ALLOWED_PORTS = {80, 443}
+
+
+class DestinationPolicyError(Exception):
+    """Requested egress destination violates the proxy policy."""
+
+
+@dataclass(frozen=True)
+class ResolvedAddress:
+    """One validated numeric destination returned by DNS resolution."""
+
+    family: int
+    socktype: int
+    proto: int
+    sockaddr: tuple[Any, ...]
 
 
 def main() -> int:
@@ -50,11 +67,11 @@ class AllowlistingProxyHandler(BaseHTTPRequestHandler):
             self.send_error(400)
             return
         host, port = destination
-        if not is_allowed_destination(host, port, self.domains):
+        try:
+            upstream = connect_allowed_destination(host, port, self.domains, timeout=self.timeout)
+        except DestinationPolicyError:
             self.send_error(403)
             return
-        try:
-            upstream = socket.create_connection((host, port), timeout=self.timeout)
         except OSError:
             self.send_error(502)
             return
@@ -93,11 +110,11 @@ class AllowlistingProxyHandler(BaseHTTPRequestHandler):
         except ValueError:
             self.send_error(400)
             return
-        if not is_allowed_destination(url.hostname, port, self.domains):
+        try:
+            upstream = connect_allowed_destination(url.hostname, port, self.domains, timeout=self.timeout)
+        except DestinationPolicyError:
             self.send_error(403)
             return
-        try:
-            upstream = socket.create_connection((url.hostname, port), timeout=self.timeout)
         except OSError:
             self.send_error(502)
             return
@@ -153,7 +170,7 @@ def split_host_port(authority: str, default_port: int) -> tuple[str, int] | None
         rest = authority[end + 1 :]
         if rest.startswith(":"):
             return _host_port(host, rest[1:])
-        return host, default_port
+        return (host, default_port) if not rest else None
     if ":" not in authority:
         return authority, default_port
     host, port = authority.rsplit(":", 1)
@@ -173,6 +190,73 @@ def _host_port(host: str, port: str) -> tuple[str, int] | None:
 def is_allowed_destination(host: str, port: int, allowed_domains: tuple[str, ...]) -> bool:
     host = host.lower().rstrip(".")
     return port in ALLOWED_PORTS and any(host == domain or host.endswith(f".{domain}") for domain in allowed_domains)
+
+
+def connect_allowed_destination(
+    host: str,
+    port: int,
+    allowed_domains: tuple[str, ...],
+    *,
+    timeout: float,
+) -> socket.socket:
+    """Connect to one validated numeric address for an allowlisted hostname."""
+    if not is_allowed_destination(host, port, allowed_domains):
+        raise DestinationPolicyError("destination hostname or port is not allowlisted")
+
+    addresses = resolve_public_addresses(host, port)
+    last_error: OSError | None = None
+    for address in addresses:
+        upstream = None
+        try:
+            upstream = socket.socket(address.family, address.socktype, address.proto)
+            upstream.settimeout(timeout)
+            upstream.connect(address.sockaddr)
+        except OSError as exc:
+            if upstream is not None:
+                upstream.close()
+            last_error = exc
+            continue
+        return upstream
+    raise last_error or OSError("no resolved destination addresses were connectable")
+
+
+def resolve_public_addresses(host: str, port: int) -> tuple[ResolvedAddress, ...]:
+    """Resolve a hostname once and reject any DNS answer that is not public unicast."""
+    records = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    if not records:
+        raise OSError("DNS lookup returned no addresses")
+
+    addresses = []
+    seen = set()
+    for family, socktype, proto, _, sockaddr in records:
+        if family not in (socket.AF_INET, socket.AF_INET6):
+            raise DestinationPolicyError("DNS lookup returned an unsupported address family")
+        if socktype != socket.SOCK_STREAM:
+            raise DestinationPolicyError("DNS lookup returned a non-stream socket")
+        try:
+            address = ipaddress.ip_address(sockaddr[0])
+        except (IndexError, TypeError, ValueError) as exc:
+            raise DestinationPolicyError("DNS lookup returned a malformed address") from exc
+        if (family == socket.AF_INET and address.version != 4) or (
+            family == socket.AF_INET6 and address.version != 6
+        ):
+            raise DestinationPolicyError("DNS lookup returned an address with a mismatched family")
+        if not is_public_unicast_address(address):
+            raise DestinationPolicyError("DNS lookup returned a non-public address")
+        key = (family, socktype, proto, sockaddr)
+        if key not in seen:
+            seen.add(key)
+            addresses.append(ResolvedAddress(family, socktype, proto, sockaddr))
+    if not addresses:
+        raise OSError("DNS lookup returned no usable addresses")
+    return tuple(addresses)
+
+
+def is_public_unicast_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Return whether an IP address is a public unicast destination."""
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return is_public_unicast_address(address.ipv4_mapped)
+    return address.is_global and not address.is_multicast and not getattr(address, "is_site_local", False)
 
 
 if __name__ == "__main__":
