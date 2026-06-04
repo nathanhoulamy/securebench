@@ -30,6 +30,7 @@ families:
 - `harnesses/command.py`: runs a configured command in a benchmark image.
 - `harnesses/codex.py`: runs Codex CLI with a mounted overlay.
 - `harnesses/claude_code.py`: runs Claude Code with a mounted overlay.
+- `harnesses/provider_relay.py`: injects host-side provider credentials for named agent harnesses.
 - `harnesses/shared.py`: shared workspace, image, timeout, and materialization helpers.
 
 ## Verifiers

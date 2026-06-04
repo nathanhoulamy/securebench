@@ -6,9 +6,12 @@ from securebench.errors import ConfigError
 from securebench.harnesses.egress_proxy import is_allowed_destination, split_host_port
 from securebench.harnesses.network import (
     DockerEgressPolicy,
+    DockerProviderRelayPolicy,
     allowed_domains_config,
     domain_allowed,
     effective_allowed_domains,
+    provider_relay_base_url,
+    relay_decision_summary,
 )
 
 
@@ -39,12 +42,9 @@ def test_allowed_domains_config_rejects_invalid_entries(value):
         allowed_domains_config(value)
 
 
-def test_effective_allowed_domains_adds_provider_defaults():
-    assert effective_allowed_domains("codex", ("pypi.org",)) == ("api.openai.com", "pypi.org")
-    assert effective_allowed_domains("claude_code", ("docs.python.org",)) == (
-        "api.anthropic.com",
-        "docs.python.org",
-    )
+def test_effective_allowed_domains_keeps_provider_domains_out_of_generic_egress():
+    assert effective_allowed_domains("codex", ("pypi.org",)) == ("pypi.org",)
+    assert effective_allowed_domains("claude_code", ("docs.python.org",)) == ("docs.python.org",)
     assert effective_allowed_domains("command", ("docs.python.org",)) == ("docs.python.org",)
     assert effective_allowed_domains("command", ()) == ()
 
@@ -134,3 +134,77 @@ def test_docker_egress_policy_cleans_up_after_start_failure(monkeypatch):
 
     assert commands[-2][:3] == ["docker", "rm", "-f"]
     assert commands[-1][:3] == ["docker", "network", "rm"]
+
+
+def test_provider_relay_base_urls():
+    assert provider_relay_base_url("openai") == "http://securebench-provider-relay:8090/v1"
+    assert provider_relay_base_url("anthropic") == "http://securebench-provider-relay:8090"
+
+
+def test_docker_provider_relay_policy_starts_relay_without_generic_proxy(monkeypatch):
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with DockerProviderRelayPolicy("openai", (), allow_external_tools=False) as egress:
+        assert egress.network.startswith("securebench-egress-")
+        assert egress.env == {}
+        assert egress.provider == "openai"
+        assert egress.provider_base_url == "http://securebench-provider-relay:8090/v1"
+        assert egress.provider_relay_enabled is True
+        assert egress.allow_external_tools is False
+
+    assert commands[0][:4] == ["docker", "network", "create", "--internal"]
+    relay_run = commands[1]
+    assert relay_run[:5] == ["docker", "run", "-d", "--rm", "--name"]
+    assert ["-e", "OPENAI_API_KEY"] == relay_run[relay_run.index("-e") : relay_run.index("-e") + 2]
+    assert "secret" not in relay_run
+    assert "SECUREBENCH_PROVIDER=openai" in relay_run
+    assert "SECUREBENCH_ALLOW_EXTERNAL_TOOLS=false" in relay_run
+    assert commands[2][:4] == ["docker", "network", "connect", "--alias"]
+    assert "securebench-provider-relay" in commands[2]
+    assert commands[3][:3] == ["docker", "rm", "-f"]
+    assert commands[4][:3] == ["docker", "network", "rm"]
+
+
+def test_docker_provider_relay_policy_starts_generic_proxy_when_domains_allowed(monkeypatch):
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with DockerProviderRelayPolicy("anthropic", ("docs.python.org",), allow_external_tools=True) as egress:
+        assert egress.env["HTTPS_PROXY"] == "http://securebench-egress-proxy:8080"
+        assert "securebench-provider-relay" in egress.env["NO_PROXY"]
+        assert egress.provider_base_url == "http://securebench-provider-relay:8090"
+        assert egress.allow_external_tools is True
+
+    assert "SECUREBENCH_ALLOWED_DOMAINS=docs.python.org" in commands[1]
+    assert "securebench-egress-proxy" in commands[2]
+    relay_run = commands[3]
+    assert ["-e", "ANTHROPIC_API_KEY"] == relay_run[relay_run.index("-e") : relay_run.index("-e") + 2]
+    assert "SECUREBENCH_PROVIDER=anthropic" in relay_run
+    assert "SECUREBENCH_ALLOW_EXTERNAL_TOOLS=true" in relay_run
+
+
+def test_relay_decision_summary_counts_forwarded_and_blocked(tmp_path):
+    log = tmp_path / "decisions.jsonl"
+    log.write_text(
+        '{"status": "forwarded"}\n'
+        '{"status": "blocked"}\n'
+        'not-json\n'
+    )
+
+    assert relay_decision_summary(tmp_path) == {
+        "provider_relay_requests": 2,
+        "provider_relay_blocked": 1,
+    }
