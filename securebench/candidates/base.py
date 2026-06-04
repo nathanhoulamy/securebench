@@ -13,7 +13,6 @@ from securebench.tasks import SecureBenchTask
 class CandidateArtifact:
     """Output produced by a model, script, or workspace agent."""
 
-    text: str | None = None
     patch: str | None = None
     workspace: str | None = None
     stdout: str = ""
@@ -26,7 +25,7 @@ class CandidateArtifact:
             return self.patch or ""
         if task.task_type == "terminal_task":
             return self.workspace or ""
-        return self.text or ""
+        return ""
 
 
 class CandidateProducer(ABC):

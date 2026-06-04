@@ -124,7 +124,7 @@ defaults:
     )
     tasks_path.write_text(
         '{"id":"task-1","input":{"instructions":"Do thing."}}\n'
-        '{"id":"task-2","family":"artifact_task","environment":{"timeout_seconds":120},"input":{"brief":"Create report."}}\n'
+        '{"id":"task-2","family":"repo_patch","environment":{"timeout_seconds":120},"input":{"repo":"repo/","base_commit":"abc","instructions":"Fix it."}}\n'
     )
 
     rows = load_benchmark_pack(manifest_path, tasks_path).load_rows()
@@ -141,7 +141,7 @@ defaults:
     }
     assert rows[0].metadata == {}
 
-    assert rows[1].family == "artifact_task"
+    assert rows[1].family == "repo_patch"
     assert rows[1].environment == {
         "image": "python:3.11-slim",
         "network": "none",

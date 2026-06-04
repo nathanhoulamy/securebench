@@ -7,13 +7,13 @@ from securebench.audit.static_checks import StaticAuditContext, run_static_check
 from securebench.benchmark_pack import load_benchmark_pack
 
 
-def test_static_checks_pass_builtin_multiple_choice_pack():
+def test_static_checks_pass_builtin_terminal_task_pack():
     pack = load_benchmark_pack(
-        "benchmarks/audit/multiple-choice/manifest.yaml",
-        "benchmarks/audit/multiple-choice/tasks.jsonl",
+        "benchmarks/audit/terminal-task/manifest.yaml",
+        "benchmarks/audit/terminal-task/tasks.jsonl",
     )
 
-    findings = run_static_checks(StaticAuditContext(pack=pack, target="multiple-choice"))
+    findings = run_static_checks(StaticAuditContext(pack=pack, target="terminal-task"))
 
     assert findings
     assert not [finding for finding in findings if finding.status == "failed"]
@@ -58,10 +58,6 @@ def test_aggressive_family_specific_smoke_cases_are_registered():
     case_ids = {case.id for case in SMOKE_CASES}
 
     assert {
-        "smoke.code_completion.hidden_runner_read",
-        "smoke.code_completion.stack_introspection",
-        "smoke.code_completion.sentinel_forgery",
-        "smoke.code_completion.import_hook_tamper",
         "smoke.repo_patch.config_tamper",
         "smoke.repo_patch.shell_runner_tamper",
         "smoke.repo_patch.path_traversal",

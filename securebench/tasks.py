@@ -60,26 +60,6 @@ def task_from_spec(spec: TaskSpec) -> SecureBenchTask:
         raise ValueError("task spec metadata must be an object")
 
     resources = _resources_from_spec(_required_dict(spec, "resources", "task spec"))
-    if task_type == "multiple_choice":
-        _require_resources(resources, task_type, ("question", "choices", "answer"))
-        return MultipleChoiceTask(
-            id=task_id,
-            benchmark_id=benchmark_id,
-            task_type="multiple_choice",
-            metadata=metadata,
-            resources=resources,
-        )
-
-    if task_type == "code_completion":
-        _require_resources(resources, task_type, ("prompt",))
-        return CodeCompletionTask(
-            id=task_id,
-            benchmark_id=benchmark_id,
-            task_type="code_completion",
-            metadata=metadata,
-            resources=resources,
-        )
-
     return SecureBenchTask(
         id=task_id,
         benchmark_id=benchmark_id,
@@ -87,17 +67,6 @@ def task_from_spec(spec: TaskSpec) -> SecureBenchTask:
         metadata=metadata,
         resources=resources,
     )
-
-
-@dataclass(frozen=True)
-class MultipleChoiceTask(SecureBenchTask):
-    pass
-
-
-@dataclass(frozen=True)
-class CodeCompletionTask(SecureBenchTask):
-    pass
-
 
 def _resources_from_spec(resources_data: dict[str, Any]) -> ResourceBundle:
     resources: list[Resource] = []
@@ -141,50 +110,6 @@ def resource_value(task: SecureBenchTask, name: str, default: Any = None) -> Any
 
 def resource_text(task: SecureBenchTask, name: str, default: str = "") -> str:
     return str(resource_value(task, name, default))
-
-
-def optional_resource_text(task: SecureBenchTask, name: str) -> str | None:
-    value = resource_value(task, name)
-    return None if value is None else str(value)
-
-
-def resource_tuple(task: SecureBenchTask, name: str) -> tuple[str, ...]:
-    return _tuple_of_str(resource_value(task, name, ()))
-
-
-def resource_test_groups(task: SecureBenchTask, name: str = "test_groups") -> dict[str, tuple[str, ...]]:
-    return _test_groups(resource_value(task, name, {}))
-
-
-def resource_text_mapping(task: SecureBenchTask, name: str) -> dict[str, str]:
-    value = resource_value(task, name, {})
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): str(item) for key, item in value.items()}
-
-
-def _require_resources(resources: ResourceBundle, task_type: str, names: tuple[str, ...]) -> None:
-    missing = [name for name in names if name not in resources.resources]
-    if missing:
-        raise ValueError(f"{task_type} task spec missing required resources: {missing}")
-
-
-def _tuple_of_str(value: Any) -> tuple[str, ...]:
-    if value is None:
-        return ()
-    if isinstance(value, tuple):
-        return tuple(str(item) for item in value)
-    if isinstance(value, list):
-        return tuple(str(item) for item in value)
-    return (str(value),)
-
-
-def _test_groups(value: Any) -> dict[str, tuple[str, ...]]:
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise ValueError("test_groups resource must be an object")
-    return {str(name): _tuple_of_str(tests) for name, tests in value.items()}
 
 
 def _resource_kind(value: Any) -> ResourceKind:

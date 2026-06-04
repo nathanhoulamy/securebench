@@ -9,8 +9,6 @@ from typing import Any
 from securebench.candidates.extraction import (
     default_extraction_spec,
     extract_candidate,
-    file_extraction_spec,
-    stdout_extraction_spec,
 )
 from securebench.candidates import CandidateArtifact, CandidateProducer
 from securebench.errors import ConfigError
@@ -20,8 +18,6 @@ from securebench.harnesses.shared import (
     container_image_for_task,
     materialize_workdir_from_image_if_requested,
     optional_positive_number,
-    optional_workspace_path,
-    reject_artifact_collision,
     reject_task_file_collision,
     reject_unknown_fields,
     run_timeout_seconds,
@@ -47,7 +43,6 @@ from securebench.tasks import SecureBenchTask
 
 COMMAND_CONFIG_FIELDS = {
     "command",
-    "artifact_path",
     "task_file",
     "timeout_seconds",
     "allowed_domains",
@@ -63,7 +58,6 @@ class CommandHarnessProducer(CandidateProducer):
         *,
         command: str | tuple[str, ...],
         env_names: tuple[str, ...] = (),
-        artifact_path: str | None = None,
         task_file: str = COMMAND_DEFAULT_TASK_FILE,
         timeout_seconds: float | None = None,
         allowed_domains: tuple[str, ...] = (),
@@ -71,7 +65,6 @@ class CommandHarnessProducer(CandidateProducer):
     ) -> None:
         self.env_names = tuple(env_names)
         self.command = command
-        self.artifact_path = artifact_path
         self.task_file = task_file
         self.timeout_seconds = timeout_seconds
         self.allowed_domains = tuple(allowed_domains)
@@ -94,7 +87,6 @@ class CommandHarnessProducer(CandidateProducer):
             staging = HostSandbox(root=task_workspace)
             plan = self.materializer.materialize(task, staging, "agent")
             reject_task_file_collision(self.task_file, plan)
-            reject_artifact_collision(self.artifact_path, plan)
             staging.write_file(self.task_file, agent_task_json(task))
 
             allowed_domains = effective_allowed_domains("command", self.allowed_domains)
@@ -111,20 +103,14 @@ class CommandHarnessProducer(CandidateProducer):
                         workdir=task_workdir(task) if task.task_type == "terminal_task" else None,
                         timeout=timeout,
                     )
-                    extraction = (
-                        file_extraction_spec(task, self.artifact_path)
-                        if self.artifact_path is not None
-                        else _default_command_extraction_spec(task)
-                    )
+                    extraction = default_extraction_spec(task)
                     candidate = extract_candidate(
-                        task,
                         sandbox,
                         result,
                         extraction,
                         timeout=timeout,
                     )
                     return CandidateArtifact(
-                        text=candidate.text,
                         patch=candidate.patch,
                         workspace=candidate.workspace,
                         stdout=candidate.stdout,
@@ -133,7 +119,6 @@ class CommandHarnessProducer(CandidateProducer):
                             "harness": "command",
                             "exit_code": result.exit_code,
                             "task_file": self.task_file,
-                            "artifact_path": self.artifact_path,
                             "workspace_root": str(task_workspace),
                             "allowed_domains": allowed_domains,
                             **candidate.metadata,
@@ -168,9 +153,6 @@ def command_config(config: dict[str, Any]) -> dict[str, Any]:
     reject_unknown_fields(config, COMMAND_CONFIG_FIELDS, "harness.config")
     return {
         "command": command_value(config.get("command")),
-        "artifact_path": optional_workspace_path(
-            config.get("artifact_path"), "harness.config.artifact_path"
-        ),
         "task_file": workspace_path(
             config.get("task_file", COMMAND_DEFAULT_TASK_FILE),
             "harness.config.task_file",
@@ -192,9 +174,3 @@ def command_value(value: Any) -> str | tuple[str, ...]:
     ):
         return tuple(value)
     raise ConfigError("harness.config.command must be a non-empty string or string array")
-
-
-def _default_command_extraction_spec(task: SecureBenchTask):
-    if task.task_type == "terminal_task":
-        return default_extraction_spec(task)
-    return stdout_extraction_spec(task)

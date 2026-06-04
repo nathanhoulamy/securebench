@@ -15,12 +15,12 @@ run:
   id: audit-cli
   output_dir: {tmp_path / "run"}
 benchmark:
-  manifest: {root / "benchmarks/audit/multiple-choice/manifest.yaml"}
-  tasks: {root / "benchmarks/audit/multiple-choice/tasks.jsonl"}
+  manifest: {root / "benchmarks/audit/terminal-task/manifest.yaml"}
+  tasks: {root / "benchmarks/audit/terminal-task/tasks.jsonl"}
 harness:
   type: command
   config:
-    command: "printf B"
+    command: "true"
 """
     )
 

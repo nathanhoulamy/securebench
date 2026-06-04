@@ -122,13 +122,12 @@ def test_non_json_serializable_values_fail_clearly():
 def test_materializer_accepts_task_sources():
     task = task_from_spec(
         {
-            "id": "mmlu/math/test/7",
-            "benchmark_id": "mmlu",
-            "task_type": "multiple_choice",
+            "id": "terminal/create-output",
+            "benchmark_id": "terminal",
+            "task_type": "terminal_task",
             "resources": {
-                "question": {"value": "2 + 2?", "visibility": "public"},
-                "choices": {"value": ["1", "2", "4", "5"], "visibility": "public"},
-                "answer": {"value": 2, "visibility": "hidden"},
+                "instructions": {"value": "Create output.txt.", "visibility": "public"},
+                "checker": {"value": {"source": "pytest", "path": "checks"}, "visibility": "evaluation_inputs"},
             },
         }
     )
@@ -136,8 +135,7 @@ def test_materializer_accepts_task_sources():
     plan = ResourceMaterializer().build_plan(task, "agent")
 
     assert [item.relative_path for item in plan.resources] == [
-        "securebench/public/question.json",
-        "securebench/public/choices.json",
+        "securebench/public/instructions.json",
     ]
 
 

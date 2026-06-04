@@ -8,10 +8,10 @@ from pathlib import PurePosixPath
 from typing import Any, Callable
 
 from securebench.errors import ConfigError
+from securebench.harnesses.shared import environment_image_for_task
 from securebench.sandboxes import CommandResult, DockerSandbox, Sandbox
 from securebench.tasks import SecureBenchTask, resource_text, resource_value
 from securebench.verifiers.base import VerificationResult, Verifier, timeout_metadata
-from securebench.verifiers.code_completion import environment_image_for_task
 
 
 SandboxFactory = Callable[..., Sandbox]

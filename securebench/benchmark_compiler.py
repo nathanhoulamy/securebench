@@ -12,22 +12,6 @@ from securebench.tasks import SecureBenchTask, task_from_spec
 
 
 EVAL_VISIBILITY: dict[str, dict[str, ResourceVisibility]] = {
-    "multiple_choice": {
-        "answer": "hidden",
-    },
-    "short_answer": {
-        "accepted_answers": "hidden",
-        "tolerance": "hidden",
-    },
-    "free_response": {
-        "reference_answer": "hidden",
-        "rubric": "hidden",
-    },
-    "code_completion": {
-        "tests": "evaluation_inputs",
-        "reference_solution": "hidden",
-        "canonical_solution": "hidden",
-    },
     "repo_patch": {
         "tests": "evaluation_inputs",
         "candidate_policy": "evaluation_inputs",
@@ -39,30 +23,6 @@ EVAL_VISIBILITY: dict[str, dict[str, ResourceVisibility]] = {
         "run_tests": "evaluation_inputs",
         "test_files": "evaluation_inputs",
         "expected_state": "hidden",
-    },
-    "tool_call": {
-        "initial_state": "evaluation_inputs",
-        "expected_calls": "hidden",
-        "expected_final_state": "hidden",
-    },
-    "browser_task": {
-        "credentials": "evaluation_inputs",
-        "success_check": "hidden",
-    },
-    "desktop_task": {
-        "success_check": "hidden",
-    },
-    "artifact_task": {
-        "reference_artifact": "hidden",
-        "rubric": "hidden",
-    },
-    "multimodal_qa": {
-        "answer": "hidden",
-        "rubric": "hidden",
-    },
-    "preference_pair": {
-        "preference": "hidden",
-        "rubric": "hidden",
     },
 }
 

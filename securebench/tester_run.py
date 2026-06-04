@@ -212,8 +212,6 @@ def _candidate_kind(candidate: CandidateArtifact) -> str:
         return "patch"
     if candidate.workspace is not None:
         return "workspace"
-    if candidate.text is not None:
-        return "text"
     return "none"
 
 
@@ -260,7 +258,6 @@ def candidate_record(
         "benchmark_id": task.benchmark_id,
         "task_type": task.task_type,
         "verification_status": UNSUPPORTED_VERIFICATION_STATUS,
-        "candidate_text": candidate.text,
         "candidate_patch": candidate.patch,
         "candidate_workspace": candidate.workspace,
         "producer_stdout": candidate.stdout,

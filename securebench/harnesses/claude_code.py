@@ -179,16 +179,14 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                         workdir=agent_workdir,
                         timeout=timeout,
                     )
-                    extraction = default_extraction_spec(task, allow_stdout=False)
+                    extraction = default_extraction_spec(task)
                     candidate = extract_candidate(
-                        task,
                         sandbox,
                         result,
                         extraction,
                         timeout=timeout,
                     )
                     return CandidateArtifact(
-                        text=candidate.text,
                         patch=candidate.patch,
                         workspace=candidate.workspace,
                         stdout=result.stdout,
@@ -343,7 +341,7 @@ def claude_code_agent_workdir(task: SecureBenchTask) -> str | None:
 
 
 def claude_code_prompt(task: SecureBenchTask, task_file: str) -> str:
-    extraction = default_extraction_spec(task, allow_stdout=False)
+    extraction = default_extraction_spec(task)
     if task.task_type == "repo_patch":
         return (
             f"Read {task_file} and solve the benchmark task using only public workspace data. "

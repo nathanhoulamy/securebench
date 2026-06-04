@@ -12,10 +12,7 @@ from securebench.sandboxes import CommandResult, Sandbox
 from securebench.tasks import SecureBenchTask
 
 
-DEFAULT_CODE_CANDIDATE_FILE = "candidate.py"
-DEFAULT_TEXT_CANDIDATE_FILE = "candidate.txt"
-
-ExtractionMode = Literal["stdout", "file", "git_diff", "workspace", "unsupported"]
+ExtractionMode = Literal["git_diff", "workspace"]
 
 
 @dataclass(frozen=True)
@@ -24,7 +21,6 @@ class CandidateExtractionSpec:
 
     mode: ExtractionMode
     candidate_kind: str
-    path: str | None = None
     workdir: str | None = None
 
 
@@ -44,17 +40,9 @@ class CandidateProductionTimeout(Exception):
 
 def default_extraction_spec(
     task: SecureBenchTask,
-    *,
-    allow_stdout: bool = True,
 ) -> CandidateExtractionSpec:
     """Return the default extraction strategy for a task's candidate contract."""
     contract = family_contract_for(task.task_type)
-    if contract.candidate_kind == "code":
-        return CandidateExtractionSpec(
-            mode="file",
-            candidate_kind=contract.candidate_kind,
-            path=DEFAULT_CODE_CANDIDATE_FILE,
-        )
     if contract.candidate_kind == "patch":
         return CandidateExtractionSpec(
             mode="git_diff",
@@ -67,50 +55,22 @@ def default_extraction_spec(
             candidate_kind=contract.candidate_kind,
             workdir=_task_workdir(task),
         )
-    if contract.candidate_kind == "text":
-        if allow_stdout:
-            return CandidateExtractionSpec(mode="stdout", candidate_kind=contract.candidate_kind)
-        return CandidateExtractionSpec(
-            mode="file",
-            candidate_kind=contract.candidate_kind,
-            path=DEFAULT_TEXT_CANDIDATE_FILE,
-        )
-    return CandidateExtractionSpec(mode="unsupported", candidate_kind=contract.candidate_kind)
-
-
-def stdout_extraction_spec(task: SecureBenchTask) -> CandidateExtractionSpec:
-    """Return a stdout extraction spec shaped for the task's candidate contract."""
-    contract = family_contract_for(task.task_type)
-    return CandidateExtractionSpec(mode="stdout", candidate_kind=contract.candidate_kind)
-
-
-def file_extraction_spec(task: SecureBenchTask, path: str) -> CandidateExtractionSpec:
-    """Return a file extraction spec shaped for the task's candidate contract."""
-    contract = family_contract_for(task.task_type)
-    return CandidateExtractionSpec(mode="file", candidate_kind=contract.candidate_kind, path=path)
+    raise ConfigError(f"Unsupported candidate kind: {contract.candidate_kind!r}")
 
 
 def extraction_instructions(spec: CandidateExtractionSpec) -> str:
     """Return prompt text that tells an agent how SecureBench will collect its answer."""
-    if spec.mode == "file":
-        return (
-            f"Write the final candidate to {spec.path}. "
-            "The file should contain only the content needed by the evaluator."
-        )
     if spec.mode == "git_diff":
         return (
             "Make the required repository changes in the workspace. "
             "SecureBench will collect the final git diff after you finish."
         )
-    if spec.mode == "stdout":
-        return "Print the final candidate to stdout."
     if spec.mode == "workspace":
         return "Make the required changes in the workspace. SecureBench will verify the final workspace state."
-    return "Leave your final work in the workspace."
+    raise ConfigError(f"Unsupported candidate extraction mode: {spec.mode!r}")
 
 
 def extract_candidate(
-    task: SecureBenchTask,
     sandbox: Sandbox,
     run_result: CommandResult,
     spec: CandidateExtractionSpec,
@@ -120,29 +80,6 @@ def extract_candidate(
     """Collect a candidate artifact according to a shared extraction spec."""
     if run_result.timed_out:
         raise CandidateProductionTimeout(run_result)
-    if spec.mode == "stdout":
-        candidate = run_result.stdout
-        return _candidate_artifact(
-            spec,
-            candidate,
-            stdout=run_result.stdout,
-            stderr=run_result.stderr,
-            metadata=_metadata(spec),
-        )
-    if spec.mode == "file":
-        if spec.path is None:
-            raise ConfigError("candidate extraction file mode requires a path")
-        try:
-            candidate = sandbox.read_file(spec.path)
-        except FileNotFoundError as exc:
-            raise ConfigError(f"harness did not produce expected candidate file: {spec.path}") from exc
-        return _candidate_artifact(
-            spec,
-            candidate,
-            stdout=run_result.stdout,
-            stderr=run_result.stderr,
-            metadata=_metadata(spec),
-        )
     if spec.mode == "git_diff":
         intent_result = sandbox.run(
             ["git", "add", "--intent-to-add", "--all", "--"],
@@ -197,11 +134,7 @@ def extract_candidate(
                 "candidate_workspace": workspace,
             },
         )
-    return CandidateArtifact(
-        stdout=run_result.stdout,
-        stderr=run_result.stderr,
-        metadata=_metadata(spec),
-    )
+    raise ConfigError(f"Unsupported candidate extraction mode: {spec.mode!r}")
 
 
 def _candidate_artifact(
@@ -213,7 +146,6 @@ def _candidate_artifact(
     metadata: dict[str, object],
 ) -> CandidateArtifact:
     return CandidateArtifact(
-        text=candidate if spec.candidate_kind in {"text", "code"} else None,
         patch=candidate if spec.candidate_kind == "patch" else None,
         stdout=stdout,
         stderr=stderr,
@@ -226,8 +158,6 @@ def _metadata(spec: CandidateExtractionSpec) -> dict[str, object]:
         "candidate_kind": spec.candidate_kind,
         "candidate_extraction": spec.mode,
     }
-    if spec.path is not None:
-        metadata["candidate_path"] = spec.path
     if spec.workdir is not None:
         metadata["candidate_workdir"] = spec.workdir
     return metadata

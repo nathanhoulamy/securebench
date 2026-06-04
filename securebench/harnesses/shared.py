@@ -18,11 +18,16 @@ from securebench.tasks import SecureBenchTask
 
 
 def container_image_for_task(task: SecureBenchTask) -> str:
+    return environment_image_for_task(task, context="container harness mode")
+
+
+def environment_image_for_task(task: SecureBenchTask, *, context: str = "verification") -> str:
+    """Return the benchmark environment image selected for task execution."""
     environment = task_environment(task)
     image = environment.get("image") if isinstance(environment, dict) else None
     if not isinstance(image, str) or not image.strip():
         raise ConfigError(
-            "container harness mode requires benchmark environment.image; "
+            f"{context} requires benchmark environment.image; "
             "set defaults.environment.image in the manifest or environment.image on the benchmark row"
         )
     return image.strip()
@@ -120,12 +125,6 @@ def run_timeout_seconds(
     return task_timeout_seconds(task) or fallback_timeout
 
 
-def optional_workspace_path(value: Any, field: str) -> str | None:
-    if value is None:
-        return None
-    return workspace_path(value, field)
-
-
 def workspace_path(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ConfigError(f"{field} must be a non-empty workspace-relative path")
@@ -183,20 +182,6 @@ def reject_task_file_collision(task_file: str, plan: MaterializationPlan) -> Non
         if paths_overlap(path, PurePosixPath(resource.relative_path)):
             raise ConfigError(
                 f"harness.config.task_file collides with public materialized path: {task_file}"
-            )
-
-
-def reject_artifact_collision(
-    artifact_path: str | None, plan: MaterializationPlan
-) -> None:
-    if artifact_path is None:
-        return
-    path = PurePosixPath(artifact_path)
-    for resource in plan.resources:
-        if paths_overlap(path, PurePosixPath(resource.relative_path)):
-            raise ConfigError(
-                "harness.config.artifact_path collides with public materialized path: "
-                f"{artifact_path}"
             )
 
 

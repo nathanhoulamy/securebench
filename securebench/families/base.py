@@ -8,7 +8,7 @@ from typing import Any, Callable, Literal, TypeGuard
 from securebench.errors import ConfigError
 
 
-CandidateKind = Literal["text", "code", "patch", "workspace"]
+CandidateKind = Literal["patch", "workspace"]
 FamilyValidator = Callable[[Any, str], None]
 
 
@@ -53,60 +53,10 @@ def optional_string(values: dict[str, object], key: str, context: str) -> None:
         raise ConfigError(f"{context}.{key} must be a string")
 
 
-def required_non_empty_string_array(
-    values: dict[str, object], key: str, context: str
-) -> None:
-    value = required(values, key, context)
-    if not isinstance(value, list) or not value:
-        raise ConfigError(f"{context}.{key} must be a non-empty string array")
-    if not all(is_non_empty_string(item) for item in value):
-        raise ConfigError(f"{context}.{key} must contain only non-empty strings")
-
-
-def required_non_empty_string_or_number_array(
-    values: dict[str, object],
-    key: str,
-    context: str,
-) -> None:
-    value = required(values, key, context)
-    if not isinstance(value, list) or not value:
-        raise ConfigError(f"{context}.{key} must be a non-empty string-or-number array")
-    if not all(is_string_or_number(item) for item in value):
-        raise ConfigError(
-            f"{context}.{key} must contain only non-empty strings or numbers"
-        )
-
-
-def required_string_number_or_array(
-    values: dict[str, object], key: str, context: str
-) -> None:
-    value = required(values, key, context)
-    if is_string_or_number(value):
-        return
-    if (
-        isinstance(value, list)
-        and value
-        and all(is_string_or_number(item) for item in value)
-    ):
-        return
-    raise ConfigError(
-        f"{context}.{key} must be a non-empty string, number, or string-or-number array"
-    )
-
-
 def required_object(values: dict[str, object], key: str, context: str) -> None:
     value = required(values, key, context)
     if not isinstance(value, dict):
         raise ConfigError(f"{context}.{key} must be an object")
-
-
-def required_string_or_object(
-    values: dict[str, object], key: str, context: str
-) -> None:
-    value = required(values, key, context)
-    if is_non_empty_string(value) or isinstance(value, dict):
-        return
-    raise ConfigError(f"{context}.{key} must be a non-empty string or object")
 
 
 def optional_string_or_object(
@@ -146,7 +96,3 @@ def is_non_empty_string(value: object) -> bool:
 
 def is_number(value: object) -> TypeGuard[int | float]:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def is_string_or_number(value: object) -> bool:
-    return is_non_empty_string(value) or is_number(value)

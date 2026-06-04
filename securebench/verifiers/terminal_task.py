@@ -13,11 +13,10 @@ from securebench.dangerous_commands import (
     resolve_dangerous_commands,
 )
 from securebench.progress import emit_progress
-from securebench.sandboxes import CommandResult, DockerBindMount, DockerSandbox, HostSandbox, Sandbox
+from securebench.sandboxes import DockerBindMount, DockerSandbox, HostSandbox, Sandbox
 from securebench.tasks import SecureBenchTask, resource_value
 from securebench.verifiers.base import VerificationResult, Verifier, timeout_metadata
-from securebench.verifiers.code_completion import environment_image_for_task
-from securebench.harnesses.shared import task_timeout_seconds, workspace_mount_target_for_task
+from securebench.harnesses.shared import environment_image_for_task, task_timeout_seconds, workspace_mount_target_for_task
 from securebench.workspaces.materialization import VisibilityAwareMaterializer, docker_read_only_mounts
 
 

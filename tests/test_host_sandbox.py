@@ -41,11 +41,11 @@ def test_host_sandbox_read_file_rejects_symlink_escape(tmp_path):
     outside.write_text("host secret")
     root = tmp_path / "workspace"
     root.mkdir()
-    (root / "candidate.txt").symlink_to(outside)
+    (root / "workspace-output.txt").symlink_to(outside)
     sandbox = HostSandbox(root=root)
 
     with pytest.raises(ValueError, match="escape root"):
-        sandbox.read_file("candidate.txt")
+        sandbox.read_file("workspace-output.txt")
 
 
 def test_host_sandbox_extract_file_rejects_symlink_escape(tmp_path):
@@ -65,11 +65,11 @@ def test_host_sandbox_write_file_rejects_symlink_escape(tmp_path):
     outside.write_text("original")
     root = tmp_path / "workspace"
     root.mkdir()
-    (root / "candidate.txt").symlink_to(outside)
+    (root / "workspace-output.txt").symlink_to(outside)
     sandbox = HostSandbox(root=root)
 
     with pytest.raises(ValueError, match="escape root"):
-        sandbox.write_file("candidate.txt", "modified")
+        sandbox.write_file("workspace-output.txt", "modified")
 
     assert outside.read_text() == "original"
 
@@ -83,9 +83,9 @@ def test_host_sandbox_write_file_rejects_symlink_parent_escape(tmp_path):
     sandbox = HostSandbox(root=root)
 
     with pytest.raises(ValueError, match="escape root"):
-        sandbox.write_file("linked/candidate.txt", "modified")
+        sandbox.write_file("linked/workspace-output.txt", "modified")
 
-    assert not (outside / "candidate.txt").exists()
+    assert not (outside / "workspace-output.txt").exists()
 
 
 def test_host_sandbox_write_file_rejects_symlink_to_inside_root(tmp_path):
@@ -93,11 +93,11 @@ def test_host_sandbox_write_file_rejects_symlink_to_inside_root(tmp_path):
     root.mkdir()
     real = root / "real.txt"
     real.write_text("original")
-    (root / "candidate.txt").symlink_to(real)
+    (root / "workspace-output.txt").symlink_to(real)
     sandbox = HostSandbox(root=root)
 
     with pytest.raises(ValueError, match="write through symlink"):
-        sandbox.write_file("candidate.txt", "modified")
+        sandbox.write_file("workspace-output.txt", "modified")
 
     assert real.read_text() == "original"
 
@@ -111,6 +111,6 @@ def test_host_sandbox_write_file_rejects_symlink_parent_inside_root(tmp_path):
     sandbox = HostSandbox(root=root)
 
     with pytest.raises(ValueError, match="write through symlink"):
-        sandbox.write_file("linked/candidate.txt", "modified")
+        sandbox.write_file("linked/workspace-output.txt", "modified")
 
-    assert not (target_dir / "candidate.txt").exists()
+    assert not (target_dir / "workspace-output.txt").exists()

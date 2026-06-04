@@ -9,47 +9,36 @@ from securebench.families import family_contract_for, known_family_contracts
 
 
 @pytest.mark.parametrize(
-    ("family", "candidate_kind", "requires_workspace"),
+    ("family", "candidate_kind"),
     [
-        ("multiple_choice", "text", False),
-        ("short_answer", "text", False),
-        ("free_response", "text", False),
-        ("code_completion", "code", False),
-        ("repo_patch", "patch", True),
-        ("terminal_task", "workspace", True),
+        ("repo_patch", "patch"),
+        ("terminal_task", "workspace"),
     ],
 )
-def test_family_contracts_return_candidate_kind(family, candidate_kind, requires_workspace):
+def test_family_contracts_return_agentic_candidate_kind(family, candidate_kind):
     contract = family_contract_for(family)
 
     assert contract.family == family
     assert contract.candidate_kind == candidate_kind
-    assert contract.requires_workspace is requires_workspace
+    assert contract.requires_workspace is True
 
 
 def test_family_contracts_are_immutable():
-    contract = family_contract_for("multiple_choice")
+    contract = family_contract_for("repo_patch")
 
     with pytest.raises(FrozenInstanceError):
-        contract.candidate_kind = "patch"
+        contract.candidate_kind = "workspace"
 
 
-def test_known_family_contracts_returns_only_active_families():
+def test_known_family_contracts_returns_only_agentic_families():
     contracts = known_family_contracts()
 
-    assert [contract.family for contract in contracts] == [
-        "multiple_choice",
-        "short_answer",
-        "free_response",
-        "code_completion",
-        "repo_patch",
-        "terminal_task",
-    ]
+    assert [contract.family for contract in contracts] == ["repo_patch", "terminal_task"]
 
 
 def test_unknown_family_contract_errors_when_execution_contract_is_requested():
     with pytest.raises(ConfigError, match="Unknown benchmark family contract"):
-        family_contract_for("custom_family")
+        family_contract_for("unsupported_family")
 
 
 def test_compiled_repo_patch_task_can_lookup_contract_by_task_type():

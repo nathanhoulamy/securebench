@@ -36,13 +36,7 @@ class StaticAuditContext:
 
 
 SENSITIVE_AGENT_KEYS = (
-    "answer",
-    "accepted_answers",
-    "reference_answer",
-    "rubric",
     "tests",
-    "canonical_solution",
-    "reference_solution",
     "gold_patch",
     "checker",
     "expected_state",
@@ -150,7 +144,7 @@ def _check_materialization_visibility(tasks: Iterable[SecureBenchTask]) -> tuple
 def _check_result_redaction(tasks: Iterable[SecureBenchTask]) -> tuple[AuditFinding, ...]:
     findings = []
     for task in tasks:
-        record = candidate_record("audit-static", task, CandidateArtifact(text="audit"))
+        record = candidate_record("audit-static", task, CandidateArtifact())
         hidden_values = record.get("hidden_values")
         summaries = record.get("resource_summary")
         hidden_unredacted = []

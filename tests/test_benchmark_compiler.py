@@ -10,7 +10,7 @@ from securebench.benchmark_pack import (
     BenchmarkRow,
 )
 from securebench.errors import ConfigError
-from securebench.tasks import CodeCompletionTask, MultipleChoiceTask, SecureBenchTask
+from securebench.tasks import SecureBenchTask
 
 
 def manifest():
@@ -21,60 +21,6 @@ def manifest():
         asset_roots=AssetRoots(public="assets/", eval="hidden/"),
         asset_defaults=AssetDefaults(read_only=True),
     )
-
-
-def test_multiple_choice_row_compiles_to_specialized_task():
-    task = compile_benchmark_row(
-        BenchmarkRow(
-            id="mc-1",
-            family="multiple_choice",
-            input={
-                "question": "2 + 2?",
-                "choices": ["1", "2", "4", "5"],
-            },
-            eval={
-                "answer": 2,
-            },
-        ),
-        manifest=manifest(),
-    )
-
-    assert isinstance(task, MultipleChoiceTask)
-    assert task.benchmark_id == "example-pack"
-    assert task.task_type == "multiple_choice"
-    assert task.agent_payload() == {
-        "question": "2 + 2?",
-        "choices": ["1", "2", "4", "5"],
-    }
-    assert task.hidden_payload()["answer"] == 2
-
-
-def test_code_completion_row_compiles_tests_as_evaluation_inputs():
-    task = compile_benchmark_row(
-        BenchmarkRow(
-            id="code-1",
-            family="code_completion",
-            input={
-                "prompt": "def add(a, b):\n",
-                "language": "python",
-            },
-            eval={
-                "tests": {"source": "inline", "code": "def check(candidate): assert candidate(2, 3) == 5"},
-                "canonical_solution": "    return a + b",
-            },
-        ),
-        manifest=manifest(),
-    )
-
-    assert isinstance(task, CodeCompletionTask)
-    assert "tests" not in task.agent_payload()
-    assert "canonical_solution" not in task.agent_payload()
-    assert task.evaluation_payload()["tests"] == {
-        "source": "inline",
-        "code": "def check(candidate): assert candidate(2, 3) == 5",
-    }
-    assert task.hidden_payload()["canonical_solution"] == "    return a + b"
-    assert {resource.name for resource in task.resources.by_visibility("evaluation_inputs")} == {"tests"}
 
 
 def test_terminal_task_row_compiles_to_generic_task_with_eval_visibility():
@@ -100,135 +46,75 @@ def test_terminal_task_row_compiles_to_generic_task_with_eval_visibility():
     assert task.hidden_payload()["expected_state"] == {"file": "output.txt"}
 
 
-@pytest.mark.parametrize(
-    ("needed_commands", "match"),
-    [
-        ("chroot", "eval.needed_commands must be a list"),
-        ([""], r"eval.needed_commands\[0\] must be a non-empty"),
-        (["mount"], r"eval.needed_commands\[0\] must be one of"),
-    ],
-)
-def test_terminal_task_rejects_invalid_needed_commands(needed_commands, match):
-    with pytest.raises(ConfigError, match=match):
-        compile_benchmark_row(
-            BenchmarkRow(
-                id="terminal-needed-commands",
-                family="terminal_task",
-                input={"instructions": "Create output.txt"},
-                eval={
-                    "checker": {"source": "pytest", "path": "checks"},
-                    "needed_commands": needed_commands,
-                },
-            ),
-            manifest=manifest(),
-        )
-
-
-def test_assets_are_public_when_non_empty():
+def test_repo_patch_row_compiles_tests_as_evaluation_inputs():
     task = compile_benchmark_row(
         BenchmarkRow(
-            id="asset-1",
-            family="terminal_task",
-            input={"instructions": "Read the file"},
-            assets=({"path": "auth.log", "mount": "auth.log"},),
-            eval={"checker": {"source": "pytest", "path": "checks"}},
-        ),
-        manifest=manifest(),
-    )
-
-    assert task.agent_payload()["assets"] == [{"path": "auth.log", "mount": "auth.log"}]
-    assert task.resources.resources["assets"].visibility == "public"
-
-
-def test_environment_and_pack_details_are_metadata_not_agent_payload():
-    row = BenchmarkRow(
-        id="meta-1",
-        family="terminal_task",
-        input={"instructions": "Do it"},
-        eval={"checker": {"source": "pytest", "path": "checks"}},
-        environment={"image": "python:3.12-slim", "timeout_seconds": 30},
-        metadata={"difficulty": "easy"},
-    )
-
-    task = compile_benchmark_row(row, manifest=manifest())
-
-    assert task.metadata["difficulty"] == "easy"
-    assert task.metadata["benchmark_pack"] == {
-        "id": "example-pack",
-        "version": 1,
-        "manifest_path": None,
-    }
-    assert task.metadata["environment"] == {"image": "python:3.12-slim", "timeout_seconds": 30}
-    assert task.metadata["asset_roots"] == {"public": "assets/", "eval": "hidden/"}
-    assert task.metadata["asset_defaults"] == {"read_only": True}
-    assert "environment" not in task.agent_payload()
-    assert "asset_roots" not in task.agent_payload()
-    assert "asset_defaults" not in task.agent_payload()
-
-
-def test_unknown_family_defaults_eval_fields_to_hidden():
-    task = compile_benchmark_row(
-        BenchmarkRow(
-            id="custom-1",
-            family="custom_family",
-            input={"prompt": "Solve this"},
-            eval={"private_key": "secret"},
+            id="repo-1",
+            family="repo_patch",
+            input={
+                "repo": "example/repo",
+                "base_commit": "abc123",
+                "instructions": "Fix the bug.",
+            },
+            eval={
+                "tests": {"source": "command", "command": ["pytest", "-q"]},
+                "candidate_policy": {"allow_paths": ["src/"]},
+                "gold_patch": "diff --git ...",
+            },
         ),
         manifest=manifest(),
     )
 
     assert type(task) is SecureBenchTask
-    assert task.task_type == "custom_family"
-    assert task.agent_payload() == {"prompt": "Solve this"}
-    assert task.evaluation_payload() == {"prompt": "Solve this"}
-    assert task.hidden_payload()["private_key"] == "secret"
+    assert task.task_type == "repo_patch"
+    assert "tests" not in task.agent_payload()
+    assert "candidate_policy" not in task.agent_payload()
+    assert "gold_patch" not in task.agent_payload()
+    assert task.evaluation_payload()["tests"] == {"source": "command", "command": ["pytest", "-q"]}
+    assert task.evaluation_payload()["candidate_policy"] == {"allow_paths": ["src/"]}
+    assert task.hidden_payload()["gold_patch"] == "diff --git ..."
 
 
-def test_unknown_eval_key_in_deferred_family_defaults_to_hidden():
-    task = compile_benchmark_row(
-        BenchmarkRow(
-            id="tool-call-unknown-eval",
-            family="tool_call",
-            input={"instructions": "Do it"},
-            eval={"secret_rubric": "private"},
-        ),
-        manifest=manifest(),
-    )
-
-    assert task.hidden_payload()["secret_rubric"] == "private"
-    assert "secret_rubric" not in task.evaluation_payload()
+def test_unsupported_family_fails_compilation():
+    with pytest.raises(ConfigError, match="Unknown benchmark family"):
+        compile_benchmark_row(
+            BenchmarkRow(
+                id="unsupported-1",
+                family="unsupported_family",
+                input={"question": "2 + 2?"},
+                eval={"answer": 1},
+            ),
+            manifest=manifest(),
+        )
 
 
-@pytest.mark.parametrize(
-    "row",
-    [
-        BenchmarkRow(id="collision-1", family="custom_family", input={"assets": "bad"}, assets=({"path": "x"},)),
-        BenchmarkRow(id="collision-2", family="custom_family", input={"checker": "public"}, eval={"checker": "private"}),
-        BenchmarkRow(id="collision-3", family="custom_family", assets=({"path": "x"},), eval={"assets": "private"}),
-    ],
-)
-def test_resource_name_collisions_are_rejected(row):
-    with pytest.raises(ConfigError, match="Duplicate compiled resource name"):
-        compile_benchmark_row(row, manifest=manifest())
-
-
-def test_eval_visibility_registry_defaults_to_hidden():
+def test_eval_visibility_contains_only_supported_family_fields():
+    assert eval_visibility_for("repo_patch", "tests") == "evaluation_inputs"
+    assert eval_visibility_for("repo_patch", "gold_patch") == "hidden"
     assert eval_visibility_for("terminal_task", "checker") == "evaluation_inputs"
-    assert eval_visibility_for("terminal_task", "needed_commands") == "evaluation_inputs"
-    assert eval_visibility_for("terminal_task", "unknown") == "hidden"
-    assert eval_visibility_for("unknown", "checker") == "hidden"
+    assert eval_visibility_for("terminal_task", "expected_state") == "hidden"
+    assert eval_visibility_for("unsupported_family", "answer") == "hidden"
 
 
-def test_compile_benchmark_pack_iterates_rows(tmp_path):
+def test_compile_benchmark_pack_applies_manifest_defaults(tmp_path):
     manifest_path = tmp_path / "manifest.yaml"
     tasks_path = tmp_path / "tasks.jsonl"
-    manifest_path.write_text("id: example-pack\nversion: 1\ndefaults:\n  family: terminal_task\n")
-    tasks_path.write_text(
-        '{"id":"task-1","input":{"instructions":"one"},"eval":{"checker":{"source":"pytest","path":"checks"}}}\n'
-        '{"id":"task-2","input":{"instructions":"two"},"eval":{"checker":{"source":"pytest","path":"checks"}}}\n'
+    manifest_path.write_text(
+        """
+id: pack
+version: 1
+defaults:
+  family: terminal_task
+  environment:
+    image: python:3.11-slim
+"""
     )
+    tasks_path.write_text(
+        '{"id":"task-1","input":{"instructions":"Do it"},"eval":{"checker":{"source":"pytest","path":"checks"}}}\n'
+    )
+
     pack = BenchmarkPack(manifest=manifest(), tasks_path=tasks_path)
+    tasks = list(compile_benchmark_pack(pack))
 
-    tasks = list(compile_benchmark_pack(pack, limit=1))
-
-    assert [task.id for task in tasks] == ["task-1"]
+    assert len(tasks) == 1
+    assert tasks[0].task_type == "terminal_task"

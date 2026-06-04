@@ -2,21 +2,6 @@ from securebench.candidates import CandidateArtifact
 from securebench.tasks import task_from_spec
 
 
-def make_text_task():
-    return task_from_spec(
-        {
-            "id": "mmlu/math/test/7",
-            "benchmark_id": "mmlu",
-            "task_type": "multiple_choice",
-            "resources": {
-                "question": {"value": "2 + 2?", "visibility": "public"},
-                "choices": {"value": ["1", "2", "4", "5"], "visibility": "public"},
-                "answer": {"value": 2, "visibility": "hidden"},
-            },
-        }
-    )
-
-
 def make_patch_task():
     return task_from_spec(
         {
@@ -32,6 +17,20 @@ def make_patch_task():
     )
 
 
+def make_terminal_task():
+    return task_from_spec(
+        {
+            "id": "terminal-1",
+            "benchmark_id": "example",
+            "task_type": "terminal_task",
+            "resources": {
+                "instructions": {"value": "Create output.txt.", "visibility": "public"},
+                "checker": {"value": {"source": "pytest", "path": "checks"}, "visibility": "evaluation_inputs"},
+            },
+        }
+    )
+
+
 def test_candidate_artifact_returns_verifier_value_by_task_type():
-    assert CandidateArtifact(text="C", patch="diff").for_task(make_text_task()) == "C"
-    assert CandidateArtifact(text="C", patch="diff").for_task(make_patch_task()) == "diff"
+    assert CandidateArtifact(patch="diff").for_task(make_patch_task()) == "diff"
+    assert CandidateArtifact(workspace="/tmp/workspace").for_task(make_terminal_task()) == "/tmp/workspace"

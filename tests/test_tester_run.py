@@ -1,8 +1,8 @@
 import json
 
 from securebench.candidates import CandidateArtifact, CandidateProductionTimeout
-from securebench.sandboxes import CommandResult
 from securebench.harnesses.shared import workspace_dir_name
+from securebench.sandboxes import CommandResult
 from securebench.tester_config import (
     TesterBenchmarkSection as BenchmarkSection,
     TesterConfig as Config,
@@ -24,8 +24,8 @@ class FakeProducer:
 
 class FakeVerifier:
     def verify(self, task, candidate, **context):
-        assert task.task_type == "code_completion"
-        assert candidate == "def add_numbers(a, b):\n    return a + b\n"
+        assert task.task_type == "repo_patch"
+        assert candidate == "diff --git a/app.py b/app.py\n"
         assert context["verification_policy"].disallow_dangerous_commands is True
         return VerificationResult(
             task_id=task.id,
@@ -37,15 +37,15 @@ class FakeVerifier:
         )
 
 
-def write_pack(tmp_path, *, family="code_completion"):
+def write_repo_patch_pack(tmp_path):
     manifest = tmp_path / "manifest.yaml"
     tasks = tmp_path / "tasks.jsonl"
     manifest.write_text(
-        f"""
+        """
 id: tester-run-pack
 version: 1
 defaults:
-  family: {family}
+  family: repo_patch
   environment:
     image: python:3.12-slim
 """
@@ -53,17 +53,15 @@ defaults:
     tasks.write_text(
         json.dumps(
             {
-                "id": "tester-run-pack/add_numbers",
+                "id": "tester-run-pack/fix_app",
                 "input": {
-                    "language": "python",
-                    "prompt": "# define add_numbers\n",
+                    "repo": "repo/",
+                    "base_commit": "abc123",
+                    "instructions": "Fix app.py",
                 },
                 "eval": {
-                    "tests": {
-                        "source": "inline",
-                        "code": "def check():\n    assert add_numbers(2, 3) == 5\n\ncheck()\n",
-                    },
-                    "canonical_solution": "def add_numbers(a, b):\n    return a + b\n",
+                    "tests": {"source": "command", "command": ["pytest", "-q"]},
+                    "gold_patch": "diff --git a/app.py b/app.py\n",
                 },
             }
         )
@@ -72,7 +70,7 @@ defaults:
     return manifest, tasks
 
 
-def write_multiple_choice_pack(tmp_path):
+def write_terminal_pack(tmp_path):
     manifest = tmp_path / "manifest.yaml"
     tasks = tmp_path / "tasks.jsonl"
     manifest.write_text(
@@ -80,20 +78,17 @@ def write_multiple_choice_pack(tmp_path):
 id: tester-run-pack
 version: 1
 defaults:
-  family: multiple_choice
+  family: terminal_task
+  environment:
+    image: python:3.12-slim
 """
     )
     tasks.write_text(
         json.dumps(
             {
-                "id": "tester-run-pack/addition",
-                "input": {
-                    "question": "2 + 2?",
-                    "choices": ["1", "2", "4", "5"],
-                },
-                "eval": {
-                    "answer": 2,
-                },
+                "id": "tester-run-pack/create-output",
+                "input": {"instructions": "Create output.txt"},
+                "eval": {"checker": {"source": "pytest", "path": "checks"}},
             }
         )
         + "\n"
@@ -110,15 +105,15 @@ def make_config(tmp_path, manifest, tasks):
     )
 
 
-def test_run_tester_config_writes_verified_code_completion_record(monkeypatch, tmp_path):
-    manifest, tasks = write_pack(tmp_path)
+def test_run_tester_config_writes_verified_repo_patch_record(monkeypatch, tmp_path):
+    manifest, tasks = write_repo_patch_pack(tmp_path)
     config = make_config(tmp_path, manifest, tasks)
 
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
         lambda harness, workspace_root=None: FakeProducer(
             CandidateArtifact(
-                text="def add_numbers(a, b):\n    return a + b\n",
+                patch="diff --git a/app.py b/app.py\n",
                 stdout="producer out",
                 metadata={"harness": "fake"},
             )
@@ -139,6 +134,8 @@ def test_run_tester_config_writes_verified_code_completion_record(monkeypatch, t
     )
     assert summary.verification_status == "complete"
     records = [json.loads(line) for line in (tmp_path / "out" / "candidates.jsonl").read_text().splitlines()]
+    assert records[0]["candidate_patch"] == "diff --git a/app.py b/app.py\n"
+    assert records[0]["candidate_workspace"] is None
     assert records[0]["verification_status"] == "passed"
     assert records[0]["passed"] is True
     assert records[0]["score"] == 1.0
@@ -147,61 +144,8 @@ def test_run_tester_config_writes_verified_code_completion_record(monkeypatch, t
     assert records[0]["hidden_values"] == "<redacted>"
 
 
-def test_run_tester_config_verifies_multiple_choice_record(monkeypatch, tmp_path):
-    manifest, tasks = write_multiple_choice_pack(tmp_path)
-    config = make_config(tmp_path, manifest, tasks)
-
-    monkeypatch.setattr(
-        "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: FakeProducer(
-            CandidateArtifact(
-                text="Final answer is C",
-                stdout="producer out",
-                metadata={"harness": "fake"},
-            )
-        ),
-    )
-
-    summary = run_tester_config(config)
-
-    assert summary.total == 1
-    assert summary.verified == 1
-    assert summary.passed == 1
-    assert summary.score_sum == 1.0
-    records = [
-        json.loads(line)
-        for line in (tmp_path / "out" / "candidates.jsonl").read_text().splitlines()
-    ]
-    assert records[0]["verification_status"] == "passed"
-    assert records[0]["passed"] is True
-    assert records[0]["score"] == 1.0
-    assert records[0]["verifier_metadata"]["verifier"] == "multiple_choice"
-    assert records[0]["verifier_metadata"]["expected_answer"] == "<redacted>"
-    assert records[0]["hidden_values"] == "<redacted>"
-
-
-def test_run_tester_config_leaves_unsupported_family_pending(monkeypatch, tmp_path):
-    manifest, tasks = write_pack(tmp_path, family="custom_family")
-    config = make_config(tmp_path, manifest, tasks)
-
-    monkeypatch.setattr(
-        "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: FakeProducer(CandidateArtifact(text="done")),
-    )
-    monkeypatch.setattr("securebench.tester_run.verifier_for_task_type", lambda task_type: None)
-
-    summary = run_tester_config(config)
-
-    assert summary.total == 1
-    assert summary.verified == 0
-    assert summary.verification_status == "pending"
-    records = [json.loads(line) for line in (tmp_path / "out" / "candidates.jsonl").read_text().splitlines()]
-    assert records[0]["verification_status"] == "pending"
-    assert "passed" not in records[0]
-
-
 def test_run_tester_config_records_producer_timeout_as_failed_result(monkeypatch, tmp_path):
-    manifest, tasks = write_multiple_choice_pack(tmp_path)
+    manifest, tasks = write_terminal_pack(tmp_path)
     config = make_config(tmp_path, manifest, tasks)
 
     class TimeoutProducer:
@@ -243,14 +187,14 @@ def test_run_tester_config_records_producer_timeout_as_failed_result(monkeypatch
 
 
 def test_run_tester_config_resume_keeps_valid_records_and_skips_completed(monkeypatch, tmp_path):
-    manifest, tasks = write_multiple_choice_pack(tmp_path)
+    manifest, tasks = write_repo_patch_pack(tmp_path)
     config = make_config(tmp_path, manifest, tasks)
     config.run.output_dir.mkdir(parents=True)
     existing = {
         "run_id": "tester-run",
-        "task_id": "tester-run-pack/addition",
+        "task_id": "tester-run-pack/fix_app",
         "benchmark_id": "tester-run-pack",
-        "task_type": "multiple_choice",
+        "task_type": "repo_patch",
         "verification_status": "passed",
         "passed": True,
         "score": 1.0,
@@ -281,7 +225,7 @@ def test_run_tester_config_resume_keeps_valid_records_and_skips_completed(monkey
 
 
 def test_run_tester_config_cleans_stale_task_workspace_before_producer(monkeypatch, tmp_path):
-    manifest, tasks = write_pack(tmp_path)
+    manifest, tasks = write_terminal_pack(tmp_path)
     config = make_config(tmp_path, manifest, tasks)
 
     class Producer:
@@ -293,19 +237,19 @@ def test_run_tester_config_cleans_stale_task_workspace_before_producer(monkeypat
             assert not (task_workspace / "securebench" / "evaluation_inputs" / "checker.json").exists()
             task_workspace.mkdir(parents=True)
             (task_workspace / "fresh.txt").write_text("fresh")
-            return CandidateArtifact(text="def add_numbers(a, b):\n    return a + b\n")
+            return CandidateArtifact(workspace=str(task_workspace))
 
     def fake_producer(harness, workspace_root=None):
         assert workspace_root is not None
-        stale_workspace = workspace_root / "tester-run-pack_add_numbers-9e7c852a"
+        stale_workspace = workspace_root / "tester-run-pack_create-output-a601a9c1"
         (stale_workspace / "securebench" / "evaluation_inputs").mkdir(parents=True)
         (stale_workspace / "securebench" / "evaluation_inputs" / "checker.json").write_text("{}")
         return Producer(workspace_root)
 
     monkeypatch.setattr("securebench.tester_run.build_harness_producer", fake_producer)
-    monkeypatch.setattr("securebench.tester_run.verifier_for_task_type", lambda task_type: FakeVerifier())
+    monkeypatch.setattr("securebench.tester_run.verifier_for_task_type", lambda task_type: None)
 
     run_tester_config(config)
 
-    task_workspace = config.run.output_dir / "workspaces" / "tester-run-pack_add_numbers-9e7c852a"
+    task_workspace = config.run.output_dir / "workspaces" / "tester-run-pack_create-output-a601a9c1"
     assert (task_workspace / "fresh.txt").exists()

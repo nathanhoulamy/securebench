@@ -1,1 +1,0 @@
-{"id":"audit-code-completion/probe","input":{"language":"python","prompt":"Define ok() to return True.","starter_code":"def ok():\n    pass\n"},"eval":{"tests":{"source":"inline","code":"assert ok() is True\n"},"canonical_solution":"def ok():\n    return True\n"}}

@@ -28,9 +28,10 @@ class FakeHostSandbox:
     def run(self, command, *, workdir=None, timeout=None):
         self.commands.append((command, workdir, timeout))
         normalized = tuple(command) if not isinstance(command, str) else ("sh", "-lc", command)
-        if normalized and normalized[0] == "write-artifact":
-            self.write_file("candidate.txt", "FILE-CANDIDATE")
-            return CommandResult(normalized, 0, "ignored stdout", "")
+        if normalized == ("git", "add", "--intent-to-add", "--all", "--"):
+            return CommandResult(normalized, 0, "", "")
+        if normalized == ("git", "diff", "HEAD", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--"):
+            return CommandResult(normalized, 0, "diff --git a/file.py b/file.py\n", "")
         if normalized and normalized[0] == "patch":
             return CommandResult(normalized, 0, "diff --git a/file.py b/file.py\n", "")
         return CommandResult(normalized, 0, "STDOUT-CANDIDATE", "")
@@ -103,33 +104,6 @@ def reset_fakes(monkeypatch):
     monkeypatch.setattr("securebench.harnesses.claude_code.docker_egress_policy", FakeEgressPolicy)
 
 
-def mc_task(manifest=None, *, assets=(), environment=None):
-    return compile_benchmark_row(
-        BenchmarkRow(
-            id="mc-1",
-            family="multiple_choice",
-            input={"question": "2 + 2?", "choices": ["1", "2", "4"]},
-            assets=assets,
-            eval={"answer": "4"},
-            environment={} if environment is None else environment,
-        ),
-        manifest=manifest or BenchmarkPackManifest(id="pack", version=1),
-    )
-
-
-def code_task(*, environment=None):
-    return compile_benchmark_row(
-        BenchmarkRow(
-            id="code-1",
-            family="code_completion",
-            input={"prompt": "Write add."},
-            eval={"tests": {"source": "inline", "code": "assert candidate(1, 2) == 3"}},
-            environment={} if environment is None else environment,
-        ),
-        manifest=BenchmarkPackManifest(id="pack", version=1),
-    )
-
-
 def repo_patch_task(*, environment=None):
     return compile_benchmark_row(
         BenchmarkRow(
@@ -143,16 +117,17 @@ def repo_patch_task(*, environment=None):
     )
 
 
-def terminal_task(*, environment=None):
+def terminal_task(manifest=None, *, assets=(), environment=None):
     return compile_benchmark_row(
         BenchmarkRow(
             id="term-1",
             family="terminal_task",
             input={"instructions": "Create output.txt."},
+            assets=assets,
             eval={"checker": {"source": "pytest", "path": "checks"}},
             environment={} if environment is None else environment,
         ),
-        manifest=BenchmarkPackManifest(id="pack", version=1),
+        manifest=manifest or BenchmarkPackManifest(id="pack", version=1),
     )
 
 
@@ -164,7 +139,7 @@ def harness_section(*, config=None, harness_type="command"):
     )
 
 
-def test_command_harness_writes_public_task_file_and_uses_stdout(monkeypatch, tmp_path):
+def test_command_harness_writes_public_task_file_and_uses_workspace_candidate(monkeypatch, tmp_path):
     monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
     monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
     producer = build_harness_producer(
@@ -172,19 +147,19 @@ def test_command_harness_writes_public_task_file_and_uses_stdout(monkeypatch, tm
         workspace_root=tmp_path,
     )
 
-    artifact = producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
+    artifact = producer.produce(terminal_task(environment={"image": "python:3.11-slim"}))
 
-    assert artifact.text == "STDOUT-CANDIDATE"
     assert artifact.patch is None
-    assert artifact.metadata["candidate_kind"] == "text"
+    assert artifact.workspace == str(tmp_path / "term-1")
+    assert artifact.metadata["candidate_kind"] == "workspace"
     docker = FakeDockerSandbox.instances[-1]
     assert docker.image == "python:3.11-slim"
     assert docker.kwargs["network"] == "none"
     assert docker.kwargs["env"] == {}
     assert docker.commands == [(("produce",), None, 7.0)]
-    task_payload = json.loads((tmp_path / "mc-1" / "task.json").read_text())
-    assert task_payload == {"question": "2 + 2?", "choices": ["1", "2", "4"]}
-    assert "answer" not in task_payload
+    task_payload = json.loads((tmp_path / "term-1" / "task.json").read_text())
+    assert task_payload == {"instructions": "Create output.txt."}
+    assert "checker" not in task_payload
 
 
 def test_command_harness_uses_proxy_network_when_domains_are_allowed(monkeypatch, tmp_path):
@@ -195,43 +170,13 @@ def test_command_harness_uses_proxy_network_when_domains_are_allowed(monkeypatch
         workspace_root=tmp_path,
     )
 
-    artifact = producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
+    artifact = producer.produce(terminal_task(environment={"image": "python:3.11-slim"}))
 
     docker = FakeDockerSandbox.instances[-1]
     assert docker.kwargs["network"] == "securebench-egress"
     assert docker.kwargs["env"]["HTTPS_PROXY"] == "http://securebench-egress-proxy:8080"
     assert artifact.metadata["allowed_domains"] == ("docs.python.org",)
     assert FakeEgressPolicy.calls[-1] == ("docs.python.org",)
-
-
-def test_command_harness_file_backed_candidate(monkeypatch, tmp_path):
-    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
-    producer = build_harness_producer(
-        harness_section(config={"command": ["write-artifact"], "artifact_path": "candidate.txt"}),
-        workspace_root=tmp_path,
-    )
-
-    artifact = producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
-
-    assert artifact.text == "FILE-CANDIDATE"
-    assert artifact.stdout == "ignored stdout"
-    assert artifact.metadata["artifact_path"] == "candidate.txt"
-
-
-def test_command_harness_code_family_uses_text_candidate(monkeypatch, tmp_path):
-    monkeypatch.setattr("securebench.harnesses.command.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
-    producer = build_harness_producer(
-        harness_section(config={"command": "produce code"}),
-        workspace_root=tmp_path,
-    )
-
-    artifact = producer.produce(code_task(environment={"image": "python:3.11-slim"}))
-
-    assert artifact.text == "STDOUT-CANDIDATE"
-    assert artifact.patch is None
-    assert artifact.metadata["candidate_kind"] == "code"
 
 
 def test_command_harness_patch_family_uses_patch_candidate(monkeypatch, tmp_path):
@@ -244,7 +189,6 @@ def test_command_harness_patch_family_uses_patch_candidate(monkeypatch, tmp_path
 
     artifact = producer.produce(repo_patch_task(environment={"image": "python:3.11-slim"}))
 
-    assert artifact.text is None
     assert artifact.patch == "diff --git a/file.py b/file.py\n"
     assert artifact.metadata["candidate_kind"] == "patch"
 
@@ -259,7 +203,6 @@ def test_command_harness_terminal_family_uses_workspace_candidate(monkeypatch, t
 
     artifact = producer.produce(terminal_task(environment={"image": "python:3.11-slim"}))
 
-    assert artifact.text is None
     assert artifact.patch is None
     assert artifact.workspace == str(tmp_path / "term-1")
     assert artifact.metadata["candidate_kind"] == "workspace"
@@ -274,7 +217,7 @@ def test_command_harness_uses_task_environment_timeout(monkeypatch, tmp_path):
         workspace_root=tmp_path,
     )
 
-    producer.produce(mc_task(environment={"image": "python:3.11-slim", "timeout_seconds": 42}))
+    producer.produce(terminal_task(environment={"image": "python:3.11-slim", "timeout_seconds": 42}))
 
     docker = FakeDockerSandbox.instances[-1]
     assert docker.commands == [(("produce",), None, 42.0)]
@@ -289,7 +232,7 @@ def test_command_harness_context_timeout_overrides_task_environment_timeout(monk
     )
 
     producer.produce(
-        mc_task(environment={"image": "python:3.11-slim", "timeout_seconds": 42}),
+        terminal_task(environment={"image": "python:3.11-slim", "timeout_seconds": 42}),
         timeout=3,
     )
 
@@ -306,7 +249,7 @@ def test_command_harness_rejects_invalid_task_environment_timeout(monkeypatch, t
     )
 
     with pytest.raises(ConfigError, match="environment.timeout_seconds"):
-        producer.produce(mc_task(environment={"image": "python:3.11-slim", "timeout_seconds": 0}))
+        producer.produce(terminal_task(environment={"image": "python:3.11-slim", "timeout_seconds": 0}))
 
 
 def test_command_harness_materializes_public_assets(monkeypatch, tmp_path):
@@ -323,7 +266,7 @@ def test_command_harness_materializes_public_assets(monkeypatch, tmp_path):
         path=manifest_path,
         asset_defaults=AssetDefaults(read_only=True),
     )
-    task = mc_task(manifest, assets=({"path": "input.txt"},), environment={"image": "python:3.11-slim"})
+    task = terminal_task(manifest, assets=({"path": "input.txt"},), environment={"image": "python:3.11-slim"})
     producer = build_harness_producer(
         harness_section(config={"command": ["produce"]}),
         workspace_root=tmp_path / "runs",
@@ -331,7 +274,7 @@ def test_command_harness_materializes_public_assets(monkeypatch, tmp_path):
 
     producer.produce(task)
 
-    assert (tmp_path / "runs" / "mc-1" / "input.txt").read_text() == "public input"
+    assert (tmp_path / "runs" / "term-1" / "input.txt").read_text() == "public input"
 
 
 def test_command_harness_uses_docker_and_read_only_asset_mounts(monkeypatch, tmp_path):
@@ -348,7 +291,7 @@ def test_command_harness_uses_docker_and_read_only_asset_mounts(monkeypatch, tmp
         path=manifest_path,
         asset_defaults=AssetDefaults(read_only=True),
     )
-    task = mc_task(manifest, assets=({"path": "input.txt"},), environment={"image": "python:3.11-slim"})
+    task = terminal_task(manifest, assets=({"path": "input.txt"},), environment={"image": "python:3.11-slim"})
     producer = build_harness_producer(
         harness_section(
             config={"command": ["produce"]},
@@ -365,7 +308,7 @@ def test_command_harness_uses_docker_and_read_only_asset_mounts(monkeypatch, tmp
     assert len(docker.mounts) == 1
     assert docker.mounts[0].target == "input.txt"
     assert docker.mounts[0].read_only is True
-    assert docker.mounts[0].source == tmp_path / "runs" / "mc-1" / "input.txt"
+    assert docker.mounts[0].source == tmp_path / "runs" / "term-1" / "input.txt"
 
 
 def test_command_harness_requires_benchmark_environment_image(monkeypatch, tmp_path):
@@ -379,22 +322,24 @@ def test_command_harness_requires_benchmark_environment_image(monkeypatch, tmp_p
     )
 
     with pytest.raises(ConfigError, match="benchmark environment.image"):
-        producer.produce(mc_task())
+        producer.produce(terminal_task())
 
 
 def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_path):
-    class TextWritingDockerSandbox(FakeDockerSandbox):
+    class DiffingDockerSandbox(FakeDockerSandbox):
         instances = []
 
         def run(self, command, *, workdir=None, timeout=None):
             self.commands.append((command, workdir, timeout))
-            if isinstance(command, str) and "codex exec" in command:
-                self.write_file("candidate.txt", "FILE-CANDIDATE")
+            if tuple(command) == ("git", "add", "--intent-to-add", "--all", "--"):
+                return CommandResult(tuple(command), 0, "", "")
+            if tuple(command) == ("git", "diff", "HEAD", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--"):
+                return CommandResult(tuple(command), 0, "diff --git a/app.py b/app.py\n", "")
             return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
 
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", TextWritingDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", DiffingDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
     overlay_path.mkdir()
     monkeypatch.setattr(
@@ -405,7 +350,7 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
             version=version,
         ),
     )
-    task = mc_task(environment={"image": "python:3.11-slim"})
+    task = repo_patch_task(environment={"image": "python:3.11-slim"})
     producer = build_harness_producer(
         harness_section(
             harness_type="codex",
@@ -437,76 +382,14 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
     assert docker.commands[1][1] is None
     assert docker.commands[0][2] == 11.0
     assert docker.commands[1][2] == 11.0
-    assert (tmp_path / "runs" / "mc-1" / "task.json").exists()
-    assert artifact.text == "FILE-CANDIDATE"
-    assert artifact.patch is None
+    assert (tmp_path / "runs" / "repo-1" / "task.json").exists()
+    assert artifact.patch == "diff --git a/app.py b/app.py\n"
     assert artifact.metadata["harness"] == "codex"
     assert artifact.metadata["codex_model"] == "gpt-5.1-codex"
     assert artifact.metadata["allowed_domains"] == ("api.openai.com",)
     assert FakeEgressPolicy.calls[-1] == ("api.openai.com",)
     assert artifact.metadata["overlay_platform"] == "linux/arm64"
-    assert artifact.metadata["candidate_extraction"] == "file"
-    assert artifact.metadata["candidate_path"] == "candidate.txt"
-
-
-def test_codex_harness_extracts_code_completion_candidate_file(monkeypatch, tmp_path):
-    class CodeWritingDockerSandbox(FakeDockerSandbox):
-        instances = []
-
-        def run(self, command, *, workdir=None, timeout=None):
-            self.commands.append((command, workdir, timeout))
-            if isinstance(command, str) and "codex exec" in command:
-                self.write_file("candidate.py", "def add(a, b):\n    return a + b\n")
-            return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
-
-    monkeypatch.setenv("OPENAI_API_KEY", "secret")
-    monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", CodeWritingDockerSandbox)
-    overlay_path = tmp_path / "codex-overlay"
-    overlay_path.mkdir()
-    monkeypatch.setattr(
-        "securebench.harnesses.codex.codex_overlay_for_image",
-        lambda image, version: CodexOverlay(
-            path=overlay_path,
-            platform=DockerPlatform(os="linux", architecture="amd64"),
-            version=version,
-        ),
-    )
-    producer = build_harness_producer(
-        HarnessSection(type="codex", config={"model": "gpt-5.1-codex"}),
-        workspace_root=tmp_path / "runs",
-    )
-
-    artifact = producer.produce(code_task(environment={"image": "python:3.11-slim"}))
-
-    assert artifact.text == "def add(a, b):\n    return a + b\n"
-    assert artifact.patch is None
-    assert artifact.metadata["candidate_kind"] == "code"
-    assert artifact.metadata["candidate_extraction"] == "file"
-    assert artifact.metadata["candidate_path"] == "candidate.py"
-
-
-def test_codex_harness_fails_when_code_candidate_file_missing(monkeypatch, tmp_path):
-    monkeypatch.setenv("OPENAI_API_KEY", "secret")
-    monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", FakeDockerSandbox)
-    overlay_path = tmp_path / "codex-overlay"
-    overlay_path.mkdir()
-    monkeypatch.setattr(
-        "securebench.harnesses.codex.codex_overlay_for_image",
-        lambda image, version: CodexOverlay(
-            path=overlay_path,
-            platform=DockerPlatform(os="linux", architecture="amd64"),
-            version=version,
-        ),
-    )
-    producer = build_harness_producer(
-        HarnessSection(type="codex", config={"model": "gpt-5.1-codex"}),
-        workspace_root=tmp_path / "runs",
-    )
-
-    with pytest.raises(ConfigError, match="candidate.py"):
-        producer.produce(code_task(environment={"image": "python:3.11-slim"}))
+    assert artifact.metadata["candidate_extraction"] == "git_diff"
 
 
 def test_codex_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
@@ -550,7 +433,6 @@ def test_codex_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
         repo_patch_task(environment={"image": "python:3.11-slim", "workdir": "/workspace/repo"})
     )
 
-    assert artifact.text is None
     assert artifact.patch == "diff --git a/app.py b/app.py\n"
     assert artifact.metadata["candidate_kind"] == "patch"
     assert artifact.metadata["candidate_extraction"] == "git_diff"
@@ -585,18 +467,20 @@ def test_codex_harness_extracts_repo_patch_diff(monkeypatch, tmp_path):
 
 
 def test_codex_harness_defaults_to_openai_api_key(monkeypatch, tmp_path):
-    class TextWritingDockerSandbox(FakeDockerSandbox):
+    class DiffingDockerSandbox(FakeDockerSandbox):
         instances = []
 
         def run(self, command, *, workdir=None, timeout=None):
             self.commands.append((command, workdir, timeout))
-            if isinstance(command, str) and "codex exec" in command:
-                self.write_file("candidate.txt", "C")
+            if tuple(command) == ("git", "add", "--intent-to-add", "--all", "--"):
+                return CommandResult(tuple(command), 0, "", "")
+            if tuple(command) == ("git", "diff", "HEAD", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--"):
+                return CommandResult(tuple(command), 0, "diff --git a/app.py b/app.py\n", "")
             return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
 
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", TextWritingDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", DiffingDockerSandbox)
     overlay_path = tmp_path / "codex-overlay"
     overlay_path.mkdir()
     monkeypatch.setattr(
@@ -607,7 +491,7 @@ def test_codex_harness_defaults_to_openai_api_key(monkeypatch, tmp_path):
             version=version,
         ),
     )
-    task = mc_task(environment={"image": "python:3.11-slim"})
+    task = repo_patch_task(environment={"image": "python:3.11-slim"})
     harness = HarnessSection(type="codex", config={"model": "gpt-5.1-codex"})
 
     producer = build_harness_producer(harness, workspace_root=tmp_path / "runs")
@@ -640,7 +524,7 @@ def test_codex_harness_requires_benchmark_environment_image(monkeypatch, tmp_pat
     )
 
     with pytest.raises(ConfigError, match="benchmark environment.image"):
-        producer.produce(mc_task())
+        producer.produce(terminal_task())
 
 
 def test_codex_harness_requires_openai_api_key(monkeypatch, tmp_path):
@@ -651,7 +535,7 @@ def test_codex_harness_requires_openai_api_key(monkeypatch, tmp_path):
     )
 
     with pytest.raises(ConfigError, match="OPENAI_API_KEY"):
-        producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
+        producer.produce(repo_patch_task(environment={"image": "python:3.11-slim"}))
 
 
 def test_codex_harness_reports_preflight_failure(monkeypatch, tmp_path):
@@ -681,7 +565,7 @@ def test_codex_harness_reports_preflight_failure(monkeypatch, tmp_path):
     )
 
     with pytest.raises(ConfigError, match="codex --version failed"):
-        producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
+        producer.produce(repo_patch_task(environment={"image": "python:3.11-slim"}))
 
 
 @pytest.mark.parametrize(
@@ -761,8 +645,6 @@ def test_codex_overlay_repopulates_when_node_runtime_is_missing(monkeypatch, tmp
         ({"command": ["python", "   "]}, "command"),
         ({"command": ["python", ""]}, "command"),
         ({"command": ["python"], "timeout_seconds": 0}, "timeout_seconds"),
-        ({"command": ["python"], "artifact_path": "   "}, "artifact_path"),
-        ({"command": ["python"], "artifact_path": "../candidate.txt"}, "artifact_path"),
         ({"command": ["python"], "task_file": "securebench/evaluation_inputs/task.json"}, "task_file"),
         ({"command": ["python"], "allowed_domains": ["127.0.0.1"]}, "allowed_domains"),
         ({"command": ["python"], "unknown": True}, "unsupported field"),
@@ -774,18 +656,20 @@ def test_command_harness_rejects_invalid_config(config, match):
 
 
 def test_claude_code_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_path):
-    class TextWritingDockerSandbox(FakeDockerSandbox):
+    class DiffingDockerSandbox(FakeDockerSandbox):
         instances = []
 
         def run(self, command, *, workdir=None, timeout=None):
             self.commands.append((command, workdir, timeout))
-            if isinstance(command, str) and "claude -p" in command:
-                self.write_file("candidate.txt", "FILE-CANDIDATE")
+            if tuple(command) == ("git", "add", "--intent-to-add", "--all", "--"):
+                return CommandResult(tuple(command), 0, "", "")
+            if tuple(command) == ("git", "diff", "HEAD", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--"):
+                return CommandResult(tuple(command), 0, "diff --git a/app.py b/app.py\n", "")
             return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.claude_code.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.claude_code.DockerSandbox", TextWritingDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.claude_code.DockerSandbox", DiffingDockerSandbox)
     overlay_path = tmp_path / "claude-code-overlay"
     overlay_path.mkdir()
     monkeypatch.setattr(
@@ -796,7 +680,7 @@ def test_claude_code_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch
             version=version,
         ),
     )
-    task = mc_task(environment={"image": "python:3.11-slim"})
+    task = repo_patch_task(environment={"image": "python:3.11-slim"})
     producer = build_harness_producer(
         HarnessSection(
             type="claude_code",
@@ -828,30 +712,30 @@ def test_claude_code_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch
     assert docker.commands[1][1] is None
     assert docker.commands[0][2] == 13.0
     assert docker.commands[1][2] == 13.0
-    assert artifact.text == "FILE-CANDIDATE"
-    assert artifact.patch is None
+    assert artifact.patch == "diff --git a/app.py b/app.py\n"
     assert artifact.metadata["harness"] == "claude_code"
     assert artifact.metadata["claude_code_model"] == "claude-sonnet-4-5"
     assert artifact.metadata["allowed_domains"] == ("api.anthropic.com",)
     assert FakeEgressPolicy.calls[-1] == ("api.anthropic.com",)
     assert artifact.metadata["overlay_platform"] == "linux/arm64"
-    assert artifact.metadata["candidate_extraction"] == "file"
-    assert artifact.metadata["candidate_path"] == "candidate.txt"
+    assert artifact.metadata["candidate_extraction"] == "git_diff"
 
 
 def test_claude_code_harness_defaults_to_anthropic_api_key(monkeypatch, tmp_path):
-    class TextWritingDockerSandbox(FakeDockerSandbox):
+    class DiffingDockerSandbox(FakeDockerSandbox):
         instances = []
 
         def run(self, command, *, workdir=None, timeout=None):
             self.commands.append((command, workdir, timeout))
-            if isinstance(command, str) and "claude -p" in command:
-                self.write_file("candidate.txt", "C")
+            if tuple(command) == ("git", "add", "--intent-to-add", "--all", "--"):
+                return CommandResult(tuple(command), 0, "", "")
+            if tuple(command) == ("git", "diff", "HEAD", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--"):
+                return CommandResult(tuple(command), 0, "diff --git a/app.py b/app.py\n", "")
             return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.claude_code.HostSandbox", FakeHostSandbox)
-    monkeypatch.setattr("securebench.harnesses.claude_code.DockerSandbox", TextWritingDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.claude_code.DockerSandbox", DiffingDockerSandbox)
     overlay_path = tmp_path / "claude-code-overlay"
     overlay_path.mkdir()
     monkeypatch.setattr(
@@ -867,7 +751,7 @@ def test_claude_code_harness_defaults_to_anthropic_api_key(monkeypatch, tmp_path
         HarnessSection(type="claude_code"),
         workspace_root=tmp_path / "runs",
     )
-    producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
+    producer.produce(repo_patch_task(environment={"image": "python:3.11-slim"}))
 
     docker = FakeDockerSandbox.instances[-1]
     assert docker.env_names == ("ANTHROPIC_API_KEY",)
@@ -900,7 +784,7 @@ def test_claude_code_harness_requires_anthropic_api_key(monkeypatch, tmp_path):
     )
 
     with pytest.raises(ConfigError, match="ANTHROPIC_API_KEY"):
-        producer.produce(mc_task(environment={"image": "python:3.11-slim"}))
+        producer.produce(repo_patch_task(environment={"image": "python:3.11-slim"}))
 
 
 def test_claude_code_overlay_cache_key_includes_version_and_platform(monkeypatch, tmp_path):
@@ -935,9 +819,9 @@ def test_command_harness_workspace_names_avoid_sanitized_id_collisions(monkeypat
     task_with_slash = compile_benchmark_row(
         BenchmarkRow(
             id="suite/task",
-            family="multiple_choice",
-            input={"question": "2 + 2?", "choices": ["1", "2", "4"]},
-            eval={"answer": "4"},
+            family="terminal_task",
+            input={"instructions": "Do it."},
+            eval={"checker": {"source": "pytest", "path": "checks"}},
             environment={"image": "python:3.11-slim"},
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),
@@ -945,9 +829,9 @@ def test_command_harness_workspace_names_avoid_sanitized_id_collisions(monkeypat
     task_with_colon = compile_benchmark_row(
         BenchmarkRow(
             id="suite:task",
-            family="multiple_choice",
-            input={"question": "3 + 3?", "choices": ["3", "6", "9"]},
-            eval={"answer": "6"},
+            family="terminal_task",
+            input={"instructions": "Do it differently."},
+            eval={"checker": {"source": "pytest", "path": "checks"}},
             environment={"image": "python:3.11-slim"},
         ),
         manifest=BenchmarkPackManifest(id="pack", version=1),

@@ -166,7 +166,7 @@ harness:
     assert seen["resume"] is True
 
 
-def test_cli_has_no_legacy_run_tester_subcommand(capsys):
+def test_cli_rejects_unknown_subcommand(capsys):
     with pytest.raises(SystemExit) as exc_info:
         cli.main(["run-tester", "--config", "tester.yaml"])
 

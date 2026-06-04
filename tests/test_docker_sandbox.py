@@ -410,11 +410,11 @@ def test_docker_sandbox_read_file_rejects_symlink_escape(tmp_path):
     outside.write_text("host secret")
     root = tmp_path / "workspace"
     root.mkdir()
-    (root / "candidate.txt").symlink_to(outside)
+    (root / "workspace-output.txt").symlink_to(outside)
     sandbox = DockerSandbox(image="agent-image", root=root)
 
     with pytest.raises(ValueError, match="escape root"):
-        sandbox.read_file("candidate.txt")
+        sandbox.read_file("workspace-output.txt")
 
 
 def test_docker_sandbox_extract_file_rejects_symlink_escape(tmp_path):
@@ -434,10 +434,10 @@ def test_docker_sandbox_write_file_rejects_symlink_escape(tmp_path):
     outside.write_text("original")
     root = tmp_path / "workspace"
     root.mkdir()
-    (root / "candidate.txt").symlink_to(outside)
+    (root / "workspace-output.txt").symlink_to(outside)
     sandbox = DockerSandbox(image="agent-image", root=root)
 
     with pytest.raises(ValueError, match="escape root"):
-        sandbox.write_file("candidate.txt", "modified")
+        sandbox.write_file("workspace-output.txt", "modified")
 
     assert outside.read_text() == "original"
