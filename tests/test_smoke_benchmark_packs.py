@@ -37,6 +37,7 @@ def test_swe_bench_verified_codex_smoke_tester_yaml_uses_codex():
     assert config.benchmark.tasks == SWE_BENCH_VERIFIED_CODEX_SMOKE / "tasks.jsonl"
     assert config.harness.type == "codex"
     assert config.harness.config["model"] == "gpt-5.4-mini"
+    assert config.harness.config["allow_external_tools"] is False
 
 
 def test_deep_swe_first3_pack_loads_and_compiles():
@@ -70,6 +71,7 @@ def test_deep_swe_first3_tester_yaml_uses_codex():
     assert config.benchmark.tasks == DEEP_SWE_FIRST3 / "tasks.jsonl"
     assert config.harness.type == "codex"
     assert config.harness.config["model"] == "gpt-5.4-mini"
+    assert config.harness.config["allow_external_tools"] is False
 
 
 def test_terminal_task_smoke_pack_loads_and_compiles():
@@ -129,3 +131,4 @@ def test_terminal_bench_first10_tester_yaml_uses_codex_harness():
     assert config.benchmark.tasks == TERMINAL_BENCH_FIRST10 / "tasks.jsonl"
     assert config.harness.type == "codex"
     assert config.harness.config["model"] == "gpt-5.4-mini"
+    assert config.harness.config["allow_external_tools"] is False

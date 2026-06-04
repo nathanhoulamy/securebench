@@ -94,14 +94,62 @@ class FakeEgressPolicy:
         return None
 
 
+class FakeProviderRelayPolicy:
+    calls = []
+
+    def __init__(self, provider, allowed_domains, *, allow_external_tools=False):
+        self.provider = provider
+        self.allowed_domains = tuple(allowed_domains)
+        self.allow_external_tools = allow_external_tools
+        FakeProviderRelayPolicy.calls.append(
+            (self.provider, self.allowed_domains, self.allow_external_tools)
+        )
+
+    def __enter__(self):
+        env = {}
+        if self.allowed_domains:
+            env = {
+                "HTTP_PROXY": "http://securebench-egress-proxy:8080",
+                "HTTPS_PROXY": "http://securebench-egress-proxy:8080",
+                "ALL_PROXY": "http://securebench-egress-proxy:8080",
+                "NO_PROXY": "localhost,127.0.0.1,::1,securebench-egress-proxy,securebench-provider-relay",
+                "http_proxy": "http://securebench-egress-proxy:8080",
+                "https_proxy": "http://securebench-egress-proxy:8080",
+                "all_proxy": "http://securebench-egress-proxy:8080",
+                "no_proxy": "localhost,127.0.0.1,::1,securebench-egress-proxy,securebench-provider-relay",
+            }
+        base_url = (
+            "http://securebench-provider-relay:8090/v1"
+            if self.provider == "openai"
+            else "http://securebench-provider-relay:8090"
+        )
+        return SimpleNamespace(
+            network="securebench-egress",
+            env=env,
+            allowed_domains=self.allowed_domains,
+            provider=self.provider,
+            provider_base_url=base_url,
+            relay_log_dir=None,
+            provider_relay_enabled=True,
+            allow_external_tools=self.allow_external_tools,
+        )
+
+    def __exit__(self, exc_type, exc, traceback):
+        return None
+
+
 @pytest.fixture(autouse=True)
 def reset_fakes(monkeypatch):
     FakeHostSandbox.instances = []
     FakeDockerSandbox.instances = []
     FakeEgressPolicy.calls = []
+    FakeProviderRelayPolicy.calls = []
     monkeypatch.setattr("securebench.harnesses.command.docker_egress_policy", FakeEgressPolicy)
-    monkeypatch.setattr("securebench.harnesses.codex.docker_egress_policy", FakeEgressPolicy)
-    monkeypatch.setattr("securebench.harnesses.claude_code.docker_egress_policy", FakeEgressPolicy)
+    monkeypatch.setattr("securebench.harnesses.codex.docker_provider_relay_policy", FakeProviderRelayPolicy)
+    monkeypatch.setattr(
+        "securebench.harnesses.claude_code.docker_provider_relay_policy",
+        FakeProviderRelayPolicy,
+    )
 
 
 def repo_patch_task(*, environment=None):
@@ -363,16 +411,23 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
 
     docker = FakeDockerSandbox.instances[-1]
     assert docker.image == "python:3.11-slim"
-    assert docker.env_names == ("OPENAI_API_KEY",)
+    assert docker.env_names == ()
     assert docker.kwargs["network"] == "securebench-egress"
-    assert docker.kwargs["env"]["HTTPS_PROXY"] == "http://securebench-egress-proxy:8080"
+    assert docker.kwargs["env"]["OPENAI_API_KEY"] == "securebench-dummy-openai-api-key"
+    assert docker.kwargs["env"]["CODEX_API_KEY"] == "securebench-dummy-openai-api-key"
+    assert "HTTPS_PROXY" not in docker.kwargs["env"]
     assert docker.kwargs["read_only"] is False
-    assert len(docker.mounts) == 2
+    assert len(docker.mounts) == 4
     assert docker.mounts[0].source == overlay_path
     assert docker.mounts[0].target == "/opt/securebench/codex"
     assert docker.mounts[0].read_only is True
     assert docker.mounts[1].target == "/opt/securebench/codex-home"
     assert docker.mounts[1].read_only is False
+    assert docker.mounts[2].source.parent != docker.mounts[1].source
+    assert docker.mounts[2].target == "/opt/securebench/codex-home/config.toml"
+    assert docker.mounts[2].read_only is True
+    assert docker.mounts[3].target == "/opt/securebench/codex-home/.codex/config.toml"
+    assert docker.mounts[3].read_only is True
     assert docker.commands[0][0].startswith("export HOME=")
     assert "codex --version" in docker.commands[0][0]
     assert "codex exec --model 'gpt-5.1-codex' --json" in docker.commands[1][0]
@@ -386,8 +441,13 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
     assert artifact.patch == "diff --git a/app.py b/app.py\n"
     assert artifact.metadata["harness"] == "codex"
     assert artifact.metadata["codex_model"] == "gpt-5.1-codex"
-    assert artifact.metadata["allowed_domains"] == ("api.openai.com",)
-    assert FakeEgressPolicy.calls[-1] == ("api.openai.com",)
+    assert artifact.metadata["allowed_domains"] == ()
+    assert artifact.metadata["provider_relay_enabled"] is True
+    assert artifact.metadata["provider"] == "openai"
+    assert artifact.metadata["allow_external_tools"] is False
+    assert artifact.metadata["provider_relay_requests"] == 0
+    assert artifact.metadata["provider_relay_blocked"] == 0
+    assert FakeProviderRelayPolicy.calls[-1] == ("openai", (), False)
     assert artifact.metadata["overlay_platform"] == "linux/arm64"
     assert artifact.metadata["candidate_extraction"] == "git_diff"
 
@@ -497,8 +557,96 @@ def test_codex_harness_defaults_to_openai_api_key(monkeypatch, tmp_path):
     producer = build_harness_producer(harness, workspace_root=tmp_path / "runs")
     producer.produce(task)
 
-    assert FakeDockerSandbox.instances[-1].env_names == ("OPENAI_API_KEY",)
-    assert FakeEgressPolicy.calls[-1] == ("api.openai.com",)
+    assert FakeDockerSandbox.instances[-1].env_names == ()
+    assert FakeProviderRelayPolicy.calls[-1] == ("openai", (), False)
+
+
+def test_codex_harness_filters_provider_keys_and_keeps_generic_egress(monkeypatch, tmp_path):
+    class DiffingDockerSandbox(FakeDockerSandbox):
+        instances = []
+
+        def run(self, command, *, workdir=None, timeout=None):
+            self.commands.append((command, workdir, timeout))
+            if tuple(command) == ("git", "add", "--intent-to-add", "--all", "--"):
+                return CommandResult(tuple(command), 0, "", "")
+            if tuple(command) == ("git", "diff", "HEAD", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--"):
+                return CommandResult(tuple(command), 0, "diff --git a/app.py b/app.py\n", "")
+            return CommandResult(("sh", "-lc", command) if isinstance(command, str) else tuple(command), 0, "ok", "")
+
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
+    monkeypatch.setenv("CUSTOM_ENV", "custom")
+    monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", DiffingDockerSandbox)
+    overlay_path = tmp_path / "codex-overlay"
+    overlay_path.mkdir()
+    monkeypatch.setattr(
+        "securebench.harnesses.codex.codex_overlay_for_image",
+        lambda image, version: CodexOverlay(
+            path=overlay_path,
+            platform=DockerPlatform(os="linux", architecture="amd64"),
+            version=version,
+        ),
+    )
+    producer = build_harness_producer(
+        HarnessSection(
+            type="codex",
+            env=("OPENAI_API_KEY", "CODEX_API_KEY", "CUSTOM_ENV"),
+            config={
+                "model": "gpt-5.1-codex",
+                "allowed_domains": ["docs.python.org"],
+                "allow_external_tools": True,
+            },
+        ),
+        workspace_root=tmp_path / "runs",
+    )
+
+    artifact = producer.produce(repo_patch_task(environment={"image": "python:3.11-slim"}))
+
+    docker = FakeDockerSandbox.instances[-1]
+    assert docker.env_names == ("CUSTOM_ENV",)
+    assert docker.kwargs["env"]["HTTPS_PROXY"] == "http://securebench-egress-proxy:8080"
+    assert "securebench-provider-relay" in docker.kwargs["env"]["NO_PROXY"]
+    assert docker.kwargs["env"]["OPENAI_API_KEY"] == "securebench-dummy-openai-api-key"
+    assert artifact.metadata["allowed_domains"] == ("docs.python.org",)
+    assert artifact.metadata["allow_external_tools"] is True
+    assert FakeProviderRelayPolicy.calls[-1] == ("openai", ("docs.python.org",), True)
+
+
+def test_codex_relay_config_selects_securebench_provider(tmp_path):
+    codex_harnesses.write_codex_relay_config(tmp_path, "http://securebench-provider-relay:8090/v1")
+
+    config = (tmp_path / "config.toml").read_text()
+    assert 'model_provider = "securebench_openai"' in config
+    assert 'web_search = "disabled"' in config
+    assert "[tools]" in config
+    assert "web_search = false" in config
+    assert "[features]" in config
+    assert "web_search_request = false" in config
+    assert 'base_url = "http://securebench-provider-relay:8090/v1"' in config
+    assert 'env_key = "OPENAI_API_KEY"' in config
+    assert 'wire_api = "responses"' in config
+    assert (tmp_path / ".codex" / "config.toml").read_text() == config
+
+
+def test_codex_relay_config_keeps_web_search_enabled_when_external_tools_are_allowed(tmp_path):
+    codex_harnesses.write_codex_relay_config(
+        tmp_path,
+        "http://securebench-provider-relay:8090/v1",
+        allow_external_tools=True,
+    )
+
+    config = (tmp_path / "config.toml").read_text()
+    assert 'model_provider = "securebench_openai"' in config
+    assert 'web_search = "disabled"' not in config
+    assert "[tools]" not in config
+    assert "[features]" not in config
+
+
+def test_codex_shell_command_exports_codex_home():
+    command = codex_harnesses.codex_shell_command("codex --version")
+
+    assert "export HOME='/opt/securebench/codex-home'" in command
+    assert "export CODEX_HOME='/opt/securebench/codex-home'" in command
 
 
 @pytest.mark.parametrize(
@@ -509,6 +657,7 @@ def test_codex_harness_defaults_to_openai_api_key(monkeypatch, tmp_path):
         ({"model": "bad/model"}, "model"),
         ({"model": "gpt-5.1-codex", "unknown": True}, "unsupported field"),
         ({"model": "gpt-5.1-codex", "allowed_domains": ["https://example.com"]}, "allowed_domains"),
+        ({"model": "gpt-5.1-codex", "allow_external_tools": "yes"}, "allow_external_tools"),
     ],
 )
 def test_codex_harness_rejects_invalid_config(config, match):
@@ -693,9 +842,13 @@ def test_claude_code_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch
 
     docker = FakeDockerSandbox.instances[-1]
     assert docker.image == "python:3.11-slim"
-    assert docker.env_names == ("ANTHROPIC_API_KEY",)
+    assert docker.env_names == ()
     assert docker.kwargs["network"] == "securebench-egress"
-    assert docker.kwargs["env"]["HTTPS_PROXY"] == "http://securebench-egress-proxy:8080"
+    assert docker.kwargs["env"]["ANTHROPIC_API_KEY"] == "securebench-dummy-anthropic-api-key"
+    assert docker.kwargs["env"]["ANTHROPIC_BASE_URL"] == "http://securebench-provider-relay:8090"
+    assert docker.kwargs["env"]["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
+    assert docker.kwargs["env"]["DISABLE_AUTOUPDATER"] == "1"
+    assert "HTTPS_PROXY" not in docker.kwargs["env"]
     assert docker.kwargs["read_only"] is False
     assert len(docker.mounts) == 2
     assert docker.mounts[0].source == overlay_path
@@ -715,8 +868,13 @@ def test_claude_code_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch
     assert artifact.patch == "diff --git a/app.py b/app.py\n"
     assert artifact.metadata["harness"] == "claude_code"
     assert artifact.metadata["claude_code_model"] == "claude-sonnet-4-5"
-    assert artifact.metadata["allowed_domains"] == ("api.anthropic.com",)
-    assert FakeEgressPolicy.calls[-1] == ("api.anthropic.com",)
+    assert artifact.metadata["allowed_domains"] == ()
+    assert artifact.metadata["provider_relay_enabled"] is True
+    assert artifact.metadata["provider"] == "anthropic"
+    assert artifact.metadata["allow_external_tools"] is False
+    assert artifact.metadata["provider_relay_requests"] == 0
+    assert artifact.metadata["provider_relay_blocked"] == 0
+    assert FakeProviderRelayPolicy.calls[-1] == ("anthropic", (), False)
     assert artifact.metadata["overlay_platform"] == "linux/arm64"
     assert artifact.metadata["candidate_extraction"] == "git_diff"
 
@@ -754,9 +912,48 @@ def test_claude_code_harness_defaults_to_anthropic_api_key(monkeypatch, tmp_path
     producer.produce(repo_patch_task(environment={"image": "python:3.11-slim"}))
 
     docker = FakeDockerSandbox.instances[-1]
-    assert docker.env_names == ("ANTHROPIC_API_KEY",)
-    assert FakeEgressPolicy.calls[-1] == ("api.anthropic.com",)
+    assert docker.env_names == ()
+    assert FakeProviderRelayPolicy.calls[-1] == ("anthropic", (), False)
     assert "claude -p --model 'sonnet'" in docker.commands[1][0]
+
+
+def test_claude_code_agent_env_respects_tester_nonessential_traffic_override():
+    env = claude_code_harnesses.claude_code_agent_env(
+        {"HTTPS_PROXY": "http://proxy:8080"},
+        "http://securebench-provider-relay:8090",
+        ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_AUTOUPDATER"),
+    )
+
+    assert env == {
+        "HTTPS_PROXY": "http://proxy:8080",
+        "ANTHROPIC_API_KEY": "securebench-dummy-anthropic-api-key",
+        "ANTHROPIC_BASE_URL": "http://securebench-provider-relay:8090",
+    }
+
+
+def test_claude_code_rejects_allowed_domains_with_provider_relay(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
+    monkeypatch.setattr("securebench.harnesses.claude_code.HostSandbox", FakeHostSandbox)
+    overlay_path = tmp_path / "claude-code-overlay"
+    overlay_path.mkdir()
+    monkeypatch.setattr(
+        "securebench.harnesses.claude_code.claude_code_overlay_for_image",
+        lambda image, version: ClaudeCodeOverlay(
+            path=overlay_path,
+            platform=DockerPlatform(os="linux", architecture="amd64"),
+            version=version,
+        ),
+    )
+    producer = build_harness_producer(
+        HarnessSection(
+            type="claude_code",
+            config={"allowed_domains": ["docs.python.org"]},
+        ),
+        workspace_root=tmp_path / "runs",
+    )
+
+    with pytest.raises(ConfigError, match="NO_PROXY"):
+        producer.produce(repo_patch_task(environment={"image": "python:3.11-slim"}))
 
 
 @pytest.mark.parametrize(
@@ -768,6 +965,7 @@ def test_claude_code_harness_defaults_to_anthropic_api_key(monkeypatch, tmp_path
         ({"timeout_seconds": 0}, "timeout_seconds"),
         ({"task_file": "../task.json"}, "task_file"),
         ({"allowed_domains": ["localhost"]}, "allowed_domains"),
+        ({"allow_external_tools": "yes"}, "allow_external_tools"),
         ({"unknown": True}, "unsupported field"),
     ],
 )

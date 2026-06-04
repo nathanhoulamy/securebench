@@ -40,8 +40,10 @@ from securebench.harnesses.shared import (
 )
 from securebench.harnesses.network import (
     allowed_domains_config,
-    docker_egress_policy,
+    docker_provider_relay_policy,
     effective_allowed_domains,
+    relay_decision_summary,
+    require_provider_key,
 )
 from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
@@ -58,6 +60,7 @@ CLAUDE_CODE_CONFIG_FIELDS = {
     "task_file",
     "timeout_seconds",
     "allowed_domains",
+    "allow_external_tools",
 }
 CLAUDE_CODE_OVERLAY_TARGET = "/opt/securebench/claude-code"
 CLAUDE_CODE_HOME_TARGET = "/opt/securebench/claude-home"
@@ -66,6 +69,11 @@ CLAUDE_CODE_DEFAULT_VERSION = "latest"
 CLAUDE_CODE_DEFAULT_TASK_FILE = "task.json"
 CLAUDE_CODE_DEFAULT_TIMEOUT_SECONDS = 900.0
 CLAUDE_CODE_RUNTIME_NODE_IMAGE = "node:22-bookworm"
+CLAUDE_CODE_PROVIDER = "anthropic"
+CLAUDE_CODE_PROVIDER_ENV_NAMES = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}
+CLAUDE_CODE_DUMMY_API_KEY = "securebench-dummy-anthropic-api-key"
+CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"
+CLAUDE_CODE_DISABLE_AUTOUPDATER = "DISABLE_AUTOUPDATER"
 
 
 @dataclass(frozen=True)
@@ -87,6 +95,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
         task_file: str = CLAUDE_CODE_DEFAULT_TASK_FILE,
         timeout_seconds: float | None = CLAUDE_CODE_DEFAULT_TIMEOUT_SECONDS,
         allowed_domains: tuple[str, ...] = (),
+        allow_external_tools: bool = False,
         workspace_root: str | Path | None = None,
     ) -> None:
         self.model = claude_code_model(model)
@@ -95,11 +104,13 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
         self.task_file = task_file
         self.timeout_seconds = timeout_seconds
         self.allowed_domains = tuple(allowed_domains)
+        self.allow_external_tools = allow_external_tools
         self.workspace_root = None if workspace_root is None else Path(workspace_root)
         self.materializer = VisibilityAwareMaterializer()
 
     def produce(self, task: SecureBenchTask, **context: Any) -> CandidateArtifact:
         image = container_image_for_task(task)
+        require_provider_key(CLAUDE_CODE_PROVIDER)
         require_env_names(self.env_names, "claude_code")
         task_workspace = workspace_root(
             task,
@@ -124,12 +135,23 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
             overlay = claude_code_overlay_for_image(image, self.version)
             workspace_mount_target = workspace_mount_target_for_task(task)
             allowed_domains = effective_allowed_domains("claude_code", self.allowed_domains)
-            with docker_egress_policy(allowed_domains) as egress:
+            reject_claude_code_allowed_domains_with_relay(allowed_domains)
+            with docker_provider_relay_policy(
+                CLAUDE_CODE_PROVIDER,
+                allowed_domains,
+                allow_external_tools=self.allow_external_tools,
+            ) as egress:
+                if egress.provider_base_url is None:
+                    raise ConfigError("claude_code provider relay did not provide a base URL")
                 sandbox = DockerSandbox(
                     image=image,
                     root=task_workspace,
                     env_names=self.env_names,
-                    env=egress.env,
+                    env=claude_code_agent_env(
+                        egress.env,
+                        egress.provider_base_url,
+                        self.env_names,
+                    ),
                     network=egress.network,
                     read_only=False,
                     mounts=(
@@ -186,6 +208,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                         extraction,
                         timeout=timeout,
                     )
+                    relay_summary = relay_decision_summary(egress.relay_log_dir)
                     return CandidateArtifact(
                         patch=candidate.patch,
                         workspace=candidate.workspace,
@@ -202,6 +225,10 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                             "overlay_platform": overlay.platform.docker_platform,
                             "overlay_cache_path": str(overlay.path),
                             "allowed_domains": allowed_domains,
+                            "provider_relay_enabled": egress.provider_relay_enabled,
+                            "provider": egress.provider,
+                            "allow_external_tools": self.allow_external_tools,
+                            **relay_summary,
                             **baseline,
                             **candidate.metadata,
                         },
@@ -229,14 +256,20 @@ def claude_code_config(config: dict[str, Any]) -> dict[str, Any]:
             "harness.config.timeout_seconds",
         ),
         "allowed_domains": allowed_domains_config(config.get("allowed_domains")),
+        "allow_external_tools": allow_external_tools_config(config.get("allow_external_tools")),
     }
 
 
 def claude_code_env_names(env_names: tuple[str, ...]) -> tuple[str, ...]:
-    names = tuple(env_names)
-    if "ANTHROPIC_API_KEY" not in names:
-        names = (*names, "ANTHROPIC_API_KEY")
-    return names
+    return tuple(name for name in env_names if name not in CLAUDE_CODE_PROVIDER_ENV_NAMES)
+
+
+def allow_external_tools_config(value: Any) -> bool:
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise ConfigError("harness.config.allow_external_tools must be a boolean")
+    return value
 
 
 def require_env_names(env_names: tuple[str, ...], harness: str) -> None:
@@ -324,6 +357,31 @@ def populate_claude_code_overlay_cache(
     )
     if result.returncode != 0:
         raise ConfigError(f"Failed to populate Claude Code overlay cache: {result.stderr.strip()}")
+
+
+def claude_code_agent_env(
+    egress_env: dict[str, str],
+    provider_base_url: str,
+    env_names: tuple[str, ...],
+) -> dict[str, str]:
+    env = {
+        **egress_env,
+        "ANTHROPIC_API_KEY": CLAUDE_CODE_DUMMY_API_KEY,
+        "ANTHROPIC_BASE_URL": provider_base_url,
+    }
+    if CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC not in env_names:
+        env[CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC] = "1"
+    if CLAUDE_CODE_DISABLE_AUTOUPDATER not in env_names:
+        env[CLAUDE_CODE_DISABLE_AUTOUPDATER] = "1"
+    return env
+
+
+def reject_claude_code_allowed_domains_with_relay(allowed_domains: tuple[str, ...]) -> None:
+    if allowed_domains:
+        raise ConfigError(
+            "claude_code harness cannot combine provider relay with harness.config.allowed_domains yet: "
+            "Claude Code does not honor NO_PROXY, so generic proxy egress would intercept provider relay traffic"
+        )
 
 
 def claude_code_shell_command(inner: str) -> str:

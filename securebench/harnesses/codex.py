@@ -35,8 +35,10 @@ from securebench.harnesses.shared import (
 )
 from securebench.harnesses.network import (
     allowed_domains_config,
-    docker_egress_policy,
+    docker_provider_relay_policy,
     effective_allowed_domains,
+    relay_decision_summary,
+    require_provider_key,
 )
 from securebench.workspaces.materialization import VisibilityAwareMaterializer, docker_read_only_mounts
 from securebench.sandboxes import DockerSandbox, HostSandbox
@@ -50,13 +52,20 @@ CODEX_CONFIG_FIELDS = {
     "task_file",
     "timeout_seconds",
     "allowed_domains",
+    "allow_external_tools",
 }
 CODEX_OVERLAY_TARGET = "/opt/securebench/codex"
 CODEX_HOME_TARGET = "/opt/securebench/codex-home"
+CODEX_CONFIG_TARGET = f"{CODEX_HOME_TARGET}/config.toml"
+CODEX_DOT_CONFIG_TARGET = f"{CODEX_HOME_TARGET}/.codex/config.toml"
 CODEX_DEFAULT_VERSION = "latest"
 CODEX_DEFAULT_TASK_FILE = "task.json"
 CODEX_DEFAULT_TIMEOUT_SECONDS = 900.0
 CODEX_RUNTIME_NODE_IMAGE = "node:22-bookworm"
+CODEX_PROVIDER = "openai"
+CODEX_PROVIDER_ENV_NAMES = {"OPENAI_API_KEY", "CODEX_API_KEY"}
+CODEX_DUMMY_API_KEY = "securebench-dummy-openai-api-key"
+CODEX_RELAY_PROVIDER_ID = "securebench_openai"
 
 
 @dataclass(frozen=True)
@@ -97,6 +106,7 @@ class CodexHarnessProducer(CandidateProducer):
         task_file: str = CODEX_DEFAULT_TASK_FILE,
         timeout_seconds: float | None = CODEX_DEFAULT_TIMEOUT_SECONDS,
         allowed_domains: tuple[str, ...] = (),
+        allow_external_tools: bool = False,
         workspace_root: str | Path | None = None,
     ) -> None:
         self.model = model
@@ -105,11 +115,13 @@ class CodexHarnessProducer(CandidateProducer):
         self.task_file = task_file
         self.timeout_seconds = timeout_seconds
         self.allowed_domains = tuple(allowed_domains)
+        self.allow_external_tools = allow_external_tools
         self.workspace_root = None if workspace_root is None else Path(workspace_root)
         self.materializer = VisibilityAwareMaterializer()
 
     def produce(self, task: SecureBenchTask, **context: Any) -> CandidateArtifact:
         image = container_image_for_task(task)
+        require_provider_key(CODEX_PROVIDER)
         require_env_names(self.env_names, "codex")
         task_workspace = workspace_root(
             task,
@@ -120,12 +132,16 @@ class CodexHarnessProducer(CandidateProducer):
             cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-")
             task_workspace = Path(cleanup.name)
         state_cleanup = None
+        config_cleanup = None
 
         try:
             task_workspace.mkdir(parents=True, exist_ok=True)
             materialize_workdir_from_image_if_requested(task, task_workspace)
             state_cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-home-")
             state_root = Path(state_cleanup.name)
+            (state_root / ".codex").mkdir(parents=True, exist_ok=True)
+            config_cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-config-")
+            config_root = Path(config_cleanup.name)
             staging = HostSandbox(root=task_workspace)
             plan = self.materializer.materialize(task, staging, "agent")
             reject_task_file_collision(self.task_file, plan)
@@ -134,12 +150,27 @@ class CodexHarnessProducer(CandidateProducer):
             overlay = codex_overlay_for_image(image, self.version)
             workspace_mount_target = workspace_mount_target_for_task(task)
             allowed_domains = effective_allowed_domains("codex", self.allowed_domains)
-            with docker_egress_policy(allowed_domains) as egress:
+            with docker_provider_relay_policy(
+                CODEX_PROVIDER,
+                allowed_domains,
+                allow_external_tools=self.allow_external_tools,
+            ) as egress:
+                if egress.provider_base_url is None:
+                    raise ConfigError("codex provider relay did not provide a base URL")
+                write_codex_relay_config(
+                    config_root,
+                    egress.provider_base_url,
+                    allow_external_tools=self.allow_external_tools,
+                )
                 sandbox = DockerSandbox(
                     image=image,
                     root=task_workspace,
                     env_names=self.env_names,
-                    env=egress.env,
+                    env={
+                        **egress.env,
+                        "OPENAI_API_KEY": CODEX_DUMMY_API_KEY,
+                        "CODEX_API_KEY": CODEX_DUMMY_API_KEY,
+                    },
                     network=egress.network,
                     read_only=False,
                     mounts=(
@@ -153,6 +184,16 @@ class CodexHarnessProducer(CandidateProducer):
                             source=state_root,
                             target=CODEX_HOME_TARGET,
                             read_only=False,
+                        ),
+                        DockerBindMount(
+                            source=config_root / "config.toml",
+                            target=CODEX_CONFIG_TARGET,
+                            read_only=True,
+                        ),
+                        DockerBindMount(
+                            source=config_root / ".codex" / "config.toml",
+                            target=CODEX_DOT_CONFIG_TARGET,
+                            read_only=True,
                         ),
                     ),
                     workspace_mount_target=workspace_mount_target,
@@ -200,6 +241,7 @@ class CodexHarnessProducer(CandidateProducer):
                         extraction,
                         timeout=timeout,
                     )
+                    relay_summary = relay_decision_summary(egress.relay_log_dir)
                     return CandidateArtifact(
                         patch=candidate.patch,
                         workspace=candidate.workspace,
@@ -216,6 +258,10 @@ class CodexHarnessProducer(CandidateProducer):
                             "overlay_platform": overlay.platform.docker_platform,
                             "overlay_cache_path": str(overlay.path),
                             "allowed_domains": allowed_domains,
+                            "provider_relay_enabled": egress.provider_relay_enabled,
+                            "provider": egress.provider,
+                            "allow_external_tools": self.allow_external_tools,
+                            **relay_summary,
                             **baseline,
                             **candidate.metadata,
                         },
@@ -223,6 +269,8 @@ class CodexHarnessProducer(CandidateProducer):
                 finally:
                     close_sandbox(sandbox)
         finally:
+            if config_cleanup is not None:
+                config_cleanup.cleanup()
             if state_cleanup is not None:
                 state_cleanup.cleanup()
             if cleanup is not None:
@@ -243,14 +291,20 @@ def codex_config(config: dict[str, Any]) -> dict[str, Any]:
             "harness.config.timeout_seconds",
         ),
         "allowed_domains": allowed_domains_config(config.get("allowed_domains")),
+        "allow_external_tools": allow_external_tools_config(config.get("allow_external_tools")),
     }
 
 
 def codex_env_names(env_names: tuple[str, ...]) -> tuple[str, ...]:
-    names = tuple(env_names)
-    if "OPENAI_API_KEY" not in names:
-        names = (*names, "OPENAI_API_KEY")
-    return names
+    return tuple(name for name in env_names if name not in CODEX_PROVIDER_ENV_NAMES)
+
+
+def allow_external_tools_config(value: Any) -> bool:
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise ConfigError("harness.config.allow_external_tools must be a boolean")
+    return value
 
 
 def require_env_names(env_names: tuple[str, ...], harness: str) -> None:
@@ -383,9 +437,50 @@ def run_docker(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, check=False, capture_output=True, text=True)
 
 
+def write_codex_relay_config(
+    home: Path,
+    base_url: str,
+    *,
+    allow_external_tools: bool = False,
+) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    lines = [f'model_provider = "{CODEX_RELAY_PROVIDER_ID}"']
+    if not allow_external_tools:
+        lines.extend(
+            [
+                'web_search = "disabled"',
+                "",
+                "[tools]",
+                "web_search = false",
+                "",
+                "[features]",
+                "web_search = false",
+                "web_search_cached = false",
+                "web_search_request = false",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            f'[model_providers.{CODEX_RELAY_PROVIDER_ID}]',
+            'name = "SecureBench OpenAI Relay"',
+            f'base_url = "{base_url}"',
+            'env_key = "OPENAI_API_KEY"',
+            'wire_api = "responses"',
+            "",
+        ]
+    )
+    content = "\n".join(lines)
+    (home / "config.toml").write_text(content)
+    dot_codex = home / ".codex"
+    dot_codex.mkdir(exist_ok=True)
+    (dot_codex / "config.toml").write_text(content)
+
+
 def codex_shell_command(inner: str) -> str:
     return (
         f"export HOME={shell_quote(CODEX_HOME_TARGET)}; "
+        f"export CODEX_HOME={shell_quote(CODEX_HOME_TARGET)}; "
         f"export PATH={shell_quote(CODEX_OVERLAY_TARGET + '/bin')}:$PATH; "
         'if [ -z "$OPENAI_API_KEY" ] && [ -n "$CODEX_API_KEY" ]; then export OPENAI_API_KEY="$CODEX_API_KEY"; fi; '
         'if [ -z "$CODEX_API_KEY" ] && [ -n "$OPENAI_API_KEY" ]; then export CODEX_API_KEY="$OPENAI_API_KEY"; fi; '
