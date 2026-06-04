@@ -23,11 +23,20 @@ Run the terminal-task smoke pack through the command harness:
   --config benchmarks/terminal-task-smoke/tester-command.yaml
 ```
 
-For Codex harness runs, put your key in `.env`:
+For named provider harness runs, put the relevant provider key in `.env` on the
+host:
 
 ```bash
 OPENAI_API_KEY=...
+# ANTHROPIC_API_KEY=...
 ```
+
+Named provider harnesses keep the real key on the host side. SecureBench gives
+the agent container a dummy key and routes model API traffic through a
+SecureBench provider relay that injects the real credential outside the
+untrusted sandbox; the `.env` file is not mounted into the agent container.
+Provider-hosted external tools are blocked unless the tester YAML explicitly
+sets `harness.config.allow_external_tools: true`.
 
 Then run a repo-patch pack:
 

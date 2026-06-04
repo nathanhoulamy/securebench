@@ -21,3 +21,4 @@ harness:
     version: latest
     task_file: task.json
     timeout_seconds: 900
+    allow_external_tools: false

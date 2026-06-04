@@ -11,6 +11,36 @@ workspace state and must be verified from trusted evaluator inputs.
 - Evaluation inputs are available only to the verification sandbox.
 - Hidden resources are retained for trusted reporting or analysis and are
   redacted from result records.
+- Named provider harness credentials are host-side only. Codex and Claude Code
+  receive dummy provider keys inside the untrusted agent container and route API
+  requests through a SecureBench provider relay sidecar, which injects the real
+  key outside the sandbox.
+
+## Provider Relay
+
+The provider relay is enabled for the `codex` and `claude_code` harnesses. It
+terminates plain HTTP from the internal Docker network, forwards to the provider
+over HTTPS, strips dummy auth, injects the real host credential, and writes
+redacted decision logs outside the agent workspace.
+
+Provider-hosted external tools are blocked by default. Tester YAML may opt in
+with `harness.config.allow_external_tools: true`; otherwise requests that enable
+server-side tools such as web search, remote MCP, hosted code execution, or file
+search are rejected before they reach the provider. Local/client tool definitions
+used by the CLIs remain allowed.
+
+The relay is not a general guarantee for custom commands. The `command` harness
+still passes tester-selected environment variables directly into its container,
+so testers should not expose secrets to untrusted command harnesses unless that
+is part of the experiment.
+
+`allowed_domains` controls generic agent-container egress, not provider-hosted
+web search. Provider-hosted web tools remain blocked by default and, if enabled,
+run inside the provider rather than through SecureBench's generic egress proxy.
+For v1, Claude Code cannot combine provider relay with non-empty
+`harness.config.allowed_domains` because Claude Code does not reliably honor
+`NO_PROXY`; SecureBench rejects that configuration rather than risk proxying
+provider API traffic through the generic egress sidecar.
 
 ## Repo Patch
 

@@ -254,6 +254,7 @@ harness:
     version: latest
     task_file: task.json
     timeout_seconds: 900
+    allow_external_tools: false
     allowed_domains:
       - docs.python.org</pre>
       <div class="note">Tester YAML cannot expose hidden benchmark data to the harness. Verifier dangerous-command policy is fail-closed and can only activate known benchmark-declared verifier needs.</div>
@@ -271,9 +272,10 @@ harness:
       <h2>Harness Execution</h2>
       <div class="grid">
         <div class="mini-card"><h3>command</h3><p>SecureBench runs the tester-provided command inside the benchmark environment image with only public workspace data, allowlisted credentials, and optional domain allowlisted egress.</p></div>
-        <div class="mini-card"><h3>codex</h3><p>SecureBench runs Codex inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state. Egress is limited to the provider API domain and optional tester domains.</p></div>
-        <div class="mini-card"><h3>claude_code</h3><p>SecureBench runs Claude Code inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state. Egress is limited to the provider API domain and optional tester domains.</p></div>
+        <div class="mini-card"><h3>codex</h3><p>SecureBench runs Codex inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state. Provider API traffic goes through a SecureBench relay that keeps the real key outside the agent container.</p></div>
+        <div class="mini-card"><h3>claude_code</h3><p>SecureBench runs Claude Code inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state. Provider API traffic goes through a SecureBench relay that keeps the real key outside the agent container.</p></div>
       </div>
+      <div class="note"><strong>Network controls:</strong> <code>allowed_domains</code> controls generic agent-container egress, not provider-hosted web search. Provider-hosted external tools stay blocked unless <code>allow_external_tools: true</code> is set. In v1, <code>claude_code</code> rejects non-empty <code>allowed_domains</code> because Claude Code does not reliably honor <code>NO_PROXY</code> for the provider relay path.</div>
       <pre class="schema"># Codex tooling overlay
 harness:
   type: codex
@@ -281,6 +283,7 @@ harness:
     - OPENAI_API_KEY
   config:
     model: gpt-5.4-mini
+    allow_external_tools: false
     allowed_domains:
       - docs.python.org
 
