@@ -22,10 +22,6 @@ EGRESS_PROXY_IMAGE = "python:3.11-slim"
 PROVIDER_RELAY_ALIAS = "securebench-provider-relay"
 PROVIDER_RELAY_PORT = 8090
 PROVIDER_RELAY_IMAGE = "python:3.11-slim"
-PROVIDER_KEY_ENV = {
-    "openai": "OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-}
 _LABEL_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
 
@@ -41,6 +37,19 @@ class HarnessEgress:
     relay_log_dir: str | None = None
     provider_relay_enabled: bool = False
     allow_external_tools: bool = False
+
+
+@dataclass(frozen=True)
+class ProviderRelaySpec:
+    """Provider-specific relay policy supplied by a harness."""
+
+    provider: str
+    upstream_host: str
+    api_key_env: str
+    base_url: str
+    blocked_tool_types: tuple[str, ...] = ()
+    blocked_tool_prefixes: tuple[str, ...] = ()
+    allowed_client_tool_types: tuple[str, ...] = ()
 
 
 def allowed_domains_config(value: Any, field: str = "harness.config.allowed_domains") -> tuple[str, ...]:
@@ -234,16 +243,15 @@ class DockerProviderRelayPolicy:
 
     def __init__(
         self,
-        provider: str,
+        spec: ProviderRelaySpec,
         allowed_domains: tuple[str, ...],
         *,
         allow_external_tools: bool = False,
         relay_image: str = PROVIDER_RELAY_IMAGE,
         proxy_image: str = EGRESS_PROXY_IMAGE,
     ) -> None:
-        if provider not in PROVIDER_KEY_ENV:
-            raise ConfigError(f"Unsupported provider relay {provider!r}")
-        self.provider = provider
+        self.spec = spec
+        self.provider = spec.provider
         self.allowed_domains = tuple(allowed_domains)
         self.allow_external_tools = allow_external_tools
         self.relay_image = relay_image
@@ -255,7 +263,7 @@ class DockerProviderRelayPolicy:
         self._log_cleanup: tempfile.TemporaryDirectory[str] | None = None
 
     def __enter__(self) -> HarnessEgress:
-        require_provider_key(self.provider)
+        require_provider_key(self.spec)
         suffix = uuid.uuid4().hex
         self._network_name = f"securebench-egress-{suffix}"
         self.relay_container = f"securebench-provider-relay-{suffix}"
@@ -287,7 +295,7 @@ class DockerProviderRelayPolicy:
             env=env,
             allowed_domains=self.allowed_domains,
             provider=self.provider,
-            provider_base_url=provider_relay_base_url(self.provider),
+            provider_base_url=self.spec.base_url,
             relay_log_dir=str(relay_log_dir),
             provider_relay_enabled=True,
             allow_external_tools=self.allow_external_tools,
@@ -368,9 +376,19 @@ class DockerProviderRelayPolicy:
                 "--security-opt",
                 "no-new-privileges:true",
                 "-e",
-                PROVIDER_KEY_ENV[self.provider],
+                self.spec.api_key_env,
                 "-e",
                 f"SECUREBENCH_PROVIDER={self.provider}",
+                "-e",
+                f"SECUREBENCH_UPSTREAM_HOST={self.spec.upstream_host}",
+                "-e",
+                f"SECUREBENCH_API_KEY_ENV={self.spec.api_key_env}",
+                "-e",
+                f"SECUREBENCH_BLOCKED_TOOL_TYPES={json.dumps(sorted(self.spec.blocked_tool_types))}",
+                "-e",
+                f"SECUREBENCH_BLOCKED_TOOL_PREFIXES={json.dumps(sorted(self.spec.blocked_tool_prefixes))}",
+                "-e",
+                f"SECUREBENCH_ALLOWED_CLIENT_TOOL_TYPES={json.dumps(sorted(self.spec.allowed_client_tool_types))}",
                 "-e",
                 f"SECUREBENCH_ALLOW_EXTERNAL_TOOLS={str(self.allow_external_tools).lower()}",
                 "-e",
@@ -427,32 +445,22 @@ class DockerProviderRelayPolicy:
 
 
 def docker_provider_relay_policy(
-    provider: str,
+    spec: ProviderRelaySpec,
     allowed_domains: tuple[str, ...],
     *,
     allow_external_tools: bool = False,
 ) -> DockerProviderRelayPolicy:
     return DockerProviderRelayPolicy(
-        provider,
+        spec,
         allowed_domains,
         allow_external_tools=allow_external_tools,
     )
 
 
-def provider_relay_base_url(provider: str) -> str:
-    if provider == "openai":
-        return f"http://{PROVIDER_RELAY_ALIAS}:{PROVIDER_RELAY_PORT}/v1"
-    if provider == "anthropic":
-        return f"http://{PROVIDER_RELAY_ALIAS}:{PROVIDER_RELAY_PORT}"
-    raise ConfigError(f"Unsupported provider relay {provider!r}")
-
-
-def require_provider_key(provider: str) -> None:
-    env_name = PROVIDER_KEY_ENV.get(provider)
-    if env_name is None:
-        raise ConfigError(f"Unsupported provider relay {provider!r}")
+def require_provider_key(spec: ProviderRelaySpec) -> None:
+    env_name = spec.api_key_env
     if not os.environ.get(env_name):
-        raise ConfigError(f"{provider} provider relay requires environment variable: {env_name}")
+        raise ConfigError(f"{spec.provider} provider relay requires environment variable: {env_name}")
 
 
 def relay_decision_summary(log_dir: str | Path | None) -> dict[str, int]:

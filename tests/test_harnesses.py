@@ -97,8 +97,9 @@ class FakeEgressPolicy:
 class FakeProviderRelayPolicy:
     calls = []
 
-    def __init__(self, provider, allowed_domains, *, allow_external_tools=False):
-        self.provider = provider
+    def __init__(self, spec, allowed_domains, *, allow_external_tools=False):
+        self.spec = spec
+        self.provider = spec.provider
         self.allowed_domains = tuple(allowed_domains)
         self.allow_external_tools = allow_external_tools
         FakeProviderRelayPolicy.calls.append(
@@ -118,17 +119,12 @@ class FakeProviderRelayPolicy:
                 "all_proxy": "http://securebench-egress-proxy:8080",
                 "no_proxy": "localhost,127.0.0.1,::1,securebench-egress-proxy,securebench-provider-relay",
             }
-        base_url = (
-            "http://securebench-provider-relay:8090/v1"
-            if self.provider == "openai"
-            else "http://securebench-provider-relay:8090"
-        )
         return SimpleNamespace(
             network="securebench-egress",
             env=env,
             allowed_domains=self.allowed_domains,
             provider=self.provider,
-            provider_base_url=base_url,
+            provider_base_url=self.spec.base_url,
             relay_log_dir=None,
             provider_relay_enabled=True,
             allow_external_tools=self.allow_external_tools,

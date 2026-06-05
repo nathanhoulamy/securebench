@@ -3,6 +3,8 @@ import json
 from email.message import Message
 
 from securebench.harnesses import provider_relay
+from securebench.harnesses.claude_code import CLAUDE_CODE_PROVIDER_RELAY_SPEC
+from securebench.harnesses.codex import CODEX_PROVIDER_RELAY_SPEC
 from securebench.harnesses.provider_relay import (
     RelayConfig,
     ProviderRelayHandler,
@@ -23,6 +25,9 @@ def test_openai_relay_injects_real_auth_and_strips_dummy_auth(tmp_path):
         provider="openai",
         upstream_host="api.openai.com",
         api_key="real-key",
+        blocked_tool_types=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_types,
+        blocked_tool_prefixes=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
+        allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
         allow_external_tools=False,
         log_dir=tmp_path,
     )
@@ -48,6 +53,9 @@ def test_anthropic_relay_injects_real_api_key(tmp_path):
         provider="anthropic",
         upstream_host="api.anthropic.com",
         api_key="real-key",
+        blocked_tool_types=CLAUDE_CODE_PROVIDER_RELAY_SPEC.blocked_tool_types,
+        blocked_tool_prefixes=CLAUDE_CODE_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
+        allowed_client_tool_types=CLAUDE_CODE_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
         allow_external_tools=False,
         log_dir=tmp_path,
     )
@@ -71,7 +79,6 @@ def test_anthropic_relay_injects_real_api_key(tmp_path):
 
 def test_openai_policy_blocks_hosted_tools_and_allows_client_tools():
     blocked = blocked_external_tools(
-        "openai",
         "application/json",
         json.dumps(
             {
@@ -87,6 +94,9 @@ def test_openai_policy_blocks_hosted_tools_and_allows_client_tools():
             }
         ).encode(),
         allow_external_tools=False,
+        blocked_tool_types=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_types,
+        blocked_tool_prefixes=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
+        allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
     )
 
     assert blocked == (
@@ -100,7 +110,6 @@ def test_openai_policy_blocks_hosted_tools_and_allows_client_tools():
 
 def test_anthropic_policy_blocks_server_tools_and_allows_client_tools():
     blocked = blocked_external_tools(
-        "anthropic",
         "application/json",
         json.dumps(
             {
@@ -112,6 +121,9 @@ def test_anthropic_policy_blocks_server_tools_and_allows_client_tools():
             }
         ).encode(),
         allow_external_tools=False,
+        blocked_tool_types=CLAUDE_CODE_PROVIDER_RELAY_SPEC.blocked_tool_types,
+        blocked_tool_prefixes=CLAUDE_CODE_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
+        allowed_client_tool_types=CLAUDE_CODE_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
     )
 
     assert blocked == ("web_search_20250305", "web_fetch_20250910")
@@ -119,10 +131,12 @@ def test_anthropic_policy_blocks_server_tools_and_allows_client_tools():
 
 def test_policy_allows_external_tools_when_enabled():
     blocked = blocked_external_tools(
-        "openai",
         "application/json",
         b'{"tools": [{"type": "web_search"}]}',
         allow_external_tools=True,
+        blocked_tool_types=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_types,
+        blocked_tool_prefixes=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
+        allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
     )
 
     assert blocked == ()
@@ -162,6 +176,9 @@ def test_handler_forwards_streaming_chunks_and_logs_redacted_decision(monkeypatc
         provider="openai",
         upstream_host="api.openai.com",
         api_key="real-key",
+        blocked_tool_types=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_types,
+        blocked_tool_prefixes=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
+        allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
         allow_external_tools=False,
         log_dir=tmp_path,
     )

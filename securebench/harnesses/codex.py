@@ -34,6 +34,9 @@ from securebench.harnesses.shared import (
     workspace_root,
 )
 from securebench.harnesses.network import (
+    PROVIDER_RELAY_ALIAS,
+    PROVIDER_RELAY_PORT,
+    ProviderRelaySpec,
     allowed_domains_config,
     docker_provider_relay_policy,
     effective_allowed_domains,
@@ -61,9 +64,26 @@ CODEX_DEFAULT_TASK_FILE = "task.json"
 CODEX_DEFAULT_TIMEOUT_SECONDS = 900.0
 CODEX_RUNTIME_NODE_IMAGE = "node:22-bookworm"
 CODEX_PROVIDER = "openai"
+CODEX_PROVIDER_UPSTREAM_HOST = "api.openai.com"
 CODEX_PROVIDER_ENV_NAMES = {"OPENAI_API_KEY", "CODEX_API_KEY"}
 CODEX_DUMMY_API_KEY = "securebench-dummy-openai-api-key"
 CODEX_RELAY_PROVIDER_ID = "securebench_openai"
+CODEX_PROVIDER_RELAY_SPEC = ProviderRelaySpec(
+    provider=CODEX_PROVIDER,
+    upstream_host=CODEX_PROVIDER_UPSTREAM_HOST,
+    api_key_env="OPENAI_API_KEY",
+    base_url=f"http://{PROVIDER_RELAY_ALIAS}:{PROVIDER_RELAY_PORT}/v1",
+    blocked_tool_types=(
+        "web_search",
+        "file_search",
+        "code_interpreter",
+        "computer_use",
+        "image_generation",
+        "mcp",
+    ),
+    blocked_tool_prefixes=("web_search_", "computer_use_"),
+    allowed_client_tool_types=("function", "custom", "shell", "apply_patch"),
+)
 
 
 @dataclass(frozen=True)
@@ -119,7 +139,7 @@ class CodexHarnessProducer(CandidateProducer):
 
     def produce(self, task: SecureBenchTask, **context: Any) -> CandidateArtifact:
         image = container_image_for_task(task)
-        require_provider_key(CODEX_PROVIDER)
+        require_provider_key(CODEX_PROVIDER_RELAY_SPEC)
         require_env_names(self.env_names, "codex")
         task_workspace = workspace_root(
             task,
@@ -146,7 +166,7 @@ class CodexHarnessProducer(CandidateProducer):
             workspace_mount_target = workspace_mount_target_for_task(task)
             allowed_domains = effective_allowed_domains("codex", self.allowed_domains)
             with docker_provider_relay_policy(
-                CODEX_PROVIDER,
+                CODEX_PROVIDER_RELAY_SPEC,
                 allowed_domains,
                 allow_external_tools=self.allow_external_tools,
             ) as egress:

@@ -3,6 +3,8 @@ from types import SimpleNamespace
 import pytest
 
 from securebench.errors import ConfigError
+from securebench.harnesses.claude_code import CLAUDE_CODE_PROVIDER_RELAY_SPEC
+from securebench.harnesses.codex import CODEX_PROVIDER_RELAY_SPEC
 from securebench.harnesses.egress_proxy import is_allowed_destination, split_host_port
 from securebench.harnesses.network import (
     DockerEgressPolicy,
@@ -10,7 +12,6 @@ from securebench.harnesses.network import (
     allowed_domains_config,
     domain_allowed,
     effective_allowed_domains,
-    provider_relay_base_url,
     relay_decision_summary,
 )
 
@@ -136,9 +137,9 @@ def test_docker_egress_policy_cleans_up_after_start_failure(monkeypatch):
     assert commands[-1][:3] == ["docker", "network", "rm"]
 
 
-def test_provider_relay_base_urls():
-    assert provider_relay_base_url("openai") == "http://securebench-provider-relay:8090/v1"
-    assert provider_relay_base_url("anthropic") == "http://securebench-provider-relay:8090"
+def test_harness_provider_relay_specs_own_base_urls():
+    assert CODEX_PROVIDER_RELAY_SPEC.base_url == "http://securebench-provider-relay:8090/v1"
+    assert CLAUDE_CODE_PROVIDER_RELAY_SPEC.base_url == "http://securebench-provider-relay:8090"
 
 
 def test_docker_provider_relay_policy_starts_relay_without_generic_proxy(monkeypatch):
@@ -151,7 +152,7 @@ def test_docker_provider_relay_policy_starts_relay_without_generic_proxy(monkeyp
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setattr("subprocess.run", fake_run)
 
-    with DockerProviderRelayPolicy("openai", (), allow_external_tools=False) as egress:
+    with DockerProviderRelayPolicy(CODEX_PROVIDER_RELAY_SPEC, (), allow_external_tools=False) as egress:
         assert egress.network.startswith("securebench-egress-")
         assert egress.env == {}
         assert egress.provider == "openai"
@@ -165,6 +166,11 @@ def test_docker_provider_relay_policy_starts_relay_without_generic_proxy(monkeyp
     assert ["-e", "OPENAI_API_KEY"] == relay_run[relay_run.index("-e") : relay_run.index("-e") + 2]
     assert "secret" not in relay_run
     assert "SECUREBENCH_PROVIDER=openai" in relay_run
+    assert "SECUREBENCH_UPSTREAM_HOST=api.openai.com" in relay_run
+    assert "SECUREBENCH_API_KEY_ENV=OPENAI_API_KEY" in relay_run
+    assert 'SECUREBENCH_BLOCKED_TOOL_TYPES=["code_interpreter", "computer_use", "file_search", "image_generation", "mcp", "web_search"]' in relay_run
+    assert 'SECUREBENCH_BLOCKED_TOOL_PREFIXES=["computer_use_", "web_search_"]' in relay_run
+    assert 'SECUREBENCH_ALLOWED_CLIENT_TOOL_TYPES=["apply_patch", "custom", "function", "shell"]' in relay_run
     assert "SECUREBENCH_ALLOW_EXTERNAL_TOOLS=false" in relay_run
     assert commands[2][:4] == ["docker", "network", "connect", "--alias"]
     assert "securebench-provider-relay" in commands[2]
@@ -182,7 +188,11 @@ def test_docker_provider_relay_policy_starts_generic_proxy_when_domains_allowed(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
     monkeypatch.setattr("subprocess.run", fake_run)
 
-    with DockerProviderRelayPolicy("anthropic", ("docs.python.org",), allow_external_tools=True) as egress:
+    with DockerProviderRelayPolicy(
+        CLAUDE_CODE_PROVIDER_RELAY_SPEC,
+        ("docs.python.org",),
+        allow_external_tools=True,
+    ) as egress:
         assert egress.env["HTTPS_PROXY"] == "http://securebench-egress-proxy:8080"
         assert "securebench-provider-relay" in egress.env["NO_PROXY"]
         assert egress.provider_base_url == "http://securebench-provider-relay:8090"
@@ -193,6 +203,8 @@ def test_docker_provider_relay_policy_starts_generic_proxy_when_domains_allowed(
     relay_run = commands[3]
     assert ["-e", "ANTHROPIC_API_KEY"] == relay_run[relay_run.index("-e") : relay_run.index("-e") + 2]
     assert "SECUREBENCH_PROVIDER=anthropic" in relay_run
+    assert "SECUREBENCH_UPSTREAM_HOST=api.anthropic.com" in relay_run
+    assert "SECUREBENCH_API_KEY_ENV=ANTHROPIC_API_KEY" in relay_run
     assert "SECUREBENCH_ALLOW_EXTERNAL_TOOLS=true" in relay_run
 
 

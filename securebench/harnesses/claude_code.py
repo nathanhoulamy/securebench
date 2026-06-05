@@ -39,6 +39,9 @@ from securebench.harnesses.shared import (
     workspace_root,
 )
 from securebench.harnesses.network import (
+    PROVIDER_RELAY_ALIAS,
+    PROVIDER_RELAY_PORT,
+    ProviderRelaySpec,
     allowed_domains_config,
     docker_provider_relay_policy,
     effective_allowed_domains,
@@ -70,10 +73,32 @@ CLAUDE_CODE_DEFAULT_TASK_FILE = "task.json"
 CLAUDE_CODE_DEFAULT_TIMEOUT_SECONDS = 900.0
 CLAUDE_CODE_RUNTIME_NODE_IMAGE = "node:22-bookworm"
 CLAUDE_CODE_PROVIDER = "anthropic"
+CLAUDE_CODE_PROVIDER_UPSTREAM_HOST = "api.anthropic.com"
 CLAUDE_CODE_PROVIDER_ENV_NAMES = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}
 CLAUDE_CODE_DUMMY_API_KEY = "securebench-dummy-anthropic-api-key"
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"
 CLAUDE_CODE_DISABLE_AUTOUPDATER = "DISABLE_AUTOUPDATER"
+CLAUDE_CODE_PROVIDER_RELAY_SPEC = ProviderRelaySpec(
+    provider=CLAUDE_CODE_PROVIDER,
+    upstream_host=CLAUDE_CODE_PROVIDER_UPSTREAM_HOST,
+    api_key_env="ANTHROPIC_API_KEY",
+    base_url=f"http://{PROVIDER_RELAY_ALIAS}:{PROVIDER_RELAY_PORT}",
+    blocked_tool_types=(
+        "mcp",
+        "mcp_tool",
+        "mcp_connector",
+        "code_execution",
+        "web_search",
+        "web_fetch",
+        "server_tool",
+    ),
+    blocked_tool_prefixes=(
+        "web_search_",
+        "web_fetch_",
+        "code_execution_",
+        "computer_use_",
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -110,7 +135,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
 
     def produce(self, task: SecureBenchTask, **context: Any) -> CandidateArtifact:
         image = container_image_for_task(task)
-        require_provider_key(CLAUDE_CODE_PROVIDER)
+        require_provider_key(CLAUDE_CODE_PROVIDER_RELAY_SPEC)
         require_env_names(self.env_names, "claude_code")
         task_workspace = workspace_root(
             task,
@@ -137,7 +162,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
             allowed_domains = effective_allowed_domains("claude_code", self.allowed_domains)
             reject_claude_code_allowed_domains_with_relay(allowed_domains)
             with docker_provider_relay_policy(
-                CLAUDE_CODE_PROVIDER,
+                CLAUDE_CODE_PROVIDER_RELAY_SPEC,
                 allowed_domains,
                 allow_external_tools=self.allow_external_tools,
             ) as egress:

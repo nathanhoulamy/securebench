@@ -14,35 +14,6 @@ from pathlib import Path
 from typing import Any
 
 
-OPENAI_HOST = "api.openai.com"
-ANTHROPIC_HOST = "api.anthropic.com"
-OPENAI_KEY_ENV = "OPENAI_API_KEY"
-ANTHROPIC_KEY_ENV = "ANTHROPIC_API_KEY"
-OPENAI_BLOCKED_TOOL_TYPES = {
-    "web_search",
-    "file_search",
-    "code_interpreter",
-    "computer_use",
-    "image_generation",
-    "mcp",
-}
-OPENAI_BLOCKED_PREFIXES = ("web_search_", "computer_use_")
-OPENAI_ALLOWED_CLIENT_TOOL_TYPES = {"function", "custom", "shell", "apply_patch"}
-ANTHROPIC_BLOCKED_PREFIXES = (
-    "web_search_",
-    "web_fetch_",
-    "code_execution_",
-    "computer_use_",
-)
-ANTHROPIC_BLOCKED_TOOL_TYPES = {
-    "mcp",
-    "mcp_tool",
-    "mcp_connector",
-    "code_execution",
-    "web_search",
-    "web_fetch",
-    "server_tool",
-}
 HOP_BY_HOP_HEADERS = {
     "connection",
     "keep-alive",
@@ -60,6 +31,9 @@ class RelayConfig:
     provider: str
     upstream_host: str
     api_key: str
+    blocked_tool_types: tuple[str, ...]
+    blocked_tool_prefixes: tuple[str, ...]
+    allowed_client_tool_types: tuple[str, ...]
     allow_external_tools: bool
     log_dir: Path
 
@@ -81,14 +55,10 @@ def main() -> int:
 
 def relay_config_from_env() -> RelayConfig:
     provider = os.environ.get("SECUREBENCH_PROVIDER", "").strip().lower()
-    if provider == "openai":
-        host = OPENAI_HOST
-        key_env = OPENAI_KEY_ENV
-    elif provider == "anthropic":
-        host = ANTHROPIC_HOST
-        key_env = ANTHROPIC_KEY_ENV
-    else:
+    if provider not in {"openai", "anthropic"}:
         raise SystemExit("SECUREBENCH_PROVIDER must be 'openai' or 'anthropic'")
+    host = required_env("SECUREBENCH_UPSTREAM_HOST")
+    key_env = required_env("SECUREBENCH_API_KEY_ENV")
     api_key = os.environ.get(key_env)
     if not api_key:
         raise SystemExit(f"{key_env} is required")
@@ -99,9 +69,30 @@ def relay_config_from_env() -> RelayConfig:
         provider=provider,
         upstream_host=host,
         api_key=api_key,
+        blocked_tool_types=string_tuple_env("SECUREBENCH_BLOCKED_TOOL_TYPES"),
+        blocked_tool_prefixes=string_tuple_env("SECUREBENCH_BLOCKED_TOOL_PREFIXES"),
+        allowed_client_tool_types=string_tuple_env("SECUREBENCH_ALLOWED_CLIENT_TOOL_TYPES"),
         allow_external_tools=allow_external_tools,
         log_dir=log_dir,
     )
+
+
+def required_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise SystemExit(f"{name} is required")
+    return value
+
+
+def string_tuple_env(name: str) -> tuple[str, ...]:
+    value = os.environ.get(name, "[]")
+    try:
+        loaded = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"{name} must be a JSON string array") from exc
+    if not isinstance(loaded, list) or not all(isinstance(item, str) for item in loaded):
+        raise SystemExit(f"{name} must be a JSON string array")
+    return tuple(item for item in loaded if item)
 
 
 class ThreadingHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -149,10 +140,12 @@ class ProviderRelayHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(remaining)
 
         blocked_tools = blocked_external_tools(
-            self.relay_config.provider,
             self.headers.get("Content-Type", ""),
             body,
             self.relay_config.allow_external_tools,
+            blocked_tool_types=self.relay_config.blocked_tool_types,
+            blocked_tool_prefixes=self.relay_config.blocked_tool_prefixes,
+            allowed_client_tool_types=self.relay_config.allowed_client_tool_types,
         )
         if blocked_tools:
             self._send_policy_block(blocked_tools, len(body))
@@ -243,10 +236,13 @@ def upstream_headers(config: RelayConfig, headers: Any) -> dict[str, str]:
 
 
 def blocked_external_tools(
-    provider: str,
     content_type: str,
     body: bytes,
     allow_external_tools: bool,
+    *,
+    blocked_tool_types: tuple[str, ...],
+    blocked_tool_prefixes: tuple[str, ...],
+    allowed_client_tool_types: tuple[str, ...] = (),
 ) -> tuple[str, ...]:
     if allow_external_tools or not body or "json" not in content_type.lower():
         return ()
@@ -264,9 +260,12 @@ def blocked_external_tools(
         tool_type = _tool_type(tool)
         if tool_type is None:
             continue
-        if provider == "openai" and is_blocked_openai_tool(tool_type):
-            blocked.append(tool_type)
-        if provider == "anthropic" and is_blocked_anthropic_tool(tool_type):
+        if is_blocked_tool(
+            tool_type,
+            blocked_tool_types=blocked_tool_types,
+            blocked_tool_prefixes=blocked_tool_prefixes,
+            allowed_client_tool_types=allowed_client_tool_types,
+        ):
             blocked.append(tool_type)
     return tuple(dict.fromkeys(blocked))
 
@@ -280,14 +279,16 @@ def _tool_type(tool: Any) -> str | None:
     return None
 
 
-def is_blocked_openai_tool(tool_type: str) -> bool:
-    if tool_type in OPENAI_ALLOWED_CLIENT_TOOL_TYPES:
+def is_blocked_tool(
+    tool_type: str,
+    *,
+    blocked_tool_types: tuple[str, ...],
+    blocked_tool_prefixes: tuple[str, ...],
+    allowed_client_tool_types: tuple[str, ...] = (),
+) -> bool:
+    if tool_type in allowed_client_tool_types:
         return False
-    return tool_type in OPENAI_BLOCKED_TOOL_TYPES or tool_type.startswith(OPENAI_BLOCKED_PREFIXES)
-
-
-def is_blocked_anthropic_tool(tool_type: str) -> bool:
-    return tool_type in ANTHROPIC_BLOCKED_TOOL_TYPES or tool_type.startswith(ANTHROPIC_BLOCKED_PREFIXES)
+    return tool_type in blocked_tool_types or tool_type.startswith(blocked_tool_prefixes)
 
 
 def provider_error_payload(provider: str, blocked_tools: tuple[str, ...]) -> dict[str, Any]:
