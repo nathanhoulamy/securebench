@@ -417,17 +417,12 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
     assert docker.kwargs["env"]["CODEX_API_KEY"] == "securebench-dummy-openai-api-key"
     assert "HTTPS_PROXY" not in docker.kwargs["env"]
     assert docker.kwargs["read_only"] is False
-    assert len(docker.mounts) == 4
+    assert len(docker.mounts) == 2
     assert docker.mounts[0].source == overlay_path
     assert docker.mounts[0].target == "/opt/securebench/codex"
     assert docker.mounts[0].read_only is True
     assert docker.mounts[1].target == "/opt/securebench/codex-home"
     assert docker.mounts[1].read_only is False
-    assert docker.mounts[2].source.parent != docker.mounts[1].source
-    assert docker.mounts[2].target == "/opt/securebench/codex-home/config.toml"
-    assert docker.mounts[2].read_only is True
-    assert docker.mounts[3].target == "/opt/securebench/codex-home/.codex/config.toml"
-    assert docker.mounts[3].read_only is True
     assert docker.commands[0][0].startswith("export HOME=")
     assert "codex --version" in docker.commands[0][0]
     assert "codex exec --model 'gpt-5.1-codex' --json" in docker.commands[1][0]
@@ -620,8 +615,8 @@ def test_codex_relay_config_selects_securebench_provider(tmp_path):
     assert 'web_search = "disabled"' in config
     assert "[tools]" in config
     assert "web_search = false" in config
-    assert "[features]" in config
-    assert "web_search_request = false" in config
+    assert "[features]" not in config
+    assert "web_search_request" not in config
     assert 'base_url = "http://securebench-provider-relay:8090/v1"' in config
     assert 'env_key = "OPENAI_API_KEY"' in config
     assert 'wire_api = "responses"' in config

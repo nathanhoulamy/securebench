@@ -56,8 +56,6 @@ CODEX_CONFIG_FIELDS = {
 }
 CODEX_OVERLAY_TARGET = "/opt/securebench/codex"
 CODEX_HOME_TARGET = "/opt/securebench/codex-home"
-CODEX_CONFIG_TARGET = f"{CODEX_HOME_TARGET}/config.toml"
-CODEX_DOT_CONFIG_TARGET = f"{CODEX_HOME_TARGET}/.codex/config.toml"
 CODEX_DEFAULT_VERSION = "latest"
 CODEX_DEFAULT_TASK_FILE = "task.json"
 CODEX_DEFAULT_TIMEOUT_SECONDS = 900.0
@@ -132,7 +130,6 @@ class CodexHarnessProducer(CandidateProducer):
             cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-")
             task_workspace = Path(cleanup.name)
         state_cleanup = None
-        config_cleanup = None
 
         try:
             task_workspace.mkdir(parents=True, exist_ok=True)
@@ -140,8 +137,6 @@ class CodexHarnessProducer(CandidateProducer):
             state_cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-home-")
             state_root = Path(state_cleanup.name)
             (state_root / ".codex").mkdir(parents=True, exist_ok=True)
-            config_cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-config-")
-            config_root = Path(config_cleanup.name)
             staging = HostSandbox(root=task_workspace)
             plan = self.materializer.materialize(task, staging, "agent")
             reject_task_file_collision(self.task_file, plan)
@@ -158,7 +153,7 @@ class CodexHarnessProducer(CandidateProducer):
                 if egress.provider_base_url is None:
                     raise ConfigError("codex provider relay did not provide a base URL")
                 write_codex_relay_config(
-                    config_root,
+                    state_root,
                     egress.provider_base_url,
                     allow_external_tools=self.allow_external_tools,
                 )
@@ -184,16 +179,6 @@ class CodexHarnessProducer(CandidateProducer):
                             source=state_root,
                             target=CODEX_HOME_TARGET,
                             read_only=False,
-                        ),
-                        DockerBindMount(
-                            source=config_root / "config.toml",
-                            target=CODEX_CONFIG_TARGET,
-                            read_only=True,
-                        ),
-                        DockerBindMount(
-                            source=config_root / ".codex" / "config.toml",
-                            target=CODEX_DOT_CONFIG_TARGET,
-                            read_only=True,
                         ),
                     ),
                     workspace_mount_target=workspace_mount_target,
@@ -269,8 +254,6 @@ class CodexHarnessProducer(CandidateProducer):
                 finally:
                     close_sandbox(sandbox)
         finally:
-            if config_cleanup is not None:
-                config_cleanup.cleanup()
             if state_cleanup is not None:
                 state_cleanup.cleanup()
             if cleanup is not None:
@@ -452,11 +435,6 @@ def write_codex_relay_config(
                 "",
                 "[tools]",
                 "web_search = false",
-                "",
-                "[features]",
-                "web_search = false",
-                "web_search_cached = false",
-                "web_search_request = false",
             ]
         )
     lines.extend(
