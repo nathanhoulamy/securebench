@@ -413,15 +413,21 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
     assert docker.kwargs["env"]["CODEX_API_KEY"] == "securebench-dummy-openai-api-key"
     assert "HTTPS_PROXY" not in docker.kwargs["env"]
     assert docker.kwargs["read_only"] is False
-    assert len(docker.mounts) == 2
+    assert len(docker.mounts) == 3
     assert docker.mounts[0].source == overlay_path
     assert docker.mounts[0].target == "/opt/securebench/codex"
     assert docker.mounts[0].read_only is True
     assert docker.mounts[1].target == "/opt/securebench/codex-home"
     assert docker.mounts[1].read_only is False
+    assert docker.mounts[2].source != docker.mounts[1].source
+    assert docker.mounts[2].target == "/opt/securebench/codex-config"
+    assert docker.mounts[2].read_only is True
     assert docker.commands[0][0].startswith("export HOME=")
     assert "codex --version" in docker.commands[0][0]
-    assert "codex exec --model 'gpt-5.1-codex' --json" in docker.commands[1][0]
+    assert "codex '-c' 'model_provider=\"securebench_openai\"'" in docker.commands[1][0]
+    assert "'-c' 'web_search=\"disabled\"'" in docker.commands[1][0]
+    assert "'-c' 'tools.web_search=false'" in docker.commands[1][0]
+    assert "exec --model 'gpt-5.1-codex' --json" in docker.commands[1][0]
     assert "--skip-git-repo-check" in docker.commands[1][0]
     assert "--dangerously-bypass-approvals-and-sandbox" in docker.commands[1][0]
     assert "/workspace/task.json" in docker.commands[1][0]
@@ -631,6 +637,27 @@ def test_codex_relay_config_keeps_web_search_enabled_when_external_tools_are_all
     assert 'web_search = "disabled"' not in config
     assert "[tools]" not in config
     assert "[features]" not in config
+
+
+def test_codex_relay_config_args_select_provider_and_disable_external_tools():
+    args = codex_harnesses.codex_relay_config_args("http://securebench-provider-relay:8090/v1")
+
+    assert "'-c' 'model_provider=\"securebench_openai\"'" in args
+    assert "'-c' 'model_providers.securebench_openai.base_url=\"http://securebench-provider-relay:8090/v1\"'" in args
+    assert "'-c' 'model_providers.securebench_openai.wire_api=\"responses\"'" in args
+    assert "'-c' 'web_search=\"disabled\"'" in args
+    assert "'-c' 'tools.web_search=false'" in args
+
+
+def test_codex_relay_config_args_keep_external_tools_enabled_when_allowed():
+    args = codex_harnesses.codex_relay_config_args(
+        "http://securebench-provider-relay:8090/v1",
+        allow_external_tools=True,
+    )
+
+    assert "model_provider" in args
+    assert "web_search" not in args
+    assert "tools.web_search" not in args
 
 
 def test_codex_shell_command_exports_codex_home():

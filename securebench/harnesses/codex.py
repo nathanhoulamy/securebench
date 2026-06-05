@@ -59,6 +59,7 @@ CODEX_CONFIG_FIELDS = {
 }
 CODEX_OVERLAY_TARGET = "/opt/securebench/codex"
 CODEX_HOME_TARGET = "/opt/securebench/codex-home"
+CODEX_CONFIG_TARGET = "/opt/securebench/codex-config"
 CODEX_DEFAULT_VERSION = "latest"
 CODEX_DEFAULT_TASK_FILE = "task.json"
 CODEX_DEFAULT_TIMEOUT_SECONDS = 900.0
@@ -150,6 +151,7 @@ class CodexHarnessProducer(CandidateProducer):
             cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-")
             task_workspace = Path(cleanup.name)
         state_cleanup = None
+        config_cleanup = None
 
         try:
             task_workspace.mkdir(parents=True, exist_ok=True)
@@ -157,6 +159,8 @@ class CodexHarnessProducer(CandidateProducer):
             state_cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-home-")
             state_root = Path(state_cleanup.name)
             (state_root / ".codex").mkdir(parents=True, exist_ok=True)
+            config_cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-config-")
+            config_root = Path(config_cleanup.name)
             staging = HostSandbox(root=task_workspace)
             plan = self.materializer.materialize(task, staging, "agent")
             reject_task_file_collision(self.task_file, plan)
@@ -173,7 +177,7 @@ class CodexHarnessProducer(CandidateProducer):
                 if egress.provider_base_url is None:
                     raise ConfigError("codex provider relay did not provide a base URL")
                 write_codex_relay_config(
-                    state_root,
+                    config_root,
                     egress.provider_base_url,
                     allow_external_tools=self.allow_external_tools,
                 )
@@ -199,6 +203,11 @@ class CodexHarnessProducer(CandidateProducer):
                             source=state_root,
                             target=CODEX_HOME_TARGET,
                             read_only=False,
+                        ),
+                        DockerBindMount(
+                            source=config_root,
+                            target=CODEX_CONFIG_TARGET,
+                            read_only=True,
                         ),
                     ),
                     workspace_mount_target=workspace_mount_target,
@@ -232,7 +241,8 @@ class CodexHarnessProducer(CandidateProducer):
                     )
                     result = sandbox.run(
                         codex_shell_command(
-                            f"codex exec --model {shell_quote(self.model)} --json --skip-git-repo-check "
+                            f"codex {codex_relay_config_args(egress.provider_base_url, allow_external_tools=self.allow_external_tools)} "
+                            f"exec --model {shell_quote(self.model)} --json --skip-git-repo-check "
                             f"--dangerously-bypass-approvals-and-sandbox "
                             f"{shell_quote(codex_prompt(task, task_file_for_agent))}"
                         ),
@@ -274,6 +284,8 @@ class CodexHarnessProducer(CandidateProducer):
                 finally:
                     close_sandbox(sandbox)
         finally:
+            if config_cleanup is not None:
+                config_cleanup.cleanup()
             if state_cleanup is not None:
                 state_cleanup.cleanup()
             if cleanup is not None:
@@ -475,6 +487,35 @@ def write_codex_relay_config(
     (dot_codex / "config.toml").write_text(content)
 
 
+def codex_relay_config_args(
+    base_url: str,
+    *,
+    allow_external_tools: bool = False,
+) -> str:
+    args = [
+        "-c",
+        f"model_provider={toml_string(CODEX_RELAY_PROVIDER_ID)}",
+        "-c",
+        f"model_providers.{CODEX_RELAY_PROVIDER_ID}.name={toml_string('SecureBench OpenAI Relay')}",
+        "-c",
+        f"model_providers.{CODEX_RELAY_PROVIDER_ID}.base_url={toml_string(base_url)}",
+        "-c",
+        f"model_providers.{CODEX_RELAY_PROVIDER_ID}.env_key={toml_string('OPENAI_API_KEY')}",
+        "-c",
+        f"model_providers.{CODEX_RELAY_PROVIDER_ID}.wire_api={toml_string('responses')}",
+    ]
+    if not allow_external_tools:
+        args.extend(
+            [
+                "-c",
+                'web_search="disabled"',
+                "-c",
+                "tools.web_search=false",
+            ]
+        )
+    return " ".join(shell_quote(arg) for arg in args)
+
+
 def codex_shell_command(inner: str) -> str:
     return (
         f"export HOME={shell_quote(CODEX_HOME_TARGET)}; "
@@ -556,3 +597,7 @@ def codex_prompt(task: SecureBenchTask, task_file: str) -> str:
 
 def shell_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def toml_string(value: str) -> str:
+    return json.dumps(value)
