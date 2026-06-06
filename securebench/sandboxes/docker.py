@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import selectors
 import subprocess
 import tempfile
@@ -18,6 +19,10 @@ from securebench.sandboxes.base import (
     timeout_command_result,
     timeout_output,
 )
+
+DOCKER_MEM_LIMIT_ENV = "SECUREBENCH_DOCKER_MEM_LIMIT"
+DOCKER_PIDS_LIMIT_ENV = "SECUREBENCH_DOCKER_PIDS_LIMIT"
+DOCKER_TMPFS_ENV = "SECUREBENCH_DOCKER_TMPFS"
 
 
 @dataclass(frozen=True)
@@ -59,9 +64,9 @@ class DockerSandbox(Sandbox):
         self.cap_drop = tuple(cap_drop)
         self.cap_add = tuple(cap_add)
         self.read_only = read_only
-        self.tmpfs = tuple(tmpfs)
-        self.mem_limit = mem_limit
-        self.pids_limit = pids_limit
+        self.tmpfs = _docker_tmpfs_override(tmpfs)
+        self.mem_limit = _docker_mem_limit_override(mem_limit)
+        self.pids_limit = _docker_pids_limit_override(pids_limit)
         self.security_opt = tuple(security_opt)
         self.mounts = tuple(mounts)
         self.workspace_mount_target = _docker_bind_mount_target(workspace_mount_target, allow_workspace_root=True)
@@ -492,3 +497,39 @@ def _docker_hardening_args(
     for option in security_opt:
         args.extend(["--security-opt", option])
     return tuple(args)
+
+
+def _docker_mem_limit_override(default: str | None) -> str | None:
+    value = os.environ.get(DOCKER_MEM_LIMIT_ENV)
+    if value is None or value == "":
+        return default
+    if value.lower() in {"none", "unlimited"}:
+        return None
+    return value
+
+
+def _docker_pids_limit_override(default: int | None) -> int | None:
+    value = os.environ.get(DOCKER_PIDS_LIMIT_ENV)
+    if value is None or value == "":
+        return default
+    if value.lower() in {"none", "unlimited"}:
+        return None
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ValueError(f"{DOCKER_PIDS_LIMIT_ENV} must be an integer, none, or unlimited") from exc
+    if parsed <= 0:
+        raise ValueError(f"{DOCKER_PIDS_LIMIT_ENV} must be positive")
+    return parsed
+
+
+def _docker_tmpfs_override(default: tuple[str, ...]) -> tuple[str, ...]:
+    value = os.environ.get(DOCKER_TMPFS_ENV)
+    if value is None or value == "":
+        return tuple(default)
+    if value.lower() in {"none", "disabled"}:
+        return ()
+    mounts = tuple(mount.strip() for mount in value.split(";") if mount.strip())
+    if not mounts:
+        raise ValueError(f"{DOCKER_TMPFS_ENV} must contain at least one tmpfs mount")
+    return mounts

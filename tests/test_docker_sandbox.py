@@ -76,6 +76,34 @@ def test_docker_sandbox_can_use_disposable_container_per_command(monkeypatch, tm
     assert seen["command"][-2:] == ["python", "--version"]
 
 
+def test_docker_sandbox_allows_limit_overrides_from_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("SECUREBENCH_DOCKER_MEM_LIMIT", "8g")
+    monkeypatch.setenv("SECUREBENCH_DOCKER_PIDS_LIMIT", "1024")
+    monkeypatch.setenv("SECUREBENCH_DOCKER_TMPFS", "/tmp:exec,size=2g;/run:size=64m")
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    sandbox = DockerSandbox(image="agent-image", root=tmp_path, persistent=False)
+    sandbox.run(["python", "--version"])
+
+    assert ["--memory", "8g"] == seen["command"][
+        seen["command"].index("--memory") : seen["command"].index("--memory") + 2
+    ]
+    assert ["--pids-limit", "1024"] == seen["command"][
+        seen["command"].index("--pids-limit") : seen["command"].index("--pids-limit") + 2
+    ]
+    tmpfs_indices = [index for index, value in enumerate(seen["command"]) if value == "--tmpfs"]
+    assert [seen["command"][index + 1] for index in tmpfs_indices] == [
+        "/tmp:exec,size=2g",
+        "/run:size=64m",
+    ]
+
+
 def test_docker_sandbox_forwards_stdin(monkeypatch, tmp_path):
     seen = {}
 
