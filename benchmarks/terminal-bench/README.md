@@ -1,6 +1,6 @@
-# Terminal-Bench First 10
+# Terminal-Bench
 
-First ten `original-tasks` from `harbor-framework/terminal-bench`, converted to SecureBench `terminal_task` rows.
+Ten `original-tasks` from `harbor-framework/terminal-bench`, converted to SecureBench `terminal_task` rows.
 
 Converted task IDs:
 
@@ -10,7 +10,7 @@ Converted task IDs:
 - `dna-assembly`
 - `gomoku-planner`
 - `implement-eigenvectors-from-eigenvalues-research-paper`
-- `swe-bench-astropy-1`
+- `jsonl-aggregator`
 - `regex-log`
 - `large-scale-text-editing`
 - `stable-parallel-kmeans`
@@ -29,8 +29,7 @@ tasks depend on image-prepared workdirs:
 
 - `implement-eigenvectors-from-eigenvalues-research-paper`: `/app` contains the
   cloned `quimb` repository and the PDF referenced by the prompt.
-- `swe-bench-astropy-1`: `/testbed` contains the checked-out Astropy repository
-  and its conda test environment.
+- `jsonl-aggregator`: `/app` contains the generated JSONL starter data files.
 - `large-scale-text-editing`: `/app` contains the generated starter CSV files.
 
 Those rows opt into `environment.materialize_workdir_from_image: true`, which
@@ -45,11 +44,9 @@ task image workdir when this flag is enabled. Use SecureBench `assets[]` for
 small intentional public files and `eval.*` resources under `hidden/` for
 verifier-only files.
 
-Eight Python-only checker wrappers use SecureBench's preferred `pytest` checker
-mode directly. The remaining hidden verifier scripts run without network access,
-so test-time downloads and package installs were moved into the task images.
-The Astropy task keeps its tester-provided regression test patch inside the
-hidden verifier script and applies it only when checking the candidate. The
+Nine Python-only checker wrappers use SecureBench's preferred `pytest` checker
+mode directly. The remaining hidden verifier script runs without network access,
+so test-time downloads and package installs were moved into the task image. The
 large CSV task regenerates `input.csv` during verification and creates
 `expected.csv` inside the hidden tests, so candidate code cannot rely on a
 modified workspace copy.
@@ -63,9 +60,9 @@ verifier sandbox. Agent sandboxes still run without this allowance.
 Build the local task images before running:
 
 ```bash
-for d in benchmarks/terminal-bench-first10/docker/*; do
+for d in benchmarks/terminal-bench/docker/*; do
   task=$(basename "$d")
-  docker build -t "securebench-terminal-bench-first10-${task}:latest" "$d"
+  docker build -t "securebench-terminal-bench-${task}:latest" "$d"
 done
 ```
 
@@ -73,6 +70,6 @@ Run with Codex:
 
 ```bash
 .venv/bin/python -m securebench.cli run \
-  --config benchmarks/terminal-bench-first10/tester-codex.yaml \
+  --config benchmarks/terminal-bench/tester-codex.yaml \
   --limit 10
 ```

@@ -1,10 +1,10 @@
-# SWE-bench Verified (Codex Smoke)
+# SWE-bench Verified
 
 This benchmark pack is intended to **test an actual agent run** via the `codex` harness.
 
 Pack notes:
 
-- Uses 10 SWE-bench Verified tasks.
+- Uses 5 deterministic random rows from the normalized SWE-bench Verified tasks in this repository.
 - **Removes the public `assets` mounts** that included gold solution patches (to avoid leaking the answer to the agent).
 - Provides a `tester-codex.yaml` run config targeting model `gpt-5.4-mini`.
 - Records each source row index in task metadata for reproducibility.

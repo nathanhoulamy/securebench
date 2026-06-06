@@ -23,8 +23,8 @@ def test_static_checks_pass_builtin_terminal_task_pack():
 
 def test_static_checks_warn_when_repo_patch_task_omits_allow_paths():
     pack = load_benchmark_pack(
-        "benchmarks/swe-bench-verified-codex-smoke/manifest.yaml",
-        "benchmarks/swe-bench-verified-codex-smoke/tasks.jsonl",
+        "benchmarks/swe-bench-verified/manifest.yaml",
+        "benchmarks/swe-bench-verified/tasks.jsonl",
     )
 
     findings = run_static_checks(StaticAuditContext(pack=pack, target="repo-patch", limit=1))

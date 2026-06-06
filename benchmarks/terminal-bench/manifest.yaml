@@ -1,11 +1,12 @@
-id: swe-bench-verified-codex-smoke
+id: terminal-bench
 version: 1
+
 defaults:
-  family: repo_patch
-  environment:
-    workdir: /testbed
+  family: terminal_task
+
 asset_roots:
   public: assets/
   eval: hidden/
+
 asset_defaults:
   read_only: true

@@ -16,13 +16,6 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e .
 ```
 
-Run the terminal-task smoke pack through the command harness:
-
-```bash
-.venv/bin/python -m securebench.cli run \
-  --config benchmarks/terminal-task-smoke/tester-command.yaml
-```
-
 For named provider harness runs, put the relevant provider key in `.env` on the
 host:
 
@@ -42,7 +35,7 @@ Then run a repo-patch pack:
 
 ```bash
 .venv/bin/python -m securebench.cli run \
-  --config benchmarks/deep-swe-first3/tester-codex.yaml \
+  --config benchmarks/deep-swe/tester-codex.yaml \
   --limit 1
 ```
 
@@ -55,19 +48,23 @@ workspaces are written under `runs/<run-id>/workspaces/`.
 schema_version: "0.2"
 
 run:
-  id: terminal-task-smoke-command
-  output_dir: ../../runs/terminal-task-smoke-command
+  id: terminal-bench-codex-gpt-5.4-mini
+  output_dir: ../../runs/terminal-bench-codex-gpt-5.4-mini
 
 benchmark:
   manifest: manifest.yaml
   tasks: tasks.jsonl
 
 harness:
-  type: command
+  type: codex
+  env:
+    - OPENAI_API_KEY
   config:
-    command: "python3 - <<'PY'\nfrom pathlib import Path\nPath('output.txt').write_text('securebench terminal task\\n')\nPY"
+    model: gpt-5.4-mini
+    version: latest
     task_file: task.json
-    timeout_seconds: 300
+    timeout_seconds: 900
+    allow_external_tools: false
 ```
 
 The CLI loads `.env` by default. Use `--env-file path/to/.env` when needed.

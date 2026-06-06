@@ -1,12 +1,11 @@
-id: terminal-bench-first10
+id: swe-bench-verified
 version: 1
-
 defaults:
-  family: terminal_task
-
+  family: repo_patch
+  environment:
+    workdir: /testbed
 asset_roots:
   public: assets/
   eval: hidden/
-
 asset_defaults:
   read_only: true

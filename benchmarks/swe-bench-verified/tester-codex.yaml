@@ -1,16 +1,12 @@
 schema_version: "0.2"
 
 run:
-  id: terminal-bench-first10-codex-gpt-5.4-mini
-  output_dir: ../../runs/terminal-bench-first10-codex-gpt-5.4-mini
+  id: swe-bench-verified-codex-gpt-5.4-mini
+  output_dir: ../../runs/swe-bench-verified-codex-gpt-5.4-mini
 
 benchmark:
   manifest: manifest.yaml
   tasks: tasks.jsonl
-
-verification:
-  disallow_dangerous_commands: false
-  deny_commands: []
 
 harness:
   type: codex

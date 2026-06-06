@@ -1,8 +1,8 @@
-# DeepSWE First 3
+# Deep SWE
 
-Three `repo_patch` tasks derived from the first three rows in Datacurve's DeepSWE `tasks/manifest.json`.
+Five deterministic random `repo_patch` tasks derived from Datacurve's Deep SWE task repository.
 
-Source: https://github.com/datacurve-ai/deep-swe at `2f0f41255912c9199a1dafa405ca068cd903624b`.
+Source: https://github.com/datacurve-ai/deep-swe at `578129c4334f6656a92a1c629af63a530596f169`.
 
 Pack notes:
 
