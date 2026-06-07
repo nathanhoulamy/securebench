@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal, Protocol
@@ -346,7 +347,27 @@ def _copy_materialized_resource(item: MaterializedResource, target: Materializat
 
 def _write_materialized_file(item: MaterializedResource, target: MaterializationTarget, content: str | bytes) -> None:
     _reject_existing_non_public_target(item, target)
+    _remove_existing_public_target(item, target)
     target.write_file(item.relative_path, content)
+
+
+def _remove_existing_public_target(item: MaterializedResource, target: MaterializationTarget) -> None:
+    if item.visibility != "public":
+        return
+    root = getattr(target, "root", None)
+    if root is None:
+        return
+    relative_path = PurePosixPath(item.relative_path)
+    if relative_path.is_absolute() or ".." in relative_path.parts:
+        raise MaterializationError(f"materialized path escapes root: {item.relative_path}")
+    host_path = Path(root).joinpath(*relative_path.parts)
+    root_resolved = Path(root).resolve()
+    if not host_path.parent.resolve().is_relative_to(root_resolved):
+        raise MaterializationError(f"materialized path escapes root: {item.relative_path}")
+    if host_path.is_symlink() or host_path.is_file():
+        host_path.unlink()
+    elif host_path.exists():
+        shutil.rmtree(host_path)
 
 
 def _reject_existing_non_public_target(item: MaterializedResource, target: MaterializationTarget) -> None:

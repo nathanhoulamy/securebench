@@ -78,6 +78,36 @@ def test_non_public_json_materialization_rejects_existing_hardlink_alias(tmp_pat
     assert alias_path.read_text() == "candidate-controlled"
 
 
+def test_public_materialization_replaces_candidate_symlink_without_following_it(tmp_path):
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside.txt"
+    target_path = workspace / "securebench" / "public" / "prompt.json"
+    target_path.parent.mkdir(parents=True)
+    outside.write_text("candidate-controlled")
+    target_path.symlink_to(outside)
+
+    ResourceMaterializer().materialize(make_bundle(), HostSandbox(root=workspace), "agent")
+
+    assert not target_path.is_symlink()
+    assert target_path.read_text() == '"solve"\n'
+    assert outside.read_text() == "candidate-controlled"
+
+
+def test_non_public_materialization_rejects_existing_symlink(tmp_path):
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside.txt"
+    target_path = workspace / "securebench" / "evaluation_inputs" / "cases.json"
+    target_path.parent.mkdir(parents=True)
+    outside.write_text("candidate-controlled")
+    target_path.symlink_to(outside)
+
+    with pytest.raises(MaterializationError, match="already exists"):
+        ResourceMaterializer().materialize(make_bundle(), HostSandbox(root=workspace), "test_sandbox")
+
+    assert target_path.is_symlink()
+    assert outside.read_text() == "candidate-controlled"
+
+
 def test_evaluator_materialization_uses_current_evaluator_visibility_semantics():
     target = FakeTarget()
 
