@@ -1,0 +1,17 @@
+run:
+  id: review-external-agent-example
+  output_dir: ../runs/external-agent-example
+
+benchmark:
+  manifest: ../../benchmarks/audit/terminal-task/manifest.yaml
+  tasks: ../../benchmarks/audit/terminal-task/tasks.jsonl
+  limit: 1
+
+adversary:
+  mode: external
+  profile: leak_probe
+  command:
+    - python3
+    - -c
+    - "import json, os, pathlib; pathlib.Path(os.environ['REVIEW_TRACE_FILE']).write_text(json.dumps({'profile':'external-example','actions':['external command ran'],'observations':[],'errors':[],'violations':[]}) + '\\n')"
+  timeout_seconds: 120

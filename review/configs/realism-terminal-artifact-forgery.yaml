@@ -1,0 +1,17 @@
+run:
+  id: review-realism-terminal-artifact-forgery
+  output_dir: ../runs/realism-terminal-artifact-forgery
+
+benchmark:
+  manifest: ../../benchmarks/terminal-bench/manifest.yaml
+  tasks: ../tasks/realism/terminal-bench-jsonl-aggregator.jsonl
+
+adversary:
+  mode: live_openai
+  profile: artifact_forgery
+  timeout_seconds: 600
+  max_steps: 4
+
+provider:
+  model: gpt-5.4-mini
+  allow_external_tools: false

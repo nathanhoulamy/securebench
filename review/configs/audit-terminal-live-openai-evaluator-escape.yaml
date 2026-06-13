@@ -1,0 +1,17 @@
+run:
+  id: review-audit-terminal-live-openai-evaluator-escape
+  output_dir: ../runs/audit-terminal-live-openai-evaluator-escape
+
+benchmark:
+  manifest: ../../benchmarks/audit/terminal-task/manifest.yaml
+  tasks: ../../benchmarks/audit/terminal-task/tasks.jsonl
+
+adversary:
+  mode: live_openai
+  profile: evaluator_escape
+  timeout_seconds: 180
+  max_steps: 4
+
+provider:
+  model: gpt-5.4-mini
+  allow_external_tools: false

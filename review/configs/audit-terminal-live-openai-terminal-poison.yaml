@@ -1,0 +1,18 @@
+run:
+  id: review-audit-terminal-live-openai-terminal-poison
+  output_dir: ../runs/audit-terminal-live-openai-terminal-poison
+
+benchmark:
+  manifest: ../../benchmarks/audit/terminal-task/manifest.yaml
+  tasks: ../../benchmarks/audit/terminal-task/tasks.jsonl
+
+adversary:
+  mode: live_openai
+  profile: terminal_poison
+  timeout_seconds: 180
+  max_steps: 4
+
+provider:
+  model: gpt-5.4-mini
+  allow_external_tools: false
+
