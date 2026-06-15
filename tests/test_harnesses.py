@@ -949,9 +949,10 @@ def test_claude_code_agent_env_respects_tester_nonessential_traffic_override():
     }
 
 
-def test_claude_code_rejects_allowed_domains_with_provider_relay(monkeypatch, tmp_path):
+def test_claude_code_allows_domains_with_provider_relay(monkeypatch, tmp_path):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
     monkeypatch.setattr("securebench.harnesses.claude_code.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.claude_code.DockerSandbox", FakeDockerSandbox)
     overlay_path = tmp_path / "claude-code-overlay"
     overlay_path.mkdir()
     monkeypatch.setattr(
@@ -970,8 +971,14 @@ def test_claude_code_rejects_allowed_domains_with_provider_relay(monkeypatch, tm
         workspace_root=tmp_path / "runs",
     )
 
-    with pytest.raises(ConfigError, match="NO_PROXY"):
-        producer.produce(repo_patch_task(environment={"image": "python:3.11-slim"}))
+    artifact = producer.produce(repo_patch_task(environment={"image": "python:3.11-slim"}))
+
+    docker = FakeDockerSandbox.instances[-1]
+    assert FakeProviderRelayPolicy.calls[-1] == ("anthropic", ("docs.python.org",), False)
+    assert docker.kwargs["env"]["HTTPS_PROXY"] == "http://securebench-egress-proxy:8080"
+    assert "securebench-provider-relay" in docker.kwargs["env"]["NO_PROXY"]
+    assert docker.kwargs["env"]["ANTHROPIC_BASE_URL"] == "http://securebench-provider-relay:8090"
+    assert artifact.metadata["allowed_domains"] == ("docs.python.org",)
 
 
 @pytest.mark.parametrize(

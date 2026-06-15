@@ -160,7 +160,6 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
             overlay = claude_code_overlay_for_image(image, self.version)
             workspace_mount_target = workspace_mount_target_for_task(task)
             allowed_domains = effective_allowed_domains("claude_code", self.allowed_domains)
-            reject_claude_code_allowed_domains_with_relay(allowed_domains)
             with docker_provider_relay_policy(
                 CLAUDE_CODE_PROVIDER_RELAY_SPEC,
                 allowed_domains,
@@ -399,14 +398,6 @@ def claude_code_agent_env(
     if CLAUDE_CODE_DISABLE_AUTOUPDATER not in env_names:
         env[CLAUDE_CODE_DISABLE_AUTOUPDATER] = "1"
     return env
-
-
-def reject_claude_code_allowed_domains_with_relay(allowed_domains: tuple[str, ...]) -> None:
-    if allowed_domains:
-        raise ConfigError(
-            "claude_code harness cannot combine provider relay with harness.config.allowed_domains yet: "
-            "Claude Code does not honor NO_PROXY, so generic proxy egress would intercept provider relay traffic"
-        )
 
 
 def claude_code_shell_command(inner: str) -> str:

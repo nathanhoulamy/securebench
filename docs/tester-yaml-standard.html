@@ -247,8 +247,6 @@ verification:
 
 harness:
   type: codex
-  env:
-    - OPENAI_API_KEY
   config:
     model: gpt-5.4-mini
     version: latest
@@ -275,12 +273,10 @@ harness:
         <div class="mini-card"><h3>codex</h3><p>SecureBench runs Codex inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state. Provider API traffic goes through a SecureBench relay that keeps the real key outside the agent container.</p></div>
         <div class="mini-card"><h3>claude_code</h3><p>SecureBench runs Claude Code inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state. Provider API traffic goes through a SecureBench relay that keeps the real key outside the agent container.</p></div>
       </div>
-      <div class="note"><strong>Network controls:</strong> <code>allowed_domains</code> controls generic agent-container egress, not provider-hosted web search. Provider-hosted external tools stay blocked unless <code>allow_external_tools: true</code> is set. In v1, <code>claude_code</code> rejects non-empty <code>allowed_domains</code> because Claude Code does not reliably honor <code>NO_PROXY</code> for the provider relay path.</div>
+      <div class="note"><strong>Network controls:</strong> <code>allowed_domains</code> controls generic agent-container egress, not provider-hosted web search. Provider-hosted external tools stay blocked unless <code>allow_external_tools: true</code> is set. Claude Code <code>allowed_domains</code> relies on the CLI honoring its documented <code>NO_PROXY</code> behavior so provider relay traffic bypasses the generic egress proxy.</div>
       <pre class="schema"># Codex tooling overlay
 harness:
   type: codex
-  env:
-    - OPENAI_API_KEY
   config:
     model: gpt-5.4-mini
     allow_external_tools: false

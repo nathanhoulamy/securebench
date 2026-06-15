@@ -10,8 +10,6 @@ benchmark:
 
 harness:
   type: codex
-  env:
-    - OPENAI_API_KEY
   config:
     model: gpt-5.4-mini
     version: latest
