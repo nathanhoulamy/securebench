@@ -7,6 +7,7 @@ import re
 from pathlib import PurePosixPath
 from typing import Any, Callable
 
+from securebench.dangerous_commands import parse_verification_policy
 from securebench.errors import ConfigError
 from securebench.harnesses.shared import environment_image_for_task
 from securebench.sandboxes import CommandResult, DockerSandbox, Sandbox
@@ -83,6 +84,7 @@ class RepoPatchVerifier(Verifier):
         image = environment_image_for_task(task)
         workdir = tests.workdir or environment_workdir_for_task(task)
         timeout = float(context.get("timeout_seconds", tests.timeout_seconds or self.timeout_seconds))
+        verification_policy = parse_verification_policy(context.get("verification_policy"))
         policy_decision = evaluate_candidate_patch_policy(candidate, policy)
         if not candidate.strip():
             return _failed_result(
@@ -94,7 +96,7 @@ class RepoPatchVerifier(Verifier):
                 CommandResult(("candidate_patch",), 1, "", "empty candidate patch"),
                 failure_reason="empty_candidate_patch",
             )
-        sandbox = self._sandbox(image)
+        sandbox = self._sandbox(image, network="bridge" if verification_policy.allow_network else "none")
         close_sandbox = self.sandbox_factory is None
         try:
             return self._verify_in_sandbox(
@@ -297,12 +299,12 @@ class RepoPatchVerifier(Verifier):
             },
         )
 
-    def _sandbox(self, image: str) -> Sandbox:
+    def _sandbox(self, image: str, *, network: str = "none") -> Sandbox:
         if self.sandbox_factory is not None:
-            return self.sandbox_factory(image=image)
+            return self.sandbox_factory(image=image, network=network)
         return DockerSandbox(
             image=image,
-            network="none",
+            network=network,
             read_only=False,
             workspace_mount_target=self.workspace_mount_target,
         )

@@ -76,6 +76,7 @@ class TerminalTaskVerifier(Verifier):
             image,
             workspace_root,
             plan,
+            network="bridge" if verification_policy.allow_network else "none",
             cap_add=dangerous_command_decision.cap_add,
         )
         close_sandbox = self.sandbox_factory is None
@@ -118,10 +119,11 @@ class TerminalTaskVerifier(Verifier):
         workspace_root: Path,
         plan: Any,
         *,
+        network: str = "none",
         cap_add: tuple[str, ...] = (),
     ) -> Sandbox:
         if self.sandbox_factory is not None:
-            kwargs: dict[str, Any] = {"image": image, "root": workspace_root}
+            kwargs: dict[str, Any] = {"image": image, "root": workspace_root, "network": network}
             if cap_add:
                 kwargs["cap_add"] = cap_add
             return self.sandbox_factory(**kwargs)
@@ -131,7 +133,7 @@ class TerminalTaskVerifier(Verifier):
         return DockerSandbox(
             image=image,
             root=workspace_root,
-            network="none",
+            network=network,
             read_only=False,
             mounts=(
                 *docker_read_only_mounts(plan, workspace_root),

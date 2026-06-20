@@ -19,6 +19,7 @@ class VerificationPolicy:
 
     disallow_dangerous_commands: bool = True
     deny_commands: tuple[str, ...] = ()
+    allow_network: bool = False
 
 
 @dataclass(frozen=True)
@@ -38,15 +39,19 @@ def parse_verification_policy(value: Any, *, field: str = "verification") -> Ver
         return VerificationPolicy()
     if not isinstance(value, dict):
         raise ConfigError(f"{field} must be an object")
-    _reject_unknown_fields(value, {"disallow_dangerous_commands", "deny_commands"}, field)
+    _reject_unknown_fields(value, {"disallow_dangerous_commands", "deny_commands", "allow_network"}, field)
 
     disallow = value.get("disallow_dangerous_commands", True)
     if not isinstance(disallow, bool):
         raise ConfigError(f"{field}.disallow_dangerous_commands must be a boolean")
+    allow_network = value.get("allow_network", False)
+    if not isinstance(allow_network, bool):
+        raise ConfigError(f"{field}.allow_network must be a boolean")
 
     return VerificationPolicy(
         disallow_dangerous_commands=disallow,
         deny_commands=dangerous_command_list(value.get("deny_commands"), f"{field}.deny_commands"),
+        allow_network=allow_network,
     )
 
 

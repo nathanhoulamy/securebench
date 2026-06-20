@@ -1,61 +1,29 @@
-# Terminal-Bench
+# Terminal-Bench 2.0
 
-Ten `original-tasks` from `harbor-framework/terminal-bench`, converted to SecureBench `terminal_task` rows.
+This benchmark pack ports all 89 tasks from `harbor-framework/terminal-bench-2`
+to SecureBench `terminal_task` rows.
 
-Converted task IDs:
+Pack notes:
 
-- `path-tracing`
-- `model-extraction-relu-logits`
-- `video-processing`
-- `dna-assembly`
-- `gomoku-planner`
-- `implement-eigenvectors-from-eigenvalues-research-paper`
-- `jsonl-aggregator`
-- `regex-log`
-- `large-scale-text-editing`
-- `stable-parallel-kmeans`
+- Uses the upstream Terminal-Bench 2.0 task order from commit
+  `2fd12b88aafdd04a52c298e3940bcb189f9766d6`.
+- Copies each upstream `environment/` directory to `docker/<task>/`.
+- Copies upstream `tests/` into SecureBench hidden evaluator assets.
+- Omits upstream `solution/` directories from the benchmark pack.
+- Enables `environment.materialize_workdir_from_image` for every row, because
+  Terminal-Bench task images place starter files in `/app`.
 
-Rows that rely on files generated inside the task image use
-`environment.materialize_workdir_from_image: true`; SecureBench copies the image
-workdir into the mounted workspace before the harness runs.
+Regenerate the pack from a local checkout:
 
-## Conversion Notes
+```bash
+python3 tools/import_terminal_bench_2.py --source /path/to/terminal-bench-2
+```
 
-SecureBench runs terminal tasks by mounting a host workspace over the configured
-container `environment.workdir`. That is fine for tasks whose starter files are
-declared as public assets, but it hides any files that the upstream
-Terminal-Bench image placed in the workdir at build time. Three of these ten
-tasks depend on image-prepared workdirs:
+Or let the importer clone the pinned upstream revision:
 
-- `implement-eigenvectors-from-eigenvalues-research-paper`: `/app` contains the
-  cloned `quimb` repository and the PDF referenced by the prompt.
-- `jsonl-aggregator`: `/app` contains the generated JSONL starter data files.
-- `large-scale-text-editing`: `/app` contains the generated starter CSV files.
-
-Those rows opt into `environment.materialize_workdir_from_image: true`, which
-asks the harness to copy the image workdir into the host workspace before
-mounting that workspace into the agent container. This preserves the upstream
-task shape without changing the dataset prompt or requiring agents to download
-setup files at runtime.
-
-Materialized image workdirs are public starter state. Do not place hidden tests,
-answers, credentials, provider configuration, or trusted verifier artifacts in a
-task image workdir when this flag is enabled. Use SecureBench `assets[]` for
-small intentional public files and `eval.*` resources under `hidden/` for
-verifier-only files.
-
-Nine Python-only checker wrappers use SecureBench's preferred `pytest` checker
-mode directly. The remaining hidden verifier script runs without network access,
-so test-time downloads and package installs were moved into the task image. The
-large CSV task regenerates `input.csv` during verification and creates
-`expected.csv` inside the hidden tests, so candidate code cannot rely on a
-modified workspace copy.
-
-The `path-tracing` checker uses `chroot` to run the compiled candidate program
-without access to the reference image. That row declares
-`eval.needed_commands: ["chroot"]`; the provided Codex tester config opts into
-dangerous verifier commands so SecureBench grants `SYS_CHROOT` only to the
-verifier sandbox. Agent sandboxes still run without this allowance.
+```bash
+python3 tools/import_terminal_bench_2.py
+```
 
 Build the local task images before running:
 
@@ -73,3 +41,10 @@ Run with Codex:
   --config benchmarks/terminal-bench/tester-codex.yaml \
   --limit 10
 ```
+
+Verifier note: upstream Terminal-Bench 2.0 `test.sh` scripts are adapted to use
+SecureBench's hidden evaluator mount path and verifier log directory. Many
+upstream scripts still use `uvx` to provision checker dependencies, so
+`tester-codex.yaml` sets `verification.allow_network: true` for verifier-only
+dependency downloads. Agent sandboxes remain governed by the harness network
+policy.

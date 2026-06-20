@@ -92,12 +92,14 @@ def test_parse_tester_config_accepts_verification_policy():
             verification={
                 "disallow_dangerous_commands": False,
                 "deny_commands": ["chroot"],
+                "allow_network": True,
             }
         )
     )
 
     assert config.verification.disallow_dangerous_commands is False
     assert config.verification.deny_commands == ("chroot",)
+    assert config.verification.allow_network is True
 
 
 def test_load_tester_config_resolves_relative_paths_against_config_file(tmp_path):
@@ -151,6 +153,10 @@ harness:
         (
             {"verification": {"deny_commands": ["mount"]}},
             "verification.deny_commands\\[0\\] must be one of",
+        ),
+        (
+            {"verification": {"allow_network": "yes"}},
+            "verification.allow_network must be a boolean",
         ),
         ({"run": {"id": "x", "output_dir": "runs/x", "limit": 1}}, "run contains unsupported field"),
         (

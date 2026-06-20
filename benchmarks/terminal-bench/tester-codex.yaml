@@ -9,6 +9,7 @@ benchmark:
   tasks: tasks.jsonl
 
 verification:
+  allow_network: true
   disallow_dangerous_commands: false
   deny_commands: []
 

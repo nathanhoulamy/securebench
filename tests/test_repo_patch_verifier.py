@@ -378,7 +378,26 @@ def test_repo_patch_verifier_does_not_mount_trusted_eval_patches():
     result = verifier.verify(make_task(), "diff --git a/app.py b/app.py\n")
 
     assert result.status == "passed"
-    assert created == {"image": "repo-image:latest"}
+    assert created == {"image": "repo-image:latest", "network": "none"}
+
+
+def test_repo_patch_verifier_allows_network_when_tester_opts_in():
+    created = {}
+
+    def sandbox_factory(**kwargs):
+        created.update(kwargs)
+        return FakeSandbox()
+
+    verifier = RepoPatchVerifier(sandbox_factory=sandbox_factory)
+
+    result = verifier.verify(
+        make_task(),
+        "diff --git a/app.py b/app.py\n",
+        verification_policy={"allow_network": True},
+    )
+
+    assert result.status == "passed"
+    assert created == {"image": "repo-image:latest", "network": "bridge"}
 
 
 def test_repo_patch_verifier_applies_trusted_patches_over_stdin_without_workspace_copy():

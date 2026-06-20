@@ -314,6 +314,7 @@ def test_terminal_task_verifier_mounts_app_workspace(monkeypatch, tmp_path):
 
     assert result.passed is True
     assert created["workspace_mount_target"] == "/app"
+    assert created["network"] == "none"
     assert "cap_drop" not in created
 
 
@@ -379,6 +380,26 @@ def test_terminal_task_verifier_allows_declared_chroot_when_tester_opts_in(monke
 
     assert result.passed is True
     assert created["cap_add"] == ("SYS_CHROOT",)
+
+
+def test_terminal_task_verifier_allows_network_when_tester_opts_in(monkeypatch, tmp_path):
+    created = {}
+
+    class CapturingSandbox(FakeSandbox):
+        def __init__(self, **kwargs):
+            created.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr("securebench.verifiers.terminal_task.DockerSandbox", CapturingSandbox)
+
+    result = TerminalTaskVerifier().verify(
+        terminal_task(tmp_path),
+        str(tmp_path),
+        verification_policy=VerificationPolicy(allow_network=True),
+    )
+
+    assert result.passed is True
+    assert created["network"] == "bridge"
 
 
 def test_terminal_task_verifier_tester_deny_overrides_dangerous_command_opt_in(monkeypatch, tmp_path):

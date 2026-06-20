@@ -20,15 +20,11 @@ def test_swe_bench_verified_pack_loads_and_compiles():
     rows = pack.load_rows()
     tasks = list(compile_benchmark_pack(pack))
 
-    assert len(rows) == 5
-    assert [row.id for row in rows] == [
-        "matplotlib__matplotlib-25775",
-        "scikit-learn__scikit-learn-26323",
-        "astropy__astropy-12907",
-        "django__django-12741",
-        "sympy__sympy-21847",
-    ]
+    assert len(rows) == 500
+    assert rows[0].id == "astropy__astropy-12907"
+    assert rows[-1].id == "sympy__sympy-24661"
     assert all(row.family == "repo_patch" for row in rows)
+    assert all(row.metadata["source_dataset"] == "SWE-bench/SWE-bench_Verified" for row in rows)
     assert all(task.task_type == "repo_patch" for task in tasks)
     assert all(task.metadata["environment"]["workdir"] == "/testbed" for task in tasks)
 
@@ -42,6 +38,7 @@ def test_swe_bench_verified_tester_yaml_uses_codex():
     assert config.harness.type == "codex"
     assert config.harness.config["model"] == "gpt-5.4-mini"
     assert config.harness.config["allow_external_tools"] is False
+    assert config.verification.allow_network is False
 
 
 def test_deep_swe_pack_loads_and_compiles():
@@ -78,6 +75,7 @@ def test_deep_swe_tester_yaml_uses_codex():
     assert config.harness.type == "codex"
     assert config.harness.config["model"] == "gpt-5.4-mini"
     assert config.harness.config["allow_external_tools"] is False
+    assert config.verification.allow_network is False
 
 
 def test_terminal_bench_pack_loads_and_compiles():
@@ -89,13 +87,14 @@ def test_terminal_bench_pack_loads_and_compiles():
     rows = pack.load_rows()
     tasks = list(compile_benchmark_pack(pack))
 
-    assert len(rows) == 10
+    assert len(rows) == 89
     assert rows[0].id == "terminal-bench/path-tracing"
-    assert rows[-1].id == "terminal-bench/stable-parallel-kmeans"
+    assert rows[-1].id == "terminal-bench/financial-document-processor"
     assert all(row.family == "terminal_task" for row in rows)
+    assert all(row.metadata["source_dataset"] == "Terminal-Bench 2.0" for row in rows)
     assert all(task.task_type == "terminal_task" for task in tasks)
     assert all("checker" not in task.agent_payload() for task in tasks)
-    assert any(
+    assert all(
         task.metadata["environment"].get("materialize_workdir_from_image") is True
         for task in tasks
     )
@@ -110,3 +109,4 @@ def test_terminal_bench_tester_yaml_uses_codex_harness():
     assert config.harness.type == "codex"
     assert config.harness.config["model"] == "gpt-5.4-mini"
     assert config.harness.config["allow_external_tools"] is False
+    assert config.verification.allow_network is True
