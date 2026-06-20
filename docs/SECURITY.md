@@ -37,10 +37,10 @@ is part of the experiment.
 `allowed_domains` controls generic agent-container egress, not provider-hosted
 web search. Provider-hosted web tools remain blocked by default and, if enabled,
 run inside the provider rather than through SecureBench's generic egress proxy.
-For v1, Claude Code cannot combine provider relay with non-empty
-`harness.config.allowed_domains` because Claude Code does not reliably honor
-`NO_PROXY`; SecureBench rejects that configuration rather than risk proxying
-provider API traffic through the generic egress sidecar.
+Claude Code `allowed_domains` relies on the CLI honoring its documented
+`NO_PROXY` behavior so provider relay traffic to `securebench-provider-relay`
+bypasses the generic egress proxy. Re-run an integration check with a real
+Anthropic key when changing Claude Code networking or proxy handling.
 
 ## Repo Patch
 

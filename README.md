@@ -57,8 +57,6 @@ benchmark:
 
 harness:
   type: codex
-  env:
-    - OPENAI_API_KEY
   config:
     model: gpt-5.4-mini
     version: latest
@@ -68,6 +66,9 @@ harness:
 ```
 
 The CLI loads `.env` by default. Use `--env-file path/to/.env` when needed.
+Provider key names do not need to appear in `harness.env`; provider harnesses
+replace them with dummy values in the agent container and use the host key only
+inside the framework-owned relay.
 
 ## Development
 
