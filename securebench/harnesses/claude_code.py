@@ -46,7 +46,7 @@ from securebench.harnesses.network import (
     docker_provider_relay_policy,
     effective_allowed_domains,
     relay_decision_summary,
-    require_provider_key,
+    require_provider_credential,
 )
 from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
@@ -58,6 +58,7 @@ from securebench.workspaces.materialization import (
 
 
 CLAUDE_CODE_CONFIG_FIELDS = {
+    "auth",
     "model",
     "version",
     "task_file",
@@ -74,30 +75,49 @@ CLAUDE_CODE_DEFAULT_TIMEOUT_SECONDS = 900.0
 CLAUDE_CODE_RUNTIME_NODE_IMAGE = "node:22-bookworm"
 CLAUDE_CODE_PROVIDER = "anthropic"
 CLAUDE_CODE_PROVIDER_UPSTREAM_HOST = "api.anthropic.com"
-CLAUDE_CODE_PROVIDER_ENV_NAMES = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"}
+CLAUDE_CODE_PROVIDER_ENV_NAMES = {
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+}
+CLAUDE_CODE_AUTH_MODES = {"api_key", "subscription"}
+CLAUDE_CODE_DEFAULT_AUTH_MODE = "api_key"
 CLAUDE_CODE_DUMMY_API_KEY = "securebench-dummy-anthropic-api-key"
+CLAUDE_CODE_DUMMY_OAUTH_TOKEN = "sk-ant-oat01-securebench-dummy-oauth-token"
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"
 CLAUDE_CODE_DISABLE_AUTOUPDATER = "DISABLE_AUTOUPDATER"
+CLAUDE_CODE_BLOCKED_TOOL_TYPES = (
+    "mcp",
+    "mcp_tool",
+    "mcp_connector",
+    "code_execution",
+    "web_search",
+    "web_fetch",
+    "server_tool",
+)
+CLAUDE_CODE_BLOCKED_TOOL_PREFIXES = (
+    "web_search_",
+    "web_fetch_",
+    "code_execution_",
+    "computer_use_",
+)
 CLAUDE_CODE_PROVIDER_RELAY_SPEC = ProviderRelaySpec(
     provider=CLAUDE_CODE_PROVIDER,
     upstream_host=CLAUDE_CODE_PROVIDER_UPSTREAM_HOST,
-    api_key_env="ANTHROPIC_API_KEY",
+    credential_env="ANTHROPIC_API_KEY",
+    credential_kind="x-api-key",
     base_url=f"http://{PROVIDER_RELAY_ALIAS}:{PROVIDER_RELAY_PORT}",
-    blocked_tool_types=(
-        "mcp",
-        "mcp_tool",
-        "mcp_connector",
-        "code_execution",
-        "web_search",
-        "web_fetch",
-        "server_tool",
-    ),
-    blocked_tool_prefixes=(
-        "web_search_",
-        "web_fetch_",
-        "code_execution_",
-        "computer_use_",
-    ),
+    blocked_tool_types=CLAUDE_CODE_BLOCKED_TOOL_TYPES,
+    blocked_tool_prefixes=CLAUDE_CODE_BLOCKED_TOOL_PREFIXES,
+)
+CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC = ProviderRelaySpec(
+    provider=CLAUDE_CODE_PROVIDER,
+    upstream_host=CLAUDE_CODE_PROVIDER_UPSTREAM_HOST,
+    credential_env="CLAUDE_CODE_OAUTH_TOKEN",
+    credential_kind="bearer",
+    base_url=f"http://{PROVIDER_RELAY_ALIAS}:{PROVIDER_RELAY_PORT}",
+    blocked_tool_types=CLAUDE_CODE_BLOCKED_TOOL_TYPES,
+    blocked_tool_prefixes=CLAUDE_CODE_BLOCKED_TOOL_PREFIXES,
 )
 
 
@@ -114,6 +134,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
     def __init__(
         self,
         *,
+        auth: str = CLAUDE_CODE_DEFAULT_AUTH_MODE,
         model: str = CLAUDE_CODE_DEFAULT_MODEL,
         env_names: tuple[str, ...] = (),
         version: str = CLAUDE_CODE_DEFAULT_VERSION,
@@ -123,6 +144,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
         allow_external_tools: bool = False,
         workspace_root: str | Path | None = None,
     ) -> None:
+        self.auth = claude_code_auth_mode(auth)
         self.model = claude_code_model(model)
         self.env_names = claude_code_env_names(env_names)
         self.version = claude_code_version(version)
@@ -135,7 +157,8 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
 
     def produce(self, task: SecureBenchTask, **context: Any) -> CandidateArtifact:
         image = container_image_for_task(task)
-        require_provider_key(CLAUDE_CODE_PROVIDER_RELAY_SPEC)
+        relay_spec = claude_code_provider_relay_spec(self.auth)
+        require_provider_credential(relay_spec)
         require_env_names(self.env_names, "claude_code")
         task_workspace = workspace_root(
             task,
@@ -161,7 +184,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
             workspace_mount_target = workspace_mount_target_for_task(task)
             allowed_domains = effective_allowed_domains("claude_code", self.allowed_domains)
             with docker_provider_relay_policy(
-                CLAUDE_CODE_PROVIDER_RELAY_SPEC,
+                relay_spec,
                 allowed_domains,
                 allow_external_tools=self.allow_external_tools,
             ) as egress:
@@ -175,6 +198,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                         egress.env,
                         egress.provider_base_url,
                         self.env_names,
+                        auth=self.auth,
                     ),
                     network=egress.network,
                     read_only=False,
@@ -246,6 +270,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                             "benchmark_environment_image": image,
                             "claude_code_version": overlay.version,
                             "claude_code_model": self.model,
+                            "auth_mode": self.auth,
                             "overlay_platform": overlay.platform.docker_platform,
                             "overlay_cache_path": str(overlay.path),
                             "allowed_domains": allowed_domains,
@@ -269,6 +294,9 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
 def claude_code_config(config: dict[str, Any]) -> dict[str, Any]:
     reject_unknown_fields(config, CLAUDE_CODE_CONFIG_FIELDS, "harness.config")
     return {
+        "auth": claude_code_auth_mode(
+            config.get("auth", CLAUDE_CODE_DEFAULT_AUTH_MODE)
+        ),
         "model": claude_code_model(config.get("model", CLAUDE_CODE_DEFAULT_MODEL)),
         "version": claude_code_version(config.get("version", CLAUDE_CODE_DEFAULT_VERSION)),
         "task_file": workspace_path(
@@ -286,6 +314,19 @@ def claude_code_config(config: dict[str, Any]) -> dict[str, Any]:
 
 def claude_code_env_names(env_names: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(name for name in env_names if name not in CLAUDE_CODE_PROVIDER_ENV_NAMES)
+
+
+def claude_code_auth_mode(value: Any) -> str:
+    if not isinstance(value, str) or value not in CLAUDE_CODE_AUTH_MODES:
+        choices = ", ".join(sorted(CLAUDE_CODE_AUTH_MODES))
+        raise ConfigError(f"harness.config.auth must be one of: {choices}")
+    return value
+
+
+def claude_code_provider_relay_spec(auth: str) -> ProviderRelaySpec:
+    if auth == "subscription":
+        return CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC
+    return CLAUDE_CODE_PROVIDER_RELAY_SPEC
 
 
 def allow_external_tools_config(value: Any) -> bool:
@@ -387,12 +428,17 @@ def claude_code_agent_env(
     egress_env: dict[str, str],
     provider_base_url: str,
     env_names: tuple[str, ...],
+    *,
+    auth: str = CLAUDE_CODE_DEFAULT_AUTH_MODE,
 ) -> dict[str, str]:
     env = {
         **egress_env,
-        "ANTHROPIC_API_KEY": CLAUDE_CODE_DUMMY_API_KEY,
         "ANTHROPIC_BASE_URL": provider_base_url,
     }
+    if auth == "subscription":
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = CLAUDE_CODE_DUMMY_OAUTH_TOKEN
+    else:
+        env["ANTHROPIC_API_KEY"] = CLAUDE_CODE_DUMMY_API_KEY
     if CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC not in env_names:
         env[CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC] = "1"
     if CLAUDE_CODE_DISABLE_AUTOUPDATER not in env_names:

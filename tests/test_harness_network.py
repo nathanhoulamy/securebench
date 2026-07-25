@@ -3,7 +3,10 @@ from types import SimpleNamespace
 import pytest
 
 from securebench.errors import ConfigError
-from securebench.harnesses.claude_code import CLAUDE_CODE_PROVIDER_RELAY_SPEC
+from securebench.harnesses.claude_code import (
+    CLAUDE_CODE_PROVIDER_RELAY_SPEC,
+    CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC,
+)
 from securebench.harnesses.codex import CODEX_PROVIDER_RELAY_SPEC
 from securebench.harnesses.egress_proxy import is_allowed_destination, split_host_port
 from securebench.harnesses.network import (
@@ -167,7 +170,8 @@ def test_docker_provider_relay_policy_starts_relay_without_generic_proxy(monkeyp
     assert "secret" not in relay_run
     assert "SECUREBENCH_PROVIDER=openai" in relay_run
     assert "SECUREBENCH_UPSTREAM_HOST=api.openai.com" in relay_run
-    assert "SECUREBENCH_API_KEY_ENV=OPENAI_API_KEY" in relay_run
+    assert "SECUREBENCH_CREDENTIAL_ENV=OPENAI_API_KEY" in relay_run
+    assert "SECUREBENCH_CREDENTIAL_KIND=bearer" in relay_run
     assert 'SECUREBENCH_BLOCKED_TOOL_TYPES=["code_interpreter", "computer_use", "file_search", "image_generation", "mcp", "web_search"]' in relay_run
     assert 'SECUREBENCH_BLOCKED_TOOL_PREFIXES=["computer_use_", "web_search_"]' in relay_run
     assert 'SECUREBENCH_ALLOWED_CLIENT_TOOL_TYPES=["apply_patch", "custom", "function", "shell"]' in relay_run
@@ -204,8 +208,35 @@ def test_docker_provider_relay_policy_starts_generic_proxy_when_domains_allowed(
     assert ["-e", "ANTHROPIC_API_KEY"] == relay_run[relay_run.index("-e") : relay_run.index("-e") + 2]
     assert "SECUREBENCH_PROVIDER=anthropic" in relay_run
     assert "SECUREBENCH_UPSTREAM_HOST=api.anthropic.com" in relay_run
-    assert "SECUREBENCH_API_KEY_ENV=ANTHROPIC_API_KEY" in relay_run
+    assert "SECUREBENCH_CREDENTIAL_ENV=ANTHROPIC_API_KEY" in relay_run
+    assert "SECUREBENCH_CREDENTIAL_KIND=x-api-key" in relay_run
     assert "SECUREBENCH_ALLOW_EXTERNAL_TOOLS=true" in relay_run
+
+
+def test_docker_provider_relay_policy_passes_claude_subscription_token_by_name(monkeypatch):
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "secret-oauth-token")
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with DockerProviderRelayPolicy(
+        CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC,
+        (),
+        allow_external_tools=False,
+    ):
+        pass
+
+    relay_run = commands[1]
+    assert ["-e", "CLAUDE_CODE_OAUTH_TOKEN"] == relay_run[
+        relay_run.index("-e") : relay_run.index("-e") + 2
+    ]
+    assert "secret-oauth-token" not in relay_run
+    assert "SECUREBENCH_CREDENTIAL_ENV=CLAUDE_CODE_OAUTH_TOKEN" in relay_run
+    assert "SECUREBENCH_CREDENTIAL_KIND=bearer" in relay_run
 
 
 def test_relay_decision_summary_counts_forwarded_and_blocked(tmp_path):

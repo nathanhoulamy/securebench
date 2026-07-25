@@ -41,7 +41,7 @@ from securebench.harnesses.network import (
     docker_provider_relay_policy,
     effective_allowed_domains,
     relay_decision_summary,
-    require_provider_key,
+    require_provider_credential,
 )
 from securebench.workspaces.materialization import VisibilityAwareMaterializer, docker_read_only_mounts
 from securebench.sandboxes import DockerSandbox, HostSandbox
@@ -72,7 +72,8 @@ CODEX_RELAY_PROVIDER_ID = "securebench_openai"
 CODEX_PROVIDER_RELAY_SPEC = ProviderRelaySpec(
     provider=CODEX_PROVIDER,
     upstream_host=CODEX_PROVIDER_UPSTREAM_HOST,
-    api_key_env="OPENAI_API_KEY",
+    credential_env="OPENAI_API_KEY",
+    credential_kind="bearer",
     base_url=f"http://{PROVIDER_RELAY_ALIAS}:{PROVIDER_RELAY_PORT}/v1",
     blocked_tool_types=(
         "web_search",
@@ -140,7 +141,7 @@ class CodexHarnessProducer(CandidateProducer):
 
     def produce(self, task: SecureBenchTask, **context: Any) -> CandidateArtifact:
         image = container_image_for_task(task)
-        require_provider_key(CODEX_PROVIDER_RELAY_SPEC)
+        require_provider_credential(CODEX_PROVIDER_RELAY_SPEC)
         require_env_names(self.env_names, "codex")
         task_workspace = workspace_root(
             task,

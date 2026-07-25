@@ -1,14 +1,21 @@
 import io
 import json
 from email.message import Message
+from pathlib import Path
+
+import pytest
 
 from securebench.harnesses import provider_relay
-from securebench.harnesses.claude_code import CLAUDE_CODE_PROVIDER_RELAY_SPEC
+from securebench.harnesses.claude_code import (
+    CLAUDE_CODE_PROVIDER_RELAY_SPEC,
+    CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC,
+)
 from securebench.harnesses.codex import CODEX_PROVIDER_RELAY_SPEC
 from securebench.harnesses.provider_relay import (
     RelayConfig,
     ProviderRelayHandler,
     blocked_external_tools,
+    relay_config_from_env,
     upstream_headers,
 )
 
@@ -24,7 +31,8 @@ def test_openai_relay_injects_real_auth_and_strips_dummy_auth(tmp_path):
     config = RelayConfig(
         provider="openai",
         upstream_host="api.openai.com",
-        api_key="real-key",
+        credential="real-key",
+        credential_kind="bearer",
         blocked_tool_types=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_types,
         blocked_tool_prefixes=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
         allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
@@ -52,7 +60,8 @@ def test_anthropic_relay_injects_real_api_key(tmp_path):
     config = RelayConfig(
         provider="anthropic",
         upstream_host="api.anthropic.com",
-        api_key="real-key",
+        credential="real-key",
+        credential_kind="x-api-key",
         blocked_tool_types=CLAUDE_CODE_PROVIDER_RELAY_SPEC.blocked_tool_types,
         blocked_tool_prefixes=CLAUDE_CODE_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
         allowed_client_tool_types=CLAUDE_CODE_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
@@ -75,6 +84,56 @@ def test_anthropic_relay_injects_real_api_key(tmp_path):
     assert lower["anthropic-version"] == "2023-06-01"
     assert "authorization" not in {name.lower() for name in result}
     assert result["Host"] == "api.anthropic.com"
+
+
+def test_anthropic_relay_injects_subscription_bearer_token(tmp_path):
+    config = RelayConfig(
+        provider="anthropic",
+        upstream_host="api.anthropic.com",
+        credential="real-oauth-token",
+        credential_kind="bearer",
+        blocked_tool_types=CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC.blocked_tool_types,
+        blocked_tool_prefixes=CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC.blocked_tool_prefixes,
+        allowed_client_tool_types=CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC.allowed_client_tool_types,
+        allow_external_tools=False,
+        log_dir=tmp_path,
+    )
+
+    result = upstream_headers(
+        config,
+        headers(
+            Host="securebench-provider-relay",
+            Authorization="Bearer dummy",
+            X_API_Key="dummy",
+            Anthropic_Version="2023-06-01",
+        ),
+    )
+
+    lower = {name.lower(): value for name, value in result.items()}
+    assert lower["authorization"] == "Bearer real-oauth-token"
+    assert lower["anthropic-version"] == "2023-06-01"
+    assert "x-api-key" not in lower
+    assert result["Host"] == "api.anthropic.com"
+
+
+def test_relay_config_from_env_reads_generic_credential(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("SECUREBENCH_PROVIDER", "anthropic")
+    monkeypatch.setenv("SECUREBENCH_UPSTREAM_HOST", "api.anthropic.com")
+    monkeypatch.setenv("SECUREBENCH_CREDENTIAL_ENV", "CLAUDE_CODE_OAUTH_TOKEN")
+    monkeypatch.setenv("SECUREBENCH_CREDENTIAL_KIND", "bearer")
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "real-oauth-token")
+    monkeypatch.setenv("SECUREBENCH_RELAY_LOG_DIR", str(tmp_path))
+
+    config = relay_config_from_env()
+
+    assert config.provider == "anthropic"
+    assert config.upstream_host == "api.anthropic.com"
+    assert config.credential == "real-oauth-token"
+    assert config.credential_kind == "bearer"
+    assert config.log_dir == tmp_path
 
 
 def test_openai_policy_blocks_hosted_tools_and_allows_client_tools():
@@ -175,7 +234,8 @@ def test_handler_forwards_streaming_chunks_and_logs_redacted_decision(monkeypatc
     handler.relay_config = RelayConfig(
         provider="openai",
         upstream_host="api.openai.com",
-        api_key="real-key",
+        credential="real-key",
+        credential_kind="bearer",
         blocked_tool_types=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_types,
         blocked_tool_prefixes=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
         allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,

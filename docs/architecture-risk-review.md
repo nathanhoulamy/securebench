@@ -9,7 +9,7 @@ trusted.
 
 SecureBench has a sensible core separation:
 
-- The host runner loads tester YAML, benchmark packs, `.env`, and provider keys.
+- The host runner loads tester YAML, benchmark packs, `.env`, and provider credentials.
 - The agent sandbox receives public task data only.
 - Named provider harnesses use dummy in-container keys and a host-side provider
   relay to inject real credentials.

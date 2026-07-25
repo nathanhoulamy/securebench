@@ -45,7 +45,8 @@ class ProviderRelaySpec:
 
     provider: str
     upstream_host: str
-    api_key_env: str
+    credential_env: str
+    credential_kind: str
     base_url: str
     blocked_tool_types: tuple[str, ...] = ()
     blocked_tool_prefixes: tuple[str, ...] = ()
@@ -263,7 +264,7 @@ class DockerProviderRelayPolicy:
         self._log_cleanup: tempfile.TemporaryDirectory[str] | None = None
 
     def __enter__(self) -> HarnessEgress:
-        require_provider_key(self.spec)
+        require_provider_credential(self.spec)
         suffix = uuid.uuid4().hex
         self._network_name = f"securebench-egress-{suffix}"
         self.relay_container = f"securebench-provider-relay-{suffix}"
@@ -376,13 +377,15 @@ class DockerProviderRelayPolicy:
                 "--security-opt",
                 "no-new-privileges:true",
                 "-e",
-                self.spec.api_key_env,
+                self.spec.credential_env,
                 "-e",
                 f"SECUREBENCH_PROVIDER={self.provider}",
                 "-e",
                 f"SECUREBENCH_UPSTREAM_HOST={self.spec.upstream_host}",
                 "-e",
-                f"SECUREBENCH_API_KEY_ENV={self.spec.api_key_env}",
+                f"SECUREBENCH_CREDENTIAL_ENV={self.spec.credential_env}",
+                "-e",
+                f"SECUREBENCH_CREDENTIAL_KIND={self.spec.credential_kind}",
                 "-e",
                 f"SECUREBENCH_BLOCKED_TOOL_TYPES={json.dumps(sorted(self.spec.blocked_tool_types))}",
                 "-e",
@@ -457,8 +460,8 @@ def docker_provider_relay_policy(
     )
 
 
-def require_provider_key(spec: ProviderRelaySpec) -> None:
-    env_name = spec.api_key_env
+def require_provider_credential(spec: ProviderRelaySpec) -> None:
+    env_name = spec.credential_env
     if not os.environ.get(env_name):
         raise ConfigError(f"{spec.provider} provider relay requires environment variable: {env_name}")
 

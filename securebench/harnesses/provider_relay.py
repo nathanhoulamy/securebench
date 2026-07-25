@@ -30,7 +30,8 @@ HOP_BY_HOP_HEADERS = {
 class RelayConfig:
     provider: str
     upstream_host: str
-    api_key: str
+    credential: str
+    credential_kind: str
     blocked_tool_types: tuple[str, ...]
     blocked_tool_prefixes: tuple[str, ...]
     allowed_client_tool_types: tuple[str, ...]
@@ -58,17 +59,21 @@ def relay_config_from_env() -> RelayConfig:
     if provider not in {"openai", "anthropic"}:
         raise SystemExit("SECUREBENCH_PROVIDER must be 'openai' or 'anthropic'")
     host = required_env("SECUREBENCH_UPSTREAM_HOST")
-    key_env = required_env("SECUREBENCH_API_KEY_ENV")
-    api_key = os.environ.get(key_env)
-    if not api_key:
-        raise SystemExit(f"{key_env} is required")
+    credential_env = required_env("SECUREBENCH_CREDENTIAL_ENV")
+    credential = os.environ.get(credential_env)
+    if not credential:
+        raise SystemExit(f"{credential_env} is required")
+    credential_kind = required_env("SECUREBENCH_CREDENTIAL_KIND")
+    if credential_kind not in {"bearer", "x-api-key"}:
+        raise SystemExit("SECUREBENCH_CREDENTIAL_KIND must be 'bearer' or 'x-api-key'")
     allow_external_tools = os.environ.get("SECUREBENCH_ALLOW_EXTERNAL_TOOLS", "").lower() == "true"
     log_dir = Path(os.environ.get("SECUREBENCH_RELAY_LOG_DIR", "/tmp/securebench-provider-relay"))
     log_dir.mkdir(parents=True, exist_ok=True)
     return RelayConfig(
         provider=provider,
         upstream_host=host,
-        api_key=api_key,
+        credential=credential,
+        credential_kind=credential_kind,
         blocked_tool_types=string_tuple_env("SECUREBENCH_BLOCKED_TOOL_TYPES"),
         blocked_tool_prefixes=string_tuple_env("SECUREBENCH_BLOCKED_TOOL_PREFIXES"),
         allowed_client_tool_types=string_tuple_env("SECUREBENCH_ALLOWED_CLIENT_TOOL_TYPES"),
@@ -228,10 +233,10 @@ def upstream_headers(config: RelayConfig, headers: Any) -> dict[str, str]:
             continue
         result[name] = value
     result["Host"] = config.upstream_host
-    if config.provider == "openai":
-        result["Authorization"] = f"Bearer {config.api_key}"
+    if config.credential_kind == "bearer":
+        result["Authorization"] = f"Bearer {config.credential}"
     else:
-        result["x-api-key"] = config.api_key
+        result["x-api-key"] = config.credential
     return result
 
 

@@ -12,9 +12,9 @@ workspace state and must be verified from trusted evaluator inputs.
 - Hidden resources are retained for trusted reporting or analysis and are
   redacted from result records.
 - Named provider harness credentials are host-side only. Codex and Claude Code
-  receive dummy provider keys inside the untrusted agent container and route API
-  requests through a SecureBench provider relay sidecar, which injects the real
-  key outside the sandbox.
+  receive dummy provider credentials inside the untrusted agent container and
+  route API requests through a SecureBench provider relay sidecar, which injects
+  the real API key or Claude subscription bearer token outside the sandbox.
 
 ## Provider Relay
 

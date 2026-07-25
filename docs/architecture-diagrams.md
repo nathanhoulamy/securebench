@@ -14,7 +14,7 @@ flowchart TB
     subgraph TRUSTED["Trusted — Host (operator machine)"]
         OP[Operator]
         CLI[SecureBench CLI / Runner]
-        ENV[".env — real API keys"]
+        ENV[".env — real provider credentials"]
         YAML[Tester YAML]
         PACK[Benchmark pack<br/>manifest + tasks.jsonl]
         OUT["Run artifacts<br/>candidates.jsonl, workspaces/"]
@@ -113,12 +113,12 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph HOST["Trusted host"]
-        REAL[".env<br/>OPENAI_API_KEY · ANTHROPIC_API_KEY"]
+        REAL[".env<br/>OPENAI_API_KEY · ANTHROPIC_API_KEY · CLAUDE_CODE_OAUTH_TOKEN"]
         RELAY[Provider relay sidecar<br/>host-side process]
     end
 
     subgraph AGENT["Agent container — UNTRUSTED"]
-        DUMMY["Dummy API key<br/>securebench-dummy-…"]
+        DUMMY["Dummy provider credential<br/>securebench-dummy-…"]
         CLI_AGENT[Codex / Claude Code CLI]
     end
 
@@ -133,7 +133,7 @@ flowchart TB
     REAL -.-x|NOT mounted| AGENT
 ```
 
-**Named provider harnesses** (`codex`, `claude_code`): real keys stay on the host; the agent container gets a dummy key and a relay base URL.
+**Named provider harnesses** (`codex`, `claude_code`): real credentials stay on the host; the agent container gets a dummy credential and a relay base URL.
 
 **Command harness:** tester-selected env vars pass directly into the container — a different, weaker model. Do not expose real secrets to untrusted command harnesses.
 
@@ -181,7 +181,7 @@ flowchart LR
 flowchart TB
     subgraph TRUSTED["Trusted"]
         T1[Operator / CLI runner]
-        T2[".env API keys"]
+        T2[".env provider credentials"]
         T3[Tester YAML]
         T4[Benchmark pack & checkers]
         T5[Provider relay]
@@ -210,7 +210,7 @@ flowchart TB
 | Component | Trust | Isolation | Notes |
 |---|---|---|---|
 | Operator / CLI runner | Trusted | Host process | Loads config, orchestrates sandboxes |
-| `.env` API keys | Trusted secret | Host filesystem only | Not mounted into agent containers (named harnesses) |
+| `.env` provider credentials | Trusted secret | Host filesystem only | Not mounted into agent containers (named harnesses) |
 | Tester YAML | Trusted config | Host filesystem | Defines harness, model, network policy |
 | Benchmark pack | **Trusted assumption** | Authored input | Images, checkers, test commands are pack-authored |
 | Agent harness + workspace | **Untrusted** | Docker sandbox | Adversarial candidate producer |

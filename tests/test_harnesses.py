@@ -96,12 +96,14 @@ class FakeEgressPolicy:
 
 class FakeProviderRelayPolicy:
     calls = []
+    specs = []
 
     def __init__(self, spec, allowed_domains, *, allow_external_tools=False):
         self.spec = spec
         self.provider = spec.provider
         self.allowed_domains = tuple(allowed_domains)
         self.allow_external_tools = allow_external_tools
+        FakeProviderRelayPolicy.specs.append(spec)
         FakeProviderRelayPolicy.calls.append(
             (self.provider, self.allowed_domains, self.allow_external_tools)
         )
@@ -140,6 +142,7 @@ def reset_fakes(monkeypatch):
     FakeDockerSandbox.instances = []
     FakeEgressPolicy.calls = []
     FakeProviderRelayPolicy.calls = []
+    FakeProviderRelayPolicy.specs = []
     monkeypatch.setattr("securebench.harnesses.command.docker_egress_policy", FakeEgressPolicy)
     monkeypatch.setattr("securebench.harnesses.codex.docker_provider_relay_policy", FakeProviderRelayPolicy)
     monkeypatch.setattr(
@@ -886,6 +889,7 @@ def test_claude_code_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch
     assert artifact.patch == "diff --git a/app.py b/app.py\n"
     assert artifact.metadata["harness"] == "claude_code"
     assert artifact.metadata["claude_code_model"] == "claude-sonnet-4-5"
+    assert artifact.metadata["auth_mode"] == "api_key"
     assert artifact.metadata["allowed_domains"] == ()
     assert artifact.metadata["provider_relay_enabled"] is True
     assert artifact.metadata["provider"] == "anthropic"
@@ -935,6 +939,59 @@ def test_claude_code_harness_defaults_to_anthropic_api_key(monkeypatch, tmp_path
     assert "claude -p --model 'sonnet'" in docker.commands[1][0]
 
 
+def test_claude_code_harness_uses_subscription_oauth_token(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "real-oauth-token")
+    monkeypatch.setenv("CUSTOM_ENV", "custom")
+    monkeypatch.setattr("securebench.harnesses.claude_code.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.claude_code.DockerSandbox", FakeDockerSandbox)
+    overlay_path = tmp_path / "claude-code-overlay"
+    overlay_path.mkdir()
+    monkeypatch.setattr(
+        "securebench.harnesses.claude_code.claude_code_overlay_for_image",
+        lambda image, version: ClaudeCodeOverlay(
+            path=overlay_path,
+            platform=DockerPlatform(os="linux", architecture="amd64"),
+            version=version,
+        ),
+    )
+
+    producer = build_harness_producer(
+        HarnessSection(
+            type="claude_code",
+            env=(
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_AUTH_TOKEN",
+                "CLAUDE_CODE_OAUTH_TOKEN",
+                "CUSTOM_ENV",
+            ),
+            config={"auth": "subscription"},
+        ),
+        workspace_root=tmp_path / "runs",
+    )
+    artifact = producer.produce(
+        repo_patch_task(environment={"image": "python:3.11-slim"})
+    )
+
+    docker = FakeDockerSandbox.instances[-1]
+    assert docker.env_names == ("CUSTOM_ENV",)
+    assert docker.kwargs["env"]["CLAUDE_CODE_OAUTH_TOKEN"] == (
+        "sk-ant-oat01-securebench-dummy-oauth-token"
+    )
+    assert "ANTHROPIC_API_KEY" not in docker.kwargs["env"]
+    assert "ANTHROPIC_AUTH_TOKEN" not in docker.kwargs["env"]
+    assert artifact.metadata["auth_mode"] == "subscription"
+    assert (
+        FakeProviderRelayPolicy.specs[-1]
+        is claude_code_harnesses.CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC
+    )
+    assert claude_code_harnesses.CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC.credential_env == (
+        "CLAUDE_CODE_OAUTH_TOKEN"
+    )
+    assert claude_code_harnesses.CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC.credential_kind == (
+        "bearer"
+    )
+
+
 def test_claude_code_agent_env_respects_tester_nonessential_traffic_override():
     env = claude_code_harnesses.claude_code_agent_env(
         {"HTTPS_PROXY": "http://proxy:8080"},
@@ -947,6 +1004,22 @@ def test_claude_code_agent_env_respects_tester_nonessential_traffic_override():
         "ANTHROPIC_API_KEY": "securebench-dummy-anthropic-api-key",
         "ANTHROPIC_BASE_URL": "http://securebench-provider-relay:8090",
     }
+
+
+def test_claude_code_agent_env_uses_only_dummy_oauth_token_for_subscription():
+    env = claude_code_harnesses.claude_code_agent_env(
+        {},
+        "http://securebench-provider-relay:8090",
+        (),
+        auth="subscription",
+    )
+
+    assert env["CLAUDE_CODE_OAUTH_TOKEN"] == (
+        "sk-ant-oat01-securebench-dummy-oauth-token"
+    )
+    assert env["ANTHROPIC_BASE_URL"] == "http://securebench-provider-relay:8090"
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "ANTHROPIC_AUTH_TOKEN" not in env
 
 
 def test_claude_code_allows_domains_with_provider_relay(monkeypatch, tmp_path):
@@ -984,6 +1057,8 @@ def test_claude_code_allows_domains_with_provider_relay(monkeypatch, tmp_path):
 @pytest.mark.parametrize(
     ("config", "match"),
     [
+        ({"auth": ""}, "auth"),
+        ({"auth": "auto"}, "auth"),
         ({"model": ""}, "model"),
         ({"model": "bad/model"}, "model"),
         ({"version": ""}, "version"),
@@ -1007,6 +1082,17 @@ def test_claude_code_harness_requires_anthropic_api_key(monkeypatch, tmp_path):
     )
 
     with pytest.raises(ConfigError, match="ANTHROPIC_API_KEY"):
+        producer.produce(repo_patch_task(environment={"image": "python:3.11-slim"}))
+
+
+def test_claude_code_harness_requires_subscription_oauth_token(monkeypatch, tmp_path):
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    producer = build_harness_producer(
+        HarnessSection(type="claude_code", config={"auth": "subscription"}),
+        workspace_root=tmp_path / "runs",
+    )
+
+    with pytest.raises(ConfigError, match="CLAUDE_CODE_OAUTH_TOKEN"):
         producer.produce(repo_patch_task(environment={"image": "python:3.11-slim"}))
 
 
