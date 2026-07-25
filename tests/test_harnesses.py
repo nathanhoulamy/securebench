@@ -652,8 +652,21 @@ def test_codex_harness_uses_isolated_subscription_login(monkeypatch, tmp_path):
         "'-c' 'chatgpt_base_url=\"http://securebench-provider-relay:8090/backend-api\"'"
         in command
     )
+    assert "'-c' 'model_provider=\"securebench_chatgpt\"'" in command
+    assert (
+        "'-c' 'model_providers.securebench_chatgpt."
+        "base_url=\"http://securebench-provider-relay:8090/backend-api/codex\"'"
+        in command
+    )
+    assert (
+        "'-c' 'model_providers.securebench_chatgpt.requires_openai_auth=true'"
+        in command
+    )
+    assert (
+        "'-c' 'model_providers.securebench_chatgpt.supports_websockets=false'"
+        in command
+    )
     assert "'-c' 'forced_login_method=\"chatgpt\"'" in command
-    assert "model_provider" not in command
     assert artifact.metadata["auth_mode"] == "subscription"
     assert FakeProviderRelayPolicy.specs[-1].upstream_host == "chatgpt.com"
     assert FakeProviderRelayPolicy.credential_files[-1] == auth_path
@@ -759,6 +772,43 @@ def test_codex_relay_config_args_keep_external_tools_enabled_when_allowed():
     assert "model_provider" in args
     assert "web_search" not in args
     assert "tools.web_search" not in args
+
+
+def test_codex_subscription_config_selects_http_only_chatgpt_provider(tmp_path):
+    codex_harnesses.write_codex_subscription_config(
+        tmp_path,
+        "http://securebench-provider-relay:8090/backend-api/",
+    )
+
+    config = (tmp_path / "config.toml").read_text()
+    assert 'model_provider = "securebench_chatgpt"' in config
+    assert 'chatgpt_base_url = "http://securebench-provider-relay:8090/backend-api/"' in config
+    assert "[model_providers.securebench_chatgpt]" in config
+    assert 'name = "SecureBench ChatGPT Relay"' in config
+    assert 'base_url = "http://securebench-provider-relay:8090/backend-api/codex"' in config
+    assert 'wire_api = "responses"' in config
+    assert "requires_openai_auth = true" in config
+    assert "supports_websockets = false" in config
+    assert "[features]" in config
+    assert "image_generation = false" in config
+    assert (tmp_path / ".codex" / "config.toml").read_text() == config
+
+
+def test_codex_subscription_config_args_select_http_only_chatgpt_provider():
+    args = codex_harnesses.codex_subscription_config_args(
+        "http://securebench-provider-relay:8090/backend-api/"
+    )
+
+    assert "'-c' 'model_provider=\"securebench_chatgpt\"'" in args
+    assert (
+        "'-c' 'model_providers.securebench_chatgpt."
+        "base_url=\"http://securebench-provider-relay:8090/backend-api/codex\"'"
+        in args
+    )
+    assert "'-c' 'model_providers.securebench_chatgpt.wire_api=\"responses\"'" in args
+    assert "'-c' 'model_providers.securebench_chatgpt.requires_openai_auth=true'" in args
+    assert "'-c' 'model_providers.securebench_chatgpt.supports_websockets=false'" in args
+    assert "'-c' 'features.image_generation=false'" in args
 
 
 def test_codex_shell_command_exports_codex_home():

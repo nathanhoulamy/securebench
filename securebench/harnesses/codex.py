@@ -83,6 +83,7 @@ CODEX_DUMMY_ACCOUNT_ID = "securebench-dummy-account"
 CODEX_DUMMY_USER_ID = "securebench-dummy-user"
 CODEX_DUMMY_TOKEN_LIFETIME_SECONDS = 10 * 365 * 24 * 60 * 60
 CODEX_RELAY_PROVIDER_ID = "securebench_openai"
+CODEX_SUBSCRIPTION_RELAY_PROVIDER_ID = "securebench_chatgpt"
 CODEX_PROVIDER_RELAY_SPEC = ProviderRelaySpec(
     provider=CODEX_PROVIDER,
     upstream_host=CODEX_PROVIDER_UPSTREAM_HOST,
@@ -582,18 +583,35 @@ def write_codex_subscription_config(
     allow_external_tools: bool = False,
 ) -> None:
     home.mkdir(parents=True, exist_ok=True)
+    model_base_url = codex_subscription_model_base_url(base_url)
     lines = [
+        f"model_provider = {toml_string(CODEX_SUBSCRIPTION_RELAY_PROVIDER_ID)}",
         f"chatgpt_base_url = {toml_string(base_url)}",
         'forced_login_method = "chatgpt"',
         'cli_auth_credentials_store = "file"',
     ]
     if not allow_external_tools:
+        lines.append('web_search = "disabled"')
+    lines.extend(
+        [
+            "",
+            f"[model_providers.{CODEX_SUBSCRIPTION_RELAY_PROVIDER_ID}]",
+            f"name = {toml_string('SecureBench ChatGPT Relay')}",
+            f"base_url = {toml_string(model_base_url)}",
+            'wire_api = "responses"',
+            "requires_openai_auth = true",
+            "supports_websockets = false",
+        ]
+    )
+    if not allow_external_tools:
         lines.extend(
             [
-                'web_search = "disabled"',
                 "",
                 "[tools]",
                 "web_search = false",
+                "",
+                "[features]",
+                "image_generation = false",
             ]
         )
     content = "\n".join([*lines, ""])
@@ -654,9 +672,28 @@ def codex_subscription_config_args(
     *,
     allow_external_tools: bool = False,
 ) -> str:
+    model_base_url = codex_subscription_model_base_url(base_url)
     args = [
         "-c",
+        f"model_provider={toml_string(CODEX_SUBSCRIPTION_RELAY_PROVIDER_ID)}",
+        "-c",
         f"chatgpt_base_url={toml_string(base_url)}",
+        "-c",
+        (
+            f"model_providers.{CODEX_SUBSCRIPTION_RELAY_PROVIDER_ID}."
+            f"name={toml_string('SecureBench ChatGPT Relay')}"
+        ),
+        "-c",
+        (
+            f"model_providers.{CODEX_SUBSCRIPTION_RELAY_PROVIDER_ID}."
+            f"base_url={toml_string(model_base_url)}"
+        ),
+        "-c",
+        f"model_providers.{CODEX_SUBSCRIPTION_RELAY_PROVIDER_ID}.wire_api={toml_string('responses')}",
+        "-c",
+        f"model_providers.{CODEX_SUBSCRIPTION_RELAY_PROVIDER_ID}.requires_openai_auth=true",
+        "-c",
+        f"model_providers.{CODEX_SUBSCRIPTION_RELAY_PROVIDER_ID}.supports_websockets=false",
         "-c",
         'forced_login_method="chatgpt"',
         "-c",
@@ -669,9 +706,15 @@ def codex_subscription_config_args(
                 'web_search="disabled"',
                 "-c",
                 "tools.web_search=false",
+                "-c",
+                "features.image_generation=false",
             ]
         )
     return " ".join(shell_quote(arg) for arg in args)
+
+
+def codex_subscription_model_base_url(base_url: str) -> str:
+    return f"{base_url.rstrip('/')}/codex"
 
 
 def write_dummy_codex_auth(path: Path) -> None:

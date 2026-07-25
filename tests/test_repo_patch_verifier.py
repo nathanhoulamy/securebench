@@ -2,6 +2,7 @@ import subprocess
 
 import pytest
 
+from securebench.dangerous_commands import VerificationPolicy
 from securebench.errors import ConfigError
 from securebench.sandboxes import CommandResult, HostSandbox, Sandbox
 from securebench.tasks import task_from_spec
@@ -394,6 +395,25 @@ def test_repo_patch_verifier_allows_network_when_tester_opts_in():
         make_task(),
         "diff --git a/app.py b/app.py\n",
         verification_policy={"allow_network": True},
+    )
+
+    assert result.status == "passed"
+    assert created == {"image": "repo-image:latest", "network": "bridge"}
+
+
+def test_repo_patch_verifier_accepts_parsed_verification_policy():
+    created = {}
+
+    def sandbox_factory(**kwargs):
+        created.update(kwargs)
+        return FakeSandbox()
+
+    verifier = RepoPatchVerifier(sandbox_factory=sandbox_factory)
+
+    result = verifier.verify(
+        make_task(),
+        "diff --git a/app.py b/app.py\n",
+        verification_policy=VerificationPolicy(allow_network=True),
     )
 
     assert result.status == "passed"

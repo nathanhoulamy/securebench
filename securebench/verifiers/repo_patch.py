@@ -7,7 +7,7 @@ import re
 from pathlib import PurePosixPath
 from typing import Any, Callable
 
-from securebench.dangerous_commands import parse_verification_policy
+from securebench.dangerous_commands import VerificationPolicy, parse_verification_policy
 from securebench.errors import ConfigError
 from securebench.harnesses.shared import environment_image_for_task
 from securebench.sandboxes import CommandResult, DockerSandbox, Sandbox
@@ -84,7 +84,12 @@ class RepoPatchVerifier(Verifier):
         image = environment_image_for_task(task)
         workdir = tests.workdir or environment_workdir_for_task(task)
         timeout = float(context.get("timeout_seconds", tests.timeout_seconds or self.timeout_seconds))
-        verification_policy = parse_verification_policy(context.get("verification_policy"))
+        verification_policy_value = context.get("verification_policy")
+        verification_policy = (
+            verification_policy_value
+            if isinstance(verification_policy_value, VerificationPolicy)
+            else parse_verification_policy(verification_policy_value)
+        )
         policy_decision = evaluate_candidate_patch_policy(candidate, policy)
         if not candidate.strip():
             return _failed_result(
