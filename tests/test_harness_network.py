@@ -3,11 +3,15 @@ from types import SimpleNamespace
 import pytest
 
 from securebench.errors import ConfigError
+from securebench.harnesses import network
 from securebench.harnesses.claude_code import (
     CLAUDE_CODE_PROVIDER_RELAY_SPEC,
     CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC,
 )
-from securebench.harnesses.codex import CODEX_PROVIDER_RELAY_SPEC
+from securebench.harnesses.codex import (
+    CODEX_PROVIDER_RELAY_SPEC,
+    CODEX_SUBSCRIPTION_RELAY_SPEC,
+)
 from securebench.harnesses.egress_proxy import is_allowed_destination, split_host_port
 from securebench.harnesses.network import (
     DockerEgressPolicy,
@@ -112,13 +116,17 @@ def test_docker_egress_policy_creates_proxy_network_and_cleans_up(monkeypatch):
         assert egress.allowed_domains == ("api.openai.com",)
 
     assert commands[0][:4] == ["docker", "network", "create", "--internal"]
-    assert commands[1][:5] == ["docker", "run", "-d", "--rm", "--name"]
-    assert "--network" in commands[1]
-    assert "bridge" in commands[1]
-    assert "SECUREBENCH_ALLOWED_DOMAINS=api.openai.com" in commands[1]
-    assert commands[2][:4] == ["docker", "network", "connect", "--alias"]
-    assert commands[3][:3] == ["docker", "rm", "-f"]
-    assert commands[4][:3] == ["docker", "network", "rm"]
+    assert commands[1][:3] == ["docker", "network", "create"]
+    proxy_run = commands[2]
+    assert proxy_run[:5] == ["docker", "run", "-d", "--rm", "--name"]
+    upstream_network = proxy_run[proxy_run.index("--network") + 1]
+    assert upstream_network.startswith("securebench-upstream-")
+    assert upstream_network != "bridge"
+    assert "SECUREBENCH_ALLOWED_DOMAINS=api.openai.com" in proxy_run
+    assert commands[3][:4] == ["docker", "network", "connect", "--alias"]
+    assert commands[4][:3] == ["docker", "rm", "-f"]
+    assert commands[5][:3] == ["docker", "network", "rm"]
+    assert commands[6][:3] == ["docker", "network", "rm"]
 
 
 def test_docker_egress_policy_cleans_up_after_start_failure(monkeypatch):
@@ -136,12 +144,17 @@ def test_docker_egress_policy_cleans_up_after_start_failure(monkeypatch):
         with DockerEgressPolicy(("api.openai.com",)):
             pass
 
-    assert commands[-2][:3] == ["docker", "rm", "-f"]
+    assert commands[-3][:3] == ["docker", "rm", "-f"]
+    assert commands[-2][:3] == ["docker", "network", "rm"]
     assert commands[-1][:3] == ["docker", "network", "rm"]
 
 
 def test_harness_provider_relay_specs_own_base_urls():
     assert CODEX_PROVIDER_RELAY_SPEC.base_url == "http://securebench-provider-relay:8090/v1"
+    assert (
+        CODEX_SUBSCRIPTION_RELAY_SPEC.base_url
+        == "http://securebench-provider-relay:8090/backend-api"
+    )
     assert CLAUDE_CODE_PROVIDER_RELAY_SPEC.base_url == "http://securebench-provider-relay:8090"
 
 
@@ -164,8 +177,12 @@ def test_docker_provider_relay_policy_starts_relay_without_generic_proxy(monkeyp
         assert egress.allow_external_tools is False
 
     assert commands[0][:4] == ["docker", "network", "create", "--internal"]
-    relay_run = commands[1]
+    assert commands[1][:3] == ["docker", "network", "create"]
+    relay_run = commands[2]
     assert relay_run[:5] == ["docker", "run", "-d", "--rm", "--name"]
+    upstream_network = relay_run[relay_run.index("--network") + 1]
+    assert upstream_network.startswith("securebench-upstream-")
+    assert upstream_network != "bridge"
     assert ["-e", "OPENAI_API_KEY"] == relay_run[relay_run.index("-e") : relay_run.index("-e") + 2]
     assert "secret" not in relay_run
     assert "SECUREBENCH_PROVIDER=openai" in relay_run
@@ -176,10 +193,11 @@ def test_docker_provider_relay_policy_starts_relay_without_generic_proxy(monkeyp
     assert 'SECUREBENCH_BLOCKED_TOOL_PREFIXES=["computer_use_", "web_search_"]' in relay_run
     assert 'SECUREBENCH_ALLOWED_CLIENT_TOOL_TYPES=["apply_patch", "custom", "function", "shell"]' in relay_run
     assert "SECUREBENCH_ALLOW_EXTERNAL_TOOLS=false" in relay_run
-    assert commands[2][:4] == ["docker", "network", "connect", "--alias"]
-    assert "securebench-provider-relay" in commands[2]
-    assert commands[3][:3] == ["docker", "rm", "-f"]
-    assert commands[4][:3] == ["docker", "network", "rm"]
+    assert commands[3][:4] == ["docker", "network", "connect", "--alias"]
+    assert "securebench-provider-relay" in commands[3]
+    assert commands[4][:3] == ["docker", "rm", "-f"]
+    assert commands[5][:3] == ["docker", "network", "rm"]
+    assert commands[6][:3] == ["docker", "network", "rm"]
 
 
 def test_docker_provider_relay_policy_starts_generic_proxy_when_domains_allowed(monkeypatch):
@@ -202,9 +220,9 @@ def test_docker_provider_relay_policy_starts_generic_proxy_when_domains_allowed(
         assert egress.provider_base_url == "http://securebench-provider-relay:8090"
         assert egress.allow_external_tools is True
 
-    assert "SECUREBENCH_ALLOWED_DOMAINS=docs.python.org" in commands[1]
-    assert "securebench-egress-proxy" in commands[2]
-    relay_run = commands[3]
+    assert "SECUREBENCH_ALLOWED_DOMAINS=docs.python.org" in commands[2]
+    assert "securebench-egress-proxy" in commands[3]
+    relay_run = commands[4]
     assert ["-e", "ANTHROPIC_API_KEY"] == relay_run[relay_run.index("-e") : relay_run.index("-e") + 2]
     assert "SECUREBENCH_PROVIDER=anthropic" in relay_run
     assert "SECUREBENCH_UPSTREAM_HOST=api.anthropic.com" in relay_run
@@ -230,13 +248,75 @@ def test_docker_provider_relay_policy_passes_claude_subscription_token_by_name(m
     ):
         pass
 
-    relay_run = commands[1]
+    relay_run = commands[2]
     assert ["-e", "CLAUDE_CODE_OAUTH_TOKEN"] == relay_run[
         relay_run.index("-e") : relay_run.index("-e") + 2
     ]
     assert "secret-oauth-token" not in relay_run
     assert "SECUREBENCH_CREDENTIAL_ENV=CLAUDE_CODE_OAUTH_TOKEN" in relay_run
     assert "SECUREBENCH_CREDENTIAL_KIND=bearer" in relay_run
+
+
+def test_docker_provider_relay_policy_mounts_codex_subscription_login(monkeypatch, tmp_path):
+    commands = []
+    auth_path = tmp_path / "codex" / "auth.json"
+    auth_path.parent.mkdir()
+    auth_path.write_text("{}")
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with DockerProviderRelayPolicy(
+        CODEX_SUBSCRIPTION_RELAY_SPEC,
+        (),
+        credential_file=auth_path,
+    ):
+        pass
+
+    relay_run = commands[2]
+    assert "SECUREBENCH_CREDENTIAL_KIND=codex-oauth" in relay_run
+    assert (
+        "SECUREBENCH_CREDENTIAL_FILE=/var/lib/securebench/codex-auth/auth.json"
+        in relay_run
+    )
+    assert "SECUREBENCH_CREDENTIAL_ENV=None" not in relay_run
+    assert "SECUREBENCH_ALLOWED_PATH_PREFIXES=[\"/backend-api/codex/\"]" in relay_run
+    user_index = relay_run.index("--user")
+    assert relay_run[user_index + 1].count(":") == 1
+    assert (
+        f"type=bind,source={auth_path.parent},target=/var/lib/securebench/codex-auth"
+        in relay_run
+    )
+    assert any("target=/opt/securebench/codex_oauth.py,readonly" in item for item in relay_run)
+
+
+def test_codex_subscription_relay_does_not_require_posix_user_ids(monkeypatch, tmp_path):
+    commands = []
+    auth_path = tmp_path / "codex" / "auth.json"
+    auth_path.parent.mkdir()
+    auth_path.write_text("{}")
+
+    monkeypatch.delattr(network.os, "getuid")
+    monkeypatch.delattr(network.os, "getgid")
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda command, **kwargs: (
+            commands.append(command)
+            or SimpleNamespace(returncode=0, stdout="", stderr="")
+        ),
+    )
+
+    with DockerProviderRelayPolicy(
+        CODEX_SUBSCRIPTION_RELAY_SPEC,
+        (),
+        credential_file=auth_path,
+    ):
+        pass
+
+    assert "--user" not in commands[2]
 
 
 def test_relay_decision_summary_counts_forwarded_and_blocked(tmp_path):

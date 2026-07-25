@@ -113,27 +113,36 @@ flowchart TB
 ```mermaid
 flowchart TB
     subgraph HOST["Trusted host"]
-        REAL[".env<br/>OPENAI_API_KEY · ANTHROPIC_API_KEY · CLAUDE_CODE_OAUTH_TOKEN"]
+        REAL[".env / isolated auth store<br/>API keys · Claude token · Codex OAuth"]
         RELAY[Provider relay sidecar<br/>host-side process]
     end
 
     subgraph AGENT["Agent container — UNTRUSTED"]
-        DUMMY["Dummy provider credential<br/>securebench-dummy-…"]
+        DUMMY["Dummy provider credential / auth file<br/>securebench-dummy-…"]
         CLI_AGENT[Codex / Claude Code CLI]
     end
 
     subgraph PROVIDER["External provider"]
-        API[api.openai.com · api.anthropic.com]
+        API[api.openai.com · api.anthropic.com · chatgpt.com/backend-api/codex]
     end
 
     REAL --> RELAY
     CLI_AGENT -->|HTTP to relay<br/>dummy auth| RELAY
-    RELAY -->|HTTPS + real key| API
+    RELAY -->|HTTPS + real credential| API
 
     REAL -.-x|NOT mounted| AGENT
 ```
 
-**Named provider harnesses** (`codex`, `claude_code`): real credentials stay on the host; the agent container gets a dummy credential and a relay base URL.
+**Named provider harnesses** (`codex`, `claude_code`): real credentials stay on the host; the agent container gets a dummy credential or synthetic auth file plus a relay base URL. Codex subscription credentials use a separate SecureBench-owned login and the relay restricts them to Codex backend paths.
+
+- API-key modes read `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.
+- Claude subscription mode reads `CLAUDE_CODE_OAUTH_TOKEN`, generated with
+  `claude setup-token`.
+- Codex subscription mode reads the isolated login created by
+  `securebench auth codex login` and refreshes it in the relay.
+
+See [Provider Authentication](provider-authentication.md) for setup and
+credential lifecycle details.
 
 **Command harness:** tester-selected env vars pass directly into the container — a different, weaker model. Do not expose real secrets to untrusted command harnesses.
 

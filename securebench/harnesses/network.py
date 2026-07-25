@@ -22,6 +22,7 @@ EGRESS_PROXY_IMAGE = "python:3.11-slim"
 PROVIDER_RELAY_ALIAS = "securebench-provider-relay"
 PROVIDER_RELAY_PORT = 8090
 PROVIDER_RELAY_IMAGE = "python:3.11-slim"
+PROVIDER_RELAY_CODEX_AUTH_TARGET = "/var/lib/securebench/codex-auth"
 _LABEL_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
 
@@ -45,12 +46,13 @@ class ProviderRelaySpec:
 
     provider: str
     upstream_host: str
-    credential_env: str
+    credential_env: str | None
     credential_kind: str
     base_url: str
     blocked_tool_types: tuple[str, ...] = ()
     blocked_tool_prefixes: tuple[str, ...] = ()
     allowed_client_tool_types: tuple[str, ...] = ()
+    allowed_path_prefixes: tuple[str, ...] = ()
 
 
 def allowed_domains_config(value: Any, field: str = "harness.config.allowed_domains") -> tuple[str, ...]:
@@ -126,6 +128,7 @@ class DockerEgressPolicy:
         self.network = "none"
         self.proxy_container: str | None = None
         self._network_name: str | None = None
+        self._upstream_network_name: str | None = None
 
     def __enter__(self) -> HarnessEgress:
         if not self.allowed_domains:
@@ -133,6 +136,7 @@ class DockerEgressPolicy:
 
         suffix = uuid.uuid4().hex
         self._network_name = f"securebench-egress-{suffix}"
+        self._upstream_network_name = f"securebench-upstream-{suffix}"
         self.proxy_container = f"securebench-egress-proxy-{suffix}"
         try:
             _run_docker(
@@ -146,6 +150,10 @@ class DockerEgressPolicy:
                 "create egress network",
             )
             _run_docker(
+                ["docker", "network", "create", self._upstream_network_name],
+                "create upstream network",
+            )
+            _run_docker(
                 [
                     "docker",
                     "run",
@@ -154,7 +162,7 @@ class DockerEgressPolicy:
                     "--name",
                     self.proxy_container,
                     "--network",
-                    "bridge",
+                    self._upstream_network_name,
                     "--cap-drop",
                     "ALL",
                     "--read-only",
@@ -233,6 +241,14 @@ class DockerEgressPolicy:
                 text=True,
             )
             self._network_name = None
+        if self._upstream_network_name is not None:
+            subprocess.run(
+                ["docker", "network", "rm", self._upstream_network_name],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self._upstream_network_name = None
 
 
 def docker_egress_policy(allowed_domains: tuple[str, ...]) -> DockerEgressPolicy:
@@ -248,6 +264,7 @@ class DockerProviderRelayPolicy:
         allowed_domains: tuple[str, ...],
         *,
         allow_external_tools: bool = False,
+        credential_file: Path | None = None,
         relay_image: str = PROVIDER_RELAY_IMAGE,
         proxy_image: str = EGRESS_PROXY_IMAGE,
     ) -> None:
@@ -255,18 +272,21 @@ class DockerProviderRelayPolicy:
         self.provider = spec.provider
         self.allowed_domains = tuple(allowed_domains)
         self.allow_external_tools = allow_external_tools
+        self.credential_file = credential_file
         self.relay_image = relay_image
         self.proxy_image = proxy_image
         self.network = "none"
         self.relay_container: str | None = None
         self.proxy_container: str | None = None
         self._network_name: str | None = None
+        self._upstream_network_name: str | None = None
         self._log_cleanup: tempfile.TemporaryDirectory[str] | None = None
 
     def __enter__(self) -> HarnessEgress:
-        require_provider_credential(self.spec)
+        require_provider_credential(self.spec, self.credential_file)
         suffix = uuid.uuid4().hex
         self._network_name = f"securebench-egress-{suffix}"
+        self._upstream_network_name = f"securebench-upstream-{suffix}"
         self.relay_container = f"securebench-provider-relay-{suffix}"
         self._log_cleanup = tempfile.TemporaryDirectory(prefix="securebench-provider-relay-")
         relay_log_dir = Path(self._log_cleanup.name)
@@ -280,6 +300,10 @@ class DockerProviderRelayPolicy:
                     self._network_name,
                 ],
                 "create provider relay network",
+            )
+            _run_docker(
+                ["docker", "network", "create", self._upstream_network_name],
+                "create provider upstream network",
             )
             if self.allowed_domains:
                 self.proxy_container = f"securebench-egress-proxy-{suffix}"
@@ -315,7 +339,7 @@ class DockerProviderRelayPolicy:
                 "--name",
                 self.proxy_container or "",
                 "--network",
-                "bridge",
+                self._upstream_network_name or "",
                 "--cap-drop",
                 "ALL",
                 "--read-only",
@@ -355,35 +379,72 @@ class DockerProviderRelayPolicy:
         )
 
     def _start_provider_relay(self, relay_log_dir: Path) -> None:
-        _run_docker(
+        command = [
+            "docker",
+            "run",
+            "-d",
+            "--rm",
+            "--name",
+            self.relay_container or "",
+            "--network",
+            self._upstream_network_name or "",
+            "--cap-drop",
+            "ALL",
+            "--read-only",
+            "--tmpfs",
+            "/tmp",
+            "--memory",
+            "256m",
+            "--pids-limit",
+            "64",
+            "--security-opt",
+            "no-new-privileges:true",
+        ]
+        if self.spec.credential_kind == "codex-oauth":
+            if self.credential_file is None:
+                raise ConfigError("Codex subscription relay requires a credential file")
+            user_arguments = []
+            getuid = getattr(os, "getuid", None)
+            getgid = getattr(os, "getgid", None)
+            if getuid is not None and getgid is not None:
+                user_arguments = ["--user", f"{getuid()}:{getgid()}"]
+            command.extend(
+                [
+                    *user_arguments,
+                    "-e",
+                    (
+                        "SECUREBENCH_CREDENTIAL_FILE="
+                        f"{PROVIDER_RELAY_CODEX_AUTH_TARGET}/{self.credential_file.name}"
+                    ),
+                    "--mount",
+                    (
+                        f"type=bind,source={self.credential_file.parent},"
+                        f"target={PROVIDER_RELAY_CODEX_AUTH_TARGET}"
+                    ),
+                    "--mount",
+                    (
+                        f"type=bind,source={codex_oauth_script()},"
+                        "target=/opt/securebench/codex_oauth.py,readonly"
+                    ),
+                ]
+            )
+        else:
+            if self.spec.credential_env is None:
+                raise ConfigError("provider relay requires a credential environment variable")
+            command.extend(
+                [
+                    "-e",
+                    self.spec.credential_env,
+                    "-e",
+                    f"SECUREBENCH_CREDENTIAL_ENV={self.spec.credential_env}",
+                ]
+            )
+        command.extend(
             [
-                "docker",
-                "run",
-                "-d",
-                "--rm",
-                "--name",
-                self.relay_container or "",
-                "--network",
-                "bridge",
-                "--cap-drop",
-                "ALL",
-                "--read-only",
-                "--tmpfs",
-                "/tmp",
-                "--memory",
-                "256m",
-                "--pids-limit",
-                "64",
-                "--security-opt",
-                "no-new-privileges:true",
-                "-e",
-                self.spec.credential_env,
                 "-e",
                 f"SECUREBENCH_PROVIDER={self.provider}",
                 "-e",
                 f"SECUREBENCH_UPSTREAM_HOST={self.spec.upstream_host}",
-                "-e",
-                f"SECUREBENCH_CREDENTIAL_ENV={self.spec.credential_env}",
                 "-e",
                 f"SECUREBENCH_CREDENTIAL_KIND={self.spec.credential_kind}",
                 "-e",
@@ -392,6 +453,8 @@ class DockerProviderRelayPolicy:
                 f"SECUREBENCH_BLOCKED_TOOL_PREFIXES={json.dumps(sorted(self.spec.blocked_tool_prefixes))}",
                 "-e",
                 f"SECUREBENCH_ALLOWED_CLIENT_TOOL_TYPES={json.dumps(sorted(self.spec.allowed_client_tool_types))}",
+                "-e",
+                f"SECUREBENCH_ALLOWED_PATH_PREFIXES={json.dumps(sorted(self.spec.allowed_path_prefixes))}",
                 "-e",
                 f"SECUREBENCH_ALLOW_EXTERNAL_TOOLS={str(self.allow_external_tools).lower()}",
                 "-e",
@@ -407,9 +470,9 @@ class DockerProviderRelayPolicy:
                 "0.0.0.0",
                 "--port",
                 str(PROVIDER_RELAY_PORT),
-            ],
-            "start provider relay",
+            ]
         )
+        _run_docker(command, "start provider relay")
         _run_docker(
             [
                 "docker",
@@ -442,6 +505,14 @@ class DockerProviderRelayPolicy:
                 text=True,
             )
             self._network_name = None
+        if self._upstream_network_name is not None:
+            subprocess.run(
+                ["docker", "network", "rm", self._upstream_network_name],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self._upstream_network_name = None
         if self._log_cleanup is not None:
             self._log_cleanup.cleanup()
             self._log_cleanup = None
@@ -452,16 +523,29 @@ def docker_provider_relay_policy(
     allowed_domains: tuple[str, ...],
     *,
     allow_external_tools: bool = False,
+    credential_file: Path | None = None,
 ) -> DockerProviderRelayPolicy:
     return DockerProviderRelayPolicy(
         spec,
         allowed_domains,
         allow_external_tools=allow_external_tools,
+        credential_file=credential_file,
     )
 
 
-def require_provider_credential(spec: ProviderRelaySpec) -> None:
+def require_provider_credential(
+    spec: ProviderRelaySpec,
+    credential_file: Path | None = None,
+) -> None:
+    if spec.credential_kind == "codex-oauth":
+        if credential_file is None or not credential_file.is_file():
+            raise ConfigError(
+                "Codex subscription login is required; run `securebench auth codex login`"
+            )
+        return
     env_name = spec.credential_env
+    if env_name is None:
+        raise ConfigError(f"{spec.provider} provider relay has no credential source")
     if not os.environ.get(env_name):
         raise ConfigError(f"{spec.provider} provider relay requires environment variable: {env_name}")
 
@@ -497,6 +581,10 @@ def egress_proxy_script() -> Path:
 
 def provider_relay_script() -> Path:
     return Path(__file__).resolve().parent / "provider_relay.py"
+
+
+def codex_oauth_script() -> Path:
+    return Path(__file__).resolve().parent / "codex_oauth.py"
 
 
 def _proxy_env() -> dict[str, str]:

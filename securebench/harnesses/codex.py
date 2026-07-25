@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -43,6 +45,11 @@ from securebench.harnesses.network import (
     relay_decision_summary,
     require_provider_credential,
 )
+from securebench.harnesses.codex_oauth import (
+    CodexOAuthError,
+    codex_auth_file,
+    ensure_valid_codex_oauth_credentials,
+)
 from securebench.workspaces.materialization import VisibilityAwareMaterializer, docker_read_only_mounts
 from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
@@ -50,6 +57,7 @@ from securebench.tasks import SecureBenchTask
 
 
 CODEX_CONFIG_FIELDS = {
+    "auth",
     "model",
     "version",
     "task_file",
@@ -66,8 +74,14 @@ CODEX_DEFAULT_TIMEOUT_SECONDS = 900.0
 CODEX_RUNTIME_NODE_IMAGE = "node:22-bookworm"
 CODEX_PROVIDER = "openai"
 CODEX_PROVIDER_UPSTREAM_HOST = "api.openai.com"
-CODEX_PROVIDER_ENV_NAMES = {"OPENAI_API_KEY", "CODEX_API_KEY"}
+CODEX_SUBSCRIPTION_UPSTREAM_HOST = "chatgpt.com"
+CODEX_PROVIDER_ENV_NAMES = {"OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"}
+CODEX_AUTH_MODES = {"api_key", "subscription"}
+CODEX_DEFAULT_AUTH_MODE = "api_key"
 CODEX_DUMMY_API_KEY = "securebench-dummy-openai-api-key"
+CODEX_DUMMY_ACCOUNT_ID = "securebench-dummy-account"
+CODEX_DUMMY_USER_ID = "securebench-dummy-user"
+CODEX_DUMMY_TOKEN_LIFETIME_SECONDS = 10 * 365 * 24 * 60 * 60
 CODEX_RELAY_PROVIDER_ID = "securebench_openai"
 CODEX_PROVIDER_RELAY_SPEC = ProviderRelaySpec(
     provider=CODEX_PROVIDER,
@@ -85,6 +99,17 @@ CODEX_PROVIDER_RELAY_SPEC = ProviderRelaySpec(
     ),
     blocked_tool_prefixes=("web_search_", "computer_use_"),
     allowed_client_tool_types=("function", "custom", "shell", "apply_patch"),
+)
+CODEX_SUBSCRIPTION_RELAY_SPEC = ProviderRelaySpec(
+    provider=CODEX_PROVIDER,
+    upstream_host=CODEX_SUBSCRIPTION_UPSTREAM_HOST,
+    credential_env=None,
+    credential_kind="codex-oauth",
+    base_url=f"http://{PROVIDER_RELAY_ALIAS}:{PROVIDER_RELAY_PORT}/backend-api",
+    blocked_tool_types=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_types,
+    blocked_tool_prefixes=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
+    allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
+    allowed_path_prefixes=("/backend-api/codex/",),
 )
 
 
@@ -120,6 +145,7 @@ class CodexHarnessProducer(CandidateProducer):
     def __init__(
         self,
         *,
+        auth: str = CODEX_DEFAULT_AUTH_MODE,
         model: str,
         env_names: tuple[str, ...] = (),
         version: str = CODEX_DEFAULT_VERSION,
@@ -129,6 +155,7 @@ class CodexHarnessProducer(CandidateProducer):
         allow_external_tools: bool = False,
         workspace_root: str | Path | None = None,
     ) -> None:
+        self.auth = codex_auth_mode(auth)
         self.model = model
         self.env_names = codex_env_names(env_names)
         self.version = codex_version(version)
@@ -141,7 +168,14 @@ class CodexHarnessProducer(CandidateProducer):
 
     def produce(self, task: SecureBenchTask, **context: Any) -> CandidateArtifact:
         image = container_image_for_task(task)
-        require_provider_credential(CODEX_PROVIDER_RELAY_SPEC)
+        relay_spec = codex_provider_relay_spec(self.auth)
+        credential_file = codex_subscription_credential_file(self.auth)
+        require_provider_credential(relay_spec, credential_file)
+        if credential_file is not None:
+            try:
+                ensure_valid_codex_oauth_credentials(credential_file)
+            except CodexOAuthError as exc:
+                raise ConfigError(str(exc)) from exc
         require_env_names(self.env_names, "codex")
         task_workspace = workspace_root(
             task,
@@ -159,7 +193,8 @@ class CodexHarnessProducer(CandidateProducer):
             materialize_workdir_from_image_if_requested(task, task_workspace)
             state_cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-home-")
             state_root = Path(state_cleanup.name)
-            (state_root / ".codex").mkdir(parents=True, exist_ok=True)
+            if self.auth == "subscription":
+                write_dummy_codex_auth(state_root / "auth.json")
             config_cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-config-")
             config_root = Path(config_cleanup.name)
             staging = HostSandbox(root=task_workspace)
@@ -170,27 +205,29 @@ class CodexHarnessProducer(CandidateProducer):
             overlay = codex_overlay_for_image(image, self.version)
             workspace_mount_target = workspace_mount_target_for_task(task)
             allowed_domains = effective_allowed_domains("codex", self.allowed_domains)
+            relay_options: dict[str, Any] = {
+                "allow_external_tools": self.allow_external_tools,
+            }
+            if credential_file is not None:
+                relay_options["credential_file"] = credential_file
             with docker_provider_relay_policy(
-                CODEX_PROVIDER_RELAY_SPEC,
+                relay_spec,
                 allowed_domains,
-                allow_external_tools=self.allow_external_tools,
+                **relay_options,
             ) as egress:
                 if egress.provider_base_url is None:
                     raise ConfigError("codex provider relay did not provide a base URL")
-                write_codex_relay_config(
+                write_codex_config(
                     config_root,
                     egress.provider_base_url,
+                    auth=self.auth,
                     allow_external_tools=self.allow_external_tools,
                 )
                 sandbox = DockerSandbox(
                     image=image,
                     root=task_workspace,
                     env_names=self.env_names,
-                    env={
-                        **egress.env,
-                        "OPENAI_API_KEY": CODEX_DUMMY_API_KEY,
-                        "CODEX_API_KEY": CODEX_DUMMY_API_KEY,
-                    },
+                    env=codex_agent_env(egress.env, auth=self.auth),
                     network=egress.network,
                     read_only=False,
                     mounts=(
@@ -242,7 +279,7 @@ class CodexHarnessProducer(CandidateProducer):
                     )
                     result = sandbox.run(
                         codex_shell_command(
-                            f"codex {codex_relay_config_args(egress.provider_base_url, allow_external_tools=self.allow_external_tools)} "
+                            f"codex {codex_config_args(egress.provider_base_url, auth=self.auth, allow_external_tools=self.allow_external_tools)} "
                             f"exec --model {shell_quote(self.model)} --json --skip-git-repo-check "
                             f"--dangerously-bypass-approvals-and-sandbox "
                             f"{shell_quote(codex_prompt(task, task_file_for_agent))}"
@@ -271,6 +308,7 @@ class CodexHarnessProducer(CandidateProducer):
                             "benchmark_environment_image": image,
                             "codex_version": overlay.version,
                             "codex_model": self.model,
+                            "auth_mode": self.auth,
                             "overlay_platform": overlay.platform.docker_platform,
                             "overlay_cache_path": str(overlay.path),
                             "allowed_domains": allowed_domains,
@@ -296,6 +334,7 @@ class CodexHarnessProducer(CandidateProducer):
 def codex_config(config: dict[str, Any]) -> dict[str, Any]:
     reject_unknown_fields(config, CODEX_CONFIG_FIELDS, "harness.config")
     return {
+        "auth": codex_auth_mode(config.get("auth", CODEX_DEFAULT_AUTH_MODE)),
         "model": codex_model(config.get("model")),
         "version": codex_version(config.get("version", CODEX_DEFAULT_VERSION)),
         "task_file": workspace_path(
@@ -313,6 +352,33 @@ def codex_config(config: dict[str, Any]) -> dict[str, Any]:
 
 def codex_env_names(env_names: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(name for name in env_names if name not in CODEX_PROVIDER_ENV_NAMES)
+
+
+def codex_auth_mode(value: Any) -> str:
+    if not isinstance(value, str) or value not in CODEX_AUTH_MODES:
+        valid = ", ".join(sorted(CODEX_AUTH_MODES))
+        raise ConfigError(f"harness.config.auth must be one of: {valid}")
+    return value
+
+
+def codex_provider_relay_spec(auth: str) -> ProviderRelaySpec:
+    if codex_auth_mode(auth) == "subscription":
+        return CODEX_SUBSCRIPTION_RELAY_SPEC
+    return CODEX_PROVIDER_RELAY_SPEC
+
+
+def codex_subscription_credential_file(auth: str) -> Path | None:
+    if codex_auth_mode(auth) == "subscription":
+        return codex_auth_file()
+    return None
+
+
+def codex_agent_env(base: dict[str, str], *, auth: str) -> dict[str, str]:
+    env = dict(base)
+    if codex_auth_mode(auth) == "api_key":
+        env["OPENAI_API_KEY"] = CODEX_DUMMY_API_KEY
+        env["CODEX_API_KEY"] = CODEX_DUMMY_API_KEY
+    return env
 
 
 def allow_external_tools_config(value: Any) -> bool:
@@ -488,6 +554,55 @@ def write_codex_relay_config(
     (dot_codex / "config.toml").write_text(content)
 
 
+def write_codex_config(
+    home: Path,
+    base_url: str,
+    *,
+    auth: str,
+    allow_external_tools: bool = False,
+) -> None:
+    if codex_auth_mode(auth) == "subscription":
+        write_codex_subscription_config(
+            home,
+            base_url,
+            allow_external_tools=allow_external_tools,
+        )
+        return
+    write_codex_relay_config(
+        home,
+        base_url,
+        allow_external_tools=allow_external_tools,
+    )
+
+
+def write_codex_subscription_config(
+    home: Path,
+    base_url: str,
+    *,
+    allow_external_tools: bool = False,
+) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    lines = [
+        f"chatgpt_base_url = {toml_string(base_url)}",
+        'forced_login_method = "chatgpt"',
+        'cli_auth_credentials_store = "file"',
+    ]
+    if not allow_external_tools:
+        lines.extend(
+            [
+                'web_search = "disabled"',
+                "",
+                "[tools]",
+                "web_search = false",
+            ]
+        )
+    content = "\n".join([*lines, ""])
+    (home / "config.toml").write_text(content)
+    dot_codex = home / ".codex"
+    dot_codex.mkdir(exist_ok=True)
+    (dot_codex / "config.toml").write_text(content)
+
+
 def codex_relay_config_args(
     base_url: str,
     *,
@@ -515,6 +630,105 @@ def codex_relay_config_args(
             ]
         )
     return " ".join(shell_quote(arg) for arg in args)
+
+
+def codex_config_args(
+    base_url: str,
+    *,
+    auth: str,
+    allow_external_tools: bool = False,
+) -> str:
+    if codex_auth_mode(auth) == "subscription":
+        return codex_subscription_config_args(
+            base_url,
+            allow_external_tools=allow_external_tools,
+        )
+    return codex_relay_config_args(
+        base_url,
+        allow_external_tools=allow_external_tools,
+    )
+
+
+def codex_subscription_config_args(
+    base_url: str,
+    *,
+    allow_external_tools: bool = False,
+) -> str:
+    args = [
+        "-c",
+        f"chatgpt_base_url={toml_string(base_url)}",
+        "-c",
+        'forced_login_method="chatgpt"',
+        "-c",
+        'cli_auth_credentials_store="file"',
+    ]
+    if not allow_external_tools:
+        args.extend(
+            [
+                "-c",
+                'web_search="disabled"',
+                "-c",
+                "tools.web_search=false",
+            ]
+        )
+    return " ".join(shell_quote(arg) for arg in args)
+
+
+def write_dummy_codex_auth(path: Path) -> None:
+    now = int(datetime.now(timezone.utc).timestamp())
+    expires_at = now + CODEX_DUMMY_TOKEN_LIFETIME_SECONDS
+    auth_claim = {
+        "chatgpt_account_id": CODEX_DUMMY_ACCOUNT_ID,
+        "chatgpt_plan_type": "pro",
+        "chatgpt_user_id": CODEX_DUMMY_USER_ID,
+    }
+    id_token = dummy_jwt(
+        {
+            "exp": expires_at,
+            "iat": now,
+            "sub": CODEX_DUMMY_USER_ID,
+            "email": "securebench@example.invalid",
+            "https://api.openai.com/auth": auth_claim,
+        }
+    )
+    access_token = dummy_jwt(
+        {
+            "exp": expires_at,
+            "iat": now,
+            "sub": CODEX_DUMMY_USER_ID,
+            "https://api.openai.com/auth": auth_claim,
+            "https://api.openai.com/auth.chatgpt_account_id": CODEX_DUMMY_ACCOUNT_ID,
+        }
+    )
+    document = {
+        "auth_mode": "chatgpt",
+        "OPENAI_API_KEY": None,
+        "tokens": {
+            "id_token": id_token,
+            "access_token": access_token,
+            "refresh_token": "securebench-dummy-refresh-token",
+            "account_id": CODEX_DUMMY_ACCOUNT_ID,
+        },
+        "last_refresh": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(document, sort_keys=True) + "\n")
+    os.chmod(path, 0o600)
+
+
+def dummy_jwt(claims: dict[str, Any]) -> str:
+    header = {"alg": "none", "typ": "JWT"}
+    return ".".join(
+        [
+            base64.urlsafe_b64encode(json.dumps(header, separators=(",", ":")).encode())
+            .decode()
+            .rstrip("="),
+            base64.urlsafe_b64encode(json.dumps(claims, separators=(",", ":")).encode())
+            .decode()
+            .rstrip("="),
+            "securebench",
+        ]
+    )
 
 
 def codex_shell_command(inner: str) -> str:

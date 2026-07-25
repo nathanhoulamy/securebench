@@ -11,8 +11,9 @@ SecureBench has a sensible core separation:
 
 - The host runner loads tester YAML, benchmark packs, `.env`, and provider credentials.
 - The agent sandbox receives public task data only.
-- Named provider harnesses use dummy in-container keys and a host-side provider
-  relay to inject real credentials.
+- Named provider harnesses use dummy in-container credentials and a host-side
+  provider relay to inject API keys, Claude subscription tokens, or refreshed
+  Codex subscription access tokens.
 - Generic egress is disabled unless `allowed_domains` is configured.
 - Verification runs separately from candidate production, with candidate patches
   or workspaces treated as untrusted input.
@@ -127,7 +128,9 @@ shape.
 
 Why it matters:
 
-- The relay forwards arbitrary methods and paths to the provider host.
+- API-key and Claude-token relays forward arbitrary methods and paths to the
+  configured provider host. Codex subscription relays are narrower and allow
+  only `/backend-api/codex/` paths.
 - The denylist depends on known tool type strings and prefixes.
 - `allow_external_tools: true` intentionally bypasses the tool block.
 - Agent CLI versions are installed dynamically by version string, including
@@ -203,8 +206,10 @@ Recommended hardening:
   symlinks are rejected.
 - Docker sandbox defaults drop capabilities, use no-new-privileges, memory and
   PID limits, read-only root filesystem, tmpfs for `/tmp`, and no network.
-- Named provider harnesses use dummy in-container keys and host-side relay
-  credential injection.
+- Named provider harnesses use dummy in-container credentials and host-side
+  relay credential injection. Codex subscription mode additionally uses an
+  isolated SecureBench login, locked token refresh, a synthetic agent auth
+  file, and a Codex-backend path allowlist.
 - Generic egress allowlists domains, rejects IP literals in config, restricts
   ports to 80/443, and rejects DNS answers that are not public unicast.
 - Repo-patch verification checks declared base commit, enforces candidate path

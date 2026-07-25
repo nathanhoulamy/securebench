@@ -10,6 +10,12 @@ from securebench.audit import audit_config, audit_self
 from securebench.audit.report import render_text_summary, write_json_report
 from securebench.env import load_env_file
 from securebench.progress import NullProgressReporter, StreamProgressReporter
+from securebench.harnesses.codex_oauth import (
+    CodexOAuthError,
+    ensure_valid_codex_oauth_credentials,
+    run_codex_login,
+    run_codex_logout,
+)
 from securebench.tester_config import load_tester_config
 from securebench.tester_run import run_tester_config, with_tester_overrides
 
@@ -54,6 +60,22 @@ def main(argv: list[str] | None = None) -> int:
         help="Skip Docker-dependent malicious smoke checks",
     )
 
+    auth_parser = subparsers.add_parser("auth", help="Manage harness subscription logins")
+    auth_providers = auth_parser.add_subparsers(dest="auth_provider", required=True)
+    codex_auth_parser = auth_providers.add_parser(
+        "codex",
+        help="Manage the isolated Codex subscription login",
+    )
+    codex_auth_actions = codex_auth_parser.add_subparsers(dest="auth_action", required=True)
+    codex_login_parser = codex_auth_actions.add_parser("login", help="Log in with ChatGPT")
+    codex_login_parser.add_argument(
+        "--device-auth",
+        action="store_true",
+        help="Use the Codex device-code login flow",
+    )
+    codex_auth_actions.add_parser("status", help="Check the SecureBench Codex login")
+    codex_auth_actions.add_parser("logout", help="Remove the SecureBench Codex login")
+
     args = parser.parse_args(argv)
 
     if args.command == "run":
@@ -62,6 +84,8 @@ def main(argv: list[str] | None = None) -> int:
         return _audit(args)
     if args.command == "audit-self":
         return _audit_self(args)
+    if args.command == "auth":
+        return _auth(args)
     parser.error(f"Unknown command {args.command!r}")
     return 2
 
@@ -127,6 +151,33 @@ def _audit_self(args: argparse.Namespace) -> int:
 
     print(render_text_summary(report, output_path))
     return 1 if report.failed else 0
+
+
+def _auth(args: argparse.Namespace) -> int:
+    if args.auth_provider != "codex":
+        print(f"securebench: error: unsupported auth provider {args.auth_provider!r}")
+        return 1
+    try:
+        if args.auth_action == "login":
+            path = run_codex_login(device_auth=args.device_auth)
+            credentials = ensure_valid_codex_oauth_credentials(path)
+            plan = credentials.plan_type or "unknown"
+            print(f"securebench: Codex subscription login saved ({plan} plan)")
+            return 0
+        if args.auth_action == "status":
+            credentials = ensure_valid_codex_oauth_credentials()
+            plan = credentials.plan_type or "unknown"
+            print(f"securebench: Codex subscription login is ready ({plan} plan)")
+            return 0
+        if args.auth_action == "logout":
+            run_codex_logout()
+            print("securebench: Codex subscription login removed")
+            return 0
+    except (CodexOAuthError, OSError, ValueError) as exc:
+        print(f"securebench: error: {exc}")
+        return 1
+    print(f"securebench: error: unsupported Codex auth action {args.auth_action!r}")
+    return 1
 
 
 if __name__ == "__main__":

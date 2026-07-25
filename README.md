@@ -25,10 +25,27 @@ OPENAI_API_KEY=...
 # CLAUDE_CODE_OAUTH_TOKEN=...
 ```
 
-Claude Code supports either an Anthropic API key or a Claude subscription. To
-use a Pro, Max, Team, or Enterprise subscription, generate a token with
-`claude setup-token`, store it as `CLAUDE_CODE_OAUTH_TOKEN`, and set
-`harness.config.auth: subscription`. API-key authentication remains the default.
+Claude Code supports either an Anthropic API key or an eligible Claude
+subscription. Generate a token with `claude setup-token`, store it as
+`CLAUDE_CODE_OAUTH_TOKEN`, and set `harness.config.auth: subscription`.
+
+Codex supports either an OpenAI API key or a ChatGPT subscription. Create an
+isolated SecureBench login with:
+
+```bash
+.venv/bin/python -m securebench.cli auth codex login
+.venv/bin/python -m securebench.cli auth codex status
+```
+
+This delegates the browser login to the installed Codex CLI and stores its
+credentials separately under `~/.config/securebench/auth/codex`. SecureBench
+refreshes the login as needed. It does not import or modify your normal Codex
+login. Set `SECUREBENCH_AUTH_HOME` to override the SecureBench auth directory.
+
+API-key authentication remains the default for both harnesses. See
+[Provider Authentication](docs/provider-authentication.md) for complete setup,
+benchmark commands, credential lifecycle, security behavior, and
+troubleshooting for Claude and Codex subscription runs.
 
 Named provider harnesses keep the real credential on the host side. SecureBench
 gives the agent container a dummy credential and routes model API traffic
@@ -73,6 +90,19 @@ harness:
 
 The CLI loads `.env` by default. Use `--env-file path/to/.env` when needed.
 
+For a Codex ChatGPT subscription run:
+
+```yaml
+harness:
+  type: codex
+  config:
+    auth: subscription
+    model: gpt-5.4-mini
+```
+
+Valid Codex authentication modes are `api_key` and `subscription`. API-key
+authentication remains the default, so existing tester files do not change.
+
 For a Claude Code subscription run:
 
 ```yaml
@@ -87,6 +117,11 @@ Valid Claude Code authentication modes are `api_key` and `subscription`.
 Provider credential names do not need to appear in `harness.env`; the harness
 filters `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, and
 `CLAUDE_CODE_OAUTH_TOKEN` from agent-container pass-through.
+
+Complete runnable subscription examples are available at:
+
+- [`docs/examples/tester-codex-subscription.yaml`](docs/examples/tester-codex-subscription.yaml)
+- [`docs/examples/tester-claude-code-subscription.yaml`](docs/examples/tester-claude-code-subscription.yaml)
 
 ## Development
 

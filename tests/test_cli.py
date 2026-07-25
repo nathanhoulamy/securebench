@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -172,6 +173,54 @@ def test_cli_rejects_unknown_subcommand(capsys):
 
     assert exc_info.value.code == 2
     assert "invalid choice" in capsys.readouterr().err
+
+
+def test_cli_codex_subscription_login(monkeypatch, tmp_path, capsys):
+    auth_path = tmp_path / "auth.json"
+    seen = {}
+
+    def fake_login(*, device_auth):
+        seen["device_auth"] = device_auth
+        return auth_path
+
+    def fake_credentials(path=None):
+        seen["path"] = path
+        return SimpleNamespace(plan_type="plus")
+
+    monkeypatch.setattr("securebench.cli.run_codex_login", fake_login)
+    monkeypatch.setattr(
+        "securebench.cli.ensure_valid_codex_oauth_credentials",
+        fake_credentials,
+    )
+
+    exit_code = cli.main(["auth", "codex", "login", "--device-auth"])
+
+    assert exit_code == 0
+    assert seen == {"device_auth": True, "path": auth_path}
+    assert "Codex subscription login saved (plus plan)" in capsys.readouterr().out
+
+
+def test_cli_codex_subscription_status(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "securebench.cli.ensure_valid_codex_oauth_credentials",
+        lambda: SimpleNamespace(plan_type="pro"),
+    )
+
+    exit_code = cli.main(["auth", "codex", "status"])
+
+    assert exit_code == 0
+    assert "Codex subscription login is ready (pro plan)" in capsys.readouterr().out
+
+
+def test_cli_codex_subscription_logout(monkeypatch, capsys):
+    seen = []
+    monkeypatch.setattr("securebench.cli.run_codex_logout", lambda: seen.append("logout"))
+
+    exit_code = cli.main(["auth", "codex", "logout"])
+
+    assert exit_code == 0
+    assert seen == ["logout"]
+    assert "Codex subscription login removed" in capsys.readouterr().out
 
 
 class FakeTesterSummary:

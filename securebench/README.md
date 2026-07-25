@@ -12,7 +12,8 @@ families:
 - `benchmark_compiler.py`: validates rows and compiles resources into tasks.
 - `tasks.py`: defines normalized `SecureBenchTask` objects and resource helpers.
 - `resources.py`: defines resource visibility, redaction, and component views.
-- `tester_config.py`, `tester_run.py`, `cli.py`: run tester YAML end to end.
+- `tester_config.py`, `tester_run.py`, `cli.py`: run tester YAML end to end and
+  manage the isolated Codex subscription login.
 
 ## Candidates
 
@@ -29,8 +30,11 @@ families:
 
 - `harnesses/command.py`: runs a configured command in a benchmark image.
 - `harnesses/codex.py`: runs Codex CLI with a mounted overlay.
+- `harnesses/codex_oauth.py`: stores, validates, locks, and refreshes the
+  SecureBench-owned Codex subscription login.
 - `harnesses/claude_code.py`: runs Claude Code with a mounted overlay.
-- `harnesses/provider_relay.py`: injects host-side provider credentials for named agent harnesses.
+- `harnesses/provider_relay.py`: injects host-side API keys or subscription
+  credentials for named agent harnesses.
 - `harnesses/shared.py`: shared workspace, image, timeout, and materialization helpers.
 
 ## Verifiers

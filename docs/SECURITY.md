@@ -14,14 +14,29 @@ workspace state and must be verified from trusted evaluator inputs.
 - Named provider harness credentials are host-side only. Codex and Claude Code
   receive dummy provider credentials inside the untrusted agent container and
   route API requests through a SecureBench provider relay sidecar, which injects
-  the real API key or Claude subscription bearer token outside the sandbox.
+  the real API key or subscription bearer token outside the sandbox.
 
 ## Provider Relay
 
 The provider relay is enabled for the `codex` and `claude_code` harnesses. It
 terminates plain HTTP from the internal Docker network, forwards to the provider
 over HTTPS, strips dummy auth, injects the real host credential, and writes
-redacted decision logs outside the agent workspace.
+redacted decision logs outside the agent workspace. The relay and optional
+egress proxy use a per-run outbound Docker network rather than Docker's shared
+default bridge, while the agent can reach them only through its isolated
+internal network.
+
+For Codex subscription runs, the relay receives a bind mount containing only
+SecureBench's isolated Codex login directory. It refreshes expiring OAuth tokens
+under a file lock and restricts upstream requests to `/backend-api/codex/`.
+The real ChatGPT access token, refresh token, and account id are never mounted
+into the agent container; its synthetic auth file contains dummy values that
+the relay strips before forwarding.
+
+For Claude subscription runs, `CLAUDE_CODE_OAUTH_TOKEN` remains in the
+host-side environment and is passed by name only to the relay container. The
+agent receives a fixed dummy OAuth token. SecureBench does not refresh or
+persist the real Claude token; operators rotate it with `claude setup-token`.
 
 Provider-hosted external tools are blocked by default. Tester YAML may opt in
 with `harness.config.allow_external_tools: true`; otherwise requests that enable
@@ -37,10 +52,16 @@ is part of the experiment.
 `allowed_domains` controls generic agent-container egress, not provider-hosted
 web search. Provider-hosted web tools remain blocked by default and, if enabled,
 run inside the provider rather than through SecureBench's generic egress proxy.
-Claude Code `allowed_domains` relies on the CLI honoring its documented
-`NO_PROXY` behavior so provider relay traffic to `securebench-provider-relay`
-bypasses the generic egress proxy. Re-run an integration check with a real
-Anthropic key when changing Claude Code networking or proxy handling.
+Anthropic's
+[corporate proxy guide](https://docs.anthropic.com/en/docs/claude-code/corporate-proxy)
+currently states that Claude Code does not support `NO_PROXY`. Treat Claude
+Code runs that combine provider relay traffic with a non-empty
+`allowed_domains` list as requiring an integration check for the selected CLI
+version. Re-run that check when changing Claude Code networking or proxy
+handling.
+
+See [Provider Authentication](provider-authentication.md) for the supported
+credential sources, setup commands, and credential lifecycle.
 
 ## Repo Patch
 

@@ -1,19 +1,19 @@
-# Set OPENAI_API_KEY in .env before using this API-key example.
+# Generate CLAUDE_CODE_OAUTH_TOKEN with `claude setup-token` before using this config.
 schema_version: "0.2"
 
 run:
-  id: deep-swe-codex-api-key
-  output_dir: ../../runs/deep-swe-codex-api-key
+  id: deep-swe-claude-code-subscription
+  output_dir: ../../runs/deep-swe-claude-code-subscription
 
 benchmark:
   manifest: ../../benchmarks/deep-swe/manifest.yaml
   tasks: ../../benchmarks/deep-swe/tasks.jsonl
 
 harness:
-  type: codex
+  type: claude_code
   config:
-    auth: api_key
-    model: gpt-5.4-mini
+    auth: subscription
+    model: sonnet
     version: latest
     task_file: task.json
     timeout_seconds: 5400

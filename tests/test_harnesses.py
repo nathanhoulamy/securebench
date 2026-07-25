@@ -97,13 +97,23 @@ class FakeEgressPolicy:
 class FakeProviderRelayPolicy:
     calls = []
     specs = []
+    credential_files = []
 
-    def __init__(self, spec, allowed_domains, *, allow_external_tools=False):
+    def __init__(
+        self,
+        spec,
+        allowed_domains,
+        *,
+        allow_external_tools=False,
+        credential_file=None,
+    ):
         self.spec = spec
         self.provider = spec.provider
         self.allowed_domains = tuple(allowed_domains)
         self.allow_external_tools = allow_external_tools
+        self.credential_file = credential_file
         FakeProviderRelayPolicy.specs.append(spec)
+        FakeProviderRelayPolicy.credential_files.append(credential_file)
         FakeProviderRelayPolicy.calls.append(
             (self.provider, self.allowed_domains, self.allow_external_tools)
         )
@@ -143,6 +153,7 @@ def reset_fakes(monkeypatch):
     FakeEgressPolicy.calls = []
     FakeProviderRelayPolicy.calls = []
     FakeProviderRelayPolicy.specs = []
+    FakeProviderRelayPolicy.credential_files = []
     monkeypatch.setattr("securebench.harnesses.command.docker_egress_policy", FakeEgressPolicy)
     monkeypatch.setattr("securebench.harnesses.codex.docker_provider_relay_policy", FakeProviderRelayPolicy)
     monkeypatch.setattr(
@@ -559,6 +570,93 @@ def test_codex_harness_defaults_to_openai_api_key(monkeypatch, tmp_path):
 
     assert FakeDockerSandbox.instances[-1].env_names == ()
     assert FakeProviderRelayPolicy.calls[-1] == ("openai", (), False)
+
+
+def test_codex_harness_uses_isolated_subscription_login(monkeypatch, tmp_path):
+    class SubscriptionDockerSandbox(FakeDockerSandbox):
+        instances = []
+
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            state_mount = next(
+                mount for mount in self.mounts if mount.target == "/opt/securebench/codex-home"
+            )
+            self.auth_snapshot = json.loads((state_mount.source / "auth.json").read_text())
+
+        def run(self, command, *, workdir=None, timeout=None):
+            self.commands.append((command, workdir, timeout))
+            if tuple(command) == (
+                "git",
+                "diff",
+                "HEAD",
+                "--binary",
+                "--full-index",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--",
+            ):
+                return CommandResult(tuple(command), 0, "diff --git a/app.py b/app.py\n", "")
+            return CommandResult(
+                ("sh", "-lc", command) if isinstance(command, str) else tuple(command),
+                0,
+                "ok",
+                "",
+            )
+
+    auth_path = tmp_path / "auth" / "codex" / "auth.json"
+    auth_path.parent.mkdir(parents=True)
+    auth_path.write_text("{}")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr("securebench.harnesses.codex.HostSandbox", FakeHostSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.DockerSandbox", SubscriptionDockerSandbox)
+    monkeypatch.setattr("securebench.harnesses.codex.codex_auth_file", lambda: auth_path)
+    monkeypatch.setattr(
+        "securebench.harnesses.codex.ensure_valid_codex_oauth_credentials",
+        lambda path: SimpleNamespace(),
+    )
+    overlay_path = tmp_path / "codex-overlay"
+    overlay_path.mkdir()
+    monkeypatch.setattr(
+        "securebench.harnesses.codex.codex_overlay_for_image",
+        lambda image, version: CodexOverlay(
+            path=overlay_path,
+            platform=DockerPlatform(os="linux", architecture="amd64"),
+            version=version,
+        ),
+    )
+    producer = build_harness_producer(
+        HarnessSection(
+            type="codex",
+            env=("OPENAI_API_KEY", "CODEX_ACCESS_TOKEN"),
+            config={
+                "auth": "subscription",
+                "model": "gpt-5.1-codex",
+            },
+        ),
+        workspace_root=tmp_path / "runs",
+    )
+
+    artifact = producer.produce(
+        repo_patch_task(environment={"image": "python:3.11-slim"})
+    )
+
+    docker = FakeDockerSandbox.instances[-1]
+    assert docker.env_names == ()
+    assert "OPENAI_API_KEY" not in docker.kwargs["env"]
+    assert "CODEX_API_KEY" not in docker.kwargs["env"]
+    assert "CODEX_ACCESS_TOKEN" not in docker.kwargs["env"]
+    assert docker.auth_snapshot["auth_mode"] == "chatgpt"
+    assert docker.auth_snapshot["tokens"]["account_id"] == "securebench-dummy-account"
+    command = docker.commands[1][0]
+    assert (
+        "'-c' 'chatgpt_base_url=\"http://securebench-provider-relay:8090/backend-api\"'"
+        in command
+    )
+    assert "'-c' 'forced_login_method=\"chatgpt\"'" in command
+    assert "model_provider" not in command
+    assert artifact.metadata["auth_mode"] == "subscription"
+    assert FakeProviderRelayPolicy.specs[-1].upstream_host == "chatgpt.com"
+    assert FakeProviderRelayPolicy.credential_files[-1] == auth_path
 
 
 def test_codex_harness_filters_provider_keys_and_keeps_generic_egress(monkeypatch, tmp_path):

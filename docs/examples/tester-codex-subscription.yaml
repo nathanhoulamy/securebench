@@ -1,9 +1,9 @@
-# Set OPENAI_API_KEY in .env before using this API-key example.
+# Run `python -m securebench.cli auth codex login` before using this config.
 schema_version: "0.2"
 
 run:
-  id: deep-swe-codex-api-key
-  output_dir: ../../runs/deep-swe-codex-api-key
+  id: deep-swe-codex-subscription
+  output_dir: ../../runs/deep-swe-codex-subscription
 
 benchmark:
   manifest: ../../benchmarks/deep-swe/manifest.yaml
@@ -12,7 +12,7 @@ benchmark:
 harness:
   type: codex
   config:
-    auth: api_key
+    auth: subscription
     model: gpt-5.4-mini
     version: latest
     task_file: task.json

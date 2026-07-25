@@ -30,13 +30,15 @@ HOP_BY_HOP_HEADERS = {
 class RelayConfig:
     provider: str
     upstream_host: str
-    credential: str
+    credential: str | None
     credential_kind: str
     blocked_tool_types: tuple[str, ...]
     blocked_tool_prefixes: tuple[str, ...]
     allowed_client_tool_types: tuple[str, ...]
     allow_external_tools: bool
     log_dir: Path
+    credential_file: Path | None = None
+    allowed_path_prefixes: tuple[str, ...] = ()
 
 
 def main() -> int:
@@ -59,13 +61,22 @@ def relay_config_from_env() -> RelayConfig:
     if provider not in {"openai", "anthropic"}:
         raise SystemExit("SECUREBENCH_PROVIDER must be 'openai' or 'anthropic'")
     host = required_env("SECUREBENCH_UPSTREAM_HOST")
-    credential_env = required_env("SECUREBENCH_CREDENTIAL_ENV")
-    credential = os.environ.get(credential_env)
-    if not credential:
-        raise SystemExit(f"{credential_env} is required")
     credential_kind = required_env("SECUREBENCH_CREDENTIAL_KIND")
-    if credential_kind not in {"bearer", "x-api-key"}:
-        raise SystemExit("SECUREBENCH_CREDENTIAL_KIND must be 'bearer' or 'x-api-key'")
+    credential: str | None = None
+    credential_file: Path | None = None
+    if credential_kind == "codex-oauth":
+        credential_file = Path(required_env("SECUREBENCH_CREDENTIAL_FILE"))
+        if not credential_file.is_file():
+            raise SystemExit(f"Codex OAuth credential file does not exist: {credential_file}")
+    elif credential_kind in {"bearer", "x-api-key"}:
+        credential_env = required_env("SECUREBENCH_CREDENTIAL_ENV")
+        credential = os.environ.get(credential_env)
+        if not credential:
+            raise SystemExit(f"{credential_env} is required")
+    else:
+        raise SystemExit(
+            "SECUREBENCH_CREDENTIAL_KIND must be 'bearer', 'x-api-key', or 'codex-oauth'"
+        )
     allow_external_tools = os.environ.get("SECUREBENCH_ALLOW_EXTERNAL_TOOLS", "").lower() == "true"
     log_dir = Path(os.environ.get("SECUREBENCH_RELAY_LOG_DIR", "/tmp/securebench-provider-relay"))
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -79,6 +90,8 @@ def relay_config_from_env() -> RelayConfig:
         allowed_client_tool_types=string_tuple_env("SECUREBENCH_ALLOWED_CLIENT_TOOL_TYPES"),
         allow_external_tools=allow_external_tools,
         log_dir=log_dir,
+        credential_file=credential_file,
+        allowed_path_prefixes=string_tuple_env("SECUREBENCH_ALLOWED_PATH_PREFIXES"),
     )
 
 
@@ -131,6 +144,9 @@ class ProviderRelayHandler(BaseHTTPRequestHandler):
         return
 
     def _relay(self) -> None:
+        if not path_allowed(self.path, self.relay_config.allowed_path_prefixes):
+            self._send_path_block()
+            return
         content_length = self.headers.get("Content-Length")
         body = b""
         if content_length is not None:
@@ -160,14 +176,28 @@ class ProviderRelayHandler(BaseHTTPRequestHandler):
         response_bytes = 0
         upstream = None
         try:
-            upstream = http.client.HTTPSConnection(
-                self.relay_config.upstream_host,
-                443,
-                timeout=self.timeout,
-            )
-            headers = upstream_headers(self.relay_config, self.headers)
-            upstream.request(self.command, self.path, body=body, headers=headers)
-            response = upstream.getresponse()
+            response = None
+            attempts = 2 if self.relay_config.credential_kind == "codex-oauth" else 1
+            for attempt in range(attempts):
+                upstream = http.client.HTTPSConnection(
+                    self.relay_config.upstream_host,
+                    443,
+                    timeout=self.timeout,
+                )
+                headers = upstream_headers(
+                    self.relay_config,
+                    self.headers,
+                    force_oauth_refresh=attempt > 0,
+                )
+                upstream.request(self.command, self.path, body=body, headers=headers)
+                response = upstream.getresponse()
+                if response.status != 401 or attempt + 1 == attempts:
+                    break
+                response.read()
+                upstream.close()
+                upstream = None
+            if response is None:
+                raise OSError("provider relay received no upstream response")
             response_status = response.status
             self.send_response(response.status, response.reason)
             for name, value in response.getheaders():
@@ -224,20 +254,100 @@ class ProviderRelayHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def _send_path_block(self) -> None:
+        content = json.dumps(
+            {
+                "error": {
+                    "message": "SecureBench provider relay blocked this upstream path",
+                    "type": "securebench_policy_error",
+                }
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+        self.send_response(403)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+        write_decision(
+            self.relay_config,
+            {
+                "provider": self.relay_config.provider,
+                "path": self.path,
+                "status": "blocked",
+                "response_code": 403,
+                "request_bytes": 0,
+                "response_bytes": len(content),
+                "blocked_tool_types": [],
+                "blocked_reason": "upstream_path",
+            },
+        )
 
-def upstream_headers(config: RelayConfig, headers: Any) -> dict[str, str]:
+
+def upstream_headers(
+    config: RelayConfig,
+    headers: Any,
+    *,
+    force_oauth_refresh: bool = False,
+) -> dict[str, str]:
     result: dict[str, str] = {}
     for name, value in headers.items():
         lower = name.lower()
-        if lower in HOP_BY_HOP_HEADERS or lower in {"host", "authorization", "x-api-key"}:
+        if lower in HOP_BY_HOP_HEADERS or lower in {
+            "host",
+            "authorization",
+            "x-api-key",
+            "chatgpt-account-id",
+        }:
             continue
         result[name] = value
     result["Host"] = config.upstream_host
     if config.credential_kind == "bearer":
+        if config.credential is None:
+            raise OSError("provider relay bearer credential is unavailable")
         result["Authorization"] = f"Bearer {config.credential}"
-    else:
+    elif config.credential_kind == "x-api-key":
+        if config.credential is None:
+            raise OSError("provider relay API key is unavailable")
         result["x-api-key"] = config.credential
+    elif config.credential_kind == "codex-oauth":
+        if config.credential_file is None:
+            raise OSError("provider relay Codex OAuth credential file is unavailable")
+        credentials = _codex_oauth_credentials(
+            config.credential_file,
+            force_refresh=force_oauth_refresh,
+        )
+        result["Authorization"] = f"Bearer {credentials.access_token}"
+        result["ChatGPT-Account-Id"] = credentials.account_id
+    else:
+        raise OSError(f"unsupported provider relay credential kind: {config.credential_kind}")
     return result
+
+
+def path_allowed(path: str, allowed_prefixes: tuple[str, ...]) -> bool:
+    if not allowed_prefixes:
+        return True
+    request_path = path.split("?", 1)[0]
+    if (
+        not request_path.startswith("/")
+        or "%" in request_path
+        or "\\" in request_path
+        or "#" in request_path
+        or "//" in request_path
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in request_path)
+    ):
+        return False
+    if any(segment in {".", ".."} for segment in request_path.split("/")):
+        return False
+    return any(request_path.startswith(prefix) for prefix in allowed_prefixes)
+
+
+def _codex_oauth_credentials(path: Path, *, force_refresh: bool = False) -> Any:
+    try:
+        from codex_oauth import ensure_valid_codex_oauth_credentials
+    except ImportError:
+        from securebench.harnesses.codex_oauth import ensure_valid_codex_oauth_credentials
+    return ensure_valid_codex_oauth_credentials(path, force_refresh=force_refresh)
 
 
 def blocked_external_tools(

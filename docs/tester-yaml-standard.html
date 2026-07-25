@@ -270,10 +270,11 @@ harness:
       <h2>Harness Execution</h2>
       <div class="grid">
         <div class="mini-card"><h3>command</h3><p>SecureBench runs the tester-provided command inside the benchmark environment image with only public workspace data, allowlisted credentials, and optional domain allowlisted egress.</p></div>
-        <div class="mini-card"><h3>codex</h3><p>SecureBench runs Codex inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state. Provider API traffic goes through a SecureBench relay that keeps the real API key outside the agent container.</p></div>
+        <div class="mini-card"><h3>codex</h3><p>SecureBench runs Codex inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state. Provider traffic goes through a SecureBench relay that keeps the real API key or ChatGPT subscription login outside the agent container.</p></div>
         <div class="mini-card"><h3>claude_code</h3><p>SecureBench runs Claude Code inside the benchmark environment image and mounts a read-only cached tooling overlay plus fresh per-row agent state. Provider API traffic goes through a SecureBench relay that keeps the real API key or subscription token outside the agent container.</p></div>
       </div>
-      <div class="note"><strong>Network controls:</strong> <code>allowed_domains</code> controls generic agent-container egress, not provider-hosted web search. Provider-hosted external tools stay blocked unless <code>allow_external_tools: true</code> is set. Claude Code <code>allowed_domains</code> relies on the CLI honoring its documented <code>NO_PROXY</code> behavior so provider relay traffic bypasses the generic egress proxy.</div>
+      <div class="note"><strong>Network controls:</strong> <code>allowed_domains</code> controls generic agent-container egress, not provider-hosted web search. Provider-hosted external tools stay blocked unless <code>allow_external_tools: true</code> is set. Anthropic's <a href="https://docs.anthropic.com/en/docs/claude-code/corporate-proxy">corporate proxy guide</a> currently states that Claude Code does not support <code>NO_PROXY</code>; treat Claude Code runs that combine provider relay traffic with a non-empty <code>allowed_domains</code> list as requiring an integration check for the selected CLI version.</div>
+      <div class="note"><strong>Authentication:</strong> Both named harnesses accept <code>auth: api_key</code> (the default) or <code>auth: subscription</code>. For Codex subscription mode, run <code>python -m securebench.cli auth codex login</code>. For Claude Code subscription mode, run <code>claude setup-token</code> and store the result as <code>CLAUDE_CODE_OAUTH_TOKEN</code> in the host-side <code>.env</code>. Provider credentials must not be added to <code>harness.env</code>. See <a href="provider-authentication.md">Provider Authentication</a> for the complete setup and troubleshooting guide.</div>
       <pre class="schema"># Codex tooling overlay
 harness:
   type: codex
@@ -283,7 +284,17 @@ harness:
     allowed_domains:
       - docs.python.org
 
+# Codex ChatGPT subscription
+# First run: python -m securebench.cli auth codex login
+harness:
+  type: codex
+  config:
+    auth: subscription
+    model: gpt-5.4-mini
+
 # Claude Code subscription
+# First run: claude setup-token
+# Then store the token as CLAUDE_CODE_OAUTH_TOKEN in .env
 harness:
   type: claude_code
   config:
