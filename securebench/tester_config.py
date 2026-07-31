@@ -15,10 +15,11 @@ from securebench.errors import ConfigError
 SUPPORTED_TESTER_SCHEMA_VERSION = "0.2"
 HarnessType = Literal["codex", "claude_code", "command"]
 
-ROOT_FIELDS = {"schema_version", "run", "benchmark", "harness", "verification"}
+ROOT_FIELDS = {"schema_version", "run", "benchmark", "harness", "verification", "docker"}
 RUN_FIELDS = {"id", "output_dir"}
 BENCHMARK_FIELDS = {"manifest", "tasks"}
 HARNESS_FIELDS = {"type", "env", "config"}
+DOCKER_FIELDS = {"max_cached_images"}
 HARNESS_TYPES = {"codex", "claude_code", "command"}
 
 
@@ -48,6 +49,13 @@ class TesterHarnessSection:
 
 
 @dataclass(frozen=True)
+class TesterDockerSection:
+    """Docker image retention policy for one tester run."""
+
+    max_cached_images: int | None = None
+
+
+@dataclass(frozen=True)
 class TesterConfig:
     """Parsed tester YAML for a benchmark-pack run."""
 
@@ -56,6 +64,7 @@ class TesterConfig:
     benchmark: TesterBenchmarkSection
     harness: TesterHarnessSection
     verification: VerificationPolicy = field(default_factory=VerificationPolicy)
+    docker: TesterDockerSection = field(default_factory=TesterDockerSection)
 
 
 def load_tester_config(path: str | Path) -> TesterConfig:
@@ -99,6 +108,7 @@ def parse_tester_config(data: dict[str, Any], *, base_dir: str | Path | None = N
         benchmark=benchmark,
         harness=harness,
         verification=parse_verification_policy(data.get("verification")),
+        docker=_docker_section(data.get("docker")),
     )
 
 
@@ -111,6 +121,19 @@ def _harness_section(data: dict[str, Any]) -> TesterHarnessSection:
         env=_env_names(data.get("env"), "harness.env"),
         config=config,
     )
+
+
+def _docker_section(value: Any) -> TesterDockerSection:
+    data = _optional_dict(value, "docker")
+    _reject_unknown_fields(data, DOCKER_FIELDS, "docker")
+    max_cached_images = data.get("max_cached_images")
+    if max_cached_images is not None and (
+        isinstance(max_cached_images, bool)
+        or not isinstance(max_cached_images, int)
+        or max_cached_images <= 0
+    ):
+        raise ConfigError("docker.max_cached_images must be a positive integer")
+    return TesterDockerSection(max_cached_images=max_cached_images)
 
 
 def _required_dict(data: dict[str, Any], key: str, section: str) -> dict[str, Any]:

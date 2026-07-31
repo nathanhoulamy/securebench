@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -11,8 +12,9 @@ from typing import Any
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import CandidateArtifact, CandidateProductionTimeout
-from securebench.harnesses.shared import workspace_dir_name
+from securebench.errors import ConfigError
 from securebench.harnesses import build_harness_producer
+from securebench.harnesses.shared import environment_image_for_task, workspace_dir_name
 from securebench.progress import ProgressReporter, emit_progress, progress_context
 from securebench.resources import REDACTED
 from securebench.tester_config import TesterConfig
@@ -34,6 +36,8 @@ class TesterRunSummary:
     verified: int = 0
     passed: int = 0
     score_sum: float = 0.0
+    images_pruned: int = 0
+    image_prune_failures: int = 0
 
     @property
     def verification_status(self) -> str:
@@ -74,6 +78,7 @@ def run_tester_config(
     verified = 0
     passed = 0
     score_sum = 0.0
+    image_pruner = DockerImageBatchPruner(config.docker.max_cached_images)
     for record in existing_records:
         if _record_is_verified(record):
             verified += 1
@@ -126,6 +131,7 @@ def run_tester_config(
                         passed=record.get("passed"),
                         score=record.get("score"),
                     )
+                    image_pruner.observe(environment_image_for_task(task))
                     continue
                 emit_progress(
                     "producer_done",
@@ -157,6 +163,7 @@ def run_tester_config(
                     passed=record.get("passed"),
                     score=record.get("score"),
                 )
+                image_pruner.observe(environment_image_for_task(task))
 
     return TesterRunSummary(
         run_id=config.run.id,
@@ -166,6 +173,8 @@ def run_tester_config(
         verified=verified,
         passed=passed,
         score_sum=score_sum,
+        images_pruned=image_pruner.images_pruned,
+        image_prune_failures=image_pruner.failures,
     )
 
 
@@ -225,11 +234,71 @@ def with_tester_overrides(
     config: TesterConfig,
     *,
     output_dir: str | Path | None = None,
+    max_cached_images: int | None = None,
 ) -> TesterConfig:
     """Return a tester config with CLI overrides applied."""
-    if output_dir is None:
-        return config
-    return replace(config, run=replace(config.run, output_dir=Path(output_dir)))
+    updated = config
+    if output_dir is not None:
+        updated = replace(updated, run=replace(updated.run, output_dir=Path(output_dir)))
+    if max_cached_images is not None:
+        if isinstance(max_cached_images, bool) or max_cached_images <= 0:
+            raise ConfigError("--max-cached-images must be a positive integer")
+        updated = replace(
+            updated,
+            docker=replace(updated.docker, max_cached_images=max_cached_images),
+        )
+    return updated
+
+
+class DockerImageBatchPruner:
+    """Remove exact benchmark image references after each configured batch."""
+
+    def __init__(self, max_cached_images: int | None) -> None:
+        self.max_cached_images = max_cached_images
+        self.pending: list[str] = []
+        self.images_pruned = 0
+        self.failures = 0
+
+    def observe(self, image: str) -> None:
+        if self.max_cached_images is None or image in self.pending:
+            return
+        self.pending.append(image)
+        if len(self.pending) < self.max_cached_images:
+            return
+
+        targets = tuple(self.pending)
+        self.pending.clear()
+        emit_progress("image_prune_start", images=targets)
+        try:
+            completed = subprocess.run(
+                ["docker", "image", "rm", "--force", "--", *targets],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            self.failures += len(targets)
+            emit_progress(
+                "image_prune_failed",
+                images=targets,
+                exit_code=None,
+                stderr=str(exc),
+            )
+            return
+        if completed.returncode == 0:
+            self.images_pruned += len(targets)
+            emit_progress("image_prune_done", images=targets, removed=len(targets))
+            return
+
+        self.failures += len(targets)
+        emit_progress(
+            "image_prune_failed",
+            images=targets,
+            exit_code=completed.returncode,
+            stdout=completed.stdout,
+            stderr=completed.stderr,
+        )
 
 
 def verify_candidate(

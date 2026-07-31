@@ -1,0 +1,14 @@
+id: swe-bench-pro
+version: 1
+
+defaults:
+  family: repo_patch
+  environment:
+    workdir: /app
+
+asset_roots:
+  public: assets/
+  eval: hidden/
+
+asset_defaults:
+  read_only: true

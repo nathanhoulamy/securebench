@@ -26,6 +26,9 @@ def test_docker_sandbox_reuses_persistent_container_and_passes_env_names(monkeyp
 
     assert result.stdout == "ok"
     assert seen["commands"][0][:4] == ["docker", "run", "-d", "--name"]
+    assert ["--entrypoint", ""] == seen["commands"][0][
+        seen["commands"][0].index("--entrypoint") : seen["commands"][0].index("--entrypoint") + 2
+    ]
     assert "--network" in seen["commands"][0]
     assert "none" in seen["commands"][0]
     assert ["--cap-drop", "ALL"] == seen["commands"][0][
@@ -69,6 +72,9 @@ def test_docker_sandbox_can_use_disposable_container_per_command(monkeypatch, tm
 
     assert result.stdout == "ok"
     assert seen["command"][:3] == ["docker", "run", "--rm"]
+    assert ["--entrypoint", ""] == seen["command"][
+        seen["command"].index("--entrypoint") : seen["command"].index("--entrypoint") + 2
+    ]
     assert "--network" in seen["command"]
     assert "none" in seen["command"]
     assert "--read-only" in seen["command"]

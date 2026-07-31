@@ -1,4 +1,8 @@
 import json
+import subprocess
+from types import SimpleNamespace
+
+import pytest
 
 from securebench.candidates import CandidateArtifact, CandidateProductionTimeout
 from securebench.harnesses.shared import workspace_dir_name
@@ -9,8 +13,9 @@ from securebench.tester_config import (
     TesterHarnessSection as HarnessSection,
     TesterRunSection as RunSection,
 )
+from securebench.tester_run import DockerImageBatchPruner
 from securebench.tester_run import TesterRunSummary as RunSummary
-from securebench.tester_run import run_tester_config
+from securebench.tester_run import run_tester_config, with_tester_overrides
 from securebench.verifiers import VerificationResult
 
 
@@ -144,6 +149,52 @@ def test_run_tester_config_writes_verified_repo_patch_record(monkeypatch, tmp_pa
     assert records[0]["hidden_values"] == "<redacted>"
 
 
+def test_run_tester_config_prunes_each_full_image_batch_after_tasks_finish(monkeypatch, tmp_path):
+    manifest, tasks = write_repo_patch_pack(tmp_path)
+    first = json.loads(tasks.read_text())
+    second = {
+        **first,
+        "id": "tester-run-pack/fix_other_app",
+        "environment": {"image": "python:3.11-slim"},
+    }
+    tasks.write_text(json.dumps(first) + "\n" + json.dumps(second) + "\n")
+    config = with_tester_overrides(
+        make_config(tmp_path, manifest, tasks),
+        max_cached_images=2,
+    )
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: FakeProducer(
+            CandidateArtifact(patch="diff --git a/app.py b/app.py\n")
+        ),
+    )
+    monkeypatch.setattr("securebench.tester_run.verifier_for_task_type", lambda task_type: FakeVerifier())
+    cleanup_commands = []
+
+    def fake_cleanup(command, **kwargs):
+        cleanup_commands.append(command)
+        return SimpleNamespace(returncode=0, stdout="removed", stderr="")
+
+    monkeypatch.setattr("securebench.tester_run.subprocess.run", fake_cleanup)
+
+    summary = run_tester_config(config)
+
+    assert summary.total == 2
+    assert summary.images_pruned == 2
+    assert summary.image_prune_failures == 0
+    assert cleanup_commands == [
+        [
+            "docker",
+            "image",
+            "rm",
+            "--force",
+            "--",
+            "python:3.12-slim",
+            "python:3.11-slim",
+        ]
+    ]
+
+
 def test_run_tester_config_records_producer_timeout_as_failed_result(monkeypatch, tmp_path):
     manifest, tasks = write_terminal_pack(tmp_path)
     config = make_config(tmp_path, manifest, tasks)
@@ -253,3 +304,98 @@ def test_run_tester_config_cleans_stale_task_workspace_before_producer(monkeypat
 
     task_workspace = config.run.output_dir / "workspaces" / "tester-run-pack_create-output-a601a9c1"
     assert (task_workspace / "fresh.txt").exists()
+
+
+def test_docker_image_batch_pruner_removes_exact_distinct_images_in_batches(monkeypatch):
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append((command, kwargs))
+        return SimpleNamespace(returncode=0, stdout="removed", stderr="")
+
+    monkeypatch.setattr("securebench.tester_run.subprocess.run", fake_run)
+    pruner = DockerImageBatchPruner(2)
+
+    pruner.observe("registry.example/benchmark-a:1")
+    pruner.observe("registry.example/benchmark-a:1")
+    assert commands == []
+
+    pruner.observe("registry.example/benchmark-b:1")
+
+    assert commands == [
+        (
+            [
+                "docker",
+                "image",
+                "rm",
+                "--force",
+                "--",
+                "registry.example/benchmark-a:1",
+                "registry.example/benchmark-b:1",
+            ],
+            {"check": False, "capture_output": True, "text": True, "timeout": 120},
+        )
+    ]
+    assert pruner.pending == []
+    assert pruner.images_pruned == 2
+    assert pruner.failures == 0
+
+    pruner.observe("registry.example/benchmark-c:1")
+    pruner.observe("registry.example/benchmark-d:1")
+
+    assert len(commands) == 2
+    assert commands[1][0][-2:] == [
+        "registry.example/benchmark-c:1",
+        "registry.example/benchmark-d:1",
+    ]
+    assert pruner.images_pruned == 4
+
+
+def test_docker_image_batch_pruner_reports_failure_and_continues(monkeypatch):
+    results = iter(
+        [
+            SimpleNamespace(returncode=1, stdout="", stderr="in use"),
+            SimpleNamespace(returncode=0, stdout="removed", stderr=""),
+        ]
+    )
+    monkeypatch.setattr("securebench.tester_run.subprocess.run", lambda *args, **kwargs: next(results))
+    pruner = DockerImageBatchPruner(1)
+
+    pruner.observe("benchmark-a:1")
+    pruner.observe("benchmark-b:1")
+
+    assert pruner.images_pruned == 1
+    assert pruner.failures == 1
+    assert pruner.pending == []
+
+
+def test_docker_image_batch_pruner_does_not_abort_run_when_cleanup_times_out(monkeypatch):
+    def time_out(*args, **kwargs):
+        raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+
+    monkeypatch.setattr("securebench.tester_run.subprocess.run", time_out)
+    pruner = DockerImageBatchPruner(1)
+
+    pruner.observe("benchmark-a:1")
+
+    assert pruner.images_pruned == 0
+    assert pruner.failures == 1
+    assert pruner.pending == []
+
+
+def test_with_tester_overrides_sets_image_cache_limit(tmp_path):
+    manifest, tasks = write_repo_patch_pack(tmp_path)
+    config = make_config(tmp_path, manifest, tasks)
+
+    updated = with_tester_overrides(config, max_cached_images=3)
+
+    assert updated.docker.max_cached_images == 3
+    assert config.docker.max_cached_images is None
+
+
+def test_with_tester_overrides_rejects_invalid_image_cache_limit(tmp_path):
+    manifest, tasks = write_repo_patch_pack(tmp_path)
+    config = make_config(tmp_path, manifest, tasks)
+
+    with pytest.raises(ValueError, match="--max-cached-images must be a positive integer"):
+        with_tester_overrides(config, max_cached_images=0)

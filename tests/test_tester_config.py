@@ -39,6 +39,7 @@ def test_parse_tester_config_accepts_codex_harness():
     assert config.harness.config == {}
     assert config.verification.disallow_dangerous_commands is True
     assert config.verification.deny_commands == ()
+    assert config.docker.max_cached_images is None
 
 
 def test_parse_tester_config_accepts_codex_harness_without_image():
@@ -102,6 +103,12 @@ def test_parse_tester_config_accepts_verification_policy():
     assert config.verification.allow_network is True
 
 
+def test_parse_tester_config_accepts_docker_image_cache_limit():
+    config = parse_tester_config(valid_tester_config(docker={"max_cached_images": 2}))
+
+    assert config.docker.max_cached_images == 2
+
+
 def test_load_tester_config_resolves_relative_paths_against_config_file(tmp_path):
     config_path = tmp_path / "configs" / "tester.yaml"
     config_path.parent.mkdir()
@@ -157,6 +164,16 @@ harness:
         (
             {"verification": {"allow_network": "yes"}},
             "verification.allow_network must be a boolean",
+        ),
+        ({"docker": "bad"}, "docker must be an object"),
+        ({"docker": {"extra": True}}, "docker contains unsupported field"),
+        (
+            {"docker": {"max_cached_images": 0}},
+            "docker.max_cached_images must be a positive integer",
+        ),
+        (
+            {"docker": {"max_cached_images": True}},
+            "docker.max_cached_images must be a positive integer",
         ),
         ({"run": {"id": "x", "output_dir": "runs/x", "limit": 1}}, "run contains unsupported field"),
         (

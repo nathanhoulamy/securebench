@@ -30,6 +30,11 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--limit", type=int, help="Limit benchmark rows")
     run_parser.add_argument("--output-dir", help="Override run.output_dir")
     run_parser.add_argument(
+        "--max-cached-images",
+        type=int,
+        help="Remove each batch of this many benchmark images after their tasks finish",
+    )
+    run_parser.add_argument(
         "--resume",
         action="store_true",
         help="Keep valid existing output records and skip completed task ids",
@@ -94,7 +99,11 @@ def _run(args: argparse.Namespace) -> int:
     try:
         load_env_file(args.env_file)
         config = load_tester_config(args.config)
-        config = with_tester_overrides(config, output_dir=args.output_dir)
+        config = with_tester_overrides(
+            config,
+            output_dir=args.output_dir,
+            max_cached_images=args.max_cached_images,
+        )
         progress = (
             NullProgressReporter()
             if args.quiet
@@ -119,6 +128,8 @@ def _run(args: argparse.Namespace) -> int:
         f"run_id={summary.run_id} total={summary.total} "
         f"verification={summary.verification_status} "
         f"verified={summary.verified} passed={summary.passed} "
+        f"images_pruned={summary.images_pruned} "
+        f"image_prune_failures={summary.image_prune_failures} "
         f"output={summary.output_path}"
     )
     return 0

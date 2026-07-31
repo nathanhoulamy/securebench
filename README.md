@@ -78,6 +78,10 @@ benchmark:
   manifest: manifest.yaml
   tasks: tasks.jsonl
 
+docker:
+  # Optional: remove exact benchmark image references in batches.
+  max_cached_images: 2
+
 harness:
   type: codex
   config:
@@ -89,6 +93,11 @@ harness:
 ```
 
 The CLI loads `.env` by default. Use `--env-file path/to/.env` when needed.
+
+`docker.max_cached_images` limits benchmark image accumulation without touching
+unrelated Docker images. SecureBench removes each full batch after its tasks
+finish and pulls an image again if a later task needs it. You can override the
+YAML value with `--max-cached-images N`. A final partial batch remains cached.
 
 For a Codex ChatGPT subscription run:
 

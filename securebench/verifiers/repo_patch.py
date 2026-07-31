@@ -514,7 +514,10 @@ def _paths_from_patch_line(line: str) -> tuple[str, ...]:
 
 
 def _diff_git_paths(line: str) -> tuple[str, str] | None:
-    tokens = _git_header_tokens(line.removeprefix("diff --git "))
+    value = line.removeprefix("diff --git ")
+    tokens = _git_header_tokens(value)
+    if tokens is None:
+        tokens = _identical_unquoted_git_paths(value)
     if tokens is None:
         return None
     left, right = tokens
@@ -524,6 +527,26 @@ def _diff_git_paths(line: str) -> tuple[str, str] | None:
     if any(_normalize_patch_path(path) is None for path in paths):
         return None
     return paths
+
+
+def _identical_unquoted_git_paths(value: str) -> tuple[str, str] | None:
+    """Parse Git's unquoted same-path header form when a filename contains spaces."""
+    if not value.startswith("a/"):
+        return None
+    matches: list[tuple[str, str]] = []
+    start = 0
+    while True:
+        separator = value.find(" b/", start)
+        if separator == -1:
+            break
+        left = value[:separator]
+        right = value[separator + 1 :]
+        if left[2:] == right[2:]:
+            matches.append((left, right))
+        start = separator + 1
+    if len(matches) != 1:
+        return None
+    return matches[0]
 
 
 def _git_header_tokens(value: str) -> tuple[str, str] | None:

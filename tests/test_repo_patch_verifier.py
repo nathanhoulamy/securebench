@@ -504,11 +504,21 @@ def test_repo_patch_verifier_rejects_headerless_candidate_patch():
     assert sandbox.commands == [(["git", "rev-parse", "HEAD"], "/testbed", 300.0)]
 
 
-def test_repo_patch_verifier_rejects_ambiguous_git_section_header():
-    sandbox = FakeSandbox()
+def test_repo_patch_verifier_accepts_identical_unquoted_git_path_with_spaces():
+    sandbox = FakeSandbox(actual_paths=("file name.py",))
     verifier = RepoPatchVerifier(sandbox_factory=lambda **kwargs: sandbox)
 
     result = verifier.verify(make_task(), "diff --git a/file name.py b/file name.py\n")
+
+    assert result.status == "passed"
+    assert result.metadata["candidate_patch_paths"] == ("file name.py",)
+
+
+def test_repo_patch_verifier_rejects_ambiguous_unquoted_git_rename_with_spaces():
+    sandbox = FakeSandbox()
+    verifier = RepoPatchVerifier(sandbox_factory=lambda **kwargs: sandbox)
+
+    result = verifier.verify(make_task(), "diff --git a/old name.py b/new name.py\n")
 
     assert result.status == "failed"
     assert result.metadata["failure_reason"] == "noncanonical_candidate_patch"

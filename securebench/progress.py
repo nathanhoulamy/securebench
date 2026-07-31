@@ -137,6 +137,19 @@ def _format_event(
             f"{label} {fields.get('task_id')} "
             f"score={fields.get('score')}"
         )
+    if name == "image_prune_done":
+        return (
+            f"{_dim('securebench:', color)} "
+            f"removed {fields.get('removed')} benchmark image(s)"
+        )
+    if name == "image_prune_failed":
+        images = fields.get("images")
+        count = len(images) if isinstance(images, (list, tuple)) else "unknown"
+        return (
+            f"{_dim('securebench:', color)} "
+            f"image cleanup failed for {count} image(s) "
+            f"exit={fields.get('exit_code')}"
+        )
     if show_command_output and name == "sandbox_result":
         return _sandbox_output(fields, color=color)
     if show_agent_output and name == "agent_output":

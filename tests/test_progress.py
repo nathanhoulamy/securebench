@@ -36,6 +36,24 @@ def test_stream_progress_reporter_can_show_sandbox_output_when_requested():
     ]
 
 
+def test_stream_progress_reporter_prints_image_cleanup_results():
+    stream = StringIO()
+    reporter = StreamProgressReporter(stream=stream, color=False)
+
+    reporter.event("image_prune_done", images=("image-a", "image-b"), removed=2)
+    reporter.event(
+        "image_prune_failed",
+        images=("image-c",),
+        exit_code=1,
+        stderr="in use",
+    )
+
+    assert stream.getvalue().splitlines() == [
+        "securebench: removed 2 benchmark image(s)",
+        "securebench: image cleanup failed for 1 image(s) exit=1",
+    ]
+
+
 def test_stream_progress_reporter_can_show_agent_events():
     stream = StringIO()
     reporter = StreamProgressReporter(stream=stream, show_agent_output=True, color=False)
