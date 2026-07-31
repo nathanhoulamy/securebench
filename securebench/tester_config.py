@@ -16,7 +16,7 @@ SUPPORTED_TESTER_SCHEMA_VERSION = "0.2"
 HarnessType = Literal["codex", "claude_code", "command"]
 
 ROOT_FIELDS = {"schema_version", "run", "benchmark", "harness", "verification", "docker"}
-RUN_FIELDS = {"id", "output_dir"}
+RUN_FIELDS = {"id", "output_dir", "max_workers"}
 BENCHMARK_FIELDS = {"manifest", "tasks"}
 HARNESS_FIELDS = {"type", "env", "config"}
 DOCKER_FIELDS = {"max_cached_images"}
@@ -29,6 +29,7 @@ class TesterRunSection:
 
     id: str
     output_dir: Path
+    max_workers: int = 1
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,7 @@ def parse_tester_config(data: dict[str, Any], *, base_dir: str | Path | None = N
     run = TesterRunSection(
         id=_required_str(run_data, "id", "run"),
         output_dir=_config_path(_required_str(run_data, "output_dir", "run"), base),
+        max_workers=_positive_int(run_data.get("max_workers", 1), "run.max_workers"),
     )
     benchmark = TesterBenchmarkSection(
         manifest=_config_path(_required_str(benchmark_data, "manifest", "benchmark"), base),
@@ -155,6 +157,12 @@ def _required_str(data: dict[str, Any], key: str, section: str) -> str:
     value = data.get(key)
     if not isinstance(value, str) or not value:
         raise ConfigError(f"{section}.{key} must be a non-empty string")
+    return value
+
+
+def _positive_int(value: Any, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ConfigError(f"{field} must be a positive integer")
     return value
 
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -50,6 +52,12 @@ class TesterRunSummary:
         return "partial"
 
 
+@dataclass(frozen=True)
+class _CompletedTask:
+    task: Any
+    record: dict[str, object]
+
+
 def run_tester_config(
     config: TesterConfig,
     *,
@@ -74,11 +82,15 @@ def run_tester_config(
         if isinstance(record.get("task_id"), str)
     }
     remaining_tasks = [task for task in tasks if task.id not in completed_task_ids]
+    task_indexes = {task.id: index for index, task in enumerate(tasks, start=1)}
     total = len(existing_records)
     verified = 0
     passed = 0
     score_sum = 0.0
     image_pruner = DockerImageBatchPruner(config.docker.max_cached_images)
+    remaining_image_uses = Counter(
+        environment_image_for_task(task) for task in remaining_tasks
+    )
     for record in existing_records:
         if _record_is_verified(record):
             verified += 1
@@ -86,7 +98,12 @@ def run_tester_config(
                 passed += 1
             score_sum += _record_score(record)
     with progress_context(progress):
-        emit_progress("run_start", run_id=config.run.id, output_dir=output_dir)
+        emit_progress(
+            "run_start",
+            run_id=config.run.id,
+            output_dir=output_dir,
+            max_workers=config.run.max_workers,
+        )
         if existing_records:
             emit_progress(
                 "resume",
@@ -99,71 +116,57 @@ def run_tester_config(
                 for record in existing_records:
                     output_file.write(json.dumps(record, sort_keys=True) + "\n")
                 output_file.flush()
-            for task in remaining_tasks:
-                emit_progress(
-                    "task_start",
-                    index=total + 1,
-                    total=len(tasks),
-                    task_id=task.id,
-                    family=task.task_type,
-                )
-                emit_progress("producer_start", task_id=task.id)
-                _reset_task_workspace(workspace_root, task)
-                try:
-                    candidate = producer.produce(task)
-                except CandidateProductionTimeout as exc:
-                    record = candidate_timeout_record(config.run.id, task, exc)
-                    output_file.write(json.dumps(record, sort_keys=True) + "\n")
-                    output_file.flush()
-                    total += 1
-                    verified += 1
-                    emit_progress(
-                        "producer_done",
-                        task_id=task.id,
-                        candidate_kind="none",
-                        status="failed",
-                        failure_reason=record["failure_reason"],
-                    )
-                    emit_progress(
-                        "task_done",
-                        task_id=task.id,
-                        status=record["verification_status"],
-                        passed=record.get("passed"),
-                        score=record.get("score"),
-                    )
-                    image_pruner.observe(environment_image_for_task(task))
-                    continue
-                emit_progress(
-                    "producer_done",
-                    task_id=task.id,
-                    candidate_kind=_candidate_kind(candidate),
-                )
-                emit_progress("verifier_start", task_id=task.id)
-                verification = verify_candidate(task, candidate, verification_policy=config.verification)
-                emit_progress(
-                    "verifier_done",
-                    task_id=task.id,
-                    status=None if verification is None else verification.status,
-                    score=None if verification is None else verification.score,
-                    phase=_verification_phase(verification),
-                )
-                record = candidate_record(config.run.id, task, candidate, verification)
+
+            def persist(completed: _CompletedTask) -> None:
+                nonlocal total, verified, passed, score_sum
+                record = completed.record
                 output_file.write(json.dumps(record, sort_keys=True) + "\n")
                 output_file.flush()
                 total += 1
-                if verification is not None:
+                if _record_is_verified(record):
                     verified += 1
-                    if verification.passed:
+                    if record.get("passed") is True:
                         passed += 1
-                    score_sum += verification.score
-                emit_progress(
-                    "task_done",
-                    task_id=task.id,
-                    status=record["verification_status"],
-                    passed=record.get("passed"),
-                    score=record.get("score"),
-                )
-                image_pruner.observe(environment_image_for_task(task))
+                    score_sum += _record_score(record)
+                image = environment_image_for_task(completed.task)
+                remaining_image_uses[image] -= 1
+                if remaining_image_uses[image] == 0:
+                    image_pruner.observe(image)
+
+            if config.run.max_workers == 1:
+                for task in remaining_tasks:
+                    persist(
+                        _execute_task(
+                            config,
+                            task,
+                            producer=producer,
+                            workspace_root=workspace_root,
+                            progress=progress,
+                            index=task_indexes[task.id],
+                            total=len(tasks),
+                        )
+                    )
+            elif remaining_tasks:
+                worker_count = min(config.run.max_workers, len(remaining_tasks))
+                with ThreadPoolExecutor(
+                    max_workers=worker_count,
+                    thread_name_prefix="securebench-row",
+                ) as executor:
+                    futures = [
+                        executor.submit(
+                            _execute_task,
+                            config,
+                            task,
+                            producer=producer,
+                            workspace_root=workspace_root,
+                            progress=progress,
+                            index=task_indexes[task.id],
+                            total=len(tasks),
+                        )
+                        for task in remaining_tasks
+                    ]
+                    for future in as_completed(futures):
+                        persist(future.result())
 
     return TesterRunSummary(
         run_id=config.run.id,
@@ -176,6 +179,68 @@ def run_tester_config(
         images_pruned=image_pruner.images_pruned,
         image_prune_failures=image_pruner.failures,
     )
+
+
+def _execute_task(
+    config: TesterConfig,
+    task: Any,
+    *,
+    producer: Any,
+    workspace_root: Path,
+    progress: ProgressReporter | None,
+    index: int,
+    total: int,
+) -> _CompletedTask:
+    """Produce and verify one row without mutating shared run output."""
+    with progress_context(progress):
+        emit_progress(
+            "task_start",
+            index=index,
+            total=total,
+            task_id=task.id,
+            family=task.task_type,
+        )
+        emit_progress("producer_start", task_id=task.id)
+        _reset_task_workspace(workspace_root, task)
+        try:
+            candidate = producer.produce(task)
+        except CandidateProductionTimeout as exc:
+            record = candidate_timeout_record(config.run.id, task, exc)
+            emit_progress(
+                "producer_done",
+                task_id=task.id,
+                candidate_kind="none",
+                status="failed",
+                failure_reason=record["failure_reason"],
+            )
+        else:
+            emit_progress(
+                "producer_done",
+                task_id=task.id,
+                candidate_kind=_candidate_kind(candidate),
+            )
+            emit_progress("verifier_start", task_id=task.id)
+            verification = verify_candidate(
+                task,
+                candidate,
+                verification_policy=config.verification,
+            )
+            emit_progress(
+                "verifier_done",
+                task_id=task.id,
+                status=None if verification is None else verification.status,
+                score=None if verification is None else verification.score,
+                phase=_verification_phase(verification),
+            )
+            record = candidate_record(config.run.id, task, candidate, verification)
+        emit_progress(
+            "task_done",
+            task_id=task.id,
+            status=record["verification_status"],
+            passed=record.get("passed"),
+            score=record.get("score"),
+        )
+        return _CompletedTask(task=task, record=record)
 
 
 def _reset_task_workspace(workspace_root: Path, task: Any) -> None:
@@ -234,12 +299,17 @@ def with_tester_overrides(
     config: TesterConfig,
     *,
     output_dir: str | Path | None = None,
+    max_workers: int | None = None,
     max_cached_images: int | None = None,
 ) -> TesterConfig:
     """Return a tester config with CLI overrides applied."""
     updated = config
     if output_dir is not None:
         updated = replace(updated, run=replace(updated.run, output_dir=Path(output_dir)))
+    if max_workers is not None:
+        if isinstance(max_workers, bool) or max_workers <= 0:
+            raise ConfigError("--workers must be a positive integer")
+        updated = replace(updated, run=replace(updated.run, max_workers=max_workers))
     if max_cached_images is not None:
         if isinstance(max_cached_images, bool) or max_cached_images <= 0:
             raise ConfigError("--max-cached-images must be a positive integer")

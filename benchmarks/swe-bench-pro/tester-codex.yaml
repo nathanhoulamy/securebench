@@ -3,6 +3,7 @@ schema_version: "0.2"
 run:
   id: swe-bench-pro-codex-gpt-5.4-mini
   output_dir: ../../runs/swe-bench-pro-codex-gpt-5.4-mini
+  max_workers: 2
 
 benchmark:
   manifest: manifest.yaml

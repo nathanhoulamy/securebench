@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,9 @@ from securebench.workspaces.materialization import (
     VisibilityAwareMaterializer,
     docker_read_only_mounts,
 )
+
+
+_CLAUDE_CODE_OVERLAY_CACHE_LOCK = threading.Lock()
 
 
 CLAUDE_CODE_CONFIG_FIELDS = {
@@ -373,8 +377,9 @@ def claude_code_overlay_for_image(image: str, version: str) -> ClaudeCodeOverlay
     )
     claude_binary = overlay_path / "bin" / "claude"
     node_binary = overlay_path / "bin" / "node"
-    if not claude_binary.exists() or not node_binary.exists():
-        populate_claude_code_overlay_cache(overlay_path, version, platform)
+    with _CLAUDE_CODE_OVERLAY_CACHE_LOCK:
+        if not claude_binary.exists() or not node_binary.exists():
+            populate_claude_code_overlay_cache(overlay_path, version, platform)
     if not claude_binary.exists():
         raise ConfigError(
             f"Claude Code overlay cache did not produce expected binary: {claude_binary}"

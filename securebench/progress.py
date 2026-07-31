@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -45,23 +46,26 @@ class StreamProgressReporter(ProgressReporter):
         self.show_command_output = show_command_output
         self.show_agent_output = show_agent_output
         self.color = stream.isatty() if color is None else color
-        self._current_task_id: str | None = None
+        self._lock = threading.RLock()
+        self._thread_task_ids: dict[int, str] = {}
         self._agent_trace_path: Path | None = None
 
     def event(self, name: str, **fields: object) -> None:
-        self._record_state(name, fields)
-        if name == "agent_output":
-            self._write_agent_trace(fields)
-        line = _format_event(
-            name,
-            fields,
-            show_command_output=self.show_command_output,
-            show_agent_output=self.show_agent_output,
-            color=self.color,
-        )
-        if line is None:
-            return
-        print(line, file=self.stream, flush=True)
+        with self._lock:
+            self._record_state(name, fields)
+            if name == "agent_output":
+                self._write_agent_trace(fields)
+            line = _format_event(
+                name,
+                fields,
+                show_command_output=self.show_command_output,
+                show_agent_output=self.show_agent_output,
+                color=self.color,
+            )
+            if line is not None:
+                print(line, file=self.stream, flush=True)
+            if name == "task_done":
+                self._thread_task_ids.pop(threading.get_ident(), None)
 
     def _record_state(self, name: str, fields: dict[str, object]) -> None:
         if name == "run_start" and self.show_agent_output:
@@ -72,7 +76,8 @@ class StreamProgressReporter(ProgressReporter):
                 self._agent_trace_path.write_text("")
         if name == "task_start":
             task_id = fields.get("task_id")
-            self._current_task_id = str(task_id) if task_id is not None else None
+            if task_id is not None:
+                self._thread_task_ids[threading.get_ident()] = str(task_id)
 
     def _write_agent_trace(self, fields: dict[str, object]) -> None:
         if self._agent_trace_path is None:
@@ -80,7 +85,9 @@ class StreamProgressReporter(ProgressReporter):
         line = _agent_output(fields, color=False, include_agent_done=True)
         if line is None:
             return
-        task_id = self._current_task_id or "unknown-task"
+        task_id = fields.get("task_id")
+        if task_id is None:
+            task_id = self._thread_task_ids.get(threading.get_ident(), "unknown-task")
         with self._agent_trace_path.open("a") as trace:
             trace.write(f"{task_id} | {line}\n")
 

@@ -59,6 +59,8 @@ harness:
             "1",
             "--output-dir",
             str(override_dir),
+            "--workers",
+            "4",
             "--max-cached-images",
             "3",
         ]
@@ -69,6 +71,7 @@ harness:
     assert seen["progress"] is not None
     assert seen["resume"] is False
     assert seen["config"].run.output_dir == override_dir
+    assert seen["config"].run.max_workers == 4
     assert seen["config"].docker.max_cached_images == 3
     assert "run_id=cli-tester total=1 verification=complete verified=1 passed=1" in capsys.readouterr().out
     records = [json.loads(line) for line in (override_dir / "candidates.jsonl").read_text().splitlines()]

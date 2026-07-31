@@ -30,6 +30,11 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--limit", type=int, help="Limit benchmark rows")
     run_parser.add_argument("--output-dir", help="Override run.output_dir")
     run_parser.add_argument(
+        "--workers",
+        type=int,
+        help="Run up to this many benchmark rows concurrently",
+    )
+    run_parser.add_argument(
         "--max-cached-images",
         type=int,
         help="Remove each batch of this many benchmark images after their tasks finish",
@@ -102,6 +107,7 @@ def _run(args: argparse.Namespace) -> int:
         config = with_tester_overrides(
             config,
             output_dir=args.output_dir,
+            max_workers=args.workers,
             max_cached_images=args.max_cached_images,
         )
         progress = (

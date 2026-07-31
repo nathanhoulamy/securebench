@@ -1,5 +1,6 @@
 import json
 import subprocess
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -193,6 +194,52 @@ def test_run_tester_config_prunes_each_full_image_batch_after_tasks_finish(monke
             "python:3.11-slim",
         ]
     ]
+
+
+def test_run_tester_config_runs_rows_concurrently(monkeypatch, tmp_path):
+    manifest, tasks = write_repo_patch_pack(tmp_path)
+    first = json.loads(tasks.read_text())
+    second = {**first, "id": "tester-run-pack/fix_other_app"}
+    tasks.write_text(json.dumps(first) + "\n" + json.dumps(second) + "\n")
+    config = with_tester_overrides(
+        make_config(tmp_path, manifest, tasks),
+        max_workers=2,
+    )
+    barrier = threading.Barrier(2)
+    state_lock = threading.Lock()
+    state = {"active": 0, "max_active": 0}
+
+    class ConcurrentProducer:
+        def produce(self, task):
+            with state_lock:
+                state["active"] += 1
+                state["max_active"] = max(state["max_active"], state["active"])
+            try:
+                barrier.wait(timeout=2)
+                return CandidateArtifact(patch="diff --git a/app.py b/app.py\n")
+            finally:
+                with state_lock:
+                    state["active"] -= 1
+
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: ConcurrentProducer(),
+    )
+    monkeypatch.setattr("securebench.tester_run.verifier_for_task_type", lambda task_type: FakeVerifier())
+
+    summary = run_tester_config(config)
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "out" / "candidates.jsonl").read_text().splitlines()
+    ]
+    assert summary.total == 2
+    assert summary.passed == 2
+    assert state["max_active"] == 2
+    assert {record["task_id"] for record in records} == {
+        "tester-run-pack/fix_app",
+        "tester-run-pack/fix_other_app",
+    }
 
 
 def test_run_tester_config_records_producer_timeout_as_failed_result(monkeypatch, tmp_path):
@@ -391,6 +438,24 @@ def test_with_tester_overrides_sets_image_cache_limit(tmp_path):
 
     assert updated.docker.max_cached_images == 3
     assert config.docker.max_cached_images is None
+
+
+def test_with_tester_overrides_sets_parallel_workers(tmp_path):
+    manifest, tasks = write_repo_patch_pack(tmp_path)
+    config = make_config(tmp_path, manifest, tasks)
+
+    updated = with_tester_overrides(config, max_workers=3)
+
+    assert updated.run.max_workers == 3
+    assert config.run.max_workers == 1
+
+
+def test_with_tester_overrides_rejects_invalid_parallel_workers(tmp_path):
+    manifest, tasks = write_repo_patch_pack(tmp_path)
+    config = make_config(tmp_path, manifest, tasks)
+
+    with pytest.raises(ValueError, match="--workers must be a positive integer"):
+        with_tester_overrides(config, max_workers=0)
 
 
 def test_with_tester_overrides_rejects_invalid_image_cache_limit(tmp_path):

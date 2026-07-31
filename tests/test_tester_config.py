@@ -32,6 +32,7 @@ def test_parse_tester_config_accepts_codex_harness():
     assert config.schema_version == "0.2"
     assert config.run.id == "repo-repair-codex"
     assert config.run.output_dir == Path("runs/repo-repair-codex")
+    assert config.run.max_workers == 1
     assert config.benchmark.manifest == Path("benchmarks/repo-repair/manifest.yaml")
     assert config.benchmark.tasks == Path("benchmarks/repo-repair/tasks.jsonl")
     assert config.harness.type == "codex"
@@ -109,6 +110,15 @@ def test_parse_tester_config_accepts_docker_image_cache_limit():
     assert config.docker.max_cached_images == 2
 
 
+def test_parse_tester_config_accepts_parallel_workers():
+    data = valid_tester_config()
+    data["run"]["max_workers"] = 4
+
+    config = parse_tester_config(data)
+
+    assert config.run.max_workers == 4
+
+
 def test_load_tester_config_resolves_relative_paths_against_config_file(tmp_path):
     config_path = tmp_path / "configs" / "tester.yaml"
     config_path.parent.mkdir()
@@ -174,6 +184,14 @@ harness:
         (
             {"docker": {"max_cached_images": True}},
             "docker.max_cached_images must be a positive integer",
+        ),
+        (
+            {"run": {"id": "x", "output_dir": "runs/x", "max_workers": 0}},
+            "run.max_workers must be a positive integer",
+        ),
+        (
+            {"run": {"id": "x", "output_dir": "runs/x", "max_workers": True}},
+            "run.max_workers must be a positive integer",
         ),
         ({"run": {"id": "x", "output_dir": "runs/x", "limit": 1}}, "run contains unsupported field"),
         (

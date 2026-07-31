@@ -1,3 +1,4 @@
+import threading
 from io import StringIO
 
 from securebench.progress import StreamProgressReporter
@@ -101,3 +102,45 @@ def test_stream_progress_reporter_writes_full_agent_trace(tmp_path):
         "task-1 | codex run: pytest -q",
         "task-1 | codex done: exit=0 pytest -q",
     ]
+
+
+def test_stream_progress_reporter_attributes_parallel_agent_traces(tmp_path):
+    stream = StringIO()
+    reporter = StreamProgressReporter(stream=stream, show_agent_output=True, color=False)
+    reporter.event("run_start", run_id="run-1", output_dir=tmp_path)
+    barrier = threading.Barrier(2)
+
+    def report_task(task_id):
+        reporter.event("task_start", index=1, total=2, task_id=task_id)
+        barrier.wait(timeout=2)
+        reporter.event(
+            "agent_output",
+            stream="stdout",
+            line=(
+                '{"type":"item.started","item":{"type":"command_execution",'
+                '"command":"run-%s"}}' % task_id
+            ),
+        )
+        reporter.event(
+            "task_done",
+            task_id=task_id,
+            status="passed",
+            passed=True,
+            score=1.0,
+        )
+
+    threads = [
+        threading.Thread(target=report_task, args=("task-1",)),
+        threading.Thread(target=report_task, args=("task-2",)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=2)
+    assert all(not thread.is_alive() for thread in threads)
+
+    trace_lines = set((tmp_path / "agent-trace.log").read_text().splitlines())
+    assert trace_lines == {
+        "task-1 | codex run: run-task-1",
+        "task-2 | codex run: run-task-2",
+    }

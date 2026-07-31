@@ -74,6 +74,7 @@ def test_swe_bench_pro_tester_yaml_uses_codex_and_networked_verification():
     config = load_tester_config(SWE_BENCH_PRO / "tester-codex.yaml")
 
     assert config.run.id == "swe-bench-pro-codex-gpt-5.4-mini"
+    assert config.run.max_workers == 2
     assert config.benchmark.manifest == SWE_BENCH_PRO / "manifest.yaml"
     assert config.benchmark.tasks == SWE_BENCH_PRO / "tasks.jsonl"
     assert config.harness.type == "codex"

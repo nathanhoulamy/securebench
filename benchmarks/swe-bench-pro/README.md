@@ -44,6 +44,20 @@ images. Change the YAML value or override it for one run:
   --max-cached-images 5
 ```
 
+It also sets `run.max_workers: 2`, so two rows can produce candidates and run
+verification at the same time. Change that YAML value or override it per run:
+
+```bash
+.venv/bin/python -m securebench.cli run \
+  --config benchmarks/swe-bench-pro/tester-codex.yaml \
+  --workers 4
+```
+
+Completed rows are written as they finish, so JSONL order can differ from the
+source task order. Writes and image cleanup remain serialized. An image is not
+eligible for cleanup until every scheduled row that uses it has finished, so
+higher worker counts also increase peak Docker storage and memory requirements.
+
 If a run ends with fewer images than the configured batch size, that final
 partial batch remains cached for reuse.
 

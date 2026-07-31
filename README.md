@@ -73,6 +73,8 @@ schema_version: "0.2"
 run:
   id: terminal-bench-codex-gpt-5.4-mini
   output_dir: ../../runs/terminal-bench-codex-gpt-5.4-mini
+  # Optional: run multiple benchmark rows concurrently (default: 1).
+  max_workers: 2
 
 benchmark:
   manifest: manifest.yaml
@@ -94,10 +96,18 @@ harness:
 
 The CLI loads `.env` by default. Use `--env-file path/to/.env` when needed.
 
+`run.max_workers` controls bounded row-level parallelism across candidate
+production and verification. Override it for one run with `--workers N`.
+Results are appended atomically as rows finish, so resume remains safe even
+when completion order differs from task-file order.
+
 `docker.max_cached_images` limits benchmark image accumulation without touching
 unrelated Docker images. SecureBench removes each full batch after its tasks
 finish and pulls an image again if a later task needs it. You can override the
 YAML value with `--max-cached-images N`. A final partial batch remains cached.
+With parallel workers, an image is not eligible for removal until every
+scheduled row that uses it has finished. Size the worker count and cleanup
+batch together for the available disk and memory.
 
 For a Codex ChatGPT subscription run:
 
