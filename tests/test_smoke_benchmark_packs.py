@@ -130,9 +130,31 @@ def test_terminal_bench_pack_loads_and_compiles():
     rows = pack.load_rows()
     tasks = list(compile_benchmark_pack(pack))
 
-    assert len(rows) == 89
-    assert rows[0].id == "terminal-bench/path-tracing"
-    assert rows[-1].id == "terminal-bench/financial-document-processor"
+    assert len(rows) == 71
+    assert rows[0].id == "terminal-bench/bn-fit-modify"
+    assert rows[-1].id == "terminal-bench/write-compressor"
+    assert len({row.id for row in rows}) == 71
+    excluded = {
+        "adaptive-rejection-sampler",
+        "build-cython-ext",
+        "build-pmars",
+        "build-pov-ray",
+        "caffe-cifar-10",
+        "compile-compcert",
+        "configure-git-webserver",
+        "git-multibranch",
+        "hf-model-inference",
+        "install-windows-3.11",
+        "kv-store-grpc",
+        "mailman",
+        "mcmc-sampling-stan",
+        "nginx-request-logging",
+        "pypi-server",
+        "qemu-alpine-ssh",
+        "qemu-startup",
+        "sqlite-with-gcov",
+    }
+    assert {row.metadata["source_task_id"] for row in rows}.isdisjoint(excluded)
     assert all(row.family == "terminal_task" for row in rows)
     assert all(row.metadata["source_dataset"] == "Terminal-Bench 2.0" for row in rows)
     assert all(task.task_type == "terminal_task" for task in tasks)
@@ -141,15 +163,48 @@ def test_terminal_bench_pack_loads_and_compiles():
         task.metadata["environment"].get("materialize_workdir_from_image") is True
         for task in tasks
     )
+    assert all("preserve_container_state" not in task.metadata["environment"] for task in tasks)
+    assert all(
+        task.metadata["environment"]["build_context"]
+        == f"docker/{task.metadata['source_task_id']}"
+        for task in tasks
+    )
+    assert all(
+        (
+            TERMINAL_BENCH
+            / task.metadata["environment"]["build_context"]
+            / "Dockerfile"
+        ).is_file()
+        for task in tasks
+    )
+    assert all(
+        (
+            TERMINAL_BENCH
+            / "hidden"
+            / task.metadata["source_task_id"]
+            / "run-tests.sh"
+        ).is_file()
+        for task in tasks
+    )
+    assert all(
+        task.metadata["environment"]["image"].endswith(":2fd12b88aafd")
+        for task in tasks
+    )
 
 
 def test_terminal_bench_tester_yaml_uses_codex_harness():
     config = load_tester_config(TERMINAL_BENCH / "tester-codex.yaml")
 
-    assert config.run.id == "terminal-bench-codex-gpt-5.4-mini"
+    assert config.run.id == "terminal-bench-codex-gpt-5.6-luna"
+    assert config.run.max_workers == 2
     assert config.benchmark.manifest == TERMINAL_BENCH / "manifest.yaml"
     assert config.benchmark.tasks == TERMINAL_BENCH / "tasks.jsonl"
     assert config.harness.type == "codex"
-    assert config.harness.config["model"] == "gpt-5.4-mini"
+    assert config.harness.config["model"] == "gpt-5.6-luna"
+    assert config.harness.config["reasoning_effort"] == "max"
     assert config.harness.config["allow_external_tools"] is False
+    assert "github.com" in config.harness.config["allowed_domains"]
+    assert "pypi.org" in config.harness.config["allowed_domains"]
+    assert "huggingface.co" in config.harness.config["allowed_domains"]
     assert config.verification.allow_network is True
+    assert config.docker.max_cached_images == 2

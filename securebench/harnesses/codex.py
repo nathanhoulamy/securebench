@@ -81,7 +81,15 @@ CODEX_SUBSCRIPTION_UPSTREAM_HOST = "chatgpt.com"
 CODEX_PROVIDER_ENV_NAMES = {"OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"}
 CODEX_AUTH_MODES = {"api_key", "subscription"}
 CODEX_DEFAULT_AUTH_MODE = "api_key"
-CODEX_REASONING_EFFORTS = {"minimal", "low", "medium", "high", "xhigh"}
+CODEX_REASONING_EFFORTS = {
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+    "ultra",
+}
 CODEX_DUMMY_API_KEY = "securebench-dummy-openai-api-key"
 CODEX_DUMMY_ACCOUNT_ID = "securebench-dummy-account"
 CODEX_DUMMY_USER_ID = "securebench-dummy-user"

@@ -55,6 +55,19 @@ def test_stream_progress_reporter_prints_image_cleanup_results():
     ]
 
 
+def test_stream_progress_reporter_prints_image_build_results():
+    stream = StringIO()
+    reporter = StreamProgressReporter(stream=stream, color=False)
+
+    reporter.event("image_build_start", image="benchmark-a:latest", context="docker/a")
+    reporter.event("image_build_done", image="benchmark-a:latest", context="docker/a")
+
+    assert stream.getvalue().splitlines() == [
+        "securebench: building benchmark image benchmark-a:latest",
+        "securebench: built benchmark image benchmark-a:latest",
+    ]
+
+
 def test_stream_progress_reporter_can_show_agent_events():
     stream = StringIO()
     reporter = StreamProgressReporter(stream=stream, show_agent_output=True, color=False)

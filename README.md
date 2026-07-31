@@ -123,7 +123,8 @@ harness:
 Valid Codex authentication modes are `api_key` and `subscription`. API-key
 authentication remains the default, so existing tester files do not change.
 `reasoning_effort` is optional and accepts `minimal`, `low`, `medium`, `high`,
-or `xhigh`; when omitted, Codex uses the selected model's default.
+`xhigh`, `max`, or `ultra`; when omitted, Codex uses the selected model's
+default.
 
 For a Claude Code subscription run:
 

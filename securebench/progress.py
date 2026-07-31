@@ -149,6 +149,22 @@ def _format_event(
             f"{_dim('securebench:', color)} "
             f"removed {fields.get('removed')} benchmark image(s)"
         )
+    if name == "image_build_start":
+        return (
+            f"{_dim('securebench:', color)} "
+            f"building benchmark image {fields.get('image')}"
+        )
+    if name == "image_build_done":
+        return (
+            f"{_dim('securebench:', color)} "
+            f"built benchmark image {fields.get('image')}"
+        )
+    if name == "image_build_failed":
+        return (
+            f"{_dim('securebench:', color)} "
+            f"benchmark image build failed for {fields.get('image')} "
+            f"exit={fields.get('exit_code')}"
+        )
     if name == "image_prune_failed":
         images = fields.get("images")
         count = len(images) if isinstance(images, (list, tuple)) else "unknown"

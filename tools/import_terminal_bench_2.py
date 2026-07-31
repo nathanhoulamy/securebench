@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import tomllib
@@ -17,6 +18,27 @@ DEFAULT_REVISION = "2fd12b88aafdd04a52c298e3940bcb189f9766d6"
 DEFAULT_OUTPUT = Path("benchmarks/terminal-bench")
 DEFAULT_IMAGE_PREFIX = "securebench-terminal-bench"
 WORKDIR = "/app"
+EXPECTED_UPSTREAM_TASKS = 89
+EXCLUDED_TASKS = {
+    "adaptive-rejection-sampler": "installs R outside /app and the checker invokes Rscript",
+    "build-cython-ext": "installs the built package into the system Python environment",
+    "build-pmars": "installs the candidate binary under /usr/local/bin",
+    "build-pov-ray": "installs the candidate binary under /usr/local/bin",
+    "caffe-cifar-10": "depends on agent-installed system build and runtime packages",
+    "compile-compcert": "builds the candidate under /tmp/CompCert",
+    "configure-git-webserver": "verifies live SSH and HTTP services plus state under /git",
+    "git-multibranch": "verifies live SSH and HTTPS services plus state under /git",
+    "hf-model-inference": "verifies a server process left running by the agent",
+    "install-windows-3.11": "verifies a QEMU process left running by the agent",
+    "kv-store-grpc": "verifies a gRPC process and system packages left by the agent",
+    "mailman": "verifies live system services and state under /etc and /var",
+    "mcmc-sampling-stan": "installs RStan into the system R environment",
+    "nginx-request-logging": "verifies live nginx state under /etc and /var",
+    "pypi-server": "verifies a package server process left running by the agent",
+    "qemu-alpine-ssh": "verifies a QEMU and SSH process left running by the agent",
+    "qemu-startup": "verifies a QEMU process left running by the agent",
+    "sqlite-with-gcov": "installs the candidate sqlite3 executable into PATH outside /app",
+}
 
 
 def main() -> int:
@@ -27,11 +49,22 @@ def main() -> int:
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--image-prefix", default=DEFAULT_IMAGE_PREFIX)
     args = parser.parse_args()
+    if re.fullmatch(r"[0-9a-f]{40}", args.revision) is None:
+        raise SystemExit("--revision must be a full lowercase 40-character Git commit hash")
 
     source = args.source or clone_source(args.repo, args.revision)
     tasks = task_dirs(source)
-    if len(tasks) != 89:
-        raise SystemExit(f"Expected 89 Terminal-Bench 2.0 tasks, got {len(tasks)} from {source}")
+    if len(tasks) != EXPECTED_UPSTREAM_TASKS:
+        raise SystemExit(
+            f"Expected {EXPECTED_UPSTREAM_TASKS} Terminal-Bench 2.0 tasks, "
+            f"got {len(tasks)} from {source}"
+        )
+    missing_exclusions = sorted(set(EXCLUDED_TASKS) - {task.name for task in tasks})
+    if missing_exclusions:
+        raise SystemExit(
+            "Excluded Terminal-Bench task ids were not found upstream: "
+            + ", ".join(missing_exclusions)
+        )
 
     write_pack(
         source=source,
@@ -41,7 +74,11 @@ def main() -> int:
         repo=args.repo,
         revision=args.revision,
     )
-    print(f"Wrote {len(tasks)} Terminal-Bench 2.0 tasks to {args.output}")
+    included = len(tasks) - len(EXCLUDED_TASKS)
+    print(
+        f"Wrote {included} supported Terminal-Bench 2.0 tasks to {args.output}; "
+        f"excluded {len(EXCLUDED_TASKS)} rows incompatible with isolated verification"
+    )
     return 0
 
 
@@ -56,15 +93,18 @@ def clone_source(repo: str, revision: str) -> Path:
 
 
 def task_dirs(source: Path) -> list[Path]:
-    return [
-        path
-        for path in source.iterdir()
-        if path.is_dir()
-        and (path / "environment" / "Dockerfile").exists()
-        and (path / "tests" / "test.sh").exists()
-        and (path / "instruction.md").exists()
-        and (path / "task.toml").exists()
-    ]
+    return sorted(
+        (
+            path
+            for path in source.iterdir()
+            if path.is_dir()
+            and (path / "environment" / "Dockerfile").exists()
+            and (path / "tests" / "test.sh").exists()
+            and (path / "instruction.md").exists()
+            and (path / "task.toml").exists()
+        ),
+        key=lambda path: path.name,
+    )
 
 
 def write_pack(
@@ -85,6 +125,8 @@ def write_pack(
 
     rows = []
     for source_index, task_dir in enumerate(tasks):
+        if task_dir.name in EXCLUDED_TASKS:
+            continue
         rows.append(
             convert_task(
                 source_index=source_index,
@@ -142,7 +184,8 @@ def convert_task(
 
     return {
         "environment": {
-            "image": f"{image_prefix}-{task_id}:latest",
+            "build_context": f"docker/{task_id}",
+            "image": f"{image_prefix}-{task_id}:{revision[:12]}",
             "materialize_workdir_from_image": True,
             "timeout_seconds": float(agent["timeout_sec"]),
             "workdir": WORKDIR,

@@ -5,16 +5,22 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import threading
 import uuid
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from securebench.errors import ConfigError
+from securebench.progress import emit_progress
 from securebench.workspaces.materialization import MaterializationPlan
 from securebench.workspaces.path_policy import PathPolicyError, validate_workspace_mount_for_component
 from securebench.sandboxes import Sandbox
 from securebench.tasks import SecureBenchTask
+
+
+_IMAGE_BUILD_LOCKS_GUARD = threading.Lock()
+_IMAGE_BUILD_LOCKS: dict[str, threading.Lock] = {}
 
 
 def container_image_for_task(task: SecureBenchTask) -> str:
@@ -31,6 +37,90 @@ def environment_image_for_task(task: SecureBenchTask, *, context: str = "verific
             "set defaults.environment.image in the manifest or environment.image on the benchmark row"
         )
     return image.strip()
+
+
+def ensure_environment_image(task: SecureBenchTask) -> bool:
+    """Build a missing pack-local task image when a build context is declared."""
+    build_context = environment_build_context_for_task(task)
+    if build_context is None:
+        return False
+    image = environment_image_for_task(task, context="local image build")
+    lock = _image_build_lock(image)
+    with lock:
+        inspected = _run_docker_image_command(
+            ["docker", "image", "inspect", image],
+            action=f"inspect benchmark image {image!r}",
+        )
+        if inspected.returncode == 0:
+            return False
+
+        emit_progress("image_build_start", image=image, context=build_context)
+        built = _run_docker_image_command(
+            ["docker", "build", "--tag", image, str(build_context)],
+            action=f"build benchmark image {image!r}",
+        )
+        if built.returncode != 0:
+            emit_progress(
+                "image_build_failed",
+                image=image,
+                context=build_context,
+                exit_code=built.returncode,
+                stdout=built.stdout,
+                stderr=built.stderr,
+            )
+            raise ConfigError(
+                f"failed to build benchmark image {image!r} from {build_context}: "
+                f"{built.stderr.strip()}"
+            )
+        emit_progress("image_build_done", image=image, context=build_context)
+        return True
+
+
+def environment_build_context_for_task(task: SecureBenchTask) -> Path | None:
+    """Resolve an optional pack-relative Docker build context for a task."""
+    environment = task_environment(task)
+    value = environment.get("build_context")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigError("benchmark environment.build_context must be a non-empty string")
+    relative = Path(value.strip())
+    if relative.is_absolute():
+        raise ConfigError("benchmark environment.build_context must be pack-relative")
+
+    metadata = task.metadata if isinstance(task.metadata, dict) else {}
+    benchmark_pack = metadata.get("benchmark_pack")
+    manifest_path = benchmark_pack.get("manifest_path") if isinstance(benchmark_pack, dict) else None
+    if not isinstance(manifest_path, str) or not manifest_path:
+        raise ConfigError("benchmark environment.build_context requires benchmark pack metadata")
+    pack_root = Path(manifest_path).resolve().parent
+    unresolved = pack_root / relative
+    if unresolved.is_symlink():
+        raise ConfigError("benchmark environment.build_context must not be a symlink")
+    resolved = unresolved.resolve()
+    if not resolved.is_relative_to(pack_root):
+        raise ConfigError("benchmark environment.build_context escapes the benchmark pack")
+    if not resolved.is_dir():
+        raise ConfigError(f"benchmark environment.build_context directory does not exist: {value}")
+    if not (resolved / "Dockerfile").is_file():
+        raise ConfigError(f"benchmark environment.build_context has no Dockerfile: {value}")
+    return resolved
+
+
+def _image_build_lock(image: str) -> threading.Lock:
+    with _IMAGE_BUILD_LOCKS_GUARD:
+        return _IMAGE_BUILD_LOCKS.setdefault(image, threading.Lock())
+
+
+def _run_docker_image_command(
+    command: list[str],
+    *,
+    action: str,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(command, check=False, capture_output=True, text=True)
+    except OSError as exc:
+        raise ConfigError(f"failed to {action}: {exc}") from exc
 
 
 def workspace_mount_target_for_task(task: SecureBenchTask) -> str:
@@ -77,6 +167,7 @@ def materialize_workdir_from_image_if_requested(task: SecureBenchTask, destinati
     if task.task_type != "terminal_task":
         raise ConfigError("environment.materialize_workdir_from_image is only supported for terminal_task")
 
+    ensure_environment_image(task)
     image = container_image_for_task(task)
     source = workspace_mount_target_for_task(task)
     destination.mkdir(parents=True, exist_ok=True)
