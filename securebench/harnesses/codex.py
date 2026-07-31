@@ -60,6 +60,7 @@ from securebench.tasks import SecureBenchTask
 CODEX_CONFIG_FIELDS = {
     "auth",
     "model",
+    "reasoning_effort",
     "version",
     "task_file",
     "timeout_seconds",
@@ -80,6 +81,7 @@ CODEX_SUBSCRIPTION_UPSTREAM_HOST = "chatgpt.com"
 CODEX_PROVIDER_ENV_NAMES = {"OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"}
 CODEX_AUTH_MODES = {"api_key", "subscription"}
 CODEX_DEFAULT_AUTH_MODE = "api_key"
+CODEX_REASONING_EFFORTS = {"minimal", "low", "medium", "high", "xhigh"}
 CODEX_DUMMY_API_KEY = "securebench-dummy-openai-api-key"
 CODEX_DUMMY_ACCOUNT_ID = "securebench-dummy-account"
 CODEX_DUMMY_USER_ID = "securebench-dummy-user"
@@ -150,6 +152,7 @@ class CodexHarnessProducer(CandidateProducer):
         *,
         auth: str = CODEX_DEFAULT_AUTH_MODE,
         model: str,
+        reasoning_effort: str | None = None,
         env_names: tuple[str, ...] = (),
         version: str = CODEX_DEFAULT_VERSION,
         task_file: str = CODEX_DEFAULT_TASK_FILE,
@@ -160,6 +163,7 @@ class CodexHarnessProducer(CandidateProducer):
     ) -> None:
         self.auth = codex_auth_mode(auth)
         self.model = model
+        self.reasoning_effort = codex_reasoning_effort(reasoning_effort)
         self.env_names = codex_env_names(env_names)
         self.version = codex_version(version)
         self.task_file = task_file
@@ -280,9 +284,15 @@ class CodexHarnessProducer(CandidateProducer):
                         agent_workdir,
                         timeout,
                     )
+                    config_args = codex_config_args(
+                        egress.provider_base_url,
+                        auth=self.auth,
+                        reasoning_effort=self.reasoning_effort,
+                        allow_external_tools=self.allow_external_tools,
+                    )
                     result = sandbox.run(
                         codex_shell_command(
-                            f"codex {codex_config_args(egress.provider_base_url, auth=self.auth, allow_external_tools=self.allow_external_tools)} "
+                            f"codex {config_args} "
                             f"exec --model {shell_quote(self.model)} --json --skip-git-repo-check "
                             f"--dangerously-bypass-approvals-and-sandbox "
                             f"{shell_quote(codex_prompt(task, task_file_for_agent))}"
@@ -311,6 +321,7 @@ class CodexHarnessProducer(CandidateProducer):
                             "benchmark_environment_image": image,
                             "codex_version": overlay.version,
                             "codex_model": self.model,
+                            "codex_reasoning_effort": self.reasoning_effort,
                             "auth_mode": self.auth,
                             "overlay_platform": overlay.platform.docker_platform,
                             "overlay_cache_path": str(overlay.path),
@@ -339,6 +350,7 @@ def codex_config(config: dict[str, Any]) -> dict[str, Any]:
     return {
         "auth": codex_auth_mode(config.get("auth", CODEX_DEFAULT_AUTH_MODE)),
         "model": codex_model(config.get("model")),
+        "reasoning_effort": codex_reasoning_effort(config.get("reasoning_effort")),
         "version": codex_version(config.get("version", CODEX_DEFAULT_VERSION)),
         "task_file": workspace_path(
             config.get("task_file", CODEX_DEFAULT_TASK_FILE),
@@ -416,6 +428,15 @@ def codex_model(value: Any) -> str:
     if not re.fullmatch(r"[A-Za-z0-9._+-]+", model):
         raise ConfigError("harness.config.model contains unsupported characters")
     return model
+
+
+def codex_reasoning_effort(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in CODEX_REASONING_EFFORTS:
+        valid = ", ".join(sorted(CODEX_REASONING_EFFORTS))
+        raise ConfigError(f"harness.config.reasoning_effort must be one of: {valid}")
+    return value
 
 
 def codex_overlay_for_image(image: str, version: str) -> CodexOverlay:
@@ -657,17 +678,24 @@ def codex_config_args(
     base_url: str,
     *,
     auth: str,
+    reasoning_effort: str | None = None,
     allow_external_tools: bool = False,
 ) -> str:
     if codex_auth_mode(auth) == "subscription":
-        return codex_subscription_config_args(
+        args = codex_subscription_config_args(
             base_url,
             allow_external_tools=allow_external_tools,
         )
-    return codex_relay_config_args(
-        base_url,
-        allow_external_tools=allow_external_tools,
-    )
+    else:
+        args = codex_relay_config_args(
+            base_url,
+            allow_external_tools=allow_external_tools,
+        )
+    effort = codex_reasoning_effort(reasoning_effort)
+    if effort is not None:
+        effort_override = f"model_reasoning_effort={toml_string(effort)}"
+        args = f"{args} {shell_quote('-c')} {shell_quote(effort_override)}"
+    return args
 
 
 def codex_subscription_config_args(

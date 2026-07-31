@@ -412,7 +412,12 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
     producer = build_harness_producer(
         harness_section(
             harness_type="codex",
-            config={"model": "gpt-5.1-codex", "version": "0.30.0", "timeout_seconds": 11},
+            config={
+                "model": "gpt-5.1-codex",
+                "reasoning_effort": "high",
+                "version": "0.30.0",
+                "timeout_seconds": 11,
+            },
         ),
         workspace_root=tmp_path / "runs",
     )
@@ -442,6 +447,7 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
     assert "'-c' 'web_search=\"disabled\"'" in docker.commands[1][0]
     assert "'-c' 'tools.web_search=false'" in docker.commands[1][0]
     assert "exec --model 'gpt-5.1-codex' --json" in docker.commands[1][0]
+    assert "'-c' 'model_reasoning_effort=\"high\"'" in docker.commands[1][0]
     assert "--skip-git-repo-check" in docker.commands[1][0]
     assert "--dangerously-bypass-approvals-and-sandbox" in docker.commands[1][0]
     assert "/workspace/task.json" in docker.commands[1][0]
@@ -452,6 +458,7 @@ def test_codex_harness_uses_benchmark_image_and_overlay_mounts(monkeypatch, tmp_
     assert artifact.patch == "diff --git a/app.py b/app.py\n"
     assert artifact.metadata["harness"] == "codex"
     assert artifact.metadata["codex_model"] == "gpt-5.1-codex"
+    assert artifact.metadata["codex_reasoning_effort"] == "high"
     assert artifact.metadata["allowed_domains"] == ()
     assert artifact.metadata["provider_relay_enabled"] is True
     assert artifact.metadata["provider"] == "openai"
@@ -827,6 +834,8 @@ def test_codex_shell_command_exports_codex_home():
         ({"model": "gpt-5.1-codex", "unknown": True}, "unsupported field"),
         ({"model": "gpt-5.1-codex", "allowed_domains": ["https://example.com"]}, "allowed_domains"),
         ({"model": "gpt-5.1-codex", "allow_external_tools": "yes"}, "allow_external_tools"),
+        ({"model": "gpt-5.1-codex", "reasoning_effort": "ultra"}, "reasoning_effort"),
+        ({"model": "gpt-5.1-codex", "reasoning_effort": 1}, "reasoning_effort"),
     ],
 )
 def test_codex_harness_rejects_invalid_config(config, match):

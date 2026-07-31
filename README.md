@@ -88,6 +88,7 @@ harness:
   type: codex
   config:
     model: gpt-5.4-mini
+    reasoning_effort: high
     version: latest
     task_file: task.json
     timeout_seconds: 900
@@ -121,6 +122,8 @@ harness:
 
 Valid Codex authentication modes are `api_key` and `subscription`. API-key
 authentication remains the default, so existing tester files do not change.
+`reasoning_effort` is optional and accepts `minimal`, `low`, `medium`, `high`,
+or `xhigh`; when omitted, Codex uses the selected model's default.
 
 For a Claude Code subscription run:
 
