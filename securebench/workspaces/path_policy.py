@@ -20,14 +20,14 @@ MANDATORY_DENIED_PATHS = (
 
 COMPONENT_ALLOWED_ROOTS: dict[str, tuple[str, ...]] = {
     "agent": ("securebench/public",),
-    "test_sandbox": ("securebench/public", "securebench/evaluation_inputs"),
-    "evaluator": ("securebench/evaluator",),
+    "evaluation_runtime": ("securebench/public", "securebench/evaluation_inputs"),
+    "oracle": ("securebench/oracle",),
 }
 
 WORKSPACE_MOUNT_RESERVED_ROOTS: dict[str, tuple[str, ...]] = {
-    "agent": ("securebench/evaluation_inputs", "securebench/evaluator"),
-    "test_sandbox": ("securebench/evaluation_inputs", "securebench/evaluator"),
-    "evaluator": (),
+    "agent": ("securebench/evaluation_inputs", "securebench/oracle"),
+    "evaluation_runtime": ("securebench/evaluation_inputs", "securebench/oracle"),
+    "oracle": (),
 }
 
 

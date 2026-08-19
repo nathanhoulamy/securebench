@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from securebench.sandboxes import DockerBindMount
 
 
-MaterializationComponent = Literal["agent", "test_sandbox", "evaluator"]
+MaterializationComponent = Literal["agent", "evaluation_runtime", "oracle"]
 SerializationFormat = Literal["json", "copy"]
 MaterializationPlacement = Literal["internal", "workspace"]
 
@@ -45,6 +45,7 @@ class MaterializedResource:
     serialization: SerializationFormat = "json"
     placement: MaterializationPlacement = "internal"
     source_path: str | None = None
+    container_path: str | None = None
     read_only: bool = False
 
 
@@ -108,12 +109,12 @@ class VisibilityAwareMaterializer:
 
         planned: list[MaterializedResource] = []
         for resource in bundle.view_for(target_component).resources:
-            if resource.name == "assets" and resource.visibility == "public":
-                if target_component in ("agent", "test_sandbox"):
-                    planned.extend(_public_asset_resources(source, resource.value, target_component))
-                continue
-            if resource.visibility in ("evaluation_inputs", "hidden") and _is_file_reference(resource.value):
-                planned.append(_file_reference_resource(source, resource, target_component))
+            if resource.kind in ("file", "directory"):
+                # Host resources are consumed by trusted host code directly;
+                # they are never copied into a candidate-accessible workspace.
+                if target_component == "oracle":
+                    continue
+                planned.append(_compiled_file_resource(resource, target_component))
                 continue
             _validate_materializable_resource(resource)
             planned.append(
@@ -151,19 +152,19 @@ class VisibilityAwareMaterializer:
         return plan
 
 
-def docker_read_only_mounts(plan: MaterializationPlan, workspace_root: str | Path) -> tuple[DockerBindMount, ...]:
-    """Return Docker bind mounts for read-only materialized resources in a plan."""
+def docker_resource_mounts(plan: MaterializationPlan, workspace_root: str | Path) -> tuple[DockerBindMount, ...]:
+    """Return explicit Docker mounts for compiled file resources."""
     from securebench.sandboxes import DockerBindMount
 
     root = Path(workspace_root)
     mounts = []
     for item in plan.resources:
-        if item.read_only:
+        if item.container_path is not None:
             mounts.append(
                 DockerBindMount(
                     source=root.joinpath(*PurePosixPath(item.relative_path).parts),
-                    target=item.relative_path,
-                    read_only=True,
+                    target=item.container_path,
+                    read_only=item.read_only,
                 )
             )
     return tuple(mounts)
@@ -172,7 +173,7 @@ def docker_read_only_mounts(plan: MaterializationPlan, workspace_root: str | Pat
 def _materialization_component(component: Component) -> MaterializationComponent:
     if component == "result":
         raise MaterializationError("result is not a materialization target")
-    if component not in ("agent", "test_sandbox", "evaluator"):
+    if component not in ("agent", "evaluation_runtime", "oracle"):
         raise MaterializationError(f"unsupported materialization component: {component!r}")
     return component
 
@@ -194,7 +195,7 @@ def _validate_materializable_resource(resource: Resource) -> None:
 
 
 def _resource_default_read_only(resource: Resource, component: MaterializationComponent) -> bool:
-    return component in ("test_sandbox", "evaluator") and resource.visibility in (
+    return component in ("evaluation_runtime", "oracle") and resource.visibility in (
         "evaluation_inputs",
         "hidden",
     )
@@ -202,8 +203,8 @@ def _resource_default_read_only(resource: Resource, component: MaterializationCo
 
 def _resource_path(resource: Resource, component: MaterializationComponent) -> str:
     safe_name = _safe_resource_name(resource.name)
-    if component == "evaluator":
-        path = PurePosixPath("securebench") / "evaluator" / f"{safe_name}.json"
+    if component == "oracle":
+        path = PurePosixPath("securebench") / "oracle" / f"{safe_name}.json"
     elif resource.visibility == "evaluation_inputs":
         path = PurePosixPath("securebench") / "evaluation_inputs" / f"{safe_name}.json"
     else:
@@ -212,97 +213,44 @@ def _resource_path(resource: Resource, component: MaterializationComponent) -> s
     return str(path)
 
 
-def _public_asset_resources(source: Any, value: Any, component: MaterializationComponent) -> tuple[MaterializedResource, ...]:
-    if not isinstance(value, list):
-        raise MaterializationError("assets resource must be a list")
-    default_read_only = _asset_default_read_only(source)
-    planned = []
-    for index, item in enumerate(value):
-        if not isinstance(item, dict):
-            raise MaterializationError(f"assets[{index}] must be an object")
-        asset_path = _required_path_value(item.get("path"), f"assets[{index}].path")
-        mount_path = _required_path_value(item.get("mount", asset_path), f"assets[{index}].mount")
-        read_only = _optional_bool(item.get("read_only"), default_read_only, f"assets[{index}].read_only")
-        source_path = _resolve_asset_source(source, "public", asset_path)
-        kind = _source_kind(source_path, f"assets[{index}]")
-        planned.append(
-            MaterializedResource(
-                name=f"assets[{index}]",
-                visibility="public",
-                kind=kind,
-                component=component,
-                relative_path=mount_path,
-                serialization="copy",
-                placement="workspace",
-                source_path=str(source_path),
-                read_only=read_only,
-            )
-        )
-    return tuple(planned)
-
-
-def _file_reference_resource(source: Any, resource: Resource, component: MaterializationComponent) -> MaterializedResource:
+def _compiled_file_resource(
+    resource: Resource,
+    component: MaterializationComponent,
+) -> MaterializedResource:
     if not isinstance(resource.value, dict):
-        raise MaterializationError(f"resource {resource.name!r} file reference must be an object")
-    source_path_value = _required_path_value(resource.value.get("path"), f"resource {resource.name!r}.path")
-    source_path = _resolve_asset_source(source, "eval", source_path_value)
-    kind = _source_kind(source_path, f"resource {resource.name!r}")
-    default_mount = _non_public_default_mount(resource.visibility, source_path_value)
-    mount_path = _required_path_value(resource.value.get("mount", default_mount), f"resource {resource.name!r}.mount")
-    _validate_non_public_mount(resource.visibility, mount_path, resource.name)
+        raise MaterializationError(f"resource {resource.name!r} file descriptor must be an object")
+    source_value = resource.value.get("source_path")
+    mount_value = resource.value.get("mount")
+    read_only = resource.value.get("read_only", True)
+    if not isinstance(source_value, str) or not source_value:
+        raise MaterializationError(f"resource {resource.name!r}.source_path is required")
+    source = Path(source_value)
+    if not source.is_absolute() or source.is_symlink():
+        raise MaterializationError(f"resource {resource.name!r}.source_path is not a safe resolved path")
+    actual_kind = _source_kind(source, f"resource {resource.name!r}")
+    if actual_kind != resource.kind:
+        raise MaterializationError(f"resource {resource.name!r} changed kind after compilation")
+    if not isinstance(mount_value, str) or not mount_value:
+        raise MaterializationError(f"resource {resource.name!r}.mount is required")
+    mount = PurePosixPath(mount_value)
+    if not mount.is_absolute() or ".." in mount.parts or "\\" in mount_value:
+        raise MaterializationError(f"resource {resource.name!r}.mount must be an absolute safe path")
+    if not isinstance(read_only, bool):
+        raise MaterializationError(f"resource {resource.name!r}.read_only must be a boolean")
+    lane = "evaluation_inputs" if resource.visibility == "evaluation_inputs" else "public"
+    staging = PurePosixPath("securebench") / lane / "files" / _safe_resource_name(resource.name)
     return MaterializedResource(
         name=resource.name,
         visibility=resource.visibility,
-        kind=kind,
+        kind=resource.kind,
         component=component,
-        relative_path=mount_path,
+        relative_path=str(staging),
         serialization="copy",
         placement="internal",
-        source_path=str(source_path),
-        read_only=_optional_bool(resource.value.get("read_only"), True, f"resource {resource.name!r}.read_only"),
+        source_path=str(source),
+        container_path=str(mount),
+        read_only=read_only,
     )
-
-
-def _is_file_reference(value: Any) -> bool:
-    return isinstance(value, dict) and "path" in value and set(value) <= {"path", "mount", "read_only"}
-
-
-def _manifest_dir(source: Any) -> Path:
-    metadata = getattr(source, "metadata", None)
-    if not isinstance(metadata, dict):
-        raise MaterializationError("task metadata is required to materialize file assets")
-    pack = metadata.get("benchmark_pack")
-    if not isinstance(pack, dict):
-        raise MaterializationError("task metadata benchmark_pack is required to materialize file assets")
-    manifest_path = pack.get("manifest_path")
-    if not isinstance(manifest_path, str) or not manifest_path:
-        raise MaterializationError("task metadata benchmark_pack.manifest_path is required to materialize file assets")
-    return Path(manifest_path).parent.resolve()
-
-
-def _asset_root(source: Any, root_name: Literal["public", "eval"]) -> Path:
-    metadata = getattr(source, "metadata", {})
-    roots = metadata.get("asset_roots") if isinstance(metadata, dict) else None
-    root_value = roots.get(root_name) if isinstance(roots, dict) else None
-    if root_value is None:
-        root_value = "assets/" if root_name == "public" else "hidden/"
-    root_path = _required_path_value(root_value, f"asset_roots.{root_name}")
-    manifest_dir = _manifest_dir(source)
-    root = (manifest_dir / root_path).resolve()
-    if not root.is_relative_to(manifest_dir):
-        raise MaterializationError(f"asset_roots.{root_name} may not resolve outside the benchmark package")
-    return root
-
-
-def _resolve_asset_source(source: Any, root_name: Literal["public", "eval"], path: str) -> Path:
-    root = _asset_root(source, root_name)
-    candidate = root / path
-    resolved = candidate.resolve()
-    if not resolved.is_relative_to(root):
-        raise MaterializationError(f"asset source escapes {root_name} asset root: {path}")
-    if not candidate.exists():
-        raise MaterializationError(f"asset source does not exist: {path}")
-    return candidate
 
 
 def _source_kind(path: Path, field: str) -> ResourceKind:
@@ -326,6 +274,10 @@ def _copy_materialized_resource(item: MaterializedResource, target: Materializat
         _write_materialized_file(item, target, source.read_bytes())
         return
     if item.kind == "directory":
+        target_root = getattr(target, "root", None)
+        if target_root is not None:
+            destination = Path(target_root).joinpath(*PurePosixPath(item.relative_path).parts)
+            destination.mkdir(parents=True, exist_ok=True)
         for child in sorted(source.rglob("*")):
             if child.is_file():
                 relative_child = PurePosixPath(child.relative_to(source).as_posix())
@@ -384,58 +336,6 @@ def _reject_existing_non_public_target(item: MaterializedResource, target: Mater
         raise MaterializationError(
             f"non-public materialized target already exists and will not be overwritten: {item.relative_path}"
         )
-
-
-def _asset_default_read_only(source: Any) -> bool:
-    metadata = getattr(source, "metadata", {})
-    defaults = metadata.get("asset_defaults") if isinstance(metadata, dict) else None
-    value = defaults.get("read_only") if isinstance(defaults, dict) else True
-    if not isinstance(value, bool):
-        raise MaterializationError("task metadata asset_defaults.read_only must be a boolean")
-    return value
-
-
-def _required_path_value(value: Any, field: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise MaterializationError(f"{field} must be a non-empty relative path")
-    if "\\" in value:
-        raise MaterializationError(f"{field} may not contain backslashes")
-    path = PurePosixPath(value)
-    if path.is_absolute():
-        raise MaterializationError(f"{field} may not be absolute")
-    if ".." in path.parts:
-        raise MaterializationError(f"{field} may not contain '..'")
-    if str(path) in ("", "."):
-        raise MaterializationError(f"{field} must be a non-empty relative path")
-    return str(path)
-
-
-def _optional_bool(value: Any, default: bool, field: str) -> bool:
-    if value is None:
-        return default
-    if not isinstance(value, bool):
-        raise MaterializationError(f"{field} must be a boolean")
-    return value
-
-
-def _non_public_default_mount(visibility: ResourceVisibility, path: str) -> str:
-    if visibility == "evaluation_inputs":
-        return str(PurePosixPath("securebench") / "evaluation_inputs" / path)
-    if visibility == "hidden":
-        return str(PurePosixPath("securebench") / "evaluator" / path)
-    raise MaterializationError(f"file reference visibility is not non-public: {visibility!r}")
-
-
-def _validate_non_public_mount(visibility: ResourceVisibility, mount_path: str, resource_name: str) -> None:
-    if visibility == "evaluation_inputs":
-        root = PurePosixPath("securebench") / "evaluation_inputs"
-    elif visibility == "hidden":
-        root = PurePosixPath("securebench") / "evaluator"
-    else:
-        raise MaterializationError(f"resource {resource_name!r} has unsupported file-reference visibility")
-    candidate = PurePosixPath(mount_path)
-    if not (candidate == root or candidate.is_relative_to(root)):
-        raise MaterializationError(f"resource {resource_name!r}.mount must be under {root}")
 
 
 def _safe_resource_name(name: str) -> str:

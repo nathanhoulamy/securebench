@@ -76,17 +76,11 @@ class EnvironmentDefaults(StrictModel):
     workdir: str | None = None
     timeout_seconds: Annotated[float, Field(gt=0)] | None = None
     agent_network: AgentNetwork | None = None
-    build_context: str | None = None
 
     @field_validator("workdir")
     @classmethod
     def validate_optional_workdir(cls, value: str | None) -> str | None:
         return None if value is None else _absolute_runtime_path(value, "environment.workdir")
-
-    @field_validator("build_context")
-    @classmethod
-    def validate_optional_build_context(cls, value: str | None) -> str | None:
-        return None if value is None else _relative_pack_path(value, "environment.build_context")
 
     @field_validator("image")
     @classmethod
@@ -116,7 +110,6 @@ class EnvironmentSpec(StrictModel):
     workdir: str
     timeout_seconds: Annotated[float, Field(gt=0)]
     agent_network: AgentNetwork
-    build_context: str | None = None
 
     @field_validator("image")
     @classmethod
@@ -127,11 +120,6 @@ class EnvironmentSpec(StrictModel):
     @classmethod
     def validate_workdir(cls, value: str) -> str:
         return _absolute_runtime_path(value, "environment.workdir")
-
-    @field_validator("build_context")
-    @classmethod
-    def validate_build_context(cls, value: str | None) -> str | None:
-        return None if value is None else _relative_pack_path(value, "environment.build_context")
 
 
 class PublicAsset(StrictModel):

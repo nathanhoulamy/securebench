@@ -1,4 +1,4 @@
-"""Execution for tester YAML benchmark-pack harness runs."""
+"""End-to-end execution of strict split-verification benchmark rows."""
 
 from __future__ import annotations
 
@@ -13,24 +13,28 @@ from typing import Any
 
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
-from securebench.candidates import CandidateArtifact, CandidateProductionTimeout
+from securebench.candidates import (
+    CandidateCaptureError,
+    CandidateProductionError,
+    CandidateProductionTimeout,
+    CandidateStore,
+    capture_production,
+)
 from securebench.errors import ConfigError
+from securebench.execution_profiles import validate_executable_task
 from securebench.harnesses import build_harness_producer
 from securebench.harnesses.shared import environment_image_for_task, workspace_dir_name
 from securebench.progress import ProgressReporter, emit_progress, progress_context
-from securebench.resources import REDACTED
+from securebench.tasks import BenchmarkTask
 from securebench.tester_config import TesterConfig
-from securebench.verifiers import VerificationResult, verifier_for_task_type
+from securebench.verification import ArtifactVerificationEngine
 
 
-DEFAULT_CANDIDATES_FILENAME = "candidates.jsonl"
-UNSUPPORTED_VERIFICATION_STATUS = "pending"
+DEFAULT_RESULTS_FILENAME = "results.jsonl"
 
 
 @dataclass(frozen=True)
 class TesterRunSummary:
-    """Aggregate information for a tester YAML candidate-production run."""
-
     run_id: str
     output_dir: str
     output_path: str
@@ -38,24 +42,19 @@ class TesterRunSummary:
     verified: int = 0
     passed: int = 0
     score_sum: float = 0.0
+    infrastructure_errors: int = 0
     images_pruned: int = 0
     image_prune_failures: int = 0
 
     @property
     def verification_status(self) -> str:
-        if self.total == 0:
-            return "complete"
-        if self.verified == 0:
-            return UNSUPPORTED_VERIFICATION_STATUS
-        if self.verified == self.total:
-            return "complete"
-        return "partial"
+        return "complete" if self.verified == self.total else "partial"
 
 
 @dataclass(frozen=True)
 class _CompletedTask:
-    task: Any
-    record: dict[str, object]
+    task: BenchmarkTask
+    record: dict[str, Any]
 
 
 def run_tester_config(
@@ -65,38 +64,27 @@ def run_tester_config(
     progress: ProgressReporter | None = None,
     resume: bool = False,
 ) -> TesterRunSummary:
-    """Run tester YAML through candidate production and supported verification."""
+    """Produce, capture, and verify every selected row through the v2 path."""
     output_dir = config.run.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / DEFAULT_CANDIDATES_FILENAME
+    output_path = output_dir / DEFAULT_RESULTS_FILENAME
     workspace_root = output_dir / "workspaces"
+    store = CandidateStore(output_dir / "artifacts")
 
     pack = load_benchmark_pack(config.benchmark.manifest, config.benchmark.tasks)
+    tasks = list(compile_benchmark_pack(pack, limit=limit))
+    for task in tasks:
+        validate_executable_task(task)
     producer = build_harness_producer(config.harness, workspace_root=workspace_root)
 
-    tasks = list(compile_benchmark_pack(pack, limit=limit))
-    existing_records = _resume_records(output_path) if resume else []
-    completed_task_ids = {
-        record["task_id"]
-        for record in existing_records
-        if isinstance(record.get("task_id"), str)
-    }
-    remaining_tasks = [task for task in tasks if task.id not in completed_task_ids]
-    task_indexes = {task.id: index for index, task in enumerate(tasks, start=1)}
-    total = len(existing_records)
-    verified = 0
-    passed = 0
-    score_sum = 0.0
+    existing = _resume_records(output_path, config.run.id, tasks) if resume else []
+    completed_ids = {record["task_id"] for record in existing}
+    remaining = [task for task in tasks if task.id not in completed_ids]
+    indexes = {task.id: index for index, task in enumerate(tasks, start=1)}
+    counters = _summary_counters(existing)
     image_pruner = DockerImageBatchPruner(config.docker.max_cached_images)
-    remaining_image_uses = Counter(
-        environment_image_for_task(task) for task in remaining_tasks
-    )
-    for record in existing_records:
-        if _record_is_verified(record):
-            verified += 1
-            if record.get("passed") is True:
-                passed += 1
-            score_sum += _record_score(record)
+    remaining_image_uses = Counter(environment_image_for_task(task) for task in remaining)
+
     with progress_context(progress):
         emit_progress(
             "run_start",
@@ -104,66 +92,52 @@ def run_tester_config(
             output_dir=output_dir,
             max_workers=config.run.max_workers,
         )
-        if existing_records:
-            emit_progress(
-                "resume",
-                completed=len(existing_records),
-                remaining=len(remaining_tasks),
-                output_path=output_path,
-            )
+        if existing:
+            emit_progress("resume", completed=len(existing), remaining=len(remaining), output_path=output_path)
         with output_path.open("w") as output_file:
-            if resume and existing_records:
-                for record in existing_records:
-                    output_file.write(json.dumps(record, sort_keys=True) + "\n")
-                output_file.flush()
+            for record in existing:
+                output_file.write(json.dumps(record, sort_keys=True) + "\n")
+            output_file.flush()
 
             def persist(completed: _CompletedTask) -> None:
-                nonlocal total, verified, passed, score_sum
-                record = completed.record
-                output_file.write(json.dumps(record, sort_keys=True) + "\n")
+                output_file.write(json.dumps(completed.record, sort_keys=True) + "\n")
                 output_file.flush()
-                total += 1
-                if _record_is_verified(record):
-                    verified += 1
-                    if record.get("passed") is True:
-                        passed += 1
-                    score_sum += _record_score(record)
+                _add_record(counters, completed.record)
                 image = environment_image_for_task(completed.task)
                 remaining_image_uses[image] -= 1
                 if remaining_image_uses[image] == 0:
                     image_pruner.observe(image)
 
             if config.run.max_workers == 1:
-                for task in remaining_tasks:
+                for task in remaining:
                     persist(
                         _execute_task(
                             config,
                             task,
                             producer=producer,
+                            store=store,
                             workspace_root=workspace_root,
                             progress=progress,
-                            index=task_indexes[task.id],
+                            index=indexes[task.id],
                             total=len(tasks),
                         )
                     )
-            elif remaining_tasks:
-                worker_count = min(config.run.max_workers, len(remaining_tasks))
-                with ThreadPoolExecutor(
-                    max_workers=worker_count,
-                    thread_name_prefix="securebench-row",
-                ) as executor:
+            elif remaining:
+                worker_count = min(config.run.max_workers, len(remaining))
+                with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="securebench-row") as executor:
                     futures = [
                         executor.submit(
                             _execute_task,
                             config,
                             task,
                             producer=producer,
+                            store=store,
                             workspace_root=workspace_root,
                             progress=progress,
-                            index=task_indexes[task.id],
+                            index=indexes[task.id],
                             total=len(tasks),
                         )
-                        for task in remaining_tasks
+                        for task in remaining
                     ]
                     for future in as_completed(futures):
                         persist(future.result())
@@ -172,10 +146,11 @@ def run_tester_config(
         run_id=config.run.id,
         output_dir=str(output_dir),
         output_path=str(output_path),
-        total=total,
-        verified=verified,
-        passed=passed,
-        score_sum=score_sum,
+        total=counters["total"],
+        verified=counters["verified"],
+        passed=counters["passed"],
+        score_sum=counters["score_sum"],
+        infrastructure_errors=counters["infrastructure_errors"],
         images_pruned=image_pruner.images_pruned,
         image_prune_failures=image_pruner.failures,
     )
@@ -183,68 +158,73 @@ def run_tester_config(
 
 def _execute_task(
     config: TesterConfig,
-    task: Any,
+    task: BenchmarkTask,
     *,
     producer: Any,
+    store: CandidateStore,
     workspace_root: Path,
     progress: ProgressReporter | None,
     index: int,
     total: int,
 ) -> _CompletedTask:
-    """Produce and verify one row without mutating shared run output."""
     with progress_context(progress):
-        emit_progress(
-            "task_start",
-            index=index,
-            total=total,
-            task_id=task.id,
-            family=task.task_type,
-        )
+        emit_progress("task_start", index=index, total=total, task_id=task.id, family=task.family)
         emit_progress("producer_start", task_id=task.id)
         _reset_task_workspace(workspace_root, task)
+        engine = ArtifactVerificationEngine()
+        run_seed = f"{config.run.id}:{task.id}"
         try:
-            candidate = producer.produce(task)
-        except CandidateProductionTimeout as exc:
-            record = candidate_timeout_record(config.run.id, task, exc)
-            emit_progress(
-                "producer_done",
-                task_id=task.id,
-                candidate_kind="none",
-                status="failed",
-                failure_reason=record["failure_reason"],
+            production = producer.produce(task)
+        except (CandidateProductionTimeout, CandidateProductionError) as exc:
+            emit_progress("producer_done", task_id=task.id, candidate_type="none", status="failed")
+            result = engine.verify_candidate_error(
+                task,
+                code=(
+                    "producer_timeout"
+                    if isinstance(exc, CandidateProductionTimeout)
+                    else "producer_failed"
+                ),
+                message=str(exc),
+                run_seed=run_seed,
             )
         else:
             emit_progress(
                 "producer_done",
                 task_id=task.id,
-                candidate_kind=_candidate_kind(candidate),
+                candidate_type=task.verification.candidate.type,
             )
-            emit_progress("verifier_start", task_id=task.id)
-            verification = verify_candidate(
-                task,
-                candidate,
-                verification_policy=config.verification,
-            )
-            emit_progress(
-                "verifier_done",
-                task_id=task.id,
-                status=None if verification is None else verification.status,
-                score=None if verification is None else verification.score,
-                phase=_verification_phase(verification),
-            )
-            record = candidate_record(config.run.id, task, candidate, verification)
+            emit_progress("candidate_capture_start", task_id=task.id)
+            try:
+                candidate = capture_production(task, production, store)
+            except CandidateCaptureError as exc:
+                emit_progress("candidate_capture_done", task_id=task.id, status="rejected")
+                result = engine.verify_candidate_error(
+                    task,
+                    code="candidate_capture_rejected",
+                    message=str(exc),
+                    run_seed=run_seed,
+                )
+            else:
+                emit_progress(
+                    "candidate_capture_done",
+                    task_id=task.id,
+                    status="captured",
+                    candidate_digest=candidate.digest,
+                )
+                emit_progress("verification_start", task_id=task.id)
+                result = engine.verify(task, candidate, store, run_seed=run_seed)
         emit_progress(
-            "task_done",
+            "verification_done",
             task_id=task.id,
-            status=record["verification_status"],
-            passed=record.get("passed"),
-            score=record.get("score"),
+            status=result.status,
+            score=result.score,
         )
+        record = result.to_record(run_id=config.run.id)
+        emit_progress("task_done", task_id=task.id, status=result.status, passed=result.passed, score=result.score)
         return _CompletedTask(task=task, record=record)
 
 
-def _reset_task_workspace(workspace_root: Path, task: Any) -> None:
-    """Remove stale per-task workspace state before a fresh producer run."""
+def _reset_task_workspace(workspace_root: Path, task: BenchmarkTask) -> None:
     task_workspace = (workspace_root / workspace_dir_name(task)).resolve()
     root = workspace_root.resolve()
     if not task_workspace.is_relative_to(root):
@@ -253,10 +233,16 @@ def _reset_task_workspace(workspace_root: Path, task: Any) -> None:
         shutil.rmtree(task_workspace)
 
 
-def _resume_records(output_path: Path) -> list[dict[str, Any]]:
+def _resume_records(
+    output_path: Path,
+    run_id: str,
+    tasks: list[BenchmarkTask],
+) -> list[dict[str, Any]]:
     if not output_path.exists():
         return []
-    records = []
+    expected = {task.id: task.row_digest for task in tasks}
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for line in output_path.read_text(errors="ignore").splitlines():
         line = line.strip("\x00").strip()
         if not line.startswith("{"):
@@ -265,34 +251,47 @@ def _resume_records(output_path: Path) -> list[dict[str, Any]]:
             record = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if isinstance(record, dict) and isinstance(record.get("task_id"), str):
-            records.append(record)
+        if not isinstance(record, dict) or record.get("run_id") != run_id:
+            continue
+        task_id = record.get("task_id")
+        provenance = record.get("provenance")
+        if (
+            not isinstance(task_id, str)
+            or task_id in seen
+            or expected.get(task_id) is None
+            or not isinstance(provenance, dict)
+            or provenance.get("row_digest") != expected[task_id]
+            or record.get("status") not in {"passed", "failed", "infrastructure_error"}
+        ):
+            continue
+        seen.add(task_id)
+        records.append(record)
     return records
 
 
-def _record_is_verified(record: dict[str, Any]) -> bool:
-    return record.get("verification_status") != UNSUPPORTED_VERIFICATION_STATUS
+def _summary_counters(records: list[dict[str, Any]]) -> dict[str, Any]:
+    counters: dict[str, Any] = {
+        "total": 0,
+        "verified": 0,
+        "passed": 0,
+        "score_sum": 0.0,
+        "infrastructure_errors": 0,
+    }
+    for record in records:
+        _add_record(counters, record)
+    return counters
 
 
-def _record_score(record: dict[str, Any]) -> float:
-    score = record.get("score", 0.0)
+def _add_record(counters: dict[str, Any], record: dict[str, Any]) -> None:
+    counters["total"] += 1
+    counters["verified"] += 1
+    if record.get("passed") is True:
+        counters["passed"] += 1
+    score = record.get("score")
     if isinstance(score, (int, float)) and not isinstance(score, bool):
-        return float(score)
-    return 0.0
-
-
-def _candidate_kind(candidate: CandidateArtifact) -> str:
-    if candidate.patch is not None:
-        return "patch"
-    if candidate.workspace is not None:
-        return "workspace"
-    return "none"
-
-
-def _verification_phase(verification: VerificationResult | None) -> object:
-    if verification is None:
-        return None
-    return verification.metadata.get("phase")
+        counters["score_sum"] += float(score)
+    if record.get("status") == "infrastructure_error":
+        counters["infrastructure_errors"] += 1
 
 
 def with_tester_overrides(
@@ -302,7 +301,6 @@ def with_tester_overrides(
     max_workers: int | None = None,
     max_cached_images: int | None = None,
 ) -> TesterConfig:
-    """Return a tester config with CLI overrides applied."""
     updated = config
     if output_dir is not None:
         updated = replace(updated, run=replace(updated.run, output_dir=Path(output_dir)))
@@ -313,10 +311,7 @@ def with_tester_overrides(
     if max_cached_images is not None:
         if isinstance(max_cached_images, bool) or max_cached_images <= 0:
             raise ConfigError("--max-cached-images must be a positive integer")
-        updated = replace(
-            updated,
-            docker=replace(updated.docker, max_cached_images=max_cached_images),
-        )
+        updated = replace(updated, docker=replace(updated.docker, max_cached_images=max_cached_images))
     return updated
 
 
@@ -335,7 +330,6 @@ class DockerImageBatchPruner:
         self.pending.append(image)
         if len(self.pending) < self.max_cached_images:
             return
-
         targets = tuple(self.pending)
         self.pending.clear()
         emit_progress("image_prune_start", images=targets)
@@ -349,18 +343,12 @@ class DockerImageBatchPruner:
             )
         except (OSError, subprocess.SubprocessError) as exc:
             self.failures += len(targets)
-            emit_progress(
-                "image_prune_failed",
-                images=targets,
-                exit_code=None,
-                stderr=str(exc),
-            )
+            emit_progress("image_prune_failed", images=targets, exit_code=None, stderr=str(exc))
             return
         if completed.returncode == 0:
             self.images_pruned += len(targets)
             emit_progress("image_prune_done", images=targets, removed=len(targets))
             return
-
         self.failures += len(targets)
         emit_progress(
             "image_prune_failed",
@@ -369,120 +357,3 @@ class DockerImageBatchPruner:
             stdout=completed.stdout,
             stderr=completed.stderr,
         )
-
-
-def verify_candidate(
-    task: Any,
-    candidate: CandidateArtifact,
-    *,
-    verification_policy: Any = None,
-) -> VerificationResult | None:
-    """Verify a candidate when SecureBench has a verifier for the task family."""
-    verifier = verifier_for_task_type(task.task_type)
-    if verifier is None:
-        return None
-    return verifier.verify(task, candidate.for_task(task), verification_policy=verification_policy)
-
-
-def candidate_record(
-    run_id: str,
-    task: Any,
-    candidate: CandidateArtifact,
-    verification: VerificationResult | None = None,
-) -> dict[str, object]:
-    """Serialize one candidate-production result plus optional verifier output."""
-    record: dict[str, object] = {
-        "run_id": run_id,
-        "task_id": task.id,
-        "benchmark_id": task.benchmark_id,
-        "task_type": task.task_type,
-        "verification_status": UNSUPPORTED_VERIFICATION_STATUS,
-        "candidate_patch": candidate.patch,
-        "candidate_workspace": candidate.workspace,
-        "producer_stdout": candidate.stdout,
-        "producer_stderr": candidate.stderr,
-        "producer_metadata": candidate.metadata,
-        "resource_summary": task.resource_summary(),
-        "hidden_values": REDACTED,
-    }
-    if verification is None:
-        return record
-
-    record.update(
-        {
-            "verification_status": verification.status,
-            "passed": verification.passed,
-            "score": verification.score,
-            "verifier_stdout": verification.stdout,
-            "verifier_stderr": verification.stderr,
-            "verifier_metadata": _redact_verifier_metadata(verification.metadata, task),
-        }
-    )
-    return record
-
-
-def candidate_timeout_record(
-    run_id: str,
-    task: Any,
-    timeout: CandidateProductionTimeout,
-) -> dict[str, object]:
-    """Serialize a scored candidate-production timeout failure."""
-    result = timeout.result
-    message = str(timeout)
-    return {
-        "run_id": run_id,
-        "task_id": task.id,
-        "benchmark_id": task.benchmark_id,
-        "task_type": task.task_type,
-        "verification_status": "failed",
-        "passed": False,
-        "score": 0.0,
-        "failure_reason": "producer_timeout",
-        "failure_phase": timeout.phase,
-        "failure_message": message,
-        "candidate_text": None,
-        "candidate_patch": None,
-        "candidate_workspace": None,
-        "producer_stdout": result.stdout,
-        "producer_stderr": result.stderr,
-        "producer_metadata": {
-            "timed_out": True,
-            "timeout_seconds": result.timeout_seconds,
-            "command": result.command,
-            "exit_code": result.exit_code,
-            "phase": timeout.phase,
-        },
-        "resource_summary": task.resource_summary(),
-        "hidden_values": REDACTED,
-    }
-
-
-def _redact_verifier_metadata(metadata: dict[str, Any], task: Any) -> dict[str, Any]:
-    hidden_values = _hidden_values(task)
-    redacted = _redact_exact_hidden_values(metadata, hidden_values)
-    if "expected_answer" in redacted:
-        redacted["expected_answer"] = REDACTED
-    return redacted
-
-
-def _hidden_values(task: Any) -> tuple[Any, ...]:
-    resources = getattr(task, "resources", None)
-    if resources is None:
-        return ()
-    return tuple(
-        resource.value
-        for resource in resources.by_visibility("hidden")
-        if resource.value not in (None, "", (), [], {})
-    )
-
-
-def _redact_exact_hidden_values(value: Any, hidden_values: tuple[Any, ...]) -> Any:
-    if any(value == hidden for hidden in hidden_values):
-        return REDACTED
-    if isinstance(value, dict):
-        return {key: _redact_exact_hidden_values(item, hidden_values) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_redact_exact_hidden_values(item, hidden_values) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_redact_exact_hidden_values(item, hidden_values) for item in value)
-    return value

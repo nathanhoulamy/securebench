@@ -6,12 +6,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from securebench.tasks import SecureBenchTask
+from securebench.tasks import BenchmarkTask
 
 
 @dataclass(frozen=True)
-class CandidateArtifact:
-    """Output produced by a model, script, or workspace agent."""
+class CandidateProduction:
+    """Ephemeral output of an Agent harness, before trusted capture."""
 
     patch: str | None = None
     workspace: str | None = None
@@ -19,18 +19,9 @@ class CandidateArtifact:
     stderr: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def for_task(self, task: SecureBenchTask) -> str:
-        """Return the artifact value expected by the task's verifier."""
-        if task.task_type == "repo_patch":
-            return self.patch or ""
-        if task.task_type == "terminal_task":
-            return self.workspace or ""
-        return ""
-
-
 class CandidateProducer(ABC):
     """Produce a candidate answer or artifact from agent-visible task data."""
 
     @abstractmethod
-    def produce(self, task: SecureBenchTask, **context: Any) -> CandidateArtifact:
-        """Produce a candidate artifact for a normalized task."""
+    def produce(self, task: BenchmarkTask, **context: Any) -> CandidateProduction:
+        """Run the Agent and return state eligible for trusted capture."""

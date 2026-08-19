@@ -8,14 +8,13 @@ from typing import Any, Literal
 
 import yaml
 
-from securebench.dangerous_commands import VerificationPolicy, parse_verification_policy
 from securebench.errors import ConfigError
 
 
-SUPPORTED_TESTER_SCHEMA_VERSION = "0.2"
+SUPPORTED_TESTER_SCHEMA_VERSION = "1.0"
 HarnessType = Literal["codex", "claude_code", "command"]
 
-ROOT_FIELDS = {"schema_version", "run", "benchmark", "harness", "verification", "docker"}
+ROOT_FIELDS = {"schema_version", "run", "benchmark", "harness", "docker"}
 RUN_FIELDS = {"id", "output_dir", "max_workers"}
 BENCHMARK_FIELDS = {"manifest", "tasks"}
 HARNESS_FIELDS = {"type", "env", "config"}
@@ -64,7 +63,6 @@ class TesterConfig:
     run: TesterRunSection
     benchmark: TesterBenchmarkSection
     harness: TesterHarnessSection
-    verification: VerificationPolicy = field(default_factory=VerificationPolicy)
     docker: TesterDockerSection = field(default_factory=TesterDockerSection)
 
 
@@ -109,7 +107,6 @@ def parse_tester_config(data: dict[str, Any], *, base_dir: str | Path | None = N
         run=run,
         benchmark=benchmark,
         harness=harness,
-        verification=parse_verification_policy(data.get("verification")),
         docker=_docker_section(data.get("docker")),
     )
 

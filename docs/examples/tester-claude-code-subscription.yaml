@@ -1,13 +1,13 @@
 # Generate CLAUDE_CODE_OAUTH_TOKEN with `claude setup-token` before using this config.
-schema_version: "0.2"
+schema_version: "1.0"
 
 run:
-  id: deep-swe-claude-code-subscription
-  output_dir: ../../runs/deep-swe-claude-code-subscription
+  id: terminal-bench-v2-claude-code-subscription
+  output_dir: ../../runs/terminal-bench-v2-claude-code-subscription
 
 benchmark:
-  manifest: ../../benchmarks/deep-swe/manifest.yaml
-  tasks: ../../benchmarks/deep-swe/tasks.jsonl
+  manifest: ../../benchmarks/terminal-bench/manifest-v2.yaml
+  tasks: ../../benchmarks/terminal-bench/tasks-v2.jsonl
 
 harness:
   type: claude_code
@@ -16,5 +16,5 @@ harness:
     model: sonnet
     version: latest
     task_file: task.json
-    timeout_seconds: 5400
+    timeout_seconds: 1200
     allow_external_tools: false

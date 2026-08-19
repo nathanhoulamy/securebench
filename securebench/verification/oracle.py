@@ -14,7 +14,7 @@ from typing import Any
 
 import yaml
 
-from securebench.tasks import CompiledTaskV2
+from securebench.tasks import BenchmarkTask
 from securebench.verification.models import (
     ArtifactEvidence,
     OracleVerdict,
@@ -30,7 +30,7 @@ class OracleSession(ABC):
     """Stateful host-only Oracle lifecycle."""
 
     @abstractmethod
-    def initialize(self, task: CompiledTaskV2, *, run_seed: str) -> None:
+    def initialize(self, task: BenchmarkTask, *, run_seed: str) -> None:
         ...
 
     @abstractmethod
@@ -109,7 +109,7 @@ class OracleProcessSession(OracleSession):
             bufsize=0,
         )
 
-    def initialize(self, task: CompiledTaskV2, *, run_seed: str) -> None:
+    def initialize(self, task: BenchmarkTask, *, run_seed: str) -> None:
         resources = {
             resource.name: resource.value
             for resource in task.view_for("oracle").resources

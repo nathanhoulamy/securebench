@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from securebench.candidates import CandidateArtifact, CandidateProducer
+from securebench.candidates import CandidateProducer, CandidateProduction
 from securebench.candidates.extraction import (
     default_extraction_spec,
     extract_candidate,
@@ -29,11 +29,12 @@ from securebench.harnesses.shared import (
     close_sandbox,
     container_image_for_task,
     container_workspace_path,
-    materialize_workdir_from_image_if_requested,
+    materialize_image_workdir,
     optional_positive_number,
     reject_task_file_collision,
     reject_unknown_fields,
     run_timeout_seconds,
+    task_allowed_domains,
     task_workdir,
     workspace_mount_target_for_task,
     workspace_path,
@@ -51,10 +52,10 @@ from securebench.harnesses.network import (
 )
 from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
-from securebench.tasks import SecureBenchTask
+from securebench.tasks import BenchmarkTask
 from securebench.workspaces.materialization import (
     VisibilityAwareMaterializer,
-    docker_read_only_mounts,
+    docker_resource_mounts,
 )
 
 
@@ -159,7 +160,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
         self.workspace_root = None if workspace_root is None else Path(workspace_root)
         self.materializer = VisibilityAwareMaterializer()
 
-    def produce(self, task: SecureBenchTask, **context: Any) -> CandidateArtifact:
+    def produce(self, task: BenchmarkTask, **context: Any) -> CandidateProduction:
         image = container_image_for_task(task)
         relay_spec = claude_code_provider_relay_spec(self.auth)
         require_provider_credential(relay_spec)
@@ -176,7 +177,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
 
         try:
             task_workspace.mkdir(parents=True, exist_ok=True)
-            materialize_workdir_from_image_if_requested(task, task_workspace)
+            materialize_image_workdir(task, task_workspace)
             state_cleanup = tempfile.TemporaryDirectory(prefix="securebench-claude-home-")
             state_root = Path(state_cleanup.name)
             staging = HostSandbox(root=task_workspace)
@@ -186,7 +187,10 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
 
             overlay = claude_code_overlay_for_image(image, self.version)
             workspace_mount_target = workspace_mount_target_for_task(task)
-            allowed_domains = effective_allowed_domains("claude_code", self.allowed_domains)
+            allowed_domains = task_allowed_domains(
+                task,
+                effective_allowed_domains("claude_code", self.allowed_domains),
+            )
             with docker_provider_relay_policy(
                 relay_spec,
                 allowed_domains,
@@ -207,7 +211,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                     network=egress.network,
                     read_only=False,
                     mounts=(
-                        *docker_read_only_mounts(plan, task_workspace),
+                        *docker_resource_mounts(plan, task_workspace),
                         DockerBindMount(
                             source=overlay.path,
                             target=CLAUDE_CODE_OVERLAY_TARGET,
@@ -261,7 +265,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                         timeout=timeout,
                     )
                     relay_summary = relay_decision_summary(egress.relay_log_dir)
-                    return CandidateArtifact(
+                    return CandidateProduction(
                         patch=candidate.patch,
                         workspace=candidate.workspace,
                         stdout=result.stdout,
@@ -459,15 +463,13 @@ def claude_code_shell_command(inner: str) -> str:
     )
 
 
-def claude_code_agent_workdir(task: SecureBenchTask) -> str | None:
-    if task.task_type in {"repo_patch", "terminal_task"}:
-        return task_workdir(task)
-    return None
+def claude_code_agent_workdir(task: BenchmarkTask) -> str:
+    return task_workdir(task)
 
 
-def claude_code_prompt(task: SecureBenchTask, task_file: str) -> str:
+def claude_code_prompt(task: BenchmarkTask, task_file: str) -> str:
     extraction = default_extraction_spec(task)
-    if task.task_type == "repo_patch":
+    if task.family == "repo_patch":
         return (
             f"Read {task_file} and solve the benchmark task using only public workspace data. "
             "The repository checkout to edit is the current working directory. "

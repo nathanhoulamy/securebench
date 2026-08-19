@@ -1,13 +1,13 @@
 # Set OPENAI_API_KEY in .env before using this API-key example.
-schema_version: "0.2"
+schema_version: "1.0"
 
 run:
-  id: deep-swe-codex-api-key
-  output_dir: ../../runs/deep-swe-codex-api-key
+  id: terminal-bench-v2-codex-api-key
+  output_dir: ../../runs/terminal-bench-v2-codex-api-key
 
 benchmark:
-  manifest: ../../benchmarks/deep-swe/manifest.yaml
-  tasks: ../../benchmarks/deep-swe/tasks.jsonl
+  manifest: ../../benchmarks/terminal-bench/manifest-v2.yaml
+  tasks: ../../benchmarks/terminal-bench/tasks-v2.jsonl
 
 harness:
   type: codex
@@ -17,5 +17,5 @@ harness:
     reasoning_effort: high
     version: latest
     task_file: task.json
-    timeout_seconds: 5400
+    timeout_seconds: 1200
     allow_external_tools: false

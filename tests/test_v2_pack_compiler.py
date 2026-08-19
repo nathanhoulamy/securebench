@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from securebench.benchmark_compiler import compile_benchmark_pack_v2
-from securebench.benchmark_pack import load_benchmark_pack_v2
+from securebench.benchmark_compiler import compile_benchmark_pack
+from securebench.benchmark_pack import load_benchmark_pack
 from securebench.errors import ConfigError
 
 
@@ -99,7 +99,7 @@ resource_roots:
 def test_v2_pack_compiles_structural_locations_into_visibility_lanes(tmp_path):
     manifest, tasks = write_pack(tmp_path)
 
-    compiled = next(compile_benchmark_pack_v2(load_benchmark_pack_v2(manifest, tasks)))
+    compiled = next(compile_benchmark_pack(load_benchmark_pack(manifest, tasks)))
 
     assert compiled.family == "terminal_task"
     assert compiled.agent_payload() == {"instructions": "Write /app/result.json."}
@@ -142,7 +142,7 @@ def test_v2_compiler_rejects_runtime_resource_symlink_to_host_lane(tmp_path):
     adapter.symlink_to(tmp_path / "hidden" / "task" / "oracle", target_is_directory=True)
 
     with pytest.raises(ConfigError, match="may not traverse symlink"):
-        next(compile_benchmark_pack_v2(load_benchmark_pack_v2(manifest, tasks)))
+        next(compile_benchmark_pack(load_benchmark_pack(manifest, tasks)))
 
 
 def test_v2_compiler_rejects_symlinks_inside_resource_directories(tmp_path):
@@ -152,7 +152,7 @@ def test_v2_compiler_rejects_symlinks_inside_resource_directories(tmp_path):
     )
 
     with pytest.raises(ConfigError, match="may not contain symlinks"):
-        next(compile_benchmark_pack_v2(load_benchmark_pack_v2(manifest, tasks)))
+        next(compile_benchmark_pack(load_benchmark_pack(manifest, tasks)))
 
 
 def test_v2_loader_rejects_legacy_manifest(tmp_path):
@@ -162,4 +162,13 @@ def test_v2_loader_rejects_legacy_manifest(tmp_path):
     tasks.write_text("")
 
     with pytest.raises(ConfigError, match="schema_version"):
-        load_benchmark_pack_v2(manifest, tasks)
+        load_benchmark_pack(manifest, tasks)
+
+
+def test_v2_pack_rejects_duplicate_row_ids(tmp_path):
+    manifest, tasks = write_pack(tmp_path)
+    original = tasks.read_text()
+    tasks.write_text(original + original)
+
+    with pytest.raises(ConfigError, match="duplicate row id"):
+        list(load_benchmark_pack(manifest, tasks).iter_rows())

@@ -63,12 +63,6 @@ def main(argv: list[str] | None = None) -> int:
 
     audit_self_parser = subparsers.add_parser("audit-self", help="Run built-in SecureBench robustness audits")
     audit_self_parser.add_argument("--output-dir", required=True, help="Directory for audit report artifacts")
-    audit_self_parser.add_argument("--static-only", action="store_true", help="Run only static audit checks")
-    audit_self_parser.add_argument(
-        "--skip-docker",
-        action="store_true",
-        help="Skip Docker-dependent malicious smoke checks",
-    )
 
     auth_parser = subparsers.add_parser("auth", help="Manage harness subscription logins")
     auth_providers = auth_parser.add_subparsers(dest="auth_provider", required=True)
@@ -158,8 +152,6 @@ def _audit_self(args: argparse.Namespace) -> int:
     try:
         report = audit_self(
             output_dir=args.output_dir,
-            static_only=args.static_only,
-            skip_docker=args.skip_docker,
         )
         output_path = write_json_report(report, args.output_dir)
     except (ConfigError, ImportError, OSError, ValueError) as exc:

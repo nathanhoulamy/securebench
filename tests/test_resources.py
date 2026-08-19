@@ -44,11 +44,11 @@ def test_component_views_include_only_allowed_resources():
     )
 
     assert bundle.payload_for("agent") == {"prompt": "solve"}
-    assert bundle.payload_for("test_sandbox") == {
+    assert bundle.payload_for("evaluation_runtime") == {
         "prompt": "solve",
         "cases": [{"args": []}],
     }
-    assert bundle.payload_for("evaluator") == {
+    assert bundle.payload_for("oracle") == {
         "prompt": "solve",
         "expected": [1],
     }

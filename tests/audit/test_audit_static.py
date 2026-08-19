@@ -1,67 +1,33 @@
 import json
+from pathlib import Path
 
 from securebench.audit.report import write_json_report
 from securebench.audit.runner import audit_self
-from securebench.audit.smoke import SMOKE_CASES
 from securebench.audit.static_checks import StaticAuditContext, run_static_checks
 from securebench.benchmark_pack import load_benchmark_pack
 
 
-def test_static_checks_pass_builtin_terminal_task_pack():
-    pack = load_benchmark_pack(
-        "benchmarks/audit/terminal-task/manifest.yaml",
-        "benchmarks/audit/terminal-task/tasks.jsonl",
-    )
+ROOT = Path(__file__).resolve().parents[2]
 
-    findings = run_static_checks(StaticAuditContext(pack=pack, target="terminal-task"))
+
+def test_static_checks_pass_reference_v2_pack():
+    root = ROOT / "benchmarks" / "terminal-bench"
+    pack = load_benchmark_pack(root / "manifest-v2.yaml", root / "tasks-v2.jsonl")
+
+    findings = run_static_checks(StaticAuditContext(pack=pack, target="terminal-bench-v2"))
 
     assert findings
     assert not [finding for finding in findings if finding.status == "failed"]
-    assert any(finding.id.startswith("static.agent_payload.") for finding in findings)
+    assert any(finding.id.startswith("static.visibility.") for finding in findings)
     assert any(finding.id.startswith("static.materialization.") for finding in findings)
+    assert any(finding.id == "static.candidate.protected_paths" for finding in findings)
 
 
-def test_static_checks_warn_when_repo_patch_task_omits_allow_paths():
-    pack = load_benchmark_pack(
-        "benchmarks/swe-bench-verified/manifest.yaml",
-        "benchmarks/swe-bench-verified/tasks.jsonl",
-    )
-
-    findings = run_static_checks(StaticAuditContext(pack=pack, target="repo-patch", limit=1))
-
-    assert any(
-        finding.id.startswith("static.repo_patch.allow_paths.") and finding.status == "warning"
-        for finding in findings
-    )
-
-
-def test_audit_self_static_only_writes_deterministic_json(tmp_path):
-    report = audit_self(output_dir=tmp_path, static_only=True)
+def test_audit_self_writes_deterministic_sanitized_json(tmp_path):
+    report = audit_self(output_dir=tmp_path)
     output_path = write_json_report(report, tmp_path)
-
     data = json.loads(output_path.read_text())
 
     assert data["run_id"] == "audit-self"
     assert data["summary"]["failed"] == 0
     assert data["findings"] == sorted(data["findings"], key=lambda item: item["id"])
-    assert any(item["id"] == "static.repo_patch.default_policy" for item in data["findings"])
-
-
-def test_audit_self_skip_docker_records_skipped_smoke(tmp_path):
-    report = audit_self(output_dir=tmp_path, skip_docker=True)
-
-    assert any(finding.id == "smoke.docker.skipped" and finding.status == "skipped" for finding in report.findings)
-    assert report.summary.failed == 0
-
-
-def test_aggressive_family_specific_smoke_cases_are_registered():
-    case_ids = {case.id for case in SMOKE_CASES}
-
-    assert {
-        "smoke.repo_patch.config_tamper",
-        "smoke.repo_patch.shell_runner_tamper",
-        "smoke.repo_patch.path_traversal",
-        "smoke.repo_patch.preserved_path_strip",
-        "smoke.terminal_task.fake_pytest_wrapper",
-        "smoke.terminal_task.output_only_bypass",
-    } <= case_ids

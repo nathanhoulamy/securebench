@@ -10,17 +10,18 @@ from securebench.candidates.extraction import (
     default_extraction_spec,
     extract_candidate,
 )
-from securebench.candidates import CandidateArtifact, CandidateProducer
+from securebench.candidates import CandidateProducer, CandidateProduction
 from securebench.errors import ConfigError
 from securebench.harnesses.shared import (
     agent_task_json,
     close_sandbox,
     container_image_for_task,
-    materialize_workdir_from_image_if_requested,
+    materialize_image_workdir,
     optional_positive_number,
     reject_task_file_collision,
     reject_unknown_fields,
     run_timeout_seconds,
+    task_allowed_domains,
     task_workdir,
     workspace_path,
     workspace_mount_target_for_task,
@@ -35,10 +36,10 @@ from securebench.harnesses.network import (
 from securebench.workspaces.materialization import (
     MaterializationPlan,
     VisibilityAwareMaterializer,
-    docker_read_only_mounts,
+    docker_resource_mounts,
 )
 from securebench.sandboxes import DockerSandbox, HostSandbox, Sandbox
-from securebench.tasks import SecureBenchTask
+from securebench.tasks import BenchmarkTask
 
 
 COMMAND_CONFIG_FIELDS = {
@@ -71,7 +72,7 @@ class CommandHarnessProducer(CandidateProducer):
         self.workspace_root = None if workspace_root is None else Path(workspace_root)
         self.materializer = VisibilityAwareMaterializer()
 
-    def produce(self, task: SecureBenchTask, **context: Any) -> CandidateArtifact:
+    def produce(self, task: BenchmarkTask, **context: Any) -> CandidateProduction:
         task_workspace = workspace_root(
             task,
             context.get("workspace_root", self.workspace_root),
@@ -83,13 +84,16 @@ class CommandHarnessProducer(CandidateProducer):
 
         try:
             task_workspace.mkdir(parents=True, exist_ok=True)
-            materialize_workdir_from_image_if_requested(task, task_workspace)
+            materialize_image_workdir(task, task_workspace)
             staging = HostSandbox(root=task_workspace)
             plan = self.materializer.materialize(task, staging, "agent")
             reject_task_file_collision(self.task_file, plan)
             staging.write_file(self.task_file, agent_task_json(task))
 
-            allowed_domains = effective_allowed_domains("command", self.allowed_domains)
+            allowed_domains = task_allowed_domains(
+                task,
+                effective_allowed_domains("command", self.allowed_domains),
+            )
             with docker_egress_policy(allowed_domains) as egress:
                 sandbox = self._sandbox(task, task_workspace, plan, egress)
                 try:
@@ -100,7 +104,7 @@ class CommandHarnessProducer(CandidateProducer):
                     )
                     result = sandbox.run(
                         self.command,
-                        workdir=task_workdir(task) if task.task_type == "terminal_task" else None,
+                        workdir=task_workdir(task),
                         timeout=timeout,
                     )
                     extraction = default_extraction_spec(task)
@@ -110,7 +114,7 @@ class CommandHarnessProducer(CandidateProducer):
                         extraction,
                         timeout=timeout,
                     )
-                    return CandidateArtifact(
+                    return CandidateProduction(
                         patch=candidate.patch,
                         workspace=candidate.workspace,
                         stdout=candidate.stdout,
@@ -132,7 +136,7 @@ class CommandHarnessProducer(CandidateProducer):
 
     def _sandbox(
         self,
-        task: SecureBenchTask,
+        task: BenchmarkTask,
         task_workspace: Path,
         plan: MaterializationPlan,
         egress: HarnessEgress,
@@ -144,7 +148,7 @@ class CommandHarnessProducer(CandidateProducer):
             env_names=self.env_names,
             env=egress.env,
             network=egress.network,
-            mounts=docker_read_only_mounts(plan, task_workspace),
+            mounts=docker_resource_mounts(plan, task_workspace),
             workspace_mount_target=workspace_mount_target_for_task(task),
         )
 

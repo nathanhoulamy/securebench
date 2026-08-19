@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from securebench.benchmark_compiler import compile_benchmark_pack_v2
-from securebench.benchmark_pack import load_benchmark_pack_v2
+from securebench.benchmark_compiler import compile_benchmark_pack
+from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import (
     CandidateStore,
     HostWorkspaceFilesystem,
@@ -110,8 +110,8 @@ resource_roots:
     }
     tasks = root / "tasks.jsonl"
     tasks.write_text(json.dumps(row) + "\n")
-    pack = load_benchmark_pack_v2(manifest, tasks)
-    return next(compile_benchmark_pack_v2(pack))
+    pack = load_benchmark_pack(manifest, tasks)
+    return next(compile_benchmark_pack(pack))
 
 
 def capture_result(tmp_path: Path, task, content: bytes):

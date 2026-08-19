@@ -5,11 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from securebench.candidates.base import CandidateArtifact
+from securebench.candidates.base import CandidateProduction
 from securebench.errors import ConfigError
-from securebench.families import family_contract_for
 from securebench.sandboxes import CommandResult, Sandbox
-from securebench.tasks import SecureBenchTask
+from securebench.tasks import BenchmarkTask
 
 
 ExtractionMode = Literal["git_diff", "workspace"]
@@ -17,10 +16,10 @@ ExtractionMode = Literal["git_diff", "workspace"]
 
 @dataclass(frozen=True)
 class CandidateExtractionSpec:
-    """How SecureBench should collect a family-shaped candidate after a harness run."""
+    """How a harness exposes stopped state to trusted candidate capture."""
 
     mode: ExtractionMode
-    candidate_kind: str
+    candidate_type: str
     workdir: str | None = None
 
 
@@ -38,24 +37,28 @@ class CandidateProductionTimeout(Exception):
         super().__init__(message)
 
 
+class CandidateProductionError(Exception):
+    """The Agent run ended without state eligible for candidate capture."""
+
+
 def default_extraction_spec(
-    task: SecureBenchTask,
+    task: BenchmarkTask,
 ) -> CandidateExtractionSpec:
     """Return the default extraction strategy for a task's candidate contract."""
-    contract = family_contract_for(task.task_type)
-    if contract.candidate_kind == "patch":
+    candidate_type = task.verification.candidate.type
+    if candidate_type == "git_patch":
         return CandidateExtractionSpec(
             mode="git_diff",
-            candidate_kind=contract.candidate_kind,
+            candidate_type=candidate_type,
             workdir=_task_workdir(task),
         )
-    if contract.candidate_kind == "workspace":
+    if candidate_type in {"file_bundle", "filesystem_overlay"}:
         return CandidateExtractionSpec(
             mode="workspace",
-            candidate_kind=contract.candidate_kind,
+            candidate_type=candidate_type,
             workdir=_task_workdir(task),
         )
-    raise ConfigError(f"Unsupported candidate kind: {contract.candidate_kind!r}")
+    raise ConfigError(f"Unsupported candidate type: {candidate_type!r}")
 
 
 def extraction_instructions(spec: CandidateExtractionSpec) -> str:
@@ -76,7 +79,7 @@ def extract_candidate(
     spec: CandidateExtractionSpec,
     *,
     timeout: float | None = None,
-) -> CandidateArtifact:
+) -> CandidateProduction:
     """Collect a candidate artifact according to a shared extraction spec."""
     if run_result.timed_out:
         raise CandidateProductionTimeout(run_result)
@@ -118,14 +121,14 @@ def extract_candidate(
         )
     if spec.mode == "workspace":
         if run_result.exit_code != 0:
-            raise ConfigError(
+            raise CandidateProductionError(
                 "harness command failed before producing a workspace candidate "
                 f"(exit code {run_result.exit_code})"
             )
         workspace = str(getattr(sandbox, "root", ""))
         if not workspace:
             raise ConfigError("workspace candidate extraction requires sandbox.root")
-        return CandidateArtifact(
+        return CandidateProduction(
             workspace=workspace,
             stdout=run_result.stdout,
             stderr=run_result.stderr,
@@ -144,9 +147,9 @@ def _candidate_artifact(
     stdout: str,
     stderr: str,
     metadata: dict[str, object],
-) -> CandidateArtifact:
-    return CandidateArtifact(
-        patch=candidate if spec.candidate_kind == "patch" else None,
+) -> CandidateProduction:
+    return CandidateProduction(
+        patch=candidate if spec.candidate_type == "git_patch" else None,
         stdout=stdout,
         stderr=stderr,
         metadata=metadata,
@@ -155,7 +158,7 @@ def _candidate_artifact(
 
 def _metadata(spec: CandidateExtractionSpec) -> dict[str, object]:
     metadata: dict[str, object] = {
-        "candidate_kind": spec.candidate_kind,
+        "candidate_type": spec.candidate_type,
         "candidate_extraction": spec.mode,
     }
     if spec.workdir is not None:
@@ -163,12 +166,5 @@ def _metadata(spec: CandidateExtractionSpec) -> dict[str, object]:
     return metadata
 
 
-def _task_workdir(task: SecureBenchTask) -> str | None:
-    metadata = task.metadata if isinstance(task.metadata, dict) else {}
-    environment = metadata.get("environment")
-    if not isinstance(environment, dict):
-        return None
-    workdir = environment.get("workdir")
-    if not isinstance(workdir, str) or not workdir.strip():
-        return None
-    return workdir.strip()
+def _task_workdir(task: BenchmarkTask) -> str:
+    return task.environment.workdir

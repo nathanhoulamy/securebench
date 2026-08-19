@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from securebench.benchmark_compiler import compile_benchmark_pack_v2
-from securebench.benchmark_pack import load_benchmark_pack_v2
+from securebench.benchmark_compiler import compile_benchmark_pack
+from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import CandidateStore, HostWorkspaceFilesystem, capture_file_bundle
 from securebench.verification import ArtifactVerificationEngine
 
@@ -31,8 +31,8 @@ END:VCALENDAR
 
 
 def compiled_task():
-    pack = load_benchmark_pack_v2(PACK / "manifest-v2.yaml", PACK / "tasks-v2.jsonl")
-    return next(compile_benchmark_pack_v2(pack))
+    pack = load_benchmark_pack(PACK / "manifest-v2.yaml", PACK / "tasks-v2.jsonl")
+    return next(compile_benchmark_pack(pack))
 
 
 def verify_calendar(tmp_path: Path, content: str):

@@ -57,8 +57,10 @@ class CandidateStore:
         baseline_digest: str,
         payload: dict[str, Any],
     ) -> StoredCandidate:
-        if not baseline_digest.startswith("sha256:"):
-            raise CandidateStoreError("candidate baseline_digest must be a sha256 digest")
+        try:
+            _sha256_hex(baseline_digest)
+        except CandidateStoreError as exc:
+            raise CandidateStoreError("candidate baseline_digest must be a sha256 digest") from exc
         document = {
             "schema_version": CANDIDATE_MANIFEST_VERSION,
             "type": candidate_type,
@@ -106,8 +108,10 @@ class CandidateStore:
         if candidate_type not in {"git_patch", "file_bundle", "filesystem_overlay"}:
             raise CandidateStoreError(f"unsupported stored candidate type: {candidate_type!r}")
         baseline_digest = document["baseline_digest"]
-        if not isinstance(baseline_digest, str) or not baseline_digest.startswith("sha256:"):
-            raise CandidateStoreError("candidate manifest baseline_digest is invalid")
+        try:
+            _sha256_hex(baseline_digest)
+        except CandidateStoreError as exc:
+            raise CandidateStoreError("candidate manifest baseline_digest is invalid") from exc
         payload = document["payload"]
         if not isinstance(payload, dict):
             raise CandidateStoreError("candidate manifest payload must be an object")

@@ -20,7 +20,7 @@ class VulnerabilityClass:
 ANSWER_LEAKAGE = "answer_leakage"
 VISIBILITY_BYPASS = "visibility_policy_bypass"
 MATERIALIZATION_ESCAPE = "materialization_escape"
-EVALUATOR_TAMPERING = "evaluator_tampering"
+ORACLE_TAMPERING = "oracle_tampering"
 TEST_INFRA_TAMPERING = "test_infra_tampering"
 NETWORK_EGRESS = "network_egress"
 RESULT_INTEGRITY_GAP = "result_integrity_gap"
@@ -46,10 +46,10 @@ CATALOG: tuple[VulnerabilityClass, ...] = (
         "A benchmark resource can be materialized outside its authorized path root.",
     ),
     VulnerabilityClass(
-        EVALUATOR_TAMPERING,
+        ORACLE_TAMPERING,
         "critical",
         ("repo_patch", "terminal_task"),
-        "Candidate output can modify trusted evaluator state.",
+        "Candidate output can modify trusted host Oracle state.",
     ),
     VulnerabilityClass(
         TEST_INFRA_TAMPERING,

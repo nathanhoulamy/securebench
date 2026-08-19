@@ -1,110 +1,60 @@
-# SecureBench Security Notes
+# SecureBench security notes
 
-SecureBench treats benchmark execution as adversarial. The active benchmark
-families are `repo_patch` and `terminal_task`; both involve candidate-controlled
-workspace state and must be verified from trusted evaluator inputs.
+SecureBench treats the Agent, its output, and its workspace as adversarial.
 
-## Data Separation
+## Separation model
 
-- Public resources are visible to the agent and may be materialized into the
-  agent workspace.
-- Evaluation inputs are available only to the verification sandbox.
-- Hidden resources are retained for trusted reporting or analysis and are
-  redacted from result records.
-- Named provider harness credentials are host-side only. Codex and Claude Code
-  receive dummy provider credentials inside the untrusted agent container and
-  route API requests through a SecureBench provider relay sidecar, which injects
-  the real API key or subscription bearer token outside the sandbox.
+- `public` resources are the only lane visible to the Agent.
+- `evaluation_inputs` are available only to a future evaluation runtime.
+- `hidden` resources are host-only and may be read by the Oracle.
+- The manifest assigns disjoint pack source roots to all three lanes. The
+  compiler rejects root overlap, traversal, symlink traversal, and special
+  resource types.
+- The Agent receives its prompt/input and explicitly mounted public assets. It
+  does not receive the verification graph, Oracle location, runtime resources,
+  or candidate-capture policy as task content.
 
-## Provider Relay
+## Candidate boundary
 
-The provider relay is enabled for the `codex` and `claude_code` harnesses. It
-terminates plain HTTP from the internal Docker network, forwards to the provider
-over HTTPS, strips dummy auth, injects the real host credential, and writes
-redacted decision logs outside the agent workspace. The relay and optional
-egress proxy use a per-run outbound Docker network rather than Docker's shared
-default bridge, while the agent can reach them only through its isolated
-internal network.
+Harness output is not a scoreable artifact. After the Agent sandbox stops,
+trusted capture exports only the row-declared durable candidate shape. Capture
+is bounded, rejects escaping symlinks and special files, protects
+framework-owned paths independently of row configuration, and stores canonical
+content-addressed manifests and blobs. Replay requires the exact baseline
+identity.
 
-For Codex subscription runs, the relay receives a bind mount containing only
-SecureBench's isolated Codex login directory. It refreshes expiring OAuth tokens
-under a file lock and restricts upstream requests to `/backend-api/codex/`.
-The real ChatGPT access token, refresh token, and account id are never mounted
-into the agent container; its synthetic auth file contains dummy values that
-the relay strips before forwarding.
+The implemented `file_bundle` path reads regular files with no-follow semantics
+and change detection. `git_patch` capture and replay are implemented as
+primitives, but repo-patch artifact materialization/evaluation is deliberately
+blocked by execution preflight until its full engine is available.
 
-For Claude subscription runs, `CLAUDE_CODE_OAUTH_TOKEN` remains in the
-host-side environment and is passed by name only to the relay container. The
-agent receives a fixed dummy OAuth token. SecureBench does not refresh or
-persist the real Claude token; operators rotate it with `claude setup-token`.
+## Verification and results
 
-Provider-hosted external tools are blocked by default. Tester YAML may opt in
-with `harness.config.allow_external_tools: true`; otherwise requests that enable
-server-side tools such as web search, remote MCP, hosted code execution, or file
-search are rejected before they reach the provider. Local/client tool definitions
-used by the CLIs remain allowed.
+Artifact parsers are passive and bounded; candidate code is never imported or
+executed. Parsed observations remain internal evidence. Only the host Oracle
+may return correctness, score, check outcomes, and bounded public diagnostics.
+Timeouts and rejected captures are also sent to the Oracle as candidate-error
+evidence rather than being scored by the runner.
 
-The relay is not a general guarantee for custom commands. The `command` harness
-still passes tester-selected environment variables directly into its container,
-so testers should not expose secrets to untrusted command harnesses unless that
-is part of the experiment.
+Public `results.jsonl` records contain candidate/evidence digests, check
+summaries, public diagnostics, and manifest/row/image provenance. Raw Agent
+stdout, stderr, metadata, parsed evidence, runtime resources, and host paths are
+not serialized. Resume requires matching run and row provenance.
 
-`allowed_domains` controls generic agent-container egress, not provider-hosted
-web search. Provider-hosted web tools remain blocked by default and, if enabled,
-run inside the provider rather than through SecureBench's generic egress proxy.
-Anthropic's
-[corporate proxy guide](https://docs.anthropic.com/en/docs/claude-code/corporate-proxy)
-currently states that Claude Code does not support `NO_PROXY`. Treat Claude
-Code runs that combine provider relay traffic with a non-empty
-`allowed_domains` list as requiring an integration check for the selected CLI
-version. Re-run that check when changing Claude Code networking or proxy
-handling.
+## Credentials and network
 
-See [Provider Authentication](provider-authentication.md) for the supported
-credential sources, setup commands, and credential lifecycle.
+Named provider harnesses keep real credentials host-side and use a relay to
+inject them outside the Agent container. Provider-hosted external tools are
+blocked unless tester configuration explicitly enables them. Row
+`agent_network` declares benchmark requirements; harness allowlists remain a
+tester-owned upper bound on actual connectivity.
 
-## Repo Patch
-
-Repo-patch candidates are collected as git diffs. The verifier checks declared
-base commits, applies optional setup and test patches, enforces candidate path
-policy, then runs benchmark-authored command checks in the benchmark image with
-network disabled by default.
-
-The default policy blocks common test infrastructure, dependency, CI, and
-SecureBench-owned paths. Benchmark authors should still declare
-`eval.candidate_policy.allow_paths` for the intended implementation edit surface.
-
-## Terminal Task
-
-Terminal-task candidates are final workspace directories. Trusted checker files
-come from benchmark eval assets and are mounted read-only under
-`/opt/securebench/evaluator` before running against the produced workspace.
-
-Supported checker sources are `pytest` and `script`. Checker code must treat all
-workspace files as untrusted input and should avoid importing candidate-controlled
-modules unless that is the explicit behavior under test.
-
-## Auditing
-
-`securebench audit-self` runs static visibility checks, repo-patch path-policy
-checks, and dynamic smoke probes for repo-patch and terminal-task tampering
-patterns. Passing the built-in audit suite means the current implementation
-resisted those probes; it is not a proof that every benchmark-authored checker is
-secure or meaningful.
-
-## Known Gaps
+## Current limits
 
 - Result records are not signed.
-- `--resume` trusts existing `candidates.jsonl` records for completed task IDs.
-- Result records do not yet include full benchmark pack digests or verifier code
-  version identifiers.
-- Producer and verifier stdout/stderr can contain sensitive information if a
-  harness or checker prints it.
-
-## Hardening Priorities
-
-- Add manifest, task-row, verifier, and benchmark-pack digests to result records.
-- Add optional result signing or append-only audit logs.
-- Treat resumed records as untrusted unless their digest or signature matches the
-  current benchmark pack and verifier.
-- Expand malicious audit packs for repository and terminal workflows.
+- `filesystem_overlay`, protocol checks, and `batched-split/v1` are registered
+  design surfaces but not executable.
+- `git_patch` end-to-end evaluation is not yet executable.
+- Pack-local Oracle code is trusted and requires review/admission controls.
+- The reference Oracle runs as a sanitized host subprocess; stronger OS-level
+  Oracle confinement remains future hardening.

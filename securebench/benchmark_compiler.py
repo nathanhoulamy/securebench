@@ -1,4 +1,4 @@
-"""Compile benchmark-pack rows into internal SecureBench tasks."""
+"""Compile strict benchmark rows into component-safe tasks."""
 
 from __future__ import annotations
 
@@ -7,96 +7,27 @@ import json
 from pathlib import Path, PurePosixPath
 from typing import Iterator
 
-from securebench.benchmark_pack import (
-    BenchmarkPack,
-    BenchmarkPackManifest,
-    BenchmarkPackV2,
-    BenchmarkRow,
-)
+from securebench.benchmark_pack import BenchmarkPack
 from securebench.errors import ConfigError
-from securebench.families import validate_benchmark_row_family
-from securebench.resources import Resource, ResourceBundle, ResourceVisibility
+from securebench.resources import Resource, ResourceBundle
 from securebench.schemas.benchmark import BenchmarkPackManifestV2, BenchmarkRowV2
-from securebench.tasks import CompiledTaskV2, SecureBenchTask, task_from_spec
-
-
-EVAL_VISIBILITY: dict[str, dict[str, ResourceVisibility]] = {
-    "repo_patch": {
-        "tests": "evaluation_inputs",
-        "candidate_policy": "evaluation_inputs",
-        "gold_patch": "hidden",
-    },
-    "terminal_task": {
-        "checker": "evaluation_inputs",
-        "needed_commands": "evaluation_inputs",
-        "run_tests": "evaluation_inputs",
-        "test_files": "evaluation_inputs",
-        "expected_state": "hidden",
-    },
-}
-
-
-def eval_visibility_for(family: str, key: str) -> ResourceVisibility:
-    """Return the internal visibility for one family eval field."""
-    return EVAL_VISIBILITY.get(family, {}).get(key, "hidden")
+from securebench.tasks import BenchmarkTask
 
 
 def compile_benchmark_row(
-    row: BenchmarkRow,
-    *,
-    manifest: BenchmarkPackManifest,
-) -> SecureBenchTask:
-    """Compile one benchmark row into a SecureBench task."""
-    validate_benchmark_row_family(row)
-
-    resources: dict[str, dict[str, object]] = {}
-    for name, value in row.input.items():
-        _add_resource(resources, name, value, "public")
-
-    if row.assets:
-        _add_resource(resources, "assets", list(row.assets), "public")
-
-    for name, value in row.eval.items():
-        _add_resource(resources, name, value, eval_visibility_for(row.family, name))
-
-    try:
-        return task_from_spec(
-            {
-                "id": row.id,
-                "benchmark_id": manifest.id,
-                "task_type": row.family,
-                "metadata": _metadata(row, manifest),
-                "resources": resources,
-            }
-        )
-    except ValueError as exc:
-        raise ConfigError(str(exc)) from exc
-
-
-def compile_benchmark_pack(
-    pack: BenchmarkPack,
-    *,
-    limit: int | None = None,
-) -> Iterator[SecureBenchTask]:
-    """Compile benchmark-pack rows into SecureBench tasks."""
-    for row in pack.iter_rows(limit=limit):
-        yield compile_benchmark_row(row, manifest=pack.manifest)
-
-
-def compile_benchmark_row_v2(
     row: BenchmarkRowV2,
     *,
     manifest: BenchmarkPackManifestV2,
     manifest_path: str | Path,
-) -> CompiledTaskV2:
-    """Resolve a v2 row into component-safe resources and execution plans."""
+) -> BenchmarkTask:
+    """Resolve one validated row without weakening its visibility lanes."""
     manifest_file = Path(manifest_path).resolve()
     pack_root = manifest_file.parent
     roots = _resolved_resource_roots(pack_root, manifest)
     resources: dict[str, Resource] = {}
 
     for name, value in row.input.items():
-        _add_compiled_v2_resource(
+        _add_resource(
             resources,
             Resource(
                 name=f"input.{name}",
@@ -107,12 +38,8 @@ def compile_benchmark_row_v2(
         )
 
     for index, asset in enumerate(row.assets):
-        source, kind = _resolve_pack_resource(
-            roots["public"],
-            asset.path,
-            f"assets[{index}]",
-        )
-        _add_compiled_v2_resource(
+        source, kind = _resolve_pack_resource(roots["public"], asset.path, f"assets[{index}]")
+        _add_resource(
             resources,
             Resource(
                 name=f"asset.{index}",
@@ -132,7 +59,7 @@ def compile_benchmark_row_v2(
             resource.path,
             f"verification.resources.runtime.{identifier}",
         )
-        _add_compiled_v2_resource(
+        _add_resource(
             resources,
             Resource(
                 name=f"runtime.{identifier}",
@@ -152,7 +79,7 @@ def compile_benchmark_row_v2(
             resource.path,
             f"verification.resources.host.{identifier}",
         )
-        _add_compiled_v2_resource(
+        _add_resource(
             resources,
             Resource(
                 name=f"host.{identifier}",
@@ -168,7 +95,7 @@ def compile_benchmark_row_v2(
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
-    return CompiledTaskV2(
+    return BenchmarkTask(
         id=row.id,
         benchmark_id=manifest.id,
         family=row.family,
@@ -185,15 +112,15 @@ def compile_benchmark_row_v2(
     )
 
 
-def compile_benchmark_pack_v2(
-    pack: BenchmarkPackV2,
+def compile_benchmark_pack(
+    pack: BenchmarkPack,
     *,
     limit: int | None = None,
-) -> Iterator[CompiledTaskV2]:
-    """Compile all selected v2 rows with filesystem-root enforcement."""
+) -> Iterator[BenchmarkTask]:
+    """Compile selected rows with pack-root and symlink enforcement."""
     _validate_pack_root(pack.root)
     for row in pack.iter_rows(limit=limit):
-        yield compile_benchmark_row_v2(
+        yield compile_benchmark_row(
             row,
             manifest=pack.manifest,
             manifest_path=pack.manifest_path,
@@ -252,43 +179,7 @@ def _reject_symlink_components(root: Path, target: Path, field: str) -> None:
             break
 
 
-def _add_compiled_v2_resource(
-    resources: dict[str, Resource],
-    resource: Resource,
-) -> None:
+def _add_resource(resources: dict[str, Resource], resource: Resource) -> None:
     if resource.name in resources:
-        raise ConfigError(f"duplicate compiled v2 resource name: {resource.name}")
+        raise ConfigError(f"duplicate compiled resource name: {resource.name}")
     resources[resource.name] = resource
-
-
-def _add_resource(
-    resources: dict[str, dict[str, object]],
-    name: str,
-    value: object,
-    visibility: ResourceVisibility,
-) -> None:
-    if name in resources:
-        raise ConfigError(f"Duplicate compiled resource name: {name}")
-    resources[name] = {
-        "value": value,
-        "visibility": visibility,
-    }
-
-
-def _metadata(row: BenchmarkRow, manifest: BenchmarkPackManifest) -> dict[str, object]:
-    return {
-        **row.metadata,
-        "benchmark_pack": {
-            "id": manifest.id,
-            "version": manifest.version,
-            "manifest_path": None if manifest.path is None else str(manifest.path),
-        },
-        "environment": row.environment,
-        "asset_roots": {
-            "public": manifest.asset_roots.public,
-            "eval": manifest.asset_roots.eval,
-        },
-        "asset_defaults": {
-            "read_only": manifest.asset_defaults.read_only,
-        },
-    }

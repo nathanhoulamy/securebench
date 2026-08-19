@@ -237,18 +237,6 @@
           "default": null,
           "title": "Agent Network"
         },
-        "build_context": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Build Context"
-        },
         "image": {
           "anyOf": [
             {

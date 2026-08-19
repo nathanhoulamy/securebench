@@ -7,7 +7,7 @@ from typing import Any
 from securebench.candidates.models import StoredCandidate
 from securebench.candidates.store import CandidateStore
 from securebench.schemas.benchmark import ArtifactCheck, ArtifactSpec, FileBundleCandidate
-from securebench.tasks import CompiledTaskV2
+from securebench.tasks import BenchmarkTask
 from securebench.verification.models import (
     ArtifactEvidence,
     CandidateObservationError,
@@ -29,7 +29,7 @@ class ArtifactVerificationEngine:
 
     def verify(
         self,
-        task: CompiledTaskV2,
+        task: BenchmarkTask,
         candidate: StoredCandidate,
         store: CandidateStore,
         *,
@@ -81,9 +81,72 @@ class ArtifactVerificationEngine:
             if owns_session and session is not None:
                 session.close()
 
+    def verify_candidate_error(
+        self,
+        task: BenchmarkTask,
+        *,
+        code: str,
+        message: str,
+        run_seed: str,
+        oracle: OracleSession | None = None,
+    ) -> VerificationResultV2:
+        """Let the Oracle score a missing, timed-out, or uncapturable candidate."""
+        session = oracle
+        owns_session = session is None
+        try:
+            if session is None:
+                session = OracleProcessSession(_oracle_root(task))
+            session.initialize(task, run_seed=run_seed)
+            summaries: list[CheckResultSummary] = []
+            for check in task.verification.checks:
+                if not isinstance(check, ArtifactCheck):
+                    raise VerificationInfrastructureError(
+                        "protocol_engine_unavailable",
+                        "Protocol checks are not available in this implementation batch",
+                    )
+                evidence = tuple(
+                    ArtifactEvidence(
+                        check_id=check.id,
+                        artifact_id=artifact.id,
+                        status="candidate_error",
+                        source_kind="unknown",
+                        parser=artifact.parser,
+                        error_code=code,
+                        error_message=message,
+                    )
+                    for artifact in check.artifacts
+                )
+                for item in evidence:
+                    session.evaluate_artifact(item)
+                summaries.append(
+                    CheckResultSummary(
+                        id=check.id,
+                        type="artifact",
+                        status="passed",
+                        evidence_digests=tuple(item.digest for item in evidence),
+                    )
+                )
+            verdict = session.finalize()
+            summaries = _apply_oracle_outcomes(summaries, verdict)
+            return _result(task, None, verdict, tuple(summaries))
+        except VerificationInfrastructureError as exc:
+            return _infrastructure_result(task, None, exc)
+        except Exception as exc:
+            return _infrastructure_result(
+                task,
+                None,
+                VerificationInfrastructureError(
+                    "verification_internal_error",
+                    f"Trusted verification failed: {type(exc).__name__}",
+                ),
+            )
+        finally:
+            if owns_session and session is not None:
+                session.close()
+
     def _observe(
         self,
-        task: CompiledTaskV2,
+        task: BenchmarkTask,
         candidate: StoredCandidate,
         store: CandidateStore,
         check: ArtifactCheck,
@@ -198,7 +261,7 @@ def _candidate_artifact(
     )
 
 
-def _oracle_root(task: CompiledTaskV2) -> str:
+def _oracle_root(task: BenchmarkTask) -> str:
     _, identifier = task.verification.oracle.split(".", 1)
     resource = task.resources.resources.get(f"host.{identifier}")
     if resource is None or not isinstance(resource.value, dict):
@@ -233,8 +296,8 @@ def _apply_oracle_outcomes(
 
 
 def _result(
-    task: CompiledTaskV2,
-    candidate: StoredCandidate,
+    task: BenchmarkTask,
+    candidate: StoredCandidate | None,
     verdict: OracleVerdict,
     summaries: tuple[CheckResultSummary, ...],
 ) -> VerificationResultV2:
@@ -244,20 +307,20 @@ def _result(
         status="passed" if verdict.passed else "failed",
         passed=verdict.passed,
         score=float(verdict.score),
-        candidate_type=candidate.type,
-        candidate_digest=candidate.digest,
+        candidate_type=None if candidate is None else candidate.type,
+        candidate_digest=None if candidate is None else candidate.digest,
         execution_profile=task.verification.execution_profile,
         manifest_digest=task.manifest_digest,
         row_digest=task.row_digest,
-        image_digest=task.environment.image,
+        image_digest=_image_digest(task.environment.image),
         checks=summaries,
         public_diagnostics=_bounded_public_diagnostics(verdict.public_diagnostics),
     )
 
 
 def _infrastructure_result(
-    task: CompiledTaskV2,
-    candidate: StoredCandidate,
+    task: BenchmarkTask,
+    candidate: StoredCandidate | None,
     error: VerificationInfrastructureError,
 ) -> VerificationResultV2:
     return VerificationResultV2(
@@ -266,12 +329,12 @@ def _infrastructure_result(
         status="infrastructure_error",
         passed=False,
         score=0.0,
-        candidate_type=candidate.type,
-        candidate_digest=candidate.digest,
+        candidate_type=None if candidate is None else candidate.type,
+        candidate_digest=None if candidate is None else candidate.digest,
         execution_profile=task.verification.execution_profile,
         manifest_digest=task.manifest_digest,
         row_digest=task.row_digest,
-        image_digest=task.environment.image,
+        image_digest=_image_digest(task.environment.image),
         infrastructure_error={"code": error.code, "message": error.public_message},
     )
 
@@ -290,3 +353,9 @@ def _bounded_public_diagnostics(value: dict[str, Any]) -> dict[str, Any]:
             "oracle_diagnostics_too_large", "Oracle public diagnostics exceeded their bound"
         )
     return value
+
+
+def _image_digest(reference: str) -> str:
+    if "@" in reference:
+        return reference.rsplit("@", 1)[1]
+    return reference

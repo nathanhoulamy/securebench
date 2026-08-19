@@ -14,7 +14,7 @@ def test_cli_run_loads_tester_config_applies_overrides_and_prints_summary(monkey
     tasks_path = tmp_path / "tasks.jsonl"
     config_path.write_text(
         f"""
-schema_version: "0.2"
+schema_version: "1.0"
 run:
   id: cli-tester
   output_dir: {output_dir}
@@ -37,7 +37,7 @@ harness:
         seen["progress"] = progress
         seen["resume"] = resume
         config.run.output_dir.mkdir(parents=True)
-        output_path = config.run.output_dir / "candidates.jsonl"
+        output_path = config.run.output_dir / "results.jsonl"
         output_path.write_text(json.dumps({"task_id": "task-1"}) + "\n")
         return FakeTesterSummary(
             run_id=config.run.id,
@@ -74,7 +74,7 @@ harness:
     assert seen["config"].run.max_workers == 4
     assert seen["config"].docker.max_cached_images == 3
     assert "run_id=cli-tester total=1 verification=complete verified=1 passed=1" in capsys.readouterr().out
-    records = [json.loads(line) for line in (override_dir / "candidates.jsonl").read_text().splitlines()]
+    records = [json.loads(line) for line in (override_dir / "results.jsonl").read_text().splitlines()]
     assert records == [{"task_id": "task-1"}]
 
 
@@ -92,7 +92,7 @@ def test_cli_run_quiet_disables_progress(monkeypatch, tmp_path):
     tasks_path = tmp_path / "tasks.jsonl"
     config_path.write_text(
         f"""
-schema_version: "0.2"
+schema_version: "1.0"
 run:
   id: cli-tester
   output_dir: {output_dir}
@@ -110,7 +110,7 @@ harness:
     def fake_run_tester_config(config, *, limit=None, progress=None, resume=False):
         seen["progress"] = progress
         config.run.output_dir.mkdir(parents=True)
-        output_path = config.run.output_dir / "candidates.jsonl"
+        output_path = config.run.output_dir / "results.jsonl"
         output_path.write_text("")
         return FakeTesterSummary(
             run_id=config.run.id,
@@ -136,7 +136,7 @@ def test_cli_run_passes_resume(monkeypatch, tmp_path):
     tasks_path = tmp_path / "tasks.jsonl"
     config_path.write_text(
         f"""
-schema_version: "0.2"
+schema_version: "1.0"
 run:
   id: cli-tester
   output_dir: {output_dir}
@@ -154,7 +154,7 @@ harness:
     def fake_run_tester_config(config, *, limit=None, progress=None, resume=False):
         seen["resume"] = resume
         config.run.output_dir.mkdir(parents=True)
-        output_path = config.run.output_dir / "candidates.jsonl"
+        output_path = config.run.output_dir / "results.jsonl"
         output_path.write_text("")
         return FakeTesterSummary(
             run_id=config.run.id,

@@ -6,7 +6,7 @@ from securebench.workspaces.materialization import (
     MaterializedResource,
     ResourceMaterializer,
     VisibilityAwareMaterializer,
-    docker_read_only_mounts,
+    docker_resource_mounts,
 )
 from securebench.workspaces.path_policy import (
     PathPolicy,
@@ -26,7 +26,7 @@ __all__ = [
     "PathPolicyError",
     "ResourceMaterializer",
     "VisibilityAwareMaterializer",
-    "docker_read_only_mounts",
+    "docker_resource_mounts",
     "validate_materialization_plan",
     "validate_path_for_component",
     "validate_workspace_mount_for_component",

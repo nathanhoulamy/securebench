@@ -12,19 +12,19 @@ from securebench.workspaces.path_policy import (
 
 def test_component_allowed_roots_accept_road_b_paths():
     assert validate_path_for_component("agent", "securebench/public/question.json").allowed is True
-    assert validate_path_for_component("test_sandbox", "securebench/public/question.json").allowed is True
-    assert validate_path_for_component("test_sandbox", "securebench/evaluation_inputs/cases.json").allowed is True
-    assert validate_path_for_component("evaluator", "securebench/evaluator/answer.json").allowed is True
+    assert validate_path_for_component("evaluation_runtime", "securebench/public/question.json").allowed is True
+    assert validate_path_for_component("evaluation_runtime", "securebench/evaluation_inputs/cases.json").allowed is True
+    assert validate_path_for_component("oracle", "securebench/oracle/answer.json").allowed is True
 
 
 @pytest.mark.parametrize(
     ("component", "path"),
     [
         ("agent", "securebench/evaluation_inputs/cases.json"),
-        ("agent", "securebench/evaluator/answer.json"),
-        ("test_sandbox", "securebench/evaluator/answer.json"),
-        ("evaluator", "securebench/public/question.json"),
-        ("evaluator", "securebench/evaluation_inputs/cases.json"),
+        ("agent", "securebench/oracle/answer.json"),
+        ("evaluation_runtime", "securebench/oracle/answer.json"),
+        ("oracle", "securebench/public/question.json"),
+        ("oracle", "securebench/evaluation_inputs/cases.json"),
     ],
 )
 def test_component_allowed_roots_reject_cross_component_paths(component, path):
@@ -101,7 +101,7 @@ def test_materialization_plan_validation_rejects_resource_component_mismatch():
                 name="answer",
                 visibility="hidden",
                 kind="json",
-                component="evaluator",
+                component="oracle",
                 relative_path="securebench/public/answer.json",
             ),
         ),
@@ -126,7 +126,7 @@ def test_workspace_mount_policy_accepts_public_workspace_paths(path):
         r"repo\data.json",
         "ground_truth/answer.json",
         "securebench/evaluation_inputs/check.py",
-        "securebench/evaluator/answer.json",
+        "securebench/oracle/answer.json",
     ],
 )
 def test_workspace_mount_policy_rejects_unsafe_or_reserved_paths(path):

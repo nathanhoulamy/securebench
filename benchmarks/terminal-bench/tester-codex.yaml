@@ -1,4 +1,4 @@
-schema_version: "0.2"
+schema_version: "1.0"
 
 run:
   id: terminal-bench-codex-gpt-5.6-luna
@@ -6,16 +6,11 @@ run:
   max_workers: 2
 
 benchmark:
-  manifest: manifest.yaml
-  tasks: tasks.jsonl
+  manifest: manifest-v2.yaml
+  tasks: tasks-v2.jsonl
 
 docker:
   max_cached_images: 2
-
-verification:
-  allow_network: true
-  disallow_dangerous_commands: false
-  deny_commands: []
 
 harness:
   type: codex

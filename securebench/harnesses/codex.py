@@ -19,7 +19,7 @@ from securebench.candidates.extraction import (
     extract_candidate,
     extraction_instructions,
 )
-from securebench.candidates import CandidateArtifact, CandidateProducer
+from securebench.candidates import CandidateProducer, CandidateProduction
 from securebench.errors import ConfigError
 from securebench.harnesses.shared import (
     agent_task_json,
@@ -27,10 +27,11 @@ from securebench.harnesses.shared import (
     container_workspace_path,
     container_image_for_task,
     optional_positive_number,
-    materialize_workdir_from_image_if_requested,
+    materialize_image_workdir,
     reject_task_file_collision,
     reject_unknown_fields,
     run_timeout_seconds,
+    task_allowed_domains,
     task_workdir,
     workspace_path,
     workspace_mount_target_for_task,
@@ -51,10 +52,10 @@ from securebench.harnesses.codex_oauth import (
     codex_auth_file,
     ensure_valid_codex_oauth_credentials,
 )
-from securebench.workspaces.materialization import VisibilityAwareMaterializer, docker_read_only_mounts
+from securebench.workspaces.materialization import VisibilityAwareMaterializer, docker_resource_mounts
 from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
-from securebench.tasks import SecureBenchTask
+from securebench.tasks import BenchmarkTask
 
 
 CODEX_CONFIG_FIELDS = {
@@ -181,7 +182,7 @@ class CodexHarnessProducer(CandidateProducer):
         self.workspace_root = None if workspace_root is None else Path(workspace_root)
         self.materializer = VisibilityAwareMaterializer()
 
-    def produce(self, task: SecureBenchTask, **context: Any) -> CandidateArtifact:
+    def produce(self, task: BenchmarkTask, **context: Any) -> CandidateProduction:
         image = container_image_for_task(task)
         relay_spec = codex_provider_relay_spec(self.auth)
         credential_file = codex_subscription_credential_file(self.auth)
@@ -205,7 +206,7 @@ class CodexHarnessProducer(CandidateProducer):
 
         try:
             task_workspace.mkdir(parents=True, exist_ok=True)
-            materialize_workdir_from_image_if_requested(task, task_workspace)
+            materialize_image_workdir(task, task_workspace)
             state_cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-home-")
             state_root = Path(state_cleanup.name)
             if self.auth == "subscription":
@@ -219,7 +220,10 @@ class CodexHarnessProducer(CandidateProducer):
 
             overlay = codex_overlay_for_image(image, self.version)
             workspace_mount_target = workspace_mount_target_for_task(task)
-            allowed_domains = effective_allowed_domains("codex", self.allowed_domains)
+            allowed_domains = task_allowed_domains(
+                task,
+                effective_allowed_domains("codex", self.allowed_domains),
+            )
             relay_options: dict[str, Any] = {
                 "allow_external_tools": self.allow_external_tools,
             }
@@ -246,7 +250,7 @@ class CodexHarnessProducer(CandidateProducer):
                     network=egress.network,
                     read_only=False,
                     mounts=(
-                        *docker_read_only_mounts(plan, task_workspace),
+                        *docker_resource_mounts(plan, task_workspace),
                         DockerBindMount(
                             source=overlay.path,
                             target=CODEX_OVERLAY_TARGET,
@@ -316,7 +320,7 @@ class CodexHarnessProducer(CandidateProducer):
                         timeout=timeout,
                     )
                     relay_summary = relay_decision_summary(egress.relay_log_dir)
-                    return CandidateArtifact(
+                    return CandidateProduction(
                         patch=candidate.patch,
                         workspace=candidate.workspace,
                         stdout=result.stdout,
@@ -826,12 +830,12 @@ def codex_shell_command(inner: str) -> str:
 
 def prepare_repo_patch_baseline(
     sandbox: DockerSandbox,
-    task: SecureBenchTask,
+    task: BenchmarkTask,
     workdir: str | None,
     timeout: float | None,
 ) -> dict[str, object]:
     """Commit image-provided dirty state so extracted diffs only include agent changes."""
-    if task.task_type != "repo_patch" or workdir is None:
+    if task.family != "repo_patch" or workdir is None:
         return {}
     status = sandbox.run(["git", "status", "--porcelain=v1"], workdir=workdir, timeout=timeout)
     if status.exit_code != 0:
@@ -869,16 +873,14 @@ def prepare_repo_patch_baseline(
     return {"repo_patch_baseline": "committed"}
 
 
-def codex_agent_workdir(task: SecureBenchTask) -> str | None:
+def codex_agent_workdir(task: BenchmarkTask) -> str:
     """Return the container workdir where Codex should operate."""
-    if task.task_type in {"repo_patch", "terminal_task"}:
-        return task_workdir(task)
-    return None
+    return task_workdir(task)
 
 
-def codex_prompt(task: SecureBenchTask, task_file: str) -> str:
+def codex_prompt(task: BenchmarkTask, task_file: str) -> str:
     extraction = default_extraction_spec(task)
-    if task.task_type == "repo_patch":
+    if task.family == "repo_patch":
         return (
             f"Read {task_file} and solve the benchmark task using only public workspace data. "
             "The repository checkout to edit is the current working directory. "
