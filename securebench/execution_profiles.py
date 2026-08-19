@@ -10,10 +10,16 @@ from securebench.errors import ConfigError
 from securebench.schemas.benchmark import (
     ArtifactCheck,
     FileBundleCandidate,
+    ProtocolCheck,
     RegularFileEntry,
 )
 from securebench.tasks import BenchmarkTask
+from securebench.verification.models import VerificationInfrastructureError
 from securebench.verification.parsers import default_parser_registry
+from securebench.verification.protocol import (
+    load_adapter_manifest,
+    require_supported_protocol_features,
+)
 
 
 @dataclass(frozen=True)
@@ -65,14 +71,18 @@ def validate_executable_task(task: BenchmarkTask) -> None:
             "The current stopped-workspace capture backend requires file_bundle entries under "
             f"environment.workdir; outside entry ids: {', '.join(outside)}"
         )
-    unsupported = [check.id for check in task.verification.checks if not isinstance(check, ArtifactCheck)]
-    if unsupported:
-        raise ConfigError(
-            "This implementation batch executes artifact checks only; unsupported check ids: "
-            + ", ".join(unsupported)
-        )
+    reserved_root = workdir / "securebench"
+    for entry in task.verification.candidate.files:
+        if _paths_overlap(PurePosixPath(entry.path), reserved_root):
+            raise ConfigError(
+                f"Candidate entry {entry.id!r} overlaps the framework materialization root "
+                f"{str(reserved_root)!r}"
+            )
     _validate_public_assets(task)
+    _validate_runtime_resources(task)
+    _validate_protocol_checks(task)
     _validate_parsers(task)
+    _validate_evaluation_mount_plan(task)
     if task_baseline_digest(task) != task.baseline_digest:
         raise ConfigError("Candidate-visible baseline resources changed after row compilation")
     if task_verification_digest(task) != task.verification_digest:
@@ -94,11 +104,7 @@ def _validate_public_assets(task: BenchmarkTask) -> None:
             raise ConfigError(f"assets[{index}].mount may not replace environment.workdir")
         for entry in candidate.files:
             candidate_path = PurePosixPath(entry.path)
-            if (
-                mount == candidate_path
-                or mount.is_relative_to(candidate_path)
-                or candidate_path.is_relative_to(mount)
-            ):
+            if _paths_overlap(mount, candidate_path):
                 raise ConfigError(
                     f"assets[{index}].mount overlaps candidate entry {entry.id!r}; "
                     "mounted asset state is not part of stopped-workspace capture"
@@ -111,7 +117,8 @@ def _validate_parsers(task: BenchmarkTask) -> None:
     entries = {entry.id: entry for entry in candidate.files}
     registry = default_parser_registry()
     for check in task.verification.checks:
-        assert isinstance(check, ArtifactCheck)
+        if not isinstance(check, ArtifactCheck):
+            continue
         for artifact in check.artifacts:
             try:
                 profile = registry.profile(artifact.parser)
@@ -128,3 +135,57 @@ def _validate_parsers(task: BenchmarkTask) -> None:
                     f"Artifact {artifact.id!r} parser {artifact.parser!r} does not accept "
                     f"candidate entry kind {kind!r}"
                 )
+
+
+def _validate_runtime_resources(task: BenchmarkTask) -> None:
+    workdir = PurePosixPath(task.environment.workdir)
+    candidate = task.verification.candidate
+    assert isinstance(candidate, FileBundleCandidate)
+    for identifier in task.verification.resources.runtime:
+        resource = task.resources.resources.get(f"runtime.{identifier}")
+        if resource is None or not isinstance(resource.value, dict):
+            raise ConfigError(f"Runtime resource {identifier!r} is unavailable")
+        mount_value = resource.value.get("mount")
+        if not isinstance(mount_value, str):
+            raise ConfigError(f"Runtime resource {identifier!r} has an invalid mount")
+        mount = PurePosixPath(mount_value)
+        if mount == workdir:
+            raise ConfigError(f"Runtime resource {identifier!r} may not replace environment.workdir")
+        for entry in candidate.files:
+            if _paths_overlap(mount, PurePosixPath(entry.path)):
+                raise ConfigError(
+                    f"Runtime resource {identifier!r} overlaps candidate entry {entry.id!r}; "
+                    "mounted evaluation state is not part of stopped-workspace capture"
+                )
+
+
+def _validate_protocol_checks(task: BenchmarkTask) -> None:
+    for check in task.verification.checks:
+        if not isinstance(check, ProtocolCheck):
+            continue
+        try:
+            require_supported_protocol_features(check)
+            load_adapter_manifest(task, check)
+        except VerificationInfrastructureError as exc:
+            raise ConfigError(f"Protocol check {check.id!r} is not executable: {exc.public_message}") from exc
+
+
+def _paths_overlap(left: PurePosixPath, right: PurePosixPath) -> bool:
+    return left == right or left.is_relative_to(right) or right.is_relative_to(left)
+
+
+def _validate_evaluation_mount_plan(task: BenchmarkTask) -> None:
+    from securebench.sandboxes import validate_docker_bind_mounts
+    from securebench.workspaces.materialization import (
+        VisibilityAwareMaterializer,
+        docker_resource_mounts,
+    )
+
+    try:
+        plan = VisibilityAwareMaterializer().build_plan(task, "evaluation_runtime")
+        validate_docker_bind_mounts(
+            docker_resource_mounts(plan),
+            workspace_mount_target=task.environment.workdir,
+        )
+    except (OSError, ValueError) as exc:
+        raise ConfigError(f"Evaluation resource mounts are not executable: {exc}") from exc

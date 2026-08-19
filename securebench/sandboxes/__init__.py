@@ -1,7 +1,12 @@
 """Sandbox implementations."""
 
 from securebench.sandboxes.base import TIMEOUT_EXIT_CODE, CommandResult, Sandbox
-from securebench.sandboxes.docker import DockerBindMount, DockerSandbox, DockerSandboxError
+from securebench.sandboxes.docker import (
+    DockerBindMount,
+    DockerSandbox,
+    DockerSandboxError,
+    validate_docker_bind_mounts,
+)
 from securebench.sandboxes.host import HostSandbox
 
 __all__ = [
@@ -12,4 +17,5 @@ __all__ = [
     "HostSandbox",
     "Sandbox",
     "TIMEOUT_EXIT_CODE",
+    "validate_docker_bind_mounts",
 ]

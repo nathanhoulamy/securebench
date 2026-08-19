@@ -15,15 +15,18 @@ from typing import Any
 import yaml
 
 from securebench.tasks import BenchmarkTask
+from securebench.verification.json_data import canonical_json_bytes, strict_json_loads
 from securebench.verification.models import (
     ArtifactEvidence,
+    OracleCase,
     OracleVerdict,
+    ProtocolCaseEvidence,
     VerificationInfrastructureError,
 )
 
 
 ORACLE_ABI = "securebench.oracle/v1"
-MAX_ORACLE_RESPONSE_BYTES = 1024 * 1024
+MAX_ORACLE_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 class OracleSession(ABC):
@@ -37,10 +40,20 @@ class OracleSession(ABC):
     def evaluate_artifact(self, evidence: ArtifactEvidence) -> None:
         ...
 
-    def next_case(self, check_id: str, challenge_source: str, bounds: dict[str, Any]) -> Any:
+    def next_case(
+        self,
+        check_id: str,
+        challenge_source: str,
+        bounds: dict[str, Any],
+    ) -> OracleCase | None:
         raise NotImplementedError
 
-    def evaluate_case(self, check_id: str, case_context: Any, evidence: dict[str, Any]) -> None:
+    def evaluate_case(
+        self,
+        check_id: str,
+        case_context: Any,
+        evidence: ProtocolCaseEvidence,
+    ) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -120,7 +133,7 @@ class OracleProcessSession(OracleSession):
             for resource in task.view_for("oracle").resources
             if resource.kind in {"file", "directory"}
         }
-        self._request(
+        response = self._request(
             {
                 "op": "initialize",
                 "row": {
@@ -134,15 +147,82 @@ class OracleProcessSession(OracleSession):
             },
             expected="ack",
         )
+        _require_ack(response)
 
     def evaluate_artifact(self, evidence: ArtifactEvidence) -> None:
-        self._request(
+        response = self._request(
             {"op": "evaluate_artifact", "evidence": evidence.internal_record()},
             expected="ack",
         )
+        _require_ack(response)
+
+    def next_case(
+        self,
+        check_id: str,
+        challenge_source: str,
+        bounds: dict[str, Any],
+    ) -> OracleCase | None:
+        response = self._request(
+            {
+                "op": "next_case",
+                "check_id": check_id,
+                "challenge_source": challenge_source,
+                "bounds": bounds,
+            },
+            expected=("case", "exhausted"),
+        )
+        if response["type"] == "exhausted":
+            if set(response) != {"type"}:
+                raise VerificationInfrastructureError(
+                    "oracle_protocol_error", "Oracle returned an invalid exhausted response"
+                )
+            return None
+        if set(response) != {"type", "challenge", "case_context"}:
+            raise VerificationInfrastructureError(
+                "oracle_protocol_error", "Oracle returned an invalid case response"
+            )
+        try:
+            case = OracleCase(
+                challenge=response["challenge"],
+                context=response["case_context"],
+            )
+            maximum = bounds["max_case_bytes"]
+            if isinstance(maximum, bool) or not isinstance(maximum, int) or maximum <= 0:
+                raise ValueError("invalid case bound")
+            challenge_bytes = canonical_json_bytes(case.challenge)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise VerificationInfrastructureError(
+                "oracle_protocol_error", "Oracle returned an invalid case response"
+            ) from exc
+        if len(challenge_bytes) > maximum:
+            raise VerificationInfrastructureError(
+                "oracle_case_too_large", "Oracle challenge exceeded its declared bound"
+            )
+        return case
+
+    def evaluate_case(
+        self,
+        check_id: str,
+        case_context: Any,
+        evidence: ProtocolCaseEvidence,
+    ) -> None:
+        response = self._request(
+            {
+                "op": "evaluate_case",
+                "check_id": check_id,
+                "case_context": case_context,
+                "evidence": evidence.internal_record(),
+            },
+            expected="ack",
+        )
+        _require_ack(response)
 
     def finalize(self) -> OracleVerdict:
         response = self._request({"op": "finalize"}, expected="verdict")
+        if set(response) != {"type", "verdict"}:
+            raise VerificationInfrastructureError(
+                "oracle_protocol_error", "Oracle returned an invalid verdict response"
+            )
         verdict = response.get("verdict")
         if not isinstance(verdict, dict):
             raise VerificationInfrastructureError(
@@ -186,7 +266,12 @@ class OracleProcessSession(OracleSession):
                     except OSError:
                         pass
 
-    def _request(self, request: dict[str, Any], *, expected: str) -> dict[str, Any]:
+    def _request(
+        self,
+        request: dict[str, Any],
+        *,
+        expected: str | tuple[str, ...],
+    ) -> dict[str, Any]:
         if self.process.poll() is not None:
             raise VerificationInfrastructureError(
                 "oracle_exited", "Oracle process exited unexpectedly"
@@ -212,7 +297,8 @@ class OracleProcessSession(OracleSession):
             raise VerificationInfrastructureError(
                 "oracle_reported_error", "Oracle reported an internal error"
             )
-        if response.get("type") != expected:
+        expected_types = (expected,) if isinstance(expected, str) else expected
+        if response.get("type") not in expected_types:
             raise VerificationInfrastructureError(
                 "oracle_protocol_error", "Oracle returned an unexpected response"
             )
@@ -292,8 +378,8 @@ class OracleProcessSession(OracleSession):
         finally:
             selector.close()
         try:
-            response = json.loads(bytes(content[:newline]))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            response = strict_json_loads(bytes(content[:newline]))
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             raise VerificationInfrastructureError(
                 "oracle_protocol_error", "Oracle response was not valid JSON"
             ) from exc
@@ -316,3 +402,10 @@ def _oracle_environment() -> dict[str, str]:
         if value:
             environment[name] = value
     return environment
+
+
+def _require_ack(response: dict[str, Any]) -> None:
+    if set(response) != {"type"}:
+        raise VerificationInfrastructureError(
+            "oracle_protocol_error", "Oracle returned an invalid acknowledgement"
+        )

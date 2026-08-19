@@ -37,6 +37,15 @@ class DockerSandboxError(RuntimeError):
     """Docker could not establish or clean up the trusted sandbox boundary."""
 
 
+def validate_docker_bind_mounts(
+    mounts: tuple[DockerBindMount, ...],
+    *,
+    workspace_mount_target: str,
+) -> None:
+    """Validate bind sources, targets, and overlap without starting Docker."""
+    _docker_bind_mount_args(mounts, workspace_mount_target=workspace_mount_target)
+
+
 class DockerSandbox(Sandbox):
     """Run commands in a Docker-backed workspace."""
 

@@ -5,7 +5,7 @@ from pathlib import Path
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import CandidateStore, HostWorkspaceFilesystem, capture_file_bundle
-from securebench.verification import ArtifactVerificationEngine
+from securebench.verification import VerificationEngine
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,7 +49,7 @@ def verify_calendar(tmp_path: Path, content: str):
         store,
         baseline_digest=task.baseline_digest,
     )
-    return ArtifactVerificationEngine().verify(
+    return VerificationEngine().verify(
         task,
         candidate,
         store,

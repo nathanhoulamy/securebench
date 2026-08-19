@@ -2,16 +2,102 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
 from dataclasses import dataclass, field
 from typing import Any, Literal
+
+from securebench.verification.json_data import canonical_json_bytes, json_digest
 
 
 VerificationStatus = Literal["passed", "failed", "infrastructure_error"]
 CheckStatus = Literal["passed", "failed", "infrastructure_error"]
 RESULT_SCHEMA_VERSION = "3"
+
+
+@dataclass(frozen=True)
+class OracleCase:
+    """One host-generated challenge and its host-only scoring context."""
+
+    challenge: Any
+    context: Any
+
+    def __post_init__(self) -> None:
+        _json_bytes(self.challenge, "Oracle challenge")
+        _json_bytes(self.context, "Oracle case context")
+
+
+@dataclass(frozen=True)
+class ProtocolCaseEvidence:
+    """Host-internal observation from one fresh Evaluation sandbox."""
+
+    check_id: str
+    case_index: int
+    challenge_digest: str
+    status: Literal["observed", "candidate_error"]
+    exit_status: int | None = None
+    timed_out: bool = False
+    duration_ms: int = 0
+    observation: Any = None
+    observation_bytes: int = 0
+    error_code: str | None = None
+    error_message: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.check_id:
+            raise ValueError("protocol evidence check_id must be non-empty")
+        if isinstance(self.case_index, bool) or not isinstance(self.case_index, int) or self.case_index < 0:
+            raise ValueError("protocol evidence case_index must be a non-negative integer")
+        if not _is_sha256_digest(self.challenge_digest):
+            raise ValueError("protocol evidence challenge_digest must be a sha256 digest")
+        if self.status not in {"observed", "candidate_error"}:
+            raise ValueError("protocol evidence status is invalid")
+        if self.exit_status is not None and (
+            isinstance(self.exit_status, bool) or not isinstance(self.exit_status, int)
+        ):
+            raise ValueError("protocol evidence exit_status must be an integer or null")
+        if not isinstance(self.timed_out, bool):
+            raise ValueError("protocol evidence timed_out must be a boolean")
+        if isinstance(self.duration_ms, bool) or not isinstance(self.duration_ms, int) or self.duration_ms < 0:
+            raise ValueError("protocol evidence duration_ms must be a non-negative integer")
+        if (
+            isinstance(self.observation_bytes, bool)
+            or not isinstance(self.observation_bytes, int)
+            or self.observation_bytes < 0
+        ):
+            raise ValueError("protocol evidence observation_bytes must be a non-negative integer")
+        if self.status == "observed":
+            if self.error_code is not None or self.error_message is not None:
+                raise ValueError("observed protocol evidence may not contain an error")
+            _json_bytes(self.observation, "protocol observation")
+        else:
+            if not self.error_code or not self.error_message:
+                raise ValueError("candidate-error protocol evidence requires an error")
+            if self.observation is not None:
+                raise ValueError("candidate-error protocol evidence may not contain an observation")
+
+    def internal_record(self) -> dict[str, Any]:
+        return {
+            "check_id": self.check_id,
+            "case_index": self.case_index,
+            "challenge_digest": self.challenge_digest,
+            "status": self.status,
+            "process": {
+                "exit_status": self.exit_status,
+                "timed_out": self.timed_out,
+                "duration_ms": self.duration_ms,
+            },
+            "observation": self.observation,
+            "observation_bytes": self.observation_bytes,
+            "error": (
+                None
+                if self.error_code is None
+                else {"code": self.error_code, "message": self.error_message}
+            ),
+        }
+
+    @property
+    def digest(self) -> str:
+        return json_digest(self.internal_record())
 
 
 @dataclass(frozen=True)
@@ -50,14 +136,7 @@ class ArtifactEvidence:
 
     @property
     def digest(self) -> str:
-        encoded = json.dumps(
-            self.internal_record(),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
-        return "sha256:" + hashlib.sha256(encoded).hexdigest()
+        return json_digest(self.internal_record())
 
 
 @dataclass(frozen=True)
@@ -249,12 +328,6 @@ def _is_sha256_digest(value: object) -> bool:
 
 def _json_bytes(value: Any, field_name: str) -> bytes:
     try:
-        return json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
+        return canonical_json_bytes(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{field_name} must be finite JSON data") from exc

@@ -12,11 +12,13 @@ The two current row families describe the Agent task, not its verification topol
   `filesystem_overlay` candidate.
 
 Verification is composed independently from candidate capture, artifact or
-protocol checks, parser profiles, and a host-only Oracle. The first executable
-batch supports `strict-split/v1`, `file_bundle`, artifact checks, and the Oracle
-process ABI. Git patches, overlays, protocol checks, and the weaker registered
-batching profile remain schema-valid but fail preflight until their engines are
-implemented.
+protocol checks, parser profiles, and a host-only Oracle. The executable path
+supports `strict-split/v1`, `file_bundle`, passive artifact checks, and the
+first protocol-check slice: bounded JSON challenges, an assertion-free runtime
+adapter, and one fresh offline Evaluation container per case. Git patches,
+overlays, protocol services, returned protocol artifacts, and the weaker
+registered batching profile remain schema-valid but fail preflight until their
+engines are implemented.
 
 ## Quick start
 

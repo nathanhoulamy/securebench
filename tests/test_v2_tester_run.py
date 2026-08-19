@@ -34,7 +34,7 @@ from securebench.tester_run import (
     execution_config_digest,
     run_tester_config,
 )
-from securebench.verification import ArtifactVerificationEngine, CheckResultSummary
+from securebench.verification import CheckResultSummary, VerificationEngine
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -296,7 +296,7 @@ def test_result_writer_replaces_oversized_record_with_bounded_infrastructure_err
             load_benchmark_pack(PACK / "manifest-v2.yaml", PACK / "tasks-v2.jsonl")
         )
     )
-    result = ArtifactVerificationEngine().infrastructure_error(
+    result = VerificationEngine().infrastructure_error(
         task,
         code="original_error",
         message="original error",

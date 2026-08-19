@@ -147,7 +147,7 @@ def _append_bounded_output(
     truncated: dict[str, bool],
     stream: str,
 ) -> bytes:
-    content_limit = MAX_COMMAND_OUTPUT_BYTES - len(OUTPUT_TRUNCATION_MARKER)
+    content_limit = MAX_COMMAND_OUTPUT_BYTES
     remaining = max(content_limit - len(buffer), 0)
     emitted = chunk[:remaining]
     buffer.extend(emitted)
@@ -159,6 +159,7 @@ def _append_bounded_output(
 def _render_bounded_output(buffer: bytearray, truncated: bool) -> str:
     value = bytes(buffer)
     if truncated:
+        value = value[: MAX_COMMAND_OUTPUT_BYTES - len(OUTPUT_TRUNCATION_MARKER)]
         value += OUTPUT_TRUNCATION_MARKER
     return value.decode("utf-8", errors="replace")
 

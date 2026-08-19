@@ -34,7 +34,7 @@ from securebench.locking import FileLockError, exclusive_file_lock
 from securebench.progress import ProgressReporter, emit_progress, progress_context
 from securebench.tasks import BenchmarkTask
 from securebench.tester_config import TesterConfig
-from securebench.verification import ArtifactVerificationEngine
+from securebench.verification import VerificationEngine
 from securebench.verification.models import RESULT_SCHEMA_VERSION, VerificationResultV2
 from securebench.workspaces.cleanup import remove_untrusted_tree
 
@@ -271,7 +271,7 @@ def _execute_task(
 ) -> _CompletedTask:
     with progress_context(progress):
         emit_progress("task_start", index=index, total=total, task_id=task.id, family=task.family)
-        engine = ArtifactVerificationEngine()
+        engine = VerificationEngine()
         run_seed = f"{config.run.id}:{task.id}"
         try:
             emit_progress("producer_start", task_id=task.id)

@@ -15,7 +15,7 @@ from securebench.candidates import (
     capture_file_bundle,
 )
 from securebench.verification import (
-    ArtifactVerificationEngine,
+    VerificationEngine,
     OracleSession,
     OracleVerdict,
 )
@@ -146,7 +146,7 @@ def test_artifact_evidence_is_internal_and_result_is_sanitized(tmp_path):
     store, candidate = capture_result(tmp_path, task, b'{"private_observation":"secret-value"}\n')
     oracle = RecordingOracle()
 
-    result = ArtifactVerificationEngine().verify(
+    result = VerificationEngine().verify(
         task,
         candidate,
         store,
@@ -168,7 +168,7 @@ def test_parser_rejection_is_candidate_evidence_for_oracle(tmp_path):
     store, candidate = capture_result(tmp_path, task, b"not-json")
     oracle = RecordingOracle()
 
-    result = ArtifactVerificationEngine().verify(
+    result = VerificationEngine().verify(
         task,
         candidate,
         store,
@@ -196,7 +196,7 @@ def test_oracle_verdict_outcomes_must_match_declared_checks(tmp_path, verdict):
     task = write_artifact_pack(tmp_path / "pack")
     store, candidate = capture_result(tmp_path, task, b"{}")
 
-    result = ArtifactVerificationEngine().verify(
+    result = VerificationEngine().verify(
         task,
         candidate,
         store,
@@ -217,7 +217,7 @@ def test_oracle_may_apply_its_own_threshold_across_check_outcomes(tmp_path):
         check_outcomes={"result_artifact": False},
     )
 
-    result = ArtifactVerificationEngine().verify(
+    result = VerificationEngine().verify(
         task,
         candidate,
         store,
@@ -275,7 +275,7 @@ for line in sys.stdin:
     )
     store, candidate = capture_result(tmp_path, task, b'{"answer":42}')
 
-    result = ArtifactVerificationEngine().verify(
+    result = VerificationEngine().verify(
         task,
         candidate,
         store,
@@ -357,7 +357,7 @@ def test_unknown_parser_is_an_infrastructure_error(tmp_path):
     task = write_artifact_pack(tmp_path / "pack", parser="securebench.unknown/v1")
     store, candidate = capture_result(tmp_path, task, b"{}")
 
-    result = ArtifactVerificationEngine().verify(
+    result = VerificationEngine().verify(
         task,
         candidate,
         store,
@@ -374,7 +374,7 @@ def test_verification_rejects_candidate_from_another_baseline(tmp_path):
     store, candidate = capture_result(tmp_path, task, b'{}')
     mismatched = replace(candidate, baseline_digest="sha256:" + "0" * 64)
 
-    result = ArtifactVerificationEngine().verify(
+    result = VerificationEngine().verify(
         task,
         mismatched,
         store,

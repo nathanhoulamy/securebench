@@ -1,4 +1,4 @@
-"""Passive artifact-check execution without candidate code execution."""
+"""Split-verification orchestration and passive artifact observation."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 from securebench.baselines import task_baseline_digest, task_verification_digest
 from securebench.candidates.models import StoredCandidate
 from securebench.candidates.store import CandidateStore
-from securebench.schemas.benchmark import ArtifactCheck, ArtifactSpec
+from securebench.schemas.benchmark import ArtifactCheck, ArtifactSpec, ProtocolCheck
 from securebench.tasks import BenchmarkTask
 from securebench.verification.models import (
     ArtifactEvidence,
@@ -20,13 +20,19 @@ from securebench.verification.models import (
 )
 from securebench.verification.oracle import OracleProcessSession, OracleSession
 from securebench.verification.parsers import ParserRegistry, default_parser_registry
+from securebench.verification.protocol import ProtocolCheckRunner
 
 
-class ArtifactVerificationEngine:
-    """Execute artifact-only checks and route all correctness to the Oracle."""
+class VerificationEngine:
+    """Execute split checks while routing all correctness decisions to the Oracle."""
 
-    def __init__(self, parsers: ParserRegistry | None = None) -> None:
+    def __init__(
+        self,
+        parsers: ParserRegistry | None = None,
+        protocols: ProtocolCheckRunner | None = None,
+    ) -> None:
         self.parsers = parsers or default_parser_registry()
+        self.protocols = protocols or ProtocolCheckRunner()
 
     def verify(
         self,
@@ -46,11 +52,18 @@ class ArtifactVerificationEngine:
             session.initialize(task, run_seed=run_seed)
             summaries: list[CheckResultSummary] = []
             for check in task.verification.checks:
-                if not isinstance(check, ArtifactCheck):
-                    raise VerificationInfrastructureError(
-                        "protocol_engine_unavailable",
-                        "This implementation batch does not yet execute protocol checks",
+                if isinstance(check, ProtocolCheck):
+                    evidence = self.protocols.evaluate(task, candidate, store, check, session)
+                    summaries.append(
+                        CheckResultSummary(
+                            id=check.id,
+                            type="protocol",
+                            status="passed",
+                            evidence_digests=tuple(item.digest for item in evidence),
+                            cases=len(evidence),
+                        )
                     )
+                    continue
                 evidence = tuple(
                     self._observe(task, candidate, store, check, artifact)
                     for artifact in check.artifacts
@@ -117,11 +130,23 @@ class ArtifactVerificationEngine:
             session.initialize(task, run_seed=run_seed)
             summaries: list[CheckResultSummary] = []
             for check in task.verification.checks:
-                if not isinstance(check, ArtifactCheck):
-                    raise VerificationInfrastructureError(
-                        "protocol_engine_unavailable",
-                        "Protocol checks are not available in this implementation batch",
+                if isinstance(check, ProtocolCheck):
+                    evidence = self.protocols.evaluate_candidate_error(
+                        check,
+                        session,
+                        code=code,
+                        message=message,
                     )
+                    summaries.append(
+                        CheckResultSummary(
+                            id=check.id,
+                            type="protocol",
+                            status="passed",
+                            evidence_digests=tuple(item.digest for item in evidence),
+                            cases=len(evidence),
+                        )
+                    )
+                    continue
                 evidence = tuple(
                     ArtifactEvidence(
                         check_id=check.id,
@@ -286,6 +311,11 @@ def _validate_candidate_binding(
 ) -> None:
     _validate_task_inputs(task)
     manifest = store.load_candidate(candidate.digest)
+    if candidate.type != task.verification.candidate.type:
+        raise VerificationInfrastructureError(
+            "candidate_reference_mismatch",
+            "Stored candidate type does not match the declared candidate shape",
+        )
     if candidate.type != manifest.type:
         raise VerificationInfrastructureError(
             "candidate_reference_mismatch",
