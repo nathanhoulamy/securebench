@@ -74,7 +74,7 @@ class AssetDefaults(StrictModel):
 class EnvironmentDefaults(StrictModel):
     image: ImmutableImageReference | None = None
     workdir: str | None = None
-    timeout_seconds: Annotated[float, Field(gt=0)] | None = None
+    timeout_seconds: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None = None
     agent_network: AgentNetwork | None = None
 
     @field_validator("workdir")
@@ -108,7 +108,7 @@ class BenchmarkPackManifestV2(StrictModel):
 class EnvironmentSpec(StrictModel):
     image: ImmutableImageReference
     workdir: str
-    timeout_seconds: Annotated[float, Field(gt=0)]
+    timeout_seconds: Annotated[float, Field(gt=0, allow_inf_nan=False)]
     agent_network: AgentNetwork
 
     @field_validator("image")
@@ -340,7 +340,7 @@ class ProtocolArtifactSpec(StrictModel):
 
 
 class ProtocolLimits(StrictModel):
-    seconds_per_case: Annotated[float, Field(gt=0)]
+    seconds_per_case: Annotated[float, Field(gt=0, allow_inf_nan=False)]
     observation_bytes_per_case: Annotated[int, Field(gt=0)]
 
 

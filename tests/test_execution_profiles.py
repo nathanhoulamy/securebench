@@ -60,6 +60,10 @@ def test_harness_timeout_is_an_upper_bound_on_row_timeout():
     assert run_timeout_seconds(compiled, fallback_timeout=3600) == 1200
     assert run_timeout_seconds(compiled, context_timeout=15, fallback_timeout=60) == 15
 
+    for invalid in (float("inf"), 10**400):
+        with pytest.raises(ConfigError, match="positive number"):
+            run_timeout_seconds(compiled, context_timeout=invalid)
+
 
 def test_current_backend_rejects_writable_or_candidate_overlapping_assets():
     compiled = task()

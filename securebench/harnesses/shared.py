@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import subprocess
 import uuid
@@ -127,9 +128,15 @@ def container_workspace_path(path: str, *, mount_target: str = "/workspace") -> 
 def optional_positive_number(value: Any, field: str) -> float | None:
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ConfigError(f"{field} must be a positive number")
-    return float(value)
+    try:
+        normalized = float(value)
+    except OverflowError as exc:
+        raise ConfigError(f"{field} must be a positive number") from exc
+    if not math.isfinite(normalized) or normalized <= 0:
+        raise ConfigError(f"{field} must be a positive number")
+    return normalized
 
 
 def reject_unknown_fields(

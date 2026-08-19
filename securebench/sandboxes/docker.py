@@ -183,6 +183,12 @@ class DockerSandbox(Sandbox):
                 timeout,
                 stdout=exc.stdout,
                 stderr=exc.stderr,
+                stdout_bytes=getattr(exc, "stdout_bytes", None),
+                stderr_bytes=getattr(exc, "stderr_bytes", None),
+                stdout_truncated=getattr(exc, "stdout_truncated", False),
+                stderr_truncated=getattr(exc, "stderr_truncated", False),
+                stdout_valid_utf8=getattr(exc, "stdout_valid_utf8", True),
+                stderr_valid_utf8=getattr(exc, "stderr_valid_utf8", True),
             )
             emit_progress(
                 "sandbox_result",
@@ -208,6 +214,12 @@ class DockerSandbox(Sandbox):
             exit_code=completed.returncode,
             stdout=stdout,
             stderr=stderr,
+            stdout_bytes=getattr(completed, "stdout_bytes", len(stdout.encode("utf-8"))),
+            stderr_bytes=getattr(completed, "stderr_bytes", len(stderr.encode("utf-8"))),
+            stdout_truncated=getattr(completed, "stdout_truncated", False),
+            stderr_truncated=getattr(completed, "stderr_truncated", False),
+            stdout_valid_utf8=getattr(completed, "stdout_valid_utf8", True),
+            stderr_valid_utf8=getattr(completed, "stderr_valid_utf8", True),
         )
 
     def close(self) -> None:

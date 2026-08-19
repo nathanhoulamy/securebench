@@ -43,7 +43,6 @@ MAX_PROTOCOL_OBSERVATION_BYTES = MAX_COMMAND_OUTPUT_BYTES
 
 @dataclass(frozen=True)
 class AdapterManifest:
-    protocol: str
     command: tuple[str, ...]
 
 
@@ -107,6 +106,7 @@ class ProtocolCheckRunner:
             )
             if case is None:
                 break
+            _validated_challenge(case, check)
             item = ProtocolCaseEvidence(
                 check_id=check.id,
                 case_index=case_index,
@@ -140,16 +140,7 @@ class ProtocolCheckRunner:
         case: OracleCase,
         case_index: int,
     ) -> ProtocolCaseEvidence:
-        try:
-            challenge = canonical_json_bytes(case.challenge)
-        except (TypeError, ValueError) as exc:
-            raise VerificationInfrastructureError(
-                "oracle_protocol_error", "Oracle case was not finite JSON data"
-            ) from exc
-        if len(challenge) > check.challenge.max_case_bytes:
-            raise VerificationInfrastructureError(
-                "oracle_case_too_large", "Oracle challenge exceeded its declared bound"
-            )
+        challenge = _validated_challenge(case, check)
         evaluation_root = Path(tempfile.mkdtemp(prefix="securebench-evaluation-"))
         sandbox: DockerSandbox | None = None
         try:
@@ -233,10 +224,14 @@ def load_adapter_manifest(task: BenchmarkTask, check: ProtocolCheck) -> AdapterM
             "adapter_resource_invalid", "Protocol adapter mount is invalid"
         )
     try:
-        manifest_text = (source / "adapter.yaml").read_text()
-    except (OSError, UnicodeError) as exc:
+        manifest_text = (source / "adapter.yaml").read_text(encoding="utf-8")
+    except OSError as exc:
         raise VerificationInfrastructureError(
             "adapter_manifest_missing", "Protocol adapter manifest is unavailable"
+        ) from exc
+    except UnicodeError as exc:
+        raise VerificationInfrastructureError(
+            "adapter_manifest_invalid", "Protocol adapter manifest is not valid UTF-8"
         ) from exc
     try:
         value = yaml.safe_load(manifest_text)
@@ -262,12 +257,12 @@ def load_adapter_manifest(task: BenchmarkTask, check: ProtocolCheck) -> AdapterM
         or not command
         or len(command) > MAX_ADAPTER_COMMAND_PARTS
         or not all(_valid_command_part(part) for part in command)
+        or not command[0].strip()
     ):
         raise VerificationInfrastructureError(
             "adapter_manifest_invalid", "Protocol adapter command is invalid"
         )
     return AdapterManifest(
-        protocol=check.protocol,
         command=tuple(_resolve_adapter_part(part, mount) for part in command),
     )
 
@@ -349,14 +344,26 @@ def _adapter_evidence(
             error_code="adapter_failed",
             error_message="Protocol adapter exited unsuccessfully",
         )
-    observation_bytes = len(result.stdout.encode("utf-8"))
-    if observation_bytes > check.limits.observation_bytes_per_case:
+    observation_bytes = (
+        result.stdout_bytes
+        if result.stdout_bytes is not None
+        else len(result.stdout.encode("utf-8"))
+    )
+    if result.stdout_truncated or observation_bytes > check.limits.observation_bytes_per_case:
         return ProtocolCaseEvidence(
             **common,
             status="candidate_error",
             observation_bytes=observation_bytes,
             error_code="observation_too_large",
             error_message="Protocol observation exceeded its declared bound",
+        )
+    if not result.stdout_valid_utf8:
+        return ProtocolCaseEvidence(
+            **common,
+            status="candidate_error",
+            observation_bytes=observation_bytes,
+            error_code="invalid_observation",
+            error_message="Protocol adapter did not return valid UTF-8 JSON",
         )
     try:
         observation = strict_json_loads(result.stdout)
@@ -381,3 +388,17 @@ def _case_bounds(check: ProtocolCheck) -> dict[str, Any]:
         "max_cases": check.challenge.max_cases,
         "max_case_bytes": check.challenge.max_case_bytes,
     }
+
+
+def _validated_challenge(case: OracleCase, check: ProtocolCheck) -> bytes:
+    try:
+        challenge = canonical_json_bytes(case.challenge)
+    except (TypeError, ValueError) as exc:
+        raise VerificationInfrastructureError(
+            "oracle_protocol_error", "Oracle case was not finite JSON data"
+        ) from exc
+    if len(challenge) > check.challenge.max_case_bytes:
+        raise VerificationInfrastructureError(
+            "oracle_case_too_large", "Oracle challenge exceeded its declared bound"
+        )
+    return challenge

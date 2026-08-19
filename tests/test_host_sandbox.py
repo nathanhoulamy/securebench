@@ -55,6 +55,35 @@ def test_host_sandbox_bounds_stdout_and_stderr(tmp_path):
     assert len(result.stderr.encode()) <= MAX_COMMAND_OUTPUT_BYTES
     assert result.stdout.endswith("[securebench: output truncated]\n")
     assert result.stderr.endswith("[securebench: output truncated]\n")
+    assert result.stdout_bytes == size
+    assert result.stderr_bytes == size
+    assert result.stdout_truncated is True
+    assert result.stderr_truncated is True
+    assert result.stdout_valid_utf8 is True
+    assert result.stderr_valid_utf8 is True
+
+
+def test_host_sandbox_preserves_invalid_utf8_metadata(tmp_path):
+    sandbox = HostSandbox(root=tmp_path)
+
+    result = sandbox.run(
+        [sys.executable, "-c", "import os; os.write(1, b'\\xff')"]
+    )
+
+    assert result.stdout == "�"
+    assert result.stdout_bytes == 1
+    assert result.stdout_truncated is False
+    assert result.stdout_valid_utf8 is False
+
+
+@pytest.mark.parametrize("timeout", [float("inf"), 10**400])
+def test_host_sandbox_rejects_unrepresentable_timeout_before_starting_process(
+    tmp_path, timeout
+):
+    sandbox = HostSandbox(root=tmp_path)
+
+    with pytest.raises(ValueError, match="finite positive number"):
+        sandbox.run([sys.executable, "-c", "raise SystemExit(0)"], timeout=timeout)
 
 
 def test_host_sandbox_read_file_rejects_symlink_escape(tmp_path):

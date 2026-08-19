@@ -9,6 +9,7 @@ from securebench.candidates.models import StoredCandidate
 from securebench.candidates.store import CandidateStore
 from securebench.schemas.benchmark import ArtifactCheck, ArtifactSpec, ProtocolCheck
 from securebench.tasks import BenchmarkTask
+from securebench.verification.json_data import canonical_json_bytes
 from securebench.verification.models import (
     ArtifactEvidence,
     CandidateObservationError,
@@ -18,7 +19,11 @@ from securebench.verification.models import (
     VerificationInfrastructureError,
     VerificationResultV2,
 )
-from securebench.verification.oracle import OracleProcessSession, OracleSession
+from securebench.verification.oracle import (
+    OracleProcessSession,
+    OracleSession,
+    oracle_resource_root,
+)
 from securebench.verification.parsers import ParserRegistry, default_parser_registry
 from securebench.verification.protocol import ProtocolCheckRunner
 
@@ -48,7 +53,7 @@ class VerificationEngine:
         try:
             _validate_candidate_binding(task, candidate, store)
             if session is None:
-                session = OracleProcessSession(_oracle_root(task))
+                session = OracleProcessSession(oracle_resource_root(task))
             session.initialize(task, run_seed=run_seed)
             summaries: list[CheckResultSummary] = []
             for check in task.verification.checks:
@@ -65,7 +70,7 @@ class VerificationEngine:
                     )
                     continue
                 evidence = tuple(
-                    self._observe(task, candidate, store, check, artifact)
+                    self._observe(candidate, store, check, artifact)
                     for artifact in check.artifacts
                 )
                 for item in evidence:
@@ -126,7 +131,7 @@ class VerificationEngine:
         try:
             _validate_task_inputs(task)
             if session is None:
-                session = OracleProcessSession(_oracle_root(task))
+                session = OracleProcessSession(oracle_resource_root(task))
             session.initialize(task, run_seed=run_seed)
             summaries: list[CheckResultSummary] = []
             for check in task.verification.checks:
@@ -189,7 +194,6 @@ class VerificationEngine:
 
     def _observe(
         self,
-        task: BenchmarkTask,
         candidate: StoredCandidate,
         store: CandidateStore,
         check: ArtifactCheck,
@@ -201,14 +205,16 @@ class VerificationEngine:
             if kind == "regular_file":
                 if profile.input_kind != "bytes":
                     raise VerificationInfrastructureError(
-                        "parser_contract_mismatch", "Registered parser input kind does not match artifact"
+                        "parser_contract_mismatch",
+                        "Registered parser input kind does not match artifact",
                     )
                 assert isinstance(value, bytes)
                 parsed = self.parsers.parse_bytes(artifact.parser, value)
             else:
                 if profile.input_kind != "tree":
                     raise VerificationInfrastructureError(
-                        "parser_contract_mismatch", "Registered parser input kind does not match artifact"
+                        "parser_contract_mismatch",
+                        "Registered parser input kind does not match artifact",
                     )
                 assert isinstance(value, dict)
                 parsed = self.parsers.parse_tree(artifact.parser, value)
@@ -346,21 +352,6 @@ def _validate_task_inputs(task: BenchmarkTask) -> None:
         )
 
 
-def _oracle_root(task: BenchmarkTask) -> str:
-    _, identifier = task.verification.oracle.split(".", 1)
-    resource = task.resources.resources.get(f"host.{identifier}")
-    if resource is None or not isinstance(resource.value, dict):
-        raise VerificationInfrastructureError(
-            "oracle_resource_missing", "Oracle host resource is unavailable"
-        )
-    source_path = resource.value.get("source_path")
-    if not isinstance(source_path, str):
-        raise VerificationInfrastructureError(
-            "oracle_resource_invalid", "Oracle host resource is invalid"
-        )
-    return source_path
-
-
 def _apply_oracle_outcomes(
     summaries: list[CheckResultSummary],
     verdict: OracleVerdict,
@@ -436,15 +427,8 @@ def _infrastructure_result(
 
 
 def _bounded_public_diagnostics(value: dict[str, Any]) -> dict[str, Any]:
-    import json
-
     try:
-        encoded = json.dumps(
-            value,
-            sort_keys=True,
-            ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
+        encoded = canonical_json_bytes(value)
     except (TypeError, ValueError) as exc:
         raise VerificationInfrastructureError(
             "oracle_diagnostics_invalid", "Oracle public diagnostics are not JSON serializable"

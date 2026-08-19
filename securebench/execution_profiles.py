@@ -15,6 +15,7 @@ from securebench.schemas.benchmark import (
 )
 from securebench.tasks import BenchmarkTask
 from securebench.verification.models import VerificationInfrastructureError
+from securebench.verification.oracle import load_oracle_manifest, oracle_resource_root
 from securebench.verification.parsers import default_parser_registry
 from securebench.verification.protocol import (
     load_adapter_manifest,
@@ -80,6 +81,7 @@ def validate_executable_task(task: BenchmarkTask) -> None:
             )
     _validate_public_assets(task)
     _validate_runtime_resources(task)
+    _validate_oracle(task)
     _validate_protocol_checks(task)
     _validate_parsers(task)
     _validate_evaluation_mount_plan(task)
@@ -167,7 +169,16 @@ def _validate_protocol_checks(task: BenchmarkTask) -> None:
             require_supported_protocol_features(check)
             load_adapter_manifest(task, check)
         except VerificationInfrastructureError as exc:
-            raise ConfigError(f"Protocol check {check.id!r} is not executable: {exc.public_message}") from exc
+            raise ConfigError(
+                f"Protocol check {check.id!r} is not executable: {exc.public_message}"
+            ) from exc
+
+
+def _validate_oracle(task: BenchmarkTask) -> None:
+    try:
+        load_oracle_manifest(oracle_resource_root(task))
+    except VerificationInfrastructureError as exc:
+        raise ConfigError(f"Oracle is not executable: {exc.public_message}") from exc
 
 
 def _paths_overlap(left: PurePosixPath, right: PurePosixPath) -> bool:

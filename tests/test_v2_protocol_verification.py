@@ -76,6 +76,11 @@ def write_protocol_pack(
     (root / "hidden" / "task" / "oracle").mkdir(parents=True)
     (root / "hidden" / "task" / "cases").mkdir(parents=True)
     (root / "assets" / "task" / "public.txt").write_text("public")
+    (root / "hidden" / "task" / "oracle" / "oracle.yaml").write_text(
+        "abi: securebench.oracle/v1\n"
+        "command: ['{python}', 'oracle.py']\n"
+        "timeout_seconds: 30\n"
+    )
     (adapter / "adapter.yaml").write_text(
         """
 abi: securebench.protocol-adapter/v1
@@ -313,6 +318,24 @@ def test_protocol_candidate_error_is_scored_without_starting_evaluation(tmp_path
     assert result.checks[0].cases == 1
 
 
+def test_protocol_candidate_error_still_validates_oracle_challenge_bounds(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack")
+    oracle = ProtocolOracle(
+        [OracleCase({"payload": "x" * 1024}, {"expected": "irrelevant"})]
+    )
+
+    result = VerificationEngine().verify_candidate_error(
+        task,
+        code="agent_timeout",
+        message="Agent timed out",
+        run_seed="protocol-seed",
+        oracle=oracle,
+    )
+
+    assert result.status == "infrastructure_error"
+    assert result.infrastructure_error["code"] == "oracle_case_too_large"
+
+
 def test_artifact_and_protocol_checks_compose_in_one_oracle_session(tmp_path):
     task = write_protocol_pack(tmp_path / "pack")
     artifact = ArtifactCheck.model_validate(
@@ -432,6 +455,50 @@ def test_protocol_adapter_enforces_observation_byte_bound(tmp_path):
     assert evidence.error_code == "observation_too_large"
 
 
+def test_protocol_adapter_rejects_truncated_output_before_parsing(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack")
+    check = task.verification.checks[0]
+
+    evidence = _adapter_evidence(
+        check,
+        0,
+        OracleCase({"value": 1}, None),
+        CommandResult(
+            command=("adapter",),
+            exit_code=0,
+            stdout='{"answer":2}',
+            stdout_bytes=2 * 1024 * 1024,
+            stdout_truncated=True,
+        ),
+        1,
+    )
+
+    assert evidence.status == "candidate_error"
+    assert evidence.error_code == "observation_too_large"
+
+
+def test_protocol_adapter_rejects_invalid_utf8_before_parsing(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack")
+    check = task.verification.checks[0]
+
+    evidence = _adapter_evidence(
+        check,
+        0,
+        OracleCase({"value": 1}, None),
+        CommandResult(
+            command=("adapter",),
+            exit_code=0,
+            stdout="�",
+            stdout_bytes=1,
+            stdout_valid_utf8=False,
+        ),
+        1,
+    )
+
+    assert evidence.status == "candidate_error"
+    assert evidence.error_code == "invalid_observation"
+
+
 def _observed(check_id, case, case_index):
     return ProtocolCaseEvidence(
         check_id=check_id,
@@ -481,6 +548,28 @@ def test_malformed_adapter_manifest_fails_before_agent_execution(tmp_path):
     adapter_manifest.write_text("command: [unterminated\n")
 
     with pytest.raises(ConfigError, match="not valid YAML"):
+        validate_executable_task(task)
+
+
+def test_non_utf8_adapter_manifest_fails_before_agent_execution(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack")
+    adapter_manifest = (
+        tmp_path / "pack" / "evaluation_inputs" / "task" / "adapter" / "adapter.yaml"
+    )
+    adapter_manifest.write_bytes(b"\xff")
+
+    with pytest.raises(ConfigError, match="not valid UTF-8"):
+        validate_executable_task(task)
+
+
+def test_malformed_oracle_manifest_fails_before_agent_execution(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack")
+    oracle_manifest = (
+        tmp_path / "pack" / "hidden" / "task" / "oracle" / "oracle.yaml"
+    )
+    oracle_manifest.write_text("command: [unterminated\n")
+
+    with pytest.raises(ConfigError, match="Oracle is not executable.*not valid YAML"):
         validate_executable_task(task)
 
 

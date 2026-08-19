@@ -11,7 +11,10 @@ from pydantic import ValidationError
 from securebench.schemas.benchmark import (
     BenchmarkPackManifestV2,
     BenchmarkRowDocumentV2,
+    EnvironmentDefaults,
+    EnvironmentSpec,
     FileBundleCandidate,
+    ProtocolLimits,
     normalize_benchmark_row,
 )
 
@@ -171,6 +174,33 @@ def test_protocol_requires_at_least_one_case():
     ]
     with pytest.raises(ValidationError, match="greater than 0"):
         BenchmarkRowDocumentV2.model_validate(row)
+
+
+@pytest.mark.parametrize(
+    ("model", "data"),
+    [
+        (EnvironmentDefaults, {"timeout_seconds": float("inf")}),
+        (
+            EnvironmentSpec,
+            {
+                "image": DIGEST,
+                "workdir": "/app",
+                "timeout_seconds": float("inf"),
+                "agent_network": "none",
+            },
+        ),
+        (
+            ProtocolLimits,
+            {
+                "seconds_per_case": float("inf"),
+                "observation_bytes_per_case": 1024,
+            },
+        ),
+    ],
+)
+def test_timeout_fields_reject_infinite_values(model, data):
+    with pytest.raises(ValidationError, match="finite number"):
+        model.model_validate(data)
 
 
 def test_generated_json_schemas_are_current(tmp_path):

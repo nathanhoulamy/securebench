@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import json
+import math
 import os
 import selectors
 import subprocess
 import sys
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,14 @@ from securebench.verification.models import (
 
 ORACLE_ABI = "securebench.oracle/v1"
 MAX_ORACLE_RESPONSE_BYTES = 2 * 1024 * 1024
+MAX_ORACLE_COMMAND_PARTS = 32
+MAX_ORACLE_COMMAND_PART_BYTES = 4096
+
+
+@dataclass(frozen=True)
+class OracleManifest:
+    command: tuple[str, ...]
+    timeout_seconds: float
 
 
 class OracleSession(ABC):
@@ -76,56 +85,37 @@ class OracleProcessSession(OracleSession):
 
     def __init__(self, resource_root: str | Path) -> None:
         self.resource_root = Path(resource_root).resolve()
-        manifest_path = self.resource_root / "oracle.yaml"
+        manifest = load_oracle_manifest(self.resource_root)
+        self.timeout_seconds = manifest.timeout_seconds
+        resolved_command = [
+            sys.executable if part == "{python}" else part for part in manifest.command
+        ]
         try:
-            manifest = yaml.safe_load(manifest_path.read_text())
-        except OSError as exc:
+            self.process = subprocess.Popen(
+                resolved_command,
+                cwd=self.resource_root,
+                env=_oracle_environment(),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                # Oracle diagnostics are trusted-host details and are never public.
+                # Discarding them also prevents an undrained stderr pipe from
+                # deadlocking the bounded request/response channel.
+                stderr=subprocess.DEVNULL,
+                text=False,
+                bufsize=0,
+            )
+        except (OSError, ValueError) as exc:
             raise VerificationInfrastructureError(
-                "oracle_manifest_missing", "Oracle manifest is unavailable"
+                "oracle_start_failed", "Oracle process could not be started"
             ) from exc
-        if not isinstance(manifest, dict) or set(manifest) != {
-            "abi",
-            "command",
-            "timeout_seconds",
-        }:
-            raise VerificationInfrastructureError(
-                "oracle_manifest_invalid", "Oracle manifest has an invalid shape"
-            )
-        if manifest.get("abi") != ORACLE_ABI:
-            raise VerificationInfrastructureError(
-                "oracle_abi_unsupported", "Oracle ABI is unsupported"
-            )
-        command = manifest.get("command")
-        if (
-            not isinstance(command, list)
-            or not command
-            or not all(isinstance(part, str) and part for part in command)
-        ):
-            raise VerificationInfrastructureError(
-                "oracle_manifest_invalid", "Oracle command is invalid"
-            )
-        timeout = manifest.get("timeout_seconds")
-        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
-            raise VerificationInfrastructureError(
-                "oracle_manifest_invalid", "Oracle timeout is invalid"
-            )
-        self.timeout_seconds = float(timeout)
-        resolved_command = [sys.executable if part == "{python}" else part for part in command]
-        self.process = subprocess.Popen(
-            resolved_command,
-            cwd=self.resource_root,
-            env=_oracle_environment(),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            # Oracle diagnostics are trusted-host details and are never public.
-            # Discarding them also prevents an undrained stderr pipe from
-            # deadlocking the bounded request/response channel.
-            stderr=subprocess.DEVNULL,
-            text=False,
-            bufsize=0,
-        )
         assert self.process.stdin is not None
-        os.set_blocking(self.process.stdin.fileno(), False)
+        try:
+            os.set_blocking(self.process.stdin.fileno(), False)
+        except OSError as exc:
+            self.close()
+            raise VerificationInfrastructureError(
+                "oracle_start_failed", "Oracle process channel could not be initialized"
+            ) from exc
 
     def initialize(self, task: BenchmarkTask, *, run_seed: str) -> None:
         resources = {
@@ -278,15 +268,7 @@ class OracleProcessSession(OracleSession):
             )
         assert self.process.stdin is not None
         try:
-            encoded = (
-                json.dumps(
-                    request,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    allow_nan=False,
-                ).encode("utf-8")
-                + b"\n"
-            )
+            encoded = canonical_json_bytes(request) + b"\n"
         except (TypeError, ValueError) as exc:
             raise VerificationInfrastructureError(
                 "oracle_request_invalid", "Oracle request was not finite JSON data"
@@ -379,7 +361,7 @@ class OracleProcessSession(OracleSession):
             selector.close()
         try:
             response = strict_json_loads(bytes(content[:newline]))
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        except (UnicodeDecodeError, ValueError) as exc:
             raise VerificationInfrastructureError(
                 "oracle_protocol_error", "Oracle response was not valid JSON"
             ) from exc
@@ -388,6 +370,97 @@ class OracleProcessSession(OracleSession):
                 "oracle_protocol_error", "Oracle response must be an object"
             )
         return response
+
+
+def oracle_resource_root(task: BenchmarkTask) -> Path:
+    """Resolve the host-only Oracle directory declared by a compiled task."""
+    _, identifier = task.verification.oracle.split(".", 1)
+    resource = task.resources.resources.get(f"host.{identifier}")
+    if resource is None:
+        raise VerificationInfrastructureError(
+            "oracle_resource_missing", "Oracle host resource is unavailable"
+        )
+    if resource.kind != "directory" or not isinstance(resource.value, dict):
+        raise VerificationInfrastructureError(
+            "oracle_resource_invalid", "Oracle host resource is invalid"
+        )
+    source_path = resource.value.get("source_path")
+    if not isinstance(source_path, str):
+        raise VerificationInfrastructureError(
+            "oracle_resource_invalid", "Oracle host resource is invalid"
+        )
+    source = Path(source_path)
+    if not source.is_absolute() or not source.is_dir() or source.is_symlink():
+        raise VerificationInfrastructureError(
+            "oracle_resource_invalid", "Oracle host resource is invalid"
+        )
+    return source
+
+
+def load_oracle_manifest(resource_root: str | Path) -> OracleManifest:
+    """Validate a trusted pack-local Oracle manifest without starting it."""
+    manifest_path = Path(resource_root).resolve() / "oracle.yaml"
+    try:
+        manifest_text = manifest_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise VerificationInfrastructureError(
+            "oracle_manifest_missing", "Oracle manifest is unavailable"
+        ) from exc
+    except UnicodeError as exc:
+        raise VerificationInfrastructureError(
+            "oracle_manifest_invalid", "Oracle manifest is not valid UTF-8"
+        ) from exc
+    try:
+        manifest = yaml.safe_load(manifest_text)
+    except yaml.YAMLError as exc:
+        raise VerificationInfrastructureError(
+            "oracle_manifest_invalid", "Oracle manifest is not valid YAML"
+        ) from exc
+    if not isinstance(manifest, dict) or set(manifest) != {
+        "abi",
+        "command",
+        "timeout_seconds",
+    }:
+        raise VerificationInfrastructureError(
+            "oracle_manifest_invalid", "Oracle manifest has an invalid shape"
+        )
+    if manifest.get("abi") != ORACLE_ABI:
+        raise VerificationInfrastructureError(
+            "oracle_abi_unsupported", "Oracle ABI is unsupported"
+        )
+    command = manifest.get("command")
+    if (
+        not isinstance(command, list)
+        or not command
+        or len(command) > MAX_ORACLE_COMMAND_PARTS
+        or not all(
+            isinstance(part, str)
+            and bool(part)
+            and "\x00" not in part
+            and len(part.encode("utf-8")) <= MAX_ORACLE_COMMAND_PART_BYTES
+            for part in command
+        )
+        or not command[0].strip()
+    ):
+        raise VerificationInfrastructureError(
+            "oracle_manifest_invalid", "Oracle command is invalid"
+        )
+    timeout = manifest.get("timeout_seconds")
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+        raise VerificationInfrastructureError(
+            "oracle_manifest_invalid", "Oracle timeout is invalid"
+        )
+    try:
+        timeout_seconds = float(timeout)
+    except OverflowError as exc:
+        raise VerificationInfrastructureError(
+            "oracle_manifest_invalid", "Oracle timeout is invalid"
+        ) from exc
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise VerificationInfrastructureError(
+            "oracle_manifest_invalid", "Oracle timeout is invalid"
+        )
+    return OracleManifest(command=tuple(command), timeout_seconds=timeout_seconds)
 
 
 def _oracle_environment() -> dict[str, str]:

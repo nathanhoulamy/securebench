@@ -316,6 +316,43 @@ timeout_seconds: 0.1
 
 
 @pytest.mark.parametrize(
+    "manifest",
+    [
+        "command: [unterminated\n",
+        "abi: securebench.oracle/v1\ncommand: ['{python}', 'oracle.py']\ntimeout_seconds: .inf\n",
+        (
+            "abi: securebench.oracle/v1\ncommand: ['{python}', 'oracle.py']\n"
+            f"timeout_seconds: {10**400}\n"
+        ),
+    ],
+)
+def test_oracle_process_rejects_invalid_manifests(tmp_path, manifest):
+    oracle_root = tmp_path / "oracle"
+    oracle_root.mkdir()
+    (oracle_root / "oracle.yaml").write_text(manifest)
+
+    with pytest.raises(VerificationInfrastructureError) as error:
+        OracleProcessSession(oracle_root)
+
+    assert error.value.code == "oracle_manifest_invalid"
+
+
+def test_oracle_process_reports_start_failure_as_infrastructure_error(tmp_path):
+    oracle_root = tmp_path / "oracle"
+    oracle_root.mkdir()
+    (oracle_root / "oracle.yaml").write_text(
+        "abi: securebench.oracle/v1\n"
+        "command: ['/definitely/missing/securebench-oracle']\n"
+        "timeout_seconds: 1\n"
+    )
+
+    with pytest.raises(VerificationInfrastructureError) as error:
+        OracleProcessSession(oracle_root)
+
+    assert error.value.code == "oracle_start_failed"
+
+
+@pytest.mark.parametrize(
     "verdict",
     [
         {"passed": True, "score": 1.0},

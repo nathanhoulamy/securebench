@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import codecs
+import math
 import os
 import selectors
 import subprocess
 import tempfile
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
@@ -29,6 +31,73 @@ class CommandResult:
     stderr: str = ""
     timed_out: bool = False
     timeout_seconds: float | None = None
+    stdout_bytes: int | None = None
+    stderr_bytes: int | None = None
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
+    stdout_valid_utf8: bool = True
+    stderr_valid_utf8: bool = True
+
+
+@dataclass(frozen=True)
+class BoundedProcessResult:
+    """Completed subprocess output with raw-byte integrity metadata."""
+
+    args: tuple[str, ...]
+    returncode: int
+    stdout: str
+    stderr: str
+    stdout_bytes: int
+    stderr_bytes: int
+    stdout_truncated: bool
+    stderr_truncated: bool
+    stdout_valid_utf8: bool
+    stderr_valid_utf8: bool
+
+
+@dataclass
+class _BoundedOutput:
+    """Track one hostile output stream without retaining it unboundedly."""
+
+    buffer: bytearray = field(default_factory=bytearray)
+    bytes_seen: int = 0
+    truncated: bool = False
+    valid_utf8: bool = True
+    finalized: bool = False
+    decoder: codecs.IncrementalDecoder = field(
+        default_factory=lambda: codecs.getincrementaldecoder("utf-8")(errors="strict")
+    )
+
+    def append(self, chunk: bytes) -> bytes:
+        self.bytes_seen += len(chunk)
+        self._decode(chunk, final=False)
+        remaining = max(MAX_COMMAND_OUTPUT_BYTES - len(self.buffer), 0)
+        emitted = chunk[:remaining]
+        self.buffer.extend(emitted)
+        if len(chunk) > remaining:
+            self.truncated = True
+        return emitted
+
+    def finalize(self) -> None:
+        self._decode(b"", final=True)
+
+    def render(self) -> str:
+        value = bytes(self.buffer)
+        if self.truncated:
+            value = value[: MAX_COMMAND_OUTPUT_BYTES - len(OUTPUT_TRUNCATION_MARKER)]
+            value += OUTPUT_TRUNCATION_MARKER
+        return value.decode("utf-8", errors="replace")
+
+    def _decode(self, chunk: bytes, *, final: bool) -> None:
+        if self.finalized:
+            return
+        try:
+            if self.valid_utf8:
+                self.decoder.decode(chunk, final=final)
+        except UnicodeDecodeError:
+            self.valid_utf8 = False
+        if final:
+            self.finalized = True
 
 
 def timeout_command_result(
@@ -37,6 +106,12 @@ def timeout_command_result(
     *,
     stdout: str | bytes | None = None,
     stderr: str | bytes | None = None,
+    stdout_bytes: int | None = None,
+    stderr_bytes: int | None = None,
+    stdout_truncated: bool = False,
+    stderr_truncated: bool = False,
+    stdout_valid_utf8: bool = True,
+    stderr_valid_utf8: bool = True,
 ) -> CommandResult:
     """Build a structured result for a sandbox command timeout."""
     return CommandResult(
@@ -46,6 +121,12 @@ def timeout_command_result(
         stderr=timeout_output(stderr),
         timed_out=True,
         timeout_seconds=timeout,
+        stdout_bytes=stdout_bytes,
+        stderr_bytes=stderr_bytes,
+        stdout_truncated=stdout_truncated,
+        stderr_truncated=stderr_truncated,
+        stdout_valid_utf8=stdout_valid_utf8,
+        stderr_valid_utf8=stderr_valid_utf8,
     )
 
 
@@ -66,8 +147,17 @@ def run_bounded_subprocess(
     timeout: float | None = None,
     stdin: str | bytes | None = None,
     on_output: OutputCallback | None = None,
-) -> subprocess.CompletedProcess[str]:
+) -> BoundedProcessResult:
     """Run a command while draining and bounding hostile stdout and stderr."""
+    if timeout is not None:
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+            raise ValueError("timeout must be a finite positive number or None")
+        try:
+            timeout = float(timeout)
+        except OverflowError as exc:
+            raise ValueError("timeout must be a finite positive number or None") from exc
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be a finite positive number or None")
     input_file = None
     if stdin is not None:
         input_file = tempfile.TemporaryFile()
@@ -93,27 +183,33 @@ def run_bounded_subprocess(
     assert process.stderr is not None
     selector.register(process.stdout, selectors.EVENT_READ, "stdout")
     selector.register(process.stderr, selectors.EVENT_READ, "stderr")
-    buffers = {"stdout": bytearray(), "stderr": bytearray()}
-    truncated = {"stdout": False, "stderr": False}
+    outputs = {"stdout": _BoundedOutput(), "stderr": _BoundedOutput()}
     deadline = None if timeout is None else time.monotonic() + timeout
     try:
         while selector.get_map():
             remaining = None if deadline is None else deadline - time.monotonic()
             if remaining is not None and remaining <= 0:
-                _raise_bounded_timeout(process, command, timeout, buffers, truncated)
+                _raise_bounded_timeout(
+                    process,
+                    command,
+                    timeout,
+                    outputs,
+                )
             wait = 0.2 if remaining is None else min(0.2, remaining)
             events = selector.select(wait)
             if not events and process.poll() is not None:
                 for key in list(selector.get_map().values()):
+                    outputs[key.data].finalize()
                     selector.unregister(key.fileobj)
                 break
             for key, _ in events:
                 chunk = os.read(key.fileobj.fileno(), 64 * 1024)
                 if not chunk:
+                    outputs[key.data].finalize()
                     selector.unregister(key.fileobj)
                     continue
                 stream = key.data
-                emitted = _append_bounded_output(buffers[stream], chunk, truncated, stream)
+                emitted = outputs[stream].append(chunk)
                 if on_output is not None and emitted:
                     on_output(stream, emitted.decode("utf-8", errors="replace"))
 
@@ -121,7 +217,12 @@ def run_bounded_subprocess(
         try:
             exit_code = process.wait(timeout=remaining)
         except subprocess.TimeoutExpired:
-            _raise_bounded_timeout(process, command, timeout, buffers, truncated)
+            _raise_bounded_timeout(
+                process,
+                command,
+                timeout,
+                outputs,
+            )
     finally:
         selector.close()
         if process.poll() is None:
@@ -133,52 +234,43 @@ def run_bounded_subprocess(
         if input_file is not None:
             input_file.close()
 
-    return subprocess.CompletedProcess(
-        command,
-        exit_code,
-        stdout=_render_bounded_output(buffers["stdout"], truncated["stdout"]),
-        stderr=_render_bounded_output(buffers["stderr"], truncated["stderr"]),
+    return BoundedProcessResult(
+        args=tuple(command),
+        returncode=exit_code,
+        stdout=outputs["stdout"].render(),
+        stderr=outputs["stderr"].render(),
+        stdout_bytes=outputs["stdout"].bytes_seen,
+        stderr_bytes=outputs["stderr"].bytes_seen,
+        stdout_truncated=outputs["stdout"].truncated,
+        stderr_truncated=outputs["stderr"].truncated,
+        stdout_valid_utf8=outputs["stdout"].valid_utf8,
+        stderr_valid_utf8=outputs["stderr"].valid_utf8,
     )
-
-
-def _append_bounded_output(
-    buffer: bytearray,
-    chunk: bytes,
-    truncated: dict[str, bool],
-    stream: str,
-) -> bytes:
-    content_limit = MAX_COMMAND_OUTPUT_BYTES
-    remaining = max(content_limit - len(buffer), 0)
-    emitted = chunk[:remaining]
-    buffer.extend(emitted)
-    if len(chunk) > remaining:
-        truncated[stream] = True
-    return emitted
-
-
-def _render_bounded_output(buffer: bytearray, truncated: bool) -> str:
-    value = bytes(buffer)
-    if truncated:
-        value = value[: MAX_COMMAND_OUTPUT_BYTES - len(OUTPUT_TRUNCATION_MARKER)]
-        value += OUTPUT_TRUNCATION_MARKER
-    return value.decode("utf-8", errors="replace")
 
 
 def _raise_bounded_timeout(
     process: subprocess.Popen[bytes],
     command: list[str] | tuple[str, ...],
     timeout: float | None,
-    buffers: dict[str, bytearray],
-    truncated: dict[str, bool],
+    outputs: dict[str, _BoundedOutput],
 ) -> None:
     process.kill()
     process.wait()
-    raise subprocess.TimeoutExpired(
+    for output in outputs.values():
+        output.finalize()
+    error = subprocess.TimeoutExpired(
         command,
         timeout,
-        output=_render_bounded_output(buffers["stdout"], truncated["stdout"]),
-        stderr=_render_bounded_output(buffers["stderr"], truncated["stderr"]),
+        output=outputs["stdout"].render(),
+        stderr=outputs["stderr"].render(),
     )
+    error.stdout_bytes = outputs["stdout"].bytes_seen
+    error.stderr_bytes = outputs["stderr"].bytes_seen
+    error.stdout_truncated = outputs["stdout"].truncated
+    error.stderr_truncated = outputs["stderr"].truncated
+    error.stdout_valid_utf8 = outputs["stdout"].valid_utf8
+    error.stderr_valid_utf8 = outputs["stderr"].valid_utf8
+    raise error
 
 
 class Sandbox(ABC):
