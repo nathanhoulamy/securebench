@@ -15,6 +15,7 @@ from securebench.harnesses.egress_proxy import (
     http_host_header,
     is_public_unicast_address,
     read_tls_client_hello,
+    read_tls_client_hello_from_socket,
     resolve_public_addresses,
 )
 
@@ -39,8 +40,9 @@ def tls_client_hello(server_name: str | None) -> bytes:
 
 
 class ProxySocket:
-    def __init__(self):
+    def __init__(self, incoming=b""):
         self.sent = bytearray()
+        self.incoming = bytearray(incoming)
         self.closed = False
         self.timeout = None
 
@@ -57,7 +59,9 @@ class ProxySocket:
         self.sent.extend(data)
 
     def recv(self, size):
-        return b""
+        result = bytes(self.incoming[:size])
+        del self.incoming[:size]
+        return result
 
     def close(self):
         self.closed = True
@@ -328,6 +332,23 @@ def test_proxy_extracts_sni_from_tls_client_hello():
     assert server_name == "Example.COM"
 
 
+def test_socket_client_hello_reader_leaves_following_tunnel_bytes_unbuffered():
+    wire = tls_client_hello("example.com")
+    client, proxy = socket.socketpair()
+    proxy.settimeout(1)
+    try:
+        client.sendall(wire + b"following-tunnel-data")
+
+        consumed, server_name = read_tls_client_hello_from_socket(proxy)
+
+        assert consumed == wire
+        assert server_name == "example.com"
+        assert proxy.recv(1024) == b"following-tunnel-data"
+    finally:
+        client.close()
+        proxy.close()
+
+
 def test_proxy_rejects_tls_client_hello_without_sni():
     with pytest.raises(DestinationPolicyError, match="SNI"):
         read_tls_client_hello(io.BytesIO(tls_client_hello(None)))
@@ -343,8 +364,7 @@ def test_proxy_rejects_connect_sni_that_differs_from_authority(monkeypatch):
     handler = object.__new__(AllowlistingProxyHandler)
     handler.path = "example.com:443"
     handler.domains = ("example.com",)
-    handler.rfile = io.BytesIO(tls_client_hello("other.example.com"))
-    handler.connection = ProxySocket()
+    handler.connection = ProxySocket(tls_client_hello("other.example.com"))
     handler.send_response = lambda *args, **kwargs: None
     handler.end_headers = lambda: None
 
@@ -385,3 +405,25 @@ def test_http_handler_forces_url_host_and_connection_close(monkeypatch):
     assert "Host: attacker.example" not in forwarded
     assert "Connection: close\r\n" in forwarded
     assert http_host_header("example.com", 80) == "example.com"
+
+
+def test_http_handler_rejects_embedded_header_lines_before_connecting(monkeypatch):
+    monkeypatch.setattr(
+        "securebench.harnesses.egress_proxy.connect_allowed_destination",
+        lambda *args, **kwargs: pytest.fail("invalid headers must be rejected before connecting"),
+    )
+    request_headers = Message()
+    request_headers["X-Agent-Value"] = "value\r\nHost: blocked.example"
+    handler = object.__new__(AllowlistingProxyHandler)
+    handler.path = "http://example.com/resource"
+    handler.command = "GET"
+    handler.request_version = "HTTP/1.1"
+    handler.headers = request_headers
+    handler.rfile = io.BytesIO()
+    handler.domains = ("example.com",)
+    errors = []
+    handler.send_error = lambda status: errors.append(status)
+
+    handler._proxy_absolute_request()
+
+    assert errors == [400]

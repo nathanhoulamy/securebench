@@ -148,12 +148,18 @@ class OracleProcessSession(OracleSession):
             raise VerificationInfrastructureError(
                 "oracle_protocol_error", "Oracle returned an invalid verdict"
             )
+        required_fields = {"passed", "score", "check_outcomes"}
+        allowed_fields = {*required_fields, "public_diagnostics"}
+        if not required_fields.issubset(verdict) or not set(verdict).issubset(allowed_fields):
+            raise VerificationInfrastructureError(
+                "oracle_protocol_error", "Oracle returned an invalid verdict"
+            )
         try:
             return OracleVerdict(
                 passed=verdict["passed"],
                 score=verdict["score"],
                 public_diagnostics=verdict.get("public_diagnostics", {}),
-                check_outcomes=verdict.get("check_outcomes", {}),
+                check_outcomes=verdict["check_outcomes"],
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise VerificationInfrastructureError(

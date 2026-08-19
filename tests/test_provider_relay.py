@@ -311,6 +311,21 @@ def test_tool_policy_fails_closed_for_uninspectable_or_unknown_openai_tools():
     ) == ("new_hosted_tool",)
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"tools":[],"tools":[{"type":"web_search"}]}',
+        b'{"tools":[],"temperature":NaN}',
+    ],
+)
+def test_tool_policy_fails_closed_for_ambiguous_or_nonstandard_json(body):
+    assert blocked_external_tools(
+        body,
+        False,
+        allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
+    ) == (UNINSPECTABLE_TOOL_REQUEST,)
+
+
 def test_provider_relay_rejects_oversized_request_before_reading_body(tmp_path):
     handler = object.__new__(ProviderRelayHandler)
     handler.relay_config = RelayConfig(
@@ -392,7 +407,11 @@ def test_handler_forwards_streaming_chunks_and_logs_redacted_decision(monkeypatc
         reason = "OK"
 
         def getheaders(self):
-            return [("Content-Type", "text/event-stream")]
+            return [
+                ("Content-Type", "text/event-stream"),
+                ("Connection", "X-Relay-Internal"),
+                ("X-Relay-Internal", "must-not-be-forwarded"),
+            ]
 
         def read(self, size):
             return chunks.pop(0)
@@ -443,6 +462,8 @@ def test_handler_forwards_streaming_chunks_and_logs_redacted_decision(monkeypatc
     assert handler.wfile.getvalue() == b"data: one\n\ndata: two\n\n"
     assert sent_status == [(200, "OK")]
     assert ("Content-Type", "text/event-stream") in sent_headers
+    assert not any(name.lower() == "connection" for name, _ in sent_headers)
+    assert not any(name.lower() == "x-relay-internal" for name, _ in sent_headers)
     records = [
         json.loads(line)
         for line in (tmp_path / "decisions.jsonl").read_text().splitlines()

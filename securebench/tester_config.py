@@ -22,6 +22,7 @@ HARNESS_FIELDS = {"type", "env", "config"}
 DOCKER_FIELDS = {"max_cached_images"}
 HARNESS_TYPES = {"codex", "claude_code", "command"}
 ENVIRONMENT_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+MAX_RUN_ID_LENGTH = 256
 
 
 @dataclass(frozen=True)
@@ -94,8 +95,11 @@ def parse_tester_config(data: dict[str, Any], *, base_dir: str | Path | None = N
     _reject_unknown_fields(harness_data, HARNESS_FIELDS, "harness")
 
     base = None if base_dir is None else Path(base_dir)
+    run_id = _required_str(run_data, "id", "run")
+    if len(run_id) > MAX_RUN_ID_LENGTH:
+        raise ConfigError(f"run.id must be at most {MAX_RUN_ID_LENGTH} characters")
     run = TesterRunSection(
-        id=_required_str(run_data, "id", "run"),
+        id=run_id,
         output_dir=_config_path(_required_str(run_data, "output_dir", "run"), base),
         max_workers=_positive_int(run_data.get("max_workers", 1), "run.max_workers"),
     )

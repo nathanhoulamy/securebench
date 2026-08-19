@@ -24,7 +24,7 @@ def test_static_checks_pass_reference_v2_pack():
 
 
 def test_audit_self_writes_deterministic_sanitized_json(tmp_path):
-    report = audit_self(output_dir=tmp_path)
+    report = audit_self()
     output_path = write_json_report(report, tmp_path)
     data = json.loads(output_path.read_text())
 

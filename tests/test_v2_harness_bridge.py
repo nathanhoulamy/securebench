@@ -8,8 +8,13 @@ from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.errors import ConfigError
 from securebench.harnesses.command import CommandHarnessProducer
-from securebench.harnesses.shared import materialize_image_workdir, workspace_dir_name
+from securebench.harnesses.shared import (
+    materialize_image_workdir,
+    reject_task_file_collision,
+    workspace_dir_name,
+)
 from securebench.sandboxes import CommandResult
+from securebench.workspaces.materialization import MaterializationPlan, MaterializedResource
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,6 +90,32 @@ def test_workspace_directory_names_are_bounded_and_collision_resistant():
     assert len(first_name.encode("utf-8")) < 255
     assert first_name != second_name
     assert first_name.endswith("-" + sha256(long_id.encode()).hexdigest())
+
+
+def test_task_file_collision_uses_file_resource_container_mount_path():
+    plan = MaterializationPlan(
+        component="agent",
+        resources=(
+            MaterializedResource(
+                name="asset.0",
+                visibility="public",
+                kind="file",
+                component="agent",
+                relative_path="securebench/public/files/asset.0",
+                serialization="mount",
+                source_path="/pack/input.json",
+                container_path="/app/task.json",
+                read_only=True,
+            ),
+        ),
+    )
+
+    with pytest.raises(ConfigError, match="task_file collides"):
+        reject_task_file_collision(
+            "task.json",
+            plan,
+            workspace_mount_target="/app",
+        )
 
 
 def test_image_materialization_surfaces_container_cleanup_failure(monkeypatch, tmp_path):

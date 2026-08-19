@@ -27,11 +27,14 @@ from securebench.tester_config import (
 from securebench.tester_run import (
     MAX_RESULT_RECORD_BYTES,
     RUN_LOCK_FILENAME,
+    _bounded_result_record,
+    _encode_record,
     _reset_task_workspace,
     _resume_records,
     execution_config_digest,
     run_tester_config,
 )
+from securebench.verification import ArtifactVerificationEngine, CheckResultSummary
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -285,6 +288,41 @@ def test_runner_resume_skips_oversized_corrupt_lines_without_buffering_them(
 
     assert producer.calls == 1
     assert len(output.read_text().splitlines()) == 1
+
+
+def test_result_writer_replaces_oversized_record_with_bounded_infrastructure_error():
+    task = next(
+        compile_benchmark_pack(
+            load_benchmark_pack(PACK / "manifest-v2.yaml", PACK / "tasks-v2.jsonl")
+        )
+    )
+    result = ArtifactVerificationEngine().infrastructure_error(
+        task,
+        code="original_error",
+        message="original error",
+    )
+    oversized = replace(
+        result,
+        checks=tuple(
+            CheckResultSummary(
+                id=f"check-{index}",
+                type="artifact",
+                status="failed",
+                evidence_digests=("sha256:" + "a" * 64,),
+            )
+            for index in range(3000)
+        ),
+    )
+
+    bounded, record = _bounded_result_record(
+        oversized,
+        run_id="run",
+        execution_digest="sha256:" + "b" * 64,
+    )
+
+    assert bounded.infrastructure_error["code"] == "result_record_too_large"
+    assert record["checks"] == []
+    assert len(_encode_record(record).encode("utf-8")) <= MAX_RESULT_RECORD_BYTES
 
 
 def test_runner_rejects_concurrent_use_of_one_output_directory(monkeypatch, tmp_path):

@@ -52,6 +52,15 @@ class RecordingOracle(OracleSession):
         self.closed = True
 
 
+class FixedVerdictOracle(RecordingOracle):
+    def __init__(self, verdict):
+        super().__init__()
+        self.verdict = verdict
+
+    def finalize(self):
+        return self.verdict
+
+
 def write_artifact_pack(root: Path, *, parser="securebench.strict-json/v1"):
     (root / "assets").mkdir(parents=True)
     (root / "evaluation_inputs").mkdir()
@@ -172,6 +181,55 @@ def test_parser_rejection_is_candidate_evidence_for_oracle(tmp_path):
     assert oracle.evidence[0].error_code == "invalid_json"
 
 
+@pytest.mark.parametrize(
+    "verdict",
+    [
+        OracleVerdict(passed=True, score=1.0, check_outcomes={}),
+        OracleVerdict(
+            passed=True,
+            score=1.0,
+            check_outcomes={"result_artifact": True, "unknown": True},
+        ),
+    ],
+)
+def test_oracle_verdict_outcomes_must_match_declared_checks(tmp_path, verdict):
+    task = write_artifact_pack(tmp_path / "pack")
+    store, candidate = capture_result(tmp_path, task, b"{}")
+
+    result = ArtifactVerificationEngine().verify(
+        task,
+        candidate,
+        store,
+        run_seed="seed-invalid-verdict",
+        oracle=FixedVerdictOracle(verdict),
+    )
+
+    assert result.status == "infrastructure_error"
+    assert result.infrastructure_error["code"] == "oracle_protocol_error"
+
+
+def test_oracle_may_apply_its_own_threshold_across_check_outcomes(tmp_path):
+    task = write_artifact_pack(tmp_path / "pack")
+    store, candidate = capture_result(tmp_path, task, b"{}")
+    verdict = OracleVerdict(
+        passed=True,
+        score=0.75,
+        check_outcomes={"result_artifact": False},
+    )
+
+    result = ArtifactVerificationEngine().verify(
+        task,
+        candidate,
+        store,
+        run_seed="seed-custom-threshold",
+        oracle=FixedVerdictOracle(verdict),
+    )
+
+    assert result.status == "passed"
+    assert result.score == 0.75
+    assert result.checks[0].status == "failed"
+
+
 def test_pack_local_oracle_process_owns_final_verdict(tmp_path):
     task = write_artifact_pack(tmp_path / "pack")
     oracle_root = tmp_path / "pack" / "hidden" / "task" / "oracle"
@@ -255,6 +313,44 @@ timeout_seconds: 0.1
         session.close()
 
     assert time.monotonic() - started < 2
+
+
+@pytest.mark.parametrize(
+    "verdict",
+    [
+        {"passed": True, "score": 1.0},
+        {
+            "passed": True,
+            "score": 1.0,
+            "check_outcomes": {"result_artifact": True},
+            "unexpected": True,
+        },
+    ],
+)
+def test_oracle_process_rejects_missing_or_unknown_verdict_fields(tmp_path, verdict):
+    oracle_root = tmp_path / "oracle"
+    oracle_root.mkdir()
+    (oracle_root / "oracle.yaml").write_text(
+        """
+abi: securebench.oracle/v1
+command: ["{python}", "oracle.py"]
+timeout_seconds: 1
+""".lstrip()
+    )
+    response = json.dumps({"type": "verdict", "verdict": verdict})
+    (oracle_root / "oracle.py").write_text(
+        "import sys\nfor line in sys.stdin:\n"
+        f"    print({response!r}, flush=True)\n"
+    )
+    session = OracleProcessSession(oracle_root)
+
+    try:
+        with pytest.raises(VerificationInfrastructureError) as error:
+            session.finalize()
+    finally:
+        session.close()
+
+    assert error.value.code == "oracle_protocol_error"
 
 
 def test_unknown_parser_is_an_infrastructure_error(tmp_path):

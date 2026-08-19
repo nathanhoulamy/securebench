@@ -137,7 +137,7 @@ def _run(args: argparse.Namespace) -> int:
 def _audit(args: argparse.Namespace) -> int:
     try:
         config = load_tester_config(args.config)
-        report = audit_config(config, output_dir=args.output_dir, limit=args.limit)
+        report = audit_config(config, limit=args.limit)
         output_path = write_json_report(report, args.output_dir)
     except (ConfigError, ImportError, OSError, ValueError) as exc:
         print(f"securebench: error: {exc}")
@@ -149,9 +149,7 @@ def _audit(args: argparse.Namespace) -> int:
 
 def _audit_self(args: argparse.Namespace) -> int:
     try:
-        report = audit_self(
-            output_dir=args.output_dir,
-        )
+        report = audit_self()
         output_path = write_json_report(report, args.output_dir)
     except (ConfigError, ImportError, OSError, ValueError) as exc:
         print(f"securebench: error: {exc}")

@@ -222,8 +222,19 @@ class ProviderRelayHandler(BaseHTTPRequestHandler):
                 raise OSError("provider relay received no upstream response")
             response_status = response.status
             self.send_response(response.status, response.reason)
-            for name, value in response.getheaders():
-                if name.lower() in HOP_BY_HOP_HEADERS:
+            response_headers = response.getheaders()
+            connection_headers = {
+                token.strip().lower()
+                for name, value in response_headers
+                if name.lower() == "connection"
+                for token in value.split(",")
+                if token.strip()
+            }
+            for name, value in response_headers:
+                if (
+                    name.lower() in HOP_BY_HOP_HEADERS
+                    or name.lower() in connection_headers
+                ):
                     continue
                 self.send_header(name, value)
             self.end_headers()
@@ -410,8 +421,12 @@ def blocked_external_tools(
     if allow_external_tools or not body:
         return ()
     try:
-        payload = json.loads(body.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+        payload = json.loads(
+            body.decode("utf-8"),
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeDecodeError, ValueError, RecursionError):
         return (UNINSPECTABLE_TOOL_REQUEST,)
     if not isinstance(payload, dict):
         return (UNINSPECTABLE_TOOL_REQUEST,)
@@ -431,6 +446,19 @@ def blocked_external_tools(
         if tool_type not in allowed_client_tool_types:
             blocked.append(tool_type)
     return tuple(dict.fromkeys(blocked))
+
+
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON object key: {key}")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant: {value}")
 
 
 def _tool_type(tool: Any) -> str | None:

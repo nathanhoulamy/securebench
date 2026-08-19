@@ -35,7 +35,7 @@ from securebench.progress import ProgressReporter, emit_progress, progress_conte
 from securebench.tasks import BenchmarkTask
 from securebench.tester_config import TesterConfig
 from securebench.verification import ArtifactVerificationEngine
-from securebench.verification.models import RESULT_SCHEMA_VERSION
+from securebench.verification.models import RESULT_SCHEMA_VERSION, VerificationResultV2
 from securebench.workspaces.cleanup import remove_untrusted_tree
 
 
@@ -345,18 +345,50 @@ def _execute_task(
                 code="task_workspace_cleanup_failed",
                 message=f"Failed to remove untrusted row workspace: {type(exc).__name__}",
             )
+        result, record = _bounded_result_record(
+            result,
+            run_id=config.run.id,
+            execution_digest=execution_digest,
+        )
         emit_progress(
             "verification_done",
             task_id=task.id,
             status=result.status,
             score=result.score,
         )
-        record = result.to_record(
-            run_id=config.run.id,
-            execution_digest=execution_digest,
-        )
         emit_progress("task_done", task_id=task.id, status=result.status, passed=result.passed, score=result.score)
         return _CompletedTask(task=task, record=record)
+
+
+def _bounded_result_record(
+    result: VerificationResultV2,
+    *,
+    run_id: str,
+    execution_digest: str,
+) -> tuple[VerificationResultV2, dict[str, Any]]:
+    try:
+        record = result.to_record(run_id=run_id, execution_digest=execution_digest)
+        if len(_encode_record(record).encode("utf-8")) <= MAX_RESULT_RECORD_BYTES:
+            return result, record
+        code = "result_record_too_large"
+        message = "Trusted verification produced a result record that exceeded its bound"
+    except (TypeError, ValueError):
+        code = "result_record_invalid"
+        message = "Trusted verification produced an invalid result record"
+
+    fallback = replace(
+        result,
+        status="infrastructure_error",
+        passed=False,
+        score=0.0,
+        checks=(),
+        public_diagnostics={},
+        infrastructure_error={"code": code, "message": message},
+    )
+    record = fallback.to_record(run_id=run_id, execution_digest=execution_digest)
+    if len(_encode_record(record).encode("utf-8")) > MAX_RESULT_RECORD_BYTES:
+        raise ConfigError("minimal result record exceeds the persistence bound")
+    return fallback, record
 
 
 def _reset_task_workspace(workspace_root: Path, task: BenchmarkTask) -> None:

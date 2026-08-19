@@ -87,7 +87,11 @@ class CommandHarnessProducer(CandidateProducer):
         materialize_image_workdir(task, task_workspace)
         staging = HostSandbox(root=task_workspace)
         plan = self.materializer.materialize(task, staging, "agent")
-        reject_task_file_collision(self.task_file, plan)
+        reject_task_file_collision(
+            self.task_file,
+            plan,
+            workspace_mount_target=workspace_mount_target_for_task(task),
+        )
         staging.write_file(self.task_file, agent_task_json(task))
 
         allowed_domains = task_allowed_domains(

@@ -8,7 +8,6 @@ import os
 import re
 import subprocess
 import tempfile
-import threading
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +52,7 @@ from securebench.harnesses.codex_oauth import (
     codex_auth_file,
     ensure_valid_codex_oauth_credentials,
 )
+from securebench.locking import exclusive_file_lock
 from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
 from securebench.tasks import BenchmarkTask
@@ -80,7 +80,6 @@ CODEX_DEFAULT_TASK_FILE = "task.json"
 CODEX_DEFAULT_TIMEOUT_SECONDS = 900.0
 CODEX_RUNTIME_NODE_IMAGE = "node:22-bookworm"
 CODEX_PROVIDER = "openai"
-_CODEX_OVERLAY_CACHE_LOCK = threading.Lock()
 CODEX_PROVIDER_UPSTREAM_HOST = "api.openai.com"
 CODEX_SUBSCRIPTION_UPSTREAM_HOST = "chatgpt.com"
 CODEX_PROVIDER_ENV_NAMES = {"OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN"}
@@ -207,7 +206,11 @@ class CodexHarnessProducer(CandidateProducer):
                 write_dummy_codex_auth(state_root / "auth.json")
             staging = HostSandbox(root=task_workspace)
             plan = self.materializer.materialize(task, staging, "agent")
-            reject_task_file_collision(self.task_file, plan)
+            reject_task_file_collision(
+                self.task_file,
+                plan,
+                workspace_mount_target=workspace_mount_target_for_task(task),
+            )
             staging.write_file(self.task_file, agent_task_json(task))
 
             overlay = codex_overlay_for_image(image, self.version)
@@ -425,7 +428,9 @@ def codex_overlay_for_image(image: str, version: str) -> CodexOverlay:
     overlay_path = codex_overlay_cache_root() / "codex" / version / platform.cache_key
     codex_binary = overlay_path / "bin" / "codex"
     node_binary = overlay_path / "bin" / "node"
-    with _CODEX_OVERLAY_CACHE_LOCK:
+    overlay_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = overlay_path.parent / f".{platform.cache_key}.lock"
+    with exclusive_file_lock(lock_path):
         if not codex_binary.exists() or not node_binary.exists():
             populate_codex_overlay_cache(overlay_path, version, platform)
     if not codex_binary.exists():

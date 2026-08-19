@@ -66,8 +66,8 @@ class OracleVerdict:
 
     passed: bool
     score: float
+    check_outcomes: dict[str, bool]
     public_diagnostics: dict[str, Any] = field(default_factory=dict)
-    check_outcomes: dict[str, bool] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.passed, bool):

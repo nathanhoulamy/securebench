@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import re
 import tempfile
-import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -50,6 +49,7 @@ from securebench.harnesses.network import (
     relay_decision_summary,
     require_provider_credential,
 )
+from securebench.locking import exclusive_file_lock
 from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
 from securebench.tasks import BenchmarkTask
@@ -58,9 +58,6 @@ from securebench.workspaces.materialization import (
     VisibilityAwareMaterializer,
     docker_resource_mounts,
 )
-
-
-_CLAUDE_CODE_OVERLAY_CACHE_LOCK = threading.Lock()
 
 
 CLAUDE_CODE_CONFIG_FIELDS = {
@@ -168,7 +165,11 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
             state_root = Path(tempfile.mkdtemp(prefix="securebench-claude-home-"))
             staging = HostSandbox(root=task_workspace)
             plan = self.materializer.materialize(task, staging, "agent")
-            reject_task_file_collision(self.task_file, plan)
+            reject_task_file_collision(
+                self.task_file,
+                plan,
+                workspace_mount_target=workspace_mount_target_for_task(task),
+            )
             staging.write_file(self.task_file, agent_task_json(task))
 
             overlay = claude_code_overlay_for_image(image, self.version)
@@ -362,7 +363,9 @@ def claude_code_overlay_for_image(image: str, version: str) -> ClaudeCodeOverlay
     )
     claude_binary = overlay_path / "bin" / "claude"
     node_binary = overlay_path / "bin" / "node"
-    with _CLAUDE_CODE_OVERLAY_CACHE_LOCK:
+    overlay_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = overlay_path.parent / f".{platform.cache_key}.lock"
+    with exclusive_file_lock(lock_path):
         if not claude_binary.exists() or not node_binary.exists():
             populate_claude_code_overlay_cache(overlay_path, version, platform)
     if not claude_binary.exists():

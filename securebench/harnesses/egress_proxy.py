@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import os
+import re
 import select
 import socket
 import socketserver
+from collections.abc import Callable
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler
 from typing import Any, BinaryIO
@@ -21,6 +23,7 @@ TLS_HANDSHAKE_CONTENT_TYPE = 22
 TLS_CLIENT_HELLO_TYPE = 1
 TLS_SERVER_NAME_EXTENSION = 0
 TLS_HOST_NAME_TYPE = 0
+HTTP_HEADER_NAME_RE = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 
 
 class DestinationPolicyError(Exception):
@@ -88,7 +91,7 @@ class AllowlistingProxyHandler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             self.connection.settimeout(self.timeout)
-            client_hello, server_name = read_tls_client_hello(self.rfile)
+            client_hello, server_name = read_tls_client_hello_from_socket(self.connection)
             if normalize_hostname(server_name) != normalize_hostname(host):
                 raise DestinationPolicyError("TLS server name does not match CONNECT authority")
             upstream.sendall(client_hello)
@@ -156,8 +159,17 @@ class AllowlistingProxyHandler(BaseHTTPRequestHandler):
         except UnicodeEncodeError:
             self.send_error(400)
             return
+        forwarded_headers = self._forwarded_request_headers()
+        if forwarded_headers is None:
+            self.send_error(400)
+            return
         try:
-            upstream = connect_allowed_destination(url.hostname, port, self.domains, timeout=self.timeout)
+            upstream = connect_allowed_destination(
+                url.hostname,
+                port,
+                self.domains,
+                timeout=self.timeout,
+            )
         except DestinationPolicyError:
             self.send_error(403)
             return
@@ -166,28 +178,8 @@ class AllowlistingProxyHandler(BaseHTTPRequestHandler):
             return
         with upstream:
             upstream.sendall(request_line)
-            connection_headers = {
-                token.strip().lower()
-                for value in self.headers.get_all("Connection", [])
-                for token in value.split(",")
-                if token.strip()
-            }
-            for name, value in self.headers.items():
-                lower = name.lower()
-                if lower in connection_headers or lower in {
-                    "connection",
-                    "content-length",
-                    "host",
-                    "keep-alive",
-                    "proxy-connection",
-                    "proxy-authorization",
-                    "te",
-                    "trailer",
-                    "transfer-encoding",
-                    "upgrade",
-                }:
-                    continue
-                upstream.sendall(f"{name}: {value}\r\n".encode("latin-1"))
+            for header in forwarded_headers:
+                upstream.sendall(header)
             upstream.sendall(f"Host: {http_host_header(url.hostname, port)}\r\n".encode("ascii"))
             if content_length is not None:
                 upstream.sendall(f"Content-Length: {remaining}\r\n".encode("ascii"))
@@ -199,6 +191,36 @@ class AllowlistingProxyHandler(BaseHTTPRequestHandler):
                 remaining -= len(chunk)
                 upstream.sendall(chunk)
             self._copy_upstream_to_client(upstream)
+
+    def _forwarded_request_headers(self) -> tuple[bytes, ...] | None:
+        connection_headers = {
+            token.strip().lower()
+            for value in self.headers.get_all("Connection", [])
+            for token in value.split(",")
+            if token.strip()
+        }
+        if any(not HTTP_HEADER_NAME_RE.fullmatch(name) for name in connection_headers):
+            return None
+        output = []
+        for name, value in self.headers.items():
+            if not _valid_http_header(name, value):
+                return None
+            lower = name.lower()
+            if lower in connection_headers or lower in {
+                "connection",
+                "content-length",
+                "host",
+                "keep-alive",
+                "proxy-connection",
+                "proxy-authorization",
+                "te",
+                "trailer",
+                "transfer-encoding",
+                "upgrade",
+            }:
+                continue
+            output.append(f"{name}: {value}\r\n".encode("latin-1"))
+        return tuple(output)
 
     def _tunnel(self, upstream: socket.socket) -> None:
         with upstream:
@@ -259,24 +281,54 @@ def http_host_header(host: str, port: int) -> str:
     return normalized if port == 80 else f"{normalized}:{port}"
 
 
+def _valid_http_header(name: str, value: str) -> bool:
+    if not HTTP_HEADER_NAME_RE.fullmatch(name):
+        return False
+    try:
+        value.encode("latin-1")
+    except UnicodeEncodeError:
+        return False
+    return not any(
+        (ord(character) < 0x20 and character != "\t") or ord(character) == 0x7F
+        for character in value
+    )
+
+
 def read_tls_client_hello(
     reader: BinaryIO,
     *,
     max_bytes: int = MAX_TLS_CLIENT_HELLO_BYTES,
 ) -> tuple[bytes, str]:
     """Read one TLS ClientHello and return its wire bytes and cleartext SNI."""
+    return _read_tls_client_hello(reader.read, max_bytes=max_bytes)
+
+
+def read_tls_client_hello_from_socket(
+    connection: socket.socket,
+    *,
+    max_bytes: int = MAX_TLS_CLIENT_HELLO_BYTES,
+) -> tuple[bytes, str]:
+    """Read a ClientHello without buffering bytes needed by the subsequent tunnel."""
+    return _read_tls_client_hello(connection.recv, max_bytes=max_bytes)
+
+
+def _read_tls_client_hello(
+    read: Callable[[int], bytes],
+    *,
+    max_bytes: int,
+) -> tuple[bytes, str]:
     wire = bytearray()
     handshake = bytearray()
     expected_handshake_bytes: int | None = None
 
     while expected_handshake_bytes is None or len(handshake) < expected_handshake_bytes:
-        header = _read_exact(reader, 5)
+        header = _read_exact(read, 5)
         if header[0] != TLS_HANDSHAKE_CONTENT_TYPE:
             raise DestinationPolicyError("TLS tunnel did not start with a handshake record")
         record_length = int.from_bytes(header[3:5], "big")
         if record_length == 0 or len(wire) + 5 + record_length > max_bytes:
             raise DestinationPolicyError("TLS ClientHello exceeds the proxy inspection limit")
-        payload = _read_exact(reader, record_length)
+        payload = _read_exact(read, record_length)
         wire.extend(header)
         wire.extend(payload)
         handshake.extend(payload)
@@ -294,10 +346,10 @@ def read_tls_client_hello(
     return bytes(wire), server_name
 
 
-def _read_exact(reader: BinaryIO, length: int) -> bytes:
+def _read_exact(read: Callable[[int], bytes], length: int) -> bytes:
     data = bytearray()
     while len(data) < length:
-        chunk = reader.read(length - len(data))
+        chunk = read(length - len(data))
         if not chunk:
             raise DestinationPolicyError("TLS ClientHello ended prematurely")
         data.extend(chunk)

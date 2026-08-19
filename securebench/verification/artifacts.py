@@ -335,9 +335,16 @@ def _apply_oracle_outcomes(
     summaries: list[CheckResultSummary],
     verdict: OracleVerdict,
 ) -> list[CheckResultSummary]:
+    check_ids = {summary.id for summary in summaries}
+    outcome_ids = set(verdict.check_outcomes)
+    if outcome_ids != check_ids:
+        raise VerificationInfrastructureError(
+            "oracle_protocol_error",
+            "Oracle check outcomes do not match the declared verification checks",
+        )
     output = []
     for summary in summaries:
-        passed = verdict.check_outcomes.get(summary.id, verdict.passed)
+        passed = verdict.check_outcomes[summary.id]
         output.append(
             CheckResultSummary(
                 id=summary.id,

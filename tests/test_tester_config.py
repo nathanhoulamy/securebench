@@ -70,6 +70,10 @@ harness:
             {"run": {"id": "x", "output_dir": "runs/x", "max_workers": True}},
             "must be a positive integer",
         ),
+        (
+            {"run": {"id": "x" * 257, "output_dir": "runs/x"}},
+            "run.id must be at most 256 characters",
+        ),
         ({"harness": {"type": "unknown"}}, "harness.type must be one of"),
         (
             {"harness": {"type": "codex", "env": ["BAD=value"]}},

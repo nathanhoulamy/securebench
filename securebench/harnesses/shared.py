@@ -157,10 +157,20 @@ def agent_task_json(task: BenchmarkTask) -> str:
     return json.dumps(task.agent_payload(), indent=2, sort_keys=True, allow_nan=False) + "\n"
 
 
-def reject_task_file_collision(task_file: str, plan: MaterializationPlan) -> None:
-    path = PurePosixPath(task_file)
+def reject_task_file_collision(
+    task_file: str,
+    plan: MaterializationPlan,
+    *,
+    workspace_mount_target: str,
+) -> None:
+    path = PurePosixPath(workspace_mount_target) / PurePosixPath(task_file)
     for resource in plan.resources:
-        if paths_overlap(path, PurePosixPath(resource.relative_path)):
+        resource_path = (
+            PurePosixPath(resource.container_path)
+            if resource.container_path is not None
+            else PurePosixPath(workspace_mount_target) / PurePosixPath(resource.relative_path)
+        )
+        if paths_overlap(path, resource_path):
             raise ConfigError(
                 f"harness.config.task_file collides with public materialized path: {task_file}"
             )

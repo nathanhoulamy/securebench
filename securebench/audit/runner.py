@@ -13,7 +13,6 @@ from securebench.tester_config import TesterConfig
 def audit_config(
     config: TesterConfig,
     *,
-    output_dir: str | Path | None = None,
     limit: int | None = None,
 ) -> AuditReport:
     pack = load_benchmark_pack(config.benchmark.manifest, config.benchmark.tasks)
@@ -27,10 +26,7 @@ def audit_config(
     )
 
 
-def audit_self(
-    *,
-    output_dir: str | Path,
-) -> AuditReport:
+def audit_self() -> AuditReport:
     """Audit the checked-in v2 reference pack; dynamic attacks live in tests."""
     root = Path(__file__).resolve().parents[2] / "benchmarks" / "terminal-bench"
     pack = load_benchmark_pack(root / "manifest-v2.yaml", root / "tasks-v2.jsonl")
