@@ -4,6 +4,8 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import (
@@ -12,7 +14,9 @@ from securebench.candidates import (
     CandidateProductionTimeout,
     CandidateStore,
 )
+from securebench.errors import ConfigError
 from securebench.harnesses.shared import workspace_dir_name
+from securebench.locking import exclusive_file_lock
 from securebench.sandboxes import CommandResult
 from securebench.tester_config import (
     TesterBenchmarkSection as BenchmarkSection,
@@ -20,7 +24,14 @@ from securebench.tester_config import (
     TesterHarnessSection as HarnessSection,
     TesterRunSection as RunSection,
 )
-from securebench.tester_run import _reset_task_workspace, _resume_records, run_tester_config
+from securebench.tester_run import (
+    MAX_RESULT_RECORD_BYTES,
+    RUN_LOCK_FILENAME,
+    _reset_task_workspace,
+    _resume_records,
+    execution_config_digest,
+    run_tester_config,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -94,7 +105,8 @@ def test_runner_persists_only_durable_candidate_and_sanitized_oracle_result(monk
     assert record["provenance"]["image_digest"].startswith("sha256:")
     assert record["provenance"]["baseline_digest"].startswith("sha256:")
     assert record["provenance"]["verification_digest"].startswith("sha256:")
-    assert record["schema_version"] == "2"
+    assert record["schema_version"] == "3"
+    assert record["provenance"]["execution_digest"] == execution_config_digest(current)
     encoded = json.dumps(record)
     assert "must not enter result" not in encoded
     assert "source_path" not in encoded
@@ -154,8 +166,8 @@ def test_workspace_cleanup_uses_pinned_image_after_permission_failure(monkeypatc
         calls["docker"].append(command)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("securebench.tester_run.shutil.rmtree", fake_rmtree)
-    monkeypatch.setattr("securebench.tester_run.subprocess.run", fake_run)
+    monkeypatch.setattr("securebench.workspaces.cleanup.shutil.rmtree", fake_rmtree)
+    monkeypatch.setattr("securebench.workspaces.cleanup.subprocess.run", fake_run)
 
     _reset_task_workspace(workspace_root, task)
 
@@ -166,6 +178,9 @@ def test_workspace_cleanup_uses_pinned_image_after_permission_failure(monkeypatc
     ]
     assert ["--cap-add", "DAC_OVERRIDE"] == cleanup_run[
         cleanup_run.index("--cap-add") : cleanup_run.index("--cap-add") + 2
+    ]
+    assert ["--user", "0:0"] == cleanup_run[
+        cleanup_run.index("--user") : cleanup_run.index("--user") + 2
     ]
     assert calls["docker"][1][:3] == ["docker", "rm", "-f"]
     assert not task_workspace.exists()
@@ -186,6 +201,114 @@ def test_runner_resume_requires_matching_row_provenance(monkeypatch, tmp_path):
     assert second.passed == 1
     assert producer.calls == 1
     assert len(Path(first.output_path).read_text().splitlines()) == 1
+
+
+def test_runner_resume_reexecutes_after_harness_config_changes(monkeypatch, tmp_path):
+    current = config(tmp_path)
+    producer = GoodProducer(current.run.output_dir / "workspaces")
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: producer,
+    )
+    run_tester_config(current)
+    changed = replace(
+        current,
+        harness=replace(current.harness, config={"command": "different"}),
+    )
+
+    run_tester_config(changed, resume=True)
+
+    assert producer.calls == 2
+    record = json.loads(Path(current.run.output_dir / "results.jsonl").read_text())
+    assert record["provenance"]["execution_digest"] == execution_config_digest(changed)
+
+
+def test_runner_resume_reexecutes_after_agent_environment_changes(monkeypatch, tmp_path):
+    monkeypatch.setenv("AGENT_SETTING", "first")
+    current = replace(
+        config(tmp_path),
+        harness=HarnessSection(
+            type="command",
+            env=("AGENT_SETTING",),
+            config={"command": "ignored"},
+        ),
+    )
+    producer = GoodProducer(current.run.output_dir / "workspaces")
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: producer,
+    )
+    run_tester_config(current)
+    monkeypatch.setenv("AGENT_SETTING", "second")
+
+    run_tester_config(current, resume=True)
+
+    assert producer.calls == 2
+
+
+def test_execution_digest_excludes_provider_credentials_filtered_from_agent(monkeypatch, tmp_path):
+    current = replace(
+        config(tmp_path),
+        harness=HarnessSection(
+            type="codex",
+            env=("OPENAI_API_KEY", "AGENT_SETTING"),
+            config={"model": "gpt-test"},
+        ),
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "first-secret")
+    monkeypatch.setenv("AGENT_SETTING", "stable")
+    initial = execution_config_digest(current)
+
+    monkeypatch.setenv("OPENAI_API_KEY", "second-secret")
+    assert execution_config_digest(current) == initial
+
+    monkeypatch.setenv("AGENT_SETTING", "changed")
+    assert execution_config_digest(current) != initial
+
+
+def test_runner_resume_skips_oversized_corrupt_lines_without_buffering_them(
+    monkeypatch,
+    tmp_path,
+):
+    current = config(tmp_path)
+    producer = GoodProducer(current.run.output_dir / "workspaces")
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: producer,
+    )
+    first = run_tester_config(current)
+    output = Path(first.output_path)
+    valid = output.read_bytes()
+    output.write_bytes(b"x" * (MAX_RESULT_RECORD_BYTES * 2) + b"\n" + valid)
+
+    run_tester_config(current, resume=True)
+
+    assert producer.calls == 1
+    assert len(output.read_text().splitlines()) == 1
+
+
+def test_runner_rejects_concurrent_use_of_one_output_directory(monkeypatch, tmp_path):
+    current = config(tmp_path)
+    current.run.output_dir.mkdir(parents=True)
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: pytest.fail("producer must not be built"),
+    )
+
+    with exclusive_file_lock(current.run.output_dir / RUN_LOCK_FILENAME):
+        with pytest.raises(ConfigError, match="another SecureBench run"):
+            run_tester_config(current)
+
+
+def test_runner_rejects_output_directory_inside_benchmark_pack(tmp_path):
+    current = config(tmp_path)
+    forbidden = PACK / ".securebench-forbidden-output"
+    changed = replace(current, run=replace(current.run, output_dir=forbidden))
+
+    with pytest.raises(ConfigError, match="outside the benchmark pack"):
+        run_tester_config(changed)
+
+    assert not forbidden.exists()
 
 
 def test_runner_resume_reexecutes_when_candidate_artifact_is_missing(monkeypatch, tmp_path):
@@ -236,7 +359,7 @@ def test_resume_rejects_changed_verification_inputs(tmp_path):
         )
     )
     record = {
-        "schema_version": "2",
+        "schema_version": "3",
         "run_id": current.run.id,
         "task_id": task.id,
         "benchmark_id": task.benchmark_id,
@@ -251,6 +374,7 @@ def test_resume_rejects_changed_verification_inputs(tmp_path):
             "image_digest": task.environment.image,
             "baseline_digest": task.baseline_digest,
             "verification_digest": task.verification_digest,
+            "execution_digest": execution_config_digest(current),
         },
         "checks": [],
         "public_diagnostics": {},
@@ -259,7 +383,13 @@ def test_resume_rejects_changed_verification_inputs(tmp_path):
     output.write_text(json.dumps(record) + "\n")
     changed = replace(task, verification_digest="sha256:" + "0" * 64)
 
-    assert _resume_records(output, current.run.id, [changed], CandidateStore(tmp_path / "store")) == []
+    assert _resume_records(
+        output,
+        current.run.id,
+        [changed],
+        CandidateStore(tmp_path / "store"),
+        execution_digest=execution_config_digest(current),
+    ) == []
 
 
 def test_runner_routes_producer_timeout_to_oracle(monkeypatch, tmp_path):

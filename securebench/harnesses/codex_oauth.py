@@ -18,14 +18,9 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 try:
-    import fcntl
-except ImportError:  # pragma: no cover - exercised on Windows
-    fcntl = None  # type: ignore[assignment]
-
-try:
-    import msvcrt
-except ImportError:  # pragma: no cover - exercised on POSIX
-    msvcrt = None  # type: ignore[assignment]
+    from securebench.locking import exclusive_file_lock
+except ImportError:  # Standalone provider-relay sidecar mount.
+    from locking import exclusive_file_lock
 
 
 CODEX_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -278,38 +273,8 @@ def _write_auth_document(path: Path, document: dict[str, Any]) -> None:
 def _auth_file_lock(path: Path) -> Iterator[None]:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     lock_path = path.parent / ".auth.lock"
-    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    locked = False
-    try:
-        _lock_descriptor(descriptor)
-        locked = True
+    with exclusive_file_lock(lock_path):
         yield
-    finally:
-        if locked:
-            _unlock_descriptor(descriptor)
-        os.close(descriptor)
-
-
-def _lock_descriptor(descriptor: int) -> None:
-    if fcntl is not None:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
-        return
-    if msvcrt is None:  # pragma: no cover - supported Python platforms provide one
-        raise CodexOAuthError("This platform does not provide file locking")
-    if os.fstat(descriptor).st_size == 0:
-        os.write(descriptor, b"\0")
-    os.lseek(descriptor, 0, os.SEEK_SET)
-    msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
-
-
-def _unlock_descriptor(descriptor: int) -> None:
-    if fcntl is not None:
-        fcntl.flock(descriptor, fcntl.LOCK_UN)
-        return
-    if msvcrt is None:  # pragma: no cover - supported Python platforms provide one
-        return
-    os.lseek(descriptor, 0, os.SEEK_SET)
-    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
 
 
 def _required_token(tokens: dict[str, Any], name: str, path: Path) -> str:

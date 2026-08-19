@@ -68,6 +68,7 @@ def test_result_view_redacts_non_public_values():
     assert summary[1]["redacted"] is True
     assert summary[2]["redacted"] is True
     assert "expose" not in summary[0]
+    assert bundle.view_for("result").resources == ()
 
 
 def test_resource_bundle_is_dict_backed_and_accepts_mappings():

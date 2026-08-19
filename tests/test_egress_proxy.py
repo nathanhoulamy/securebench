@@ -1,21 +1,66 @@
 import io
 import ipaddress
 import socket
+import ssl
+from email.message import Message
 from types import SimpleNamespace
 
 import pytest
 
+from securebench.harnesses import egress_proxy
 from securebench.harnesses.egress_proxy import (
     AllowlistingProxyHandler,
     DestinationPolicyError,
     connect_allowed_destination,
+    http_host_header,
     is_public_unicast_address,
+    read_tls_client_hello,
     resolve_public_addresses,
 )
 
 
 PUBLIC_IPV4 = "8.8.8.8"
 PUBLIC_IPV6 = "2606:4700:4700::1111"
+
+
+def tls_client_hello(server_name: str | None) -> bytes:
+    incoming = ssl.MemoryBIO()
+    outgoing = ssl.MemoryBIO()
+    context = ssl.create_default_context()
+    connection = context.wrap_bio(
+        incoming,
+        outgoing,
+        server_side=False,
+        server_hostname=server_name,
+    )
+    with pytest.raises(ssl.SSLWantReadError):
+        connection.do_handshake()
+    return outgoing.read()
+
+
+class ProxySocket:
+    def __init__(self):
+        self.sent = bytearray()
+        self.closed = False
+        self.timeout = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def settimeout(self, timeout):
+        self.timeout = timeout
+
+    def sendall(self, data):
+        self.sent.extend(data)
+
+    def recv(self, size):
+        return b""
+
+    def close(self):
+        self.closed = True
 
 
 def dns_record(address, *, family=socket.AF_INET, proto=socket.IPPROTO_TCP):
@@ -262,6 +307,9 @@ def test_http_handler_maps_policy_and_resolution_failures(monkeypatch, error, st
     )
     handler = object.__new__(AllowlistingProxyHandler)
     handler.path = "http://example.com/resource"
+    handler.command = "GET"
+    handler.request_version = "HTTP/1.1"
+    handler.headers = Message()
     handler.domains = ("example.com",)
     errors = []
     handler.send_error = lambda value: errors.append(value)
@@ -271,24 +319,43 @@ def test_http_handler_maps_policy_and_resolution_failures(monkeypatch, error, st
     assert errors == [status]
 
 
-def test_http_handler_preserves_original_host_header(monkeypatch):
-    class FakeUpstream:
-        def __init__(self):
-            self.sent = []
+def test_proxy_extracts_sni_from_tls_client_hello():
+    wire = tls_client_hello("Example.COM")
 
-        def __enter__(self):
-            return self
+    consumed, server_name = read_tls_client_hello(io.BytesIO(wire))
 
-        def __exit__(self, exc_type, exc, traceback):
-            return None
+    assert consumed == wire
+    assert server_name == "Example.COM"
 
-        def sendall(self, content):
-            self.sent.append(content)
 
-        def recv(self, size):
-            return b""
+def test_proxy_rejects_tls_client_hello_without_sni():
+    with pytest.raises(DestinationPolicyError, match="SNI"):
+        read_tls_client_hello(io.BytesIO(tls_client_hello(None)))
 
-    upstream = FakeUpstream()
+
+def test_proxy_rejects_connect_sni_that_differs_from_authority(monkeypatch):
+    upstream = ProxySocket()
+    monkeypatch.setattr(
+        egress_proxy,
+        "connect_allowed_destination",
+        lambda *args, **kwargs: upstream,
+    )
+    handler = object.__new__(AllowlistingProxyHandler)
+    handler.path = "example.com:443"
+    handler.domains = ("example.com",)
+    handler.rfile = io.BytesIO(tls_client_hello("other.example.com"))
+    handler.connection = ProxySocket()
+    handler.send_response = lambda *args, **kwargs: None
+    handler.end_headers = lambda: None
+
+    handler.do_CONNECT()
+
+    assert upstream.closed is True
+    assert upstream.sent == b""
+
+
+def test_http_handler_forces_url_host_and_connection_close(monkeypatch):
+    upstream = ProxySocket()
     connected = []
 
     def connect(host, port, domains, *, timeout):
@@ -296,11 +363,14 @@ def test_http_handler_preserves_original_host_header(monkeypatch):
         return upstream
 
     monkeypatch.setattr("securebench.harnesses.egress_proxy.connect_allowed_destination", connect)
+    request_headers = Message()
+    request_headers["Host"] = "attacker.example"
+    request_headers["Proxy-Connection"] = "keep-alive"
     handler = object.__new__(AllowlistingProxyHandler)
     handler.path = "http://example.com/resource?query=yes"
     handler.command = "GET"
     handler.request_version = "HTTP/1.1"
-    handler.headers = {"Host": "example.com", "Proxy-Connection": "keep-alive"}
+    handler.headers = request_headers
     handler.rfile = io.BytesIO()
     handler.connection = SimpleNamespace(sendall=lambda content: None)
     handler.domains = ("example.com",)
@@ -309,8 +379,9 @@ def test_http_handler_preserves_original_host_header(monkeypatch):
     handler._proxy_absolute_request()
 
     assert connected == [("example.com", 80, ("example.com",), 9)]
-    assert upstream.sent == [
-        b"GET /resource?query=yes HTTP/1.1\r\n",
-        b"Host: example.com\r\n",
-        b"\r\n",
-    ]
+    forwarded = upstream.sent.decode("latin-1")
+    assert forwarded.startswith("GET /resource?query=yes HTTP/1.1\r\n")
+    assert "Host: example.com\r\n" in forwarded
+    assert "Host: attacker.example" not in forwarded
+    assert "Connection: close\r\n" in forwarded
+    assert http_host_header("example.com", 80) == "example.com"

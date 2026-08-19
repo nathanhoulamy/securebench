@@ -16,12 +16,16 @@ from securebench.harnesses.codex import (
     CODEX_SUBSCRIPTION_RELAY_SPEC,
 )
 from securebench.harnesses.provider_relay import (
+    MAX_PROVIDER_REQUEST_BYTES,
+    MAX_RELAY_LOG_BYTES,
+    UNINSPECTABLE_TOOL_REQUEST,
     RelayConfig,
     ProviderRelayHandler,
     blocked_external_tools,
     relay_config_from_env,
     path_allowed,
     upstream_headers,
+    write_decision,
 )
 
 
@@ -38,8 +42,6 @@ def test_openai_relay_injects_real_auth_and_strips_dummy_auth(tmp_path):
         upstream_host="api.openai.com",
         credential="real-key",
         credential_kind="bearer",
-        blocked_tool_types=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_types,
-        blocked_tool_prefixes=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
         allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
         allow_external_tools=False,
         log_dir=tmp_path,
@@ -52,12 +54,17 @@ def test_openai_relay_injects_real_auth_and_strips_dummy_auth(tmp_path):
             Authorization="Bearer dummy",
             X_API_Key="dummy",
             Content_Type="application/json",
+            Content_Length="123",
+            Connection="X-Remove",
+            X_Remove="discard-me",
         ),
     )
 
     assert result["Authorization"] == "Bearer real-key"
     assert result["Content-Type"] == "application/json"
     assert "x-api-key" not in {name.lower() for name in result}
+    assert "content-length" not in {name.lower() for name in result}
+    assert "x-remove" not in {name.lower() for name in result}
     assert result["Host"] == "api.openai.com"
 
 
@@ -67,8 +74,6 @@ def test_anthropic_relay_injects_real_api_key(tmp_path):
         upstream_host="api.anthropic.com",
         credential="real-key",
         credential_kind="x-api-key",
-        blocked_tool_types=CLAUDE_CODE_PROVIDER_RELAY_SPEC.blocked_tool_types,
-        blocked_tool_prefixes=CLAUDE_CODE_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
         allowed_client_tool_types=CLAUDE_CODE_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
         allow_external_tools=False,
         log_dir=tmp_path,
@@ -97,8 +102,6 @@ def test_anthropic_relay_injects_subscription_bearer_token(tmp_path):
         upstream_host="api.anthropic.com",
         credential="real-oauth-token",
         credential_kind="bearer",
-        blocked_tool_types=CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC.blocked_tool_types,
-        blocked_tool_prefixes=CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC.blocked_tool_prefixes,
         allowed_client_tool_types=CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC.allowed_client_tool_types,
         allow_external_tools=False,
         log_dir=tmp_path,
@@ -171,8 +174,6 @@ def test_codex_subscription_relay_refreshes_auth_outside_agent(
         upstream_host="chatgpt.com",
         credential=None,
         credential_kind="codex-oauth",
-        blocked_tool_types=CODEX_SUBSCRIPTION_RELAY_SPEC.blocked_tool_types,
-        blocked_tool_prefixes=CODEX_SUBSCRIPTION_RELAY_SPEC.blocked_tool_prefixes,
         allowed_client_tool_types=CODEX_SUBSCRIPTION_RELAY_SPEC.allowed_client_tool_types,
         allow_external_tools=False,
         log_dir=tmp_path,
@@ -216,9 +217,17 @@ def test_codex_subscription_relay_limits_chatgpt_backend_paths():
     assert path_allowed(r"/backend-api/codex/\..\me", prefixes) is False
 
 
+def test_api_key_relays_limit_credentials_to_model_inference_paths():
+    assert path_allowed("/v1/responses", CODEX_PROVIDER_RELAY_SPEC.allowed_path_prefixes)
+    assert path_allowed("/v1/responses/compact", CODEX_PROVIDER_RELAY_SPEC.allowed_path_prefixes)
+    assert not path_allowed("/v1/responses-evil", CODEX_PROVIDER_RELAY_SPEC.allowed_path_prefixes)
+    assert not path_allowed("/v1/files", CODEX_PROVIDER_RELAY_SPEC.allowed_path_prefixes)
+    assert path_allowed("/v1/messages", CLAUDE_CODE_PROVIDER_RELAY_SPEC.allowed_path_prefixes)
+    assert not path_allowed("/v1/organizations", CLAUDE_CODE_PROVIDER_RELAY_SPEC.allowed_path_prefixes)
+
+
 def test_openai_policy_blocks_hosted_tools_and_allows_client_tools():
     blocked = blocked_external_tools(
-        "application/json",
         json.dumps(
             {
                 "tools": [
@@ -233,8 +242,6 @@ def test_openai_policy_blocks_hosted_tools_and_allows_client_tools():
             }
         ).encode(),
         allow_external_tools=False,
-        blocked_tool_types=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_types,
-        blocked_tool_prefixes=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
         allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
     )
 
@@ -249,7 +256,6 @@ def test_openai_policy_blocks_hosted_tools_and_allows_client_tools():
 
 def test_anthropic_policy_blocks_server_tools_and_allows_client_tools():
     blocked = blocked_external_tools(
-        "application/json",
         json.dumps(
             {
                 "tools": [
@@ -260,25 +266,121 @@ def test_anthropic_policy_blocks_server_tools_and_allows_client_tools():
             }
         ).encode(),
         allow_external_tools=False,
-        blocked_tool_types=CLAUDE_CODE_PROVIDER_RELAY_SPEC.blocked_tool_types,
-        blocked_tool_prefixes=CLAUDE_CODE_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
         allowed_client_tool_types=CLAUDE_CODE_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
+        allow_untyped_client_tools=CLAUDE_CODE_PROVIDER_RELAY_SPEC.allow_untyped_client_tools,
     )
 
     assert blocked == ("web_search_20250305", "web_fetch_20250910")
 
 
+def test_anthropic_policy_rejects_malformed_untyped_client_tool():
+    blocked = blocked_external_tools(
+        b'{"tools":[{"name":"missing_schema"}]}',
+        allow_external_tools=False,
+        allow_untyped_client_tools=True,
+    )
+
+    assert blocked == (UNINSPECTABLE_TOOL_REQUEST,)
+
+
 def test_policy_allows_external_tools_when_enabled():
     blocked = blocked_external_tools(
-        "application/json",
         b'{"tools": [{"type": "web_search"}]}',
         allow_external_tools=True,
-        blocked_tool_types=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_types,
-        blocked_tool_prefixes=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
         allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
     )
 
     assert blocked == ()
+
+
+def test_tool_policy_fails_closed_for_uninspectable_or_unknown_openai_tools():
+    options = {
+        "allowed_client_tool_types": CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
+    }
+
+    assert blocked_external_tools(b"not-json", False, **options) == (
+        UNINSPECTABLE_TOOL_REQUEST,
+    )
+    assert blocked_external_tools(b'{"tools":"invalid"}', False, **options) == (
+        UNINSPECTABLE_TOOL_REQUEST,
+    )
+    assert blocked_external_tools(
+        b'{"tools":[{"type":"new_hosted_tool"}]}',
+        False,
+        **options,
+    ) == ("new_hosted_tool",)
+
+
+def test_provider_relay_rejects_oversized_request_before_reading_body(tmp_path):
+    handler = object.__new__(ProviderRelayHandler)
+    handler.relay_config = RelayConfig(
+        provider="openai",
+        upstream_host="api.openai.com",
+        credential="real-key",
+        credential_kind="bearer",
+        allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
+        allow_external_tools=False,
+        log_dir=tmp_path,
+        allowed_path_prefixes=CODEX_PROVIDER_RELAY_SPEC.allowed_path_prefixes,
+    )
+    handler.command = "POST"
+    handler.path = "/v1/responses"
+    handler.headers = headers(Content_Length=str(MAX_PROVIDER_REQUEST_BYTES + 1))
+    handler.rfile = io.BytesIO()
+    errors = []
+    handler.send_error = lambda status: errors.append(status)
+
+    handler._relay()
+
+    assert errors == [413]
+    decision = json.loads((tmp_path / "decisions.jsonl").read_text())
+    assert decision["status"] == "blocked"
+    assert decision["blocked_reason"] == "request_too_large"
+
+
+def test_provider_relay_rejects_disallowed_method(tmp_path):
+    handler = object.__new__(ProviderRelayHandler)
+    handler.relay_config = RelayConfig(
+        provider="openai",
+        upstream_host="api.openai.com",
+        credential="real-key",
+        credential_kind="bearer",
+        allowed_client_tool_types=(),
+        allow_external_tools=False,
+        log_dir=tmp_path,
+        allowed_methods=("POST",),
+    )
+    handler.command = "GET"
+    handler.path = "/v1/responses"
+    errors = []
+    handler.send_error = lambda status: errors.append(status)
+
+    handler._relay()
+
+    assert errors == [403]
+    decision = json.loads((tmp_path / "decisions.jsonl").read_text())
+    assert decision["blocked_reason"] == "upstream_method"
+
+
+def test_provider_relay_log_is_bounded(monkeypatch, tmp_path):
+    monkeypatch.setattr(provider_relay, "MAX_RELAY_LOG_BYTES", 1024)
+    config = RelayConfig(
+        provider="openai",
+        upstream_host="api.openai.com",
+        credential="real-key",
+        credential_kind="bearer",
+        allowed_client_tool_types=(),
+        allow_external_tools=False,
+        log_dir=tmp_path,
+    )
+
+    for index in range(100):
+        write_decision(config, {"status": "blocked", "index": index})
+
+    log = tmp_path / "decisions.jsonl"
+    assert 0 < log.stat().st_size <= 1024
+    assert log.read_bytes().endswith(b"\n")
+    assert MAX_RELAY_LOG_BYTES > 1024
 
 
 def test_handler_forwards_streaming_chunks_and_logs_redacted_decision(monkeypatch, tmp_path):
@@ -316,8 +418,6 @@ def test_handler_forwards_streaming_chunks_and_logs_redacted_decision(monkeypatc
         upstream_host="api.openai.com",
         credential="real-key",
         credential_kind="bearer",
-        blocked_tool_types=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_types,
-        blocked_tool_prefixes=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
         allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
         allow_external_tools=False,
         log_dir=tmp_path,
@@ -349,7 +449,7 @@ def test_handler_forwards_streaming_chunks_and_logs_redacted_decision(monkeypatc
     ]
     assert records == [
         {
-            "blocked_tool_types": [],
+            "blocked_tools": [],
             "path": "/v1/responses",
             "provider": "openai",
             "request_bytes": 2,
@@ -411,8 +511,6 @@ def test_handler_refreshes_codex_oauth_once_after_unauthorized(monkeypatch, tmp_
         upstream_host="chatgpt.com",
         credential=None,
         credential_kind="codex-oauth",
-        blocked_tool_types=CODEX_SUBSCRIPTION_RELAY_SPEC.blocked_tool_types,
-        blocked_tool_prefixes=CODEX_SUBSCRIPTION_RELAY_SPEC.blocked_tool_prefixes,
         allowed_client_tool_types=CODEX_SUBSCRIPTION_RELAY_SPEC.allowed_client_tool_types,
         allow_external_tools=False,
         log_dir=tmp_path,

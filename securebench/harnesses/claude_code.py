@@ -53,6 +53,7 @@ from securebench.harnesses.network import (
 from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
 from securebench.tasks import BenchmarkTask
+from securebench.workspaces.cleanup import remove_untrusted_tree
 from securebench.workspaces.materialization import (
     VisibilityAwareMaterializer,
     docker_resource_mounts,
@@ -91,29 +92,14 @@ CLAUDE_CODE_DUMMY_API_KEY = "securebench-dummy-anthropic-api-key"
 CLAUDE_CODE_DUMMY_OAUTH_TOKEN = "sk-ant-oat01-securebench-dummy-oauth-token"
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"
 CLAUDE_CODE_DISABLE_AUTOUPDATER = "DISABLE_AUTOUPDATER"
-CLAUDE_CODE_BLOCKED_TOOL_TYPES = (
-    "mcp",
-    "mcp_tool",
-    "mcp_connector",
-    "code_execution",
-    "web_search",
-    "web_fetch",
-    "server_tool",
-)
-CLAUDE_CODE_BLOCKED_TOOL_PREFIXES = (
-    "web_search_",
-    "web_fetch_",
-    "code_execution_",
-    "computer_use_",
-)
 CLAUDE_CODE_PROVIDER_RELAY_SPEC = ProviderRelaySpec(
     provider=CLAUDE_CODE_PROVIDER,
     upstream_host=CLAUDE_CODE_PROVIDER_UPSTREAM_HOST,
     credential_env="ANTHROPIC_API_KEY",
     credential_kind="x-api-key",
     base_url=f"http://{PROVIDER_RELAY_ALIAS}:{PROVIDER_RELAY_PORT}",
-    blocked_tool_types=CLAUDE_CODE_BLOCKED_TOOL_TYPES,
-    blocked_tool_prefixes=CLAUDE_CODE_BLOCKED_TOOL_PREFIXES,
+    allow_untyped_client_tools=True,
+    allowed_path_prefixes=("/v1/messages",),
 )
 CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC = ProviderRelaySpec(
     provider=CLAUDE_CODE_PROVIDER,
@@ -121,8 +107,8 @@ CLAUDE_CODE_SUBSCRIPTION_RELAY_SPEC = ProviderRelaySpec(
     credential_env="CLAUDE_CODE_OAUTH_TOKEN",
     credential_kind="bearer",
     base_url=f"http://{PROVIDER_RELAY_ALIAS}:{PROVIDER_RELAY_PORT}",
-    blocked_tool_types=CLAUDE_CODE_BLOCKED_TOOL_TYPES,
-    blocked_tool_prefixes=CLAUDE_CODE_BLOCKED_TOOL_PREFIXES,
+    allow_untyped_client_tools=True,
+    allowed_path_prefixes=("/v1/messages",),
 )
 
 
@@ -174,13 +160,12 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
             raise ConfigError(
                 "Claude Code harness requires a persistent workspace_root for stopped-state capture"
             )
-        state_cleanup = None
+        state_root: Path | None = None
 
         try:
             task_workspace.mkdir(parents=True, exist_ok=True)
             materialize_image_workdir(task, task_workspace)
-            state_cleanup = tempfile.TemporaryDirectory(prefix="securebench-claude-home-")
-            state_root = Path(state_cleanup.name)
+            state_root = Path(tempfile.mkdtemp(prefix="securebench-claude-home-"))
             staging = HostSandbox(root=task_workspace)
             plan = self.materializer.materialize(task, staging, "agent")
             reject_task_file_collision(self.task_file, plan)
@@ -291,8 +276,8 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                 finally:
                     close_sandbox(sandbox)
         finally:
-            if state_cleanup is not None:
-                state_cleanup.cleanup()
+            if state_root is not None:
+                remove_untrusted_tree(state_root, image=image)
 
 
 def claude_code_config(config: dict[str, Any]) -> dict[str, Any]:

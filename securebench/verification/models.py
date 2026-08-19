@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 VerificationStatus = Literal["passed", "failed", "infrastructure_error"]
 CheckStatus = Literal["passed", "failed", "infrastructure_error"]
-RESULT_SCHEMA_VERSION = "2"
+RESULT_SCHEMA_VERSION = "3"
 
 
 @dataclass(frozen=True)
@@ -172,7 +172,9 @@ class VerificationResultV2:
             ):
                 raise ValueError("infrastructure_error must contain non-empty code and message")
 
-    def to_record(self, *, run_id: str) -> dict[str, Any]:
+    def to_record(self, *, run_id: str, execution_digest: str) -> dict[str, Any]:
+        if not _is_sha256_digest(execution_digest):
+            raise ValueError("execution_digest must be a sha256 digest")
         record: dict[str, Any] = {
             "schema_version": RESULT_SCHEMA_VERSION,
             "run_id": run_id,
@@ -192,6 +194,7 @@ class VerificationResultV2:
                 "image_digest": self.image_digest,
                 "baseline_digest": self.baseline_digest,
                 "verification_digest": self.verification_digest,
+                "execution_digest": execution_digest,
             },
             "checks": [
                 {

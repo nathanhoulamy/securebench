@@ -254,10 +254,15 @@ For all four authentication combinations:
   auth file.
 - The provider relay strips the dummy authentication and injects the real
   host-side credential.
+- Credential-bearing requests are limited to the provider's configured
+  inference paths and HTTP methods; arbitrary provider-account APIs are not
+  reachable through the relay.
 - Relay internet access uses a per-run outbound Docker network rather than the
   shared default bridge.
 - Provider-hosted tools such as web search remain blocked unless
   `allow_external_tools: true` is explicitly configured.
+- When external tools are disabled, malformed or unknown typed tool
+  declarations fail closed instead of bypassing inspection.
 - Provider credentials and `.env` are never mounted into the task workspace.
 
 For Codex subscription mode specifically, the relay mounts only SecureBench's

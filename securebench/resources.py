@@ -28,8 +28,11 @@ COMPONENT_VISIBILITIES: dict[str, tuple[str, ...]] = {
     "agent": ("public",),
     "evaluation_runtime": ("public", "evaluation_inputs"),
     "oracle": ("public", "hidden"),
-    "result": ("public", "evaluation_inputs", "hidden"),
+    # Results receive metadata summaries, never live resource values.
+    "result": (),
 }
+
+
 @dataclass(frozen=True)
 class Resource:
     """One benchmark datum plus the visibility label assigned by an adapter."""
@@ -95,7 +98,11 @@ class ResourceBundle:
         )
 
     def summary(self) -> list[dict[str, Any]]:
-        return self.view_for("result").summary()
+        return ComponentView(
+            component="result",
+            resources=tuple(self.resources.values()),
+        ).summary()
+
 
 def public(name: str, value: Any) -> Resource:
     return Resource(name=name, value=value, visibility="public", kind=_kind_for_value(value))

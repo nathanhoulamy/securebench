@@ -71,7 +71,22 @@ harness:
             "must be a positive integer",
         ),
         ({"harness": {"type": "unknown"}}, "harness.type must be one of"),
-        ({"harness": {"type": "codex", "env": ["BAD=value"]}}, "without '='"),
+        (
+            {"harness": {"type": "codex", "env": ["BAD=value"]}},
+            "valid environment variable name",
+        ),
+        (
+            {"harness": {"type": "codex", "env": ["BAD-NAME"]}},
+            "valid environment variable name",
+        ),
+        (
+            {"harness": {"type": "codex", "env": ["1BAD"]}},
+            "valid environment variable name",
+        ),
+        (
+            {"harness": {"type": "codex", "env": ["CUSTOM_ENV", "CUSTOM_ENV"]}},
+            "duplicate environment variable",
+        ),
     ],
 )
 def test_tester_config_rejects_invalid_shape(override, match):

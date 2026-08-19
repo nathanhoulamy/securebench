@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
-import shutil
 import subprocess
 import tempfile
-import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
@@ -26,15 +25,29 @@ from securebench.candidates import (
 from securebench.errors import ConfigError
 from securebench.execution_profiles import validate_executable_task
 from securebench.harnesses import build_harness_producer
+from securebench.harnesses.registry import (
+    effective_harness_env_names,
+    normalized_harness_config,
+)
 from securebench.harnesses.shared import environment_image_for_task, workspace_dir_name
+from securebench.locking import FileLockError, exclusive_file_lock
 from securebench.progress import ProgressReporter, emit_progress, progress_context
 from securebench.tasks import BenchmarkTask
 from securebench.tester_config import TesterConfig
 from securebench.verification import ArtifactVerificationEngine
 from securebench.verification.models import RESULT_SCHEMA_VERSION
+from securebench.workspaces.cleanup import remove_untrusted_tree
 
 
 DEFAULT_RESULTS_FILENAME = "results.jsonl"
+RUN_LOCK_FILENAME = ".securebench-run.lock"
+EXECUTION_IDENTITY_SCHEMA_VERSION = "1"
+MAX_RESULT_RECORD_BYTES = 256 * 1024
+_DOCKER_EXECUTION_ENV_NAMES = (
+    "SECUREBENCH_DOCKER_MEM_LIMIT",
+    "SECUREBENCH_DOCKER_PIDS_LIMIT",
+    "SECUREBENCH_DOCKER_TMPFS",
+)
 
 
 @dataclass(frozen=True)
@@ -69,19 +82,57 @@ def run_tester_config(
     resume: bool = False,
 ) -> TesterRunSummary:
     """Produce, capture, and verify every selected row through the v2 path."""
-    output_dir = config.run.output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / DEFAULT_RESULTS_FILENAME
-    workspace_root = output_dir / "workspaces"
-    store = CandidateStore(output_dir / "artifacts")
-
     pack = load_benchmark_pack(config.benchmark.manifest, config.benchmark.tasks)
     tasks = list(compile_benchmark_pack(pack, limit=limit))
     for task in tasks:
         validate_executable_task(task)
+
+    output_dir = config.run.output_dir.resolve()
+    _validate_output_location(output_dir, pack.root)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    execution_digest = execution_config_digest(config)
+    try:
+        with exclusive_file_lock(output_dir / RUN_LOCK_FILENAME, blocking=False):
+            return _run_selected_tasks(
+                config,
+                tasks,
+                output_dir=output_dir,
+                execution_digest=execution_digest,
+                progress=progress,
+                resume=resume,
+            )
+    except FileLockError as exc:
+        raise ConfigError(
+            f"another SecureBench run is using output directory: {output_dir}"
+        ) from exc
+
+
+def _run_selected_tasks(
+    config: TesterConfig,
+    tasks: list[BenchmarkTask],
+    *,
+    output_dir: Path,
+    execution_digest: str,
+    progress: ProgressReporter | None,
+    resume: bool,
+) -> TesterRunSummary:
+    """Execute already-compiled rows while holding the output-directory lock."""
+    output_path = output_dir / DEFAULT_RESULTS_FILENAME
+    workspace_root = output_dir / "workspaces"
+    store = CandidateStore(output_dir / "artifacts")
     producer = build_harness_producer(config.harness, workspace_root=workspace_root)
 
-    existing = _resume_records(output_path, config.run.id, tasks, store) if resume else []
+    existing = (
+        _resume_records(
+            output_path,
+            config.run.id,
+            tasks,
+            store,
+            execution_digest=execution_digest,
+        )
+        if resume
+        else []
+    )
     completed_ids = {record["task_id"] for record in existing}
     remaining = [task for task in tasks if task.id not in completed_ids]
     indexes = {task.id: index for index, task in enumerate(tasks, start=1)}
@@ -119,6 +170,7 @@ def run_tester_config(
                             producer=producer,
                             store=store,
                             workspace_root=workspace_root,
+                            execution_digest=execution_digest,
                             progress=progress,
                             index=indexes[task.id],
                             total=len(tasks),
@@ -135,6 +187,7 @@ def run_tester_config(
                             producer=producer,
                             store=store,
                             workspace_root=workspace_root,
+                            execution_digest=execution_digest,
                             progress=progress,
                             index=indexes[task.id],
                             total=len(tasks),
@@ -158,6 +211,52 @@ def run_tester_config(
     )
 
 
+def execution_config_digest(config: TesterConfig) -> str:
+    """Bind results to semantic harness and sandbox execution choices."""
+    env_names = sorted(effective_harness_env_names(config.harness))
+    document = {
+        "schema_version": EXECUTION_IDENTITY_SCHEMA_VERSION,
+        "result_schema_version": RESULT_SCHEMA_VERSION,
+        "harness": {
+            "type": config.harness.type,
+            "environment": {
+                name: {
+                    "present": name in os.environ,
+                    "value_digest": (
+                        "sha256:" + hashlib.sha256(os.environ[name].encode("utf-8")).hexdigest()
+                        if name in os.environ
+                        else None
+                    ),
+                }
+                for name in env_names
+            },
+            "config": normalized_harness_config(config.harness),
+        },
+        "docker_environment": {
+            name: os.environ[name]
+            for name in _DOCKER_EXECUTION_ENV_NAMES
+            if name in os.environ
+        },
+    }
+    encoded = json.dumps(
+        document,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _validate_output_location(output_dir: Path, pack_root: Path) -> None:
+    root = Path(output_dir.anchor)
+    if output_dir == root:
+        raise ConfigError("run.output_dir must not be a filesystem root")
+    resolved_pack_root = pack_root.resolve()
+    if output_dir == resolved_pack_root or output_dir.is_relative_to(resolved_pack_root):
+        raise ConfigError("run.output_dir must be outside the benchmark pack")
+
+
 def _execute_task(
     config: TesterConfig,
     task: BenchmarkTask,
@@ -165,6 +264,7 @@ def _execute_task(
     producer: Any,
     store: CandidateStore,
     workspace_root: Path,
+    execution_digest: str,
     progress: ProgressReporter | None,
     index: int,
     total: int,
@@ -251,7 +351,10 @@ def _execute_task(
             status=result.status,
             score=result.score,
         )
-        record = result.to_record(run_id=config.run.id)
+        record = result.to_record(
+            run_id=config.run.id,
+            execution_digest=execution_digest,
+        )
         emit_progress("task_done", task_id=task.id, status=result.status, passed=result.passed, score=result.score)
         return _CompletedTask(task=task, record=record)
 
@@ -261,67 +364,7 @@ def _reset_task_workspace(workspace_root: Path, task: BenchmarkTask) -> None:
     root = workspace_root.resolve()
     if not task_workspace.is_relative_to(root):
         raise ValueError(f"task workspace escapes workspace root: {task_workspace}")
-    if task_workspace.exists():
-        try:
-            shutil.rmtree(task_workspace)
-        except PermissionError:
-            _restore_workspace_permissions(task_workspace, task.environment.image)
-            shutil.rmtree(task_workspace)
-
-
-def _restore_workspace_permissions(workspace: Path, image: str) -> None:
-    """Use the pinned row image to make a hostile bind mount removable."""
-    container = f"securebench-cleanup-{uuid.uuid4().hex}"
-    command = [
-        "docker",
-        "run",
-        "--name",
-        container,
-        "--entrypoint",
-        "",
-        "--network",
-        "none",
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--cap-add",
-        "DAC_OVERRIDE",
-        "--cap-add",
-        "FOWNER",
-        "--security-opt",
-        "no-new-privileges:true",
-        "--memory",
-        "128m",
-        "--pids-limit",
-        "32",
-        "--mount",
-        f"type=bind,source={workspace},target=/securebench-cleanup",
-        image,
-        "chmod",
-        "-R",
-        "a+rwX",
-        "--",
-        "/securebench-cleanup",
-    ]
-    try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        if completed.returncode != 0:
-            raise RuntimeError("failed to restore untrusted workspace permissions")
-    finally:
-        removed = subprocess.run(
-            ["docker", "rm", "-f", container],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if removed.returncode != 0 and "No such container" not in removed.stderr:
-            raise RuntimeError("failed to remove workspace cleanup container")
+    remove_untrusted_tree(task_workspace, image=task.environment.image)
 
 
 def _resume_records(
@@ -329,13 +372,18 @@ def _resume_records(
     run_id: str,
     tasks: list[BenchmarkTask],
     store: CandidateStore,
+    *,
+    execution_digest: str,
 ) -> list[dict[str, Any]]:
     if not output_path.exists():
         return []
-    expected = {task.id: _expected_provenance(task) for task in tasks}
+    expected = {
+        task.id: _expected_resume_identity(task, execution_digest)
+        for task in tasks
+    }
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for line in output_path.read_text(errors="ignore").splitlines():
+    for line in _bounded_result_lines(output_path):
         line = line.strip("\x00").strip()
         if not line.startswith("{"):
             continue
@@ -346,7 +394,6 @@ def _resume_records(
         if not isinstance(record, dict) or record.get("run_id") != run_id:
             continue
         task_id = record.get("task_id")
-        provenance = record.get("provenance")
         if (
             not isinstance(task_id, str)
             or task_id in seen
@@ -362,7 +409,7 @@ def _resume_records(
 
 def _resume_candidate_available(
     record: dict[str, Any],
-    expected: dict[str, str],
+    expected: dict[str, Any],
     store: CandidateStore,
 ) -> bool:
     candidate = record["candidate"]
@@ -425,7 +472,7 @@ def _resume_blob_available(value: dict[str, Any], store: CandidateStore) -> bool
     return True
 
 
-def _valid_resume_record(record: dict[str, Any], expected: dict[str, str]) -> bool:
+def _valid_resume_record(record: dict[str, Any], expected: dict[str, Any]) -> bool:
     status = record.get("status")
     passed = record.get("passed")
     score = record.get("score")
@@ -462,13 +509,27 @@ def _valid_resume_record(record: dict[str, Any], expected: dict[str, str]) -> bo
         and isinstance(candidate, dict)
         and set(candidate) == {"type", "digest"}
         and _valid_candidate_reference(candidate)
+        and (
+            candidate.get("type") is None
+            or candidate.get("type") == expected["candidate_type"]
+        )
         and isinstance(provenance, dict)
         and provenance == {
             key: value
             for key, value in expected.items()
-            if key not in {"benchmark_id", "execution_profile"}
+            if key
+            not in {
+                "benchmark_id",
+                "execution_profile",
+                "candidate_type",
+                "checks",
+            }
         }
-        and _valid_check_records(record.get("checks"))
+        and _valid_check_records(
+            record.get("checks"),
+            expected=expected["checks"],
+            infrastructure_error=status == "infrastructure_error",
+        )
         and _valid_json_object(record.get("public_diagnostics"))
         and (
             isinstance(infrastructure_error, dict)
@@ -480,10 +541,18 @@ def _valid_resume_record(record: dict[str, Any], expected: dict[str, str]) -> bo
     )
 
 
-def _valid_check_records(value: object) -> bool:
+def _valid_check_records(
+    value: object,
+    *,
+    expected: tuple[tuple[str, str], ...],
+    infrastructure_error: bool,
+) -> bool:
     if not isinstance(value, list):
         return False
+    if infrastructure_error:
+        return value == []
     identifiers: set[str] = set()
+    observed: list[tuple[str, str]] = []
     for check in value:
         if not isinstance(check, dict) or set(check) != {
             "id",
@@ -511,17 +580,24 @@ def _valid_check_records(value: object) -> bool:
         ):
             return False
         identifiers.add(identifier)
-    return True
+        observed.append((identifier, check["type"]))
+    return tuple(observed) == expected
 
 
 def _valid_json_object(value: object) -> bool:
     if not isinstance(value, dict):
         return False
     try:
-        json.dumps(value, sort_keys=True, allow_nan=False)
+        encoded = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
     except (TypeError, ValueError):
         return False
-    return True
+    return len(encoded) <= 64 * 1024
 
 
 def _valid_candidate_reference(candidate: dict[str, Any]) -> bool:
@@ -532,15 +608,21 @@ def _valid_candidate_reference(candidate: dict[str, Any]) -> bool:
     return candidate_type in {"file_bundle", "git_patch", "filesystem_overlay"} and _is_digest(digest)
 
 
-def _expected_provenance(task: BenchmarkTask) -> dict[str, str]:
+def _expected_resume_identity(
+    task: BenchmarkTask,
+    execution_digest: str,
+) -> dict[str, Any]:
     return {
         "benchmark_id": task.benchmark_id,
         "execution_profile": task.verification.execution_profile,
+        "candidate_type": task.verification.candidate.type,
+        "checks": tuple((check.id, check.type) for check in task.verification.checks),
         "manifest_digest": task.manifest_digest,
         "row_digest": task.row_digest,
         "image_digest": _image_digest(task.environment.image),
         "baseline_digest": task.baseline_digest,
         "verification_digest": task.verification_digest,
+        "execution_digest": execution_digest,
     }
 
 
@@ -553,6 +635,26 @@ def _is_digest(value: object) -> bool:
         return False
     hexadecimal = value.removeprefix("sha256:")
     return len(hexadecimal) == 64 and all(character in "0123456789abcdef" for character in hexadecimal)
+
+
+def _bounded_result_lines(path: Path) -> Iterator[str]:
+    """Yield UTF-8 result lines without allocating an unbounded corrupt record."""
+    with path.open("rb") as input_file:
+        while True:
+            raw = input_file.readline(MAX_RESULT_RECORD_BYTES + 1)
+            if not raw:
+                return
+            oversized = len(raw) > MAX_RESULT_RECORD_BYTES
+            while oversized and not raw.endswith(b"\n"):
+                raw = input_file.readline(MAX_RESULT_RECORD_BYTES + 1)
+                if not raw or raw.endswith(b"\n"):
+                    break
+            if oversized:
+                continue
+            try:
+                yield raw.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
 
 
 def _initialize_results_file(output_path: Path, records: list[dict[str, Any]]) -> None:
@@ -618,11 +720,19 @@ def with_tester_overrides(
     if output_dir is not None:
         updated = replace(updated, run=replace(updated.run, output_dir=Path(output_dir)))
     if max_workers is not None:
-        if isinstance(max_workers, bool) or max_workers <= 0:
+        if (
+            isinstance(max_workers, bool)
+            or not isinstance(max_workers, int)
+            or max_workers <= 0
+        ):
             raise ConfigError("--workers must be a positive integer")
         updated = replace(updated, run=replace(updated.run, max_workers=max_workers))
     if max_cached_images is not None:
-        if isinstance(max_cached_images, bool) or max_cached_images <= 0:
+        if (
+            isinstance(max_cached_images, bool)
+            or not isinstance(max_cached_images, int)
+            or max_cached_images <= 0
+        ):
             raise ConfigError("--max-cached-images must be a positive integer")
         updated = replace(updated, docker=replace(updated.docker, max_cached_images=max_cached_images))
     return updated

@@ -172,6 +172,8 @@ def test_harness_provider_relay_specs_own_base_urls():
         == "http://securebench-provider-relay:8090/backend-api"
     )
     assert CLAUDE_CODE_PROVIDER_RELAY_SPEC.base_url == "http://securebench-provider-relay:8090"
+    assert CODEX_PROVIDER_RELAY_SPEC.allowed_path_prefixes == ("/v1/responses",)
+    assert CLAUDE_CODE_PROVIDER_RELAY_SPEC.allowed_path_prefixes == ("/v1/messages",)
 
 
 def test_docker_provider_relay_policy_starts_relay_without_generic_proxy(monkeypatch):
@@ -205,9 +207,10 @@ def test_docker_provider_relay_policy_starts_relay_without_generic_proxy(monkeyp
     assert "SECUREBENCH_UPSTREAM_HOST=api.openai.com" in relay_run
     assert "SECUREBENCH_CREDENTIAL_ENV=OPENAI_API_KEY" in relay_run
     assert "SECUREBENCH_CREDENTIAL_KIND=bearer" in relay_run
-    assert 'SECUREBENCH_BLOCKED_TOOL_TYPES=["code_interpreter", "computer_use", "file_search", "image_generation", "mcp", "web_search"]' in relay_run
-    assert 'SECUREBENCH_BLOCKED_TOOL_PREFIXES=["computer_use_", "web_search_"]' in relay_run
     assert 'SECUREBENCH_ALLOWED_CLIENT_TOOL_TYPES=["apply_patch", "custom", "function", "shell"]' in relay_run
+    assert "SECUREBENCH_ALLOW_UNTYPED_CLIENT_TOOLS=false" in relay_run
+    assert 'SECUREBENCH_ALLOWED_PATH_PREFIXES=["/v1/responses"]' in relay_run
+    assert 'SECUREBENCH_ALLOWED_METHODS=["POST"]' in relay_run
     assert "SECUREBENCH_ALLOW_EXTERNAL_TOOLS=false" in relay_run
     assert commands[3][:4] == ["docker", "network", "connect", "--alias"]
     assert "securebench-provider-relay" in commands[3]
@@ -244,6 +247,7 @@ def test_docker_provider_relay_policy_starts_generic_proxy_when_domains_allowed(
     assert "SECUREBENCH_UPSTREAM_HOST=api.anthropic.com" in relay_run
     assert "SECUREBENCH_CREDENTIAL_ENV=ANTHROPIC_API_KEY" in relay_run
     assert "SECUREBENCH_CREDENTIAL_KIND=x-api-key" in relay_run
+    assert "SECUREBENCH_ALLOW_UNTYPED_CLIENT_TOOLS=true" in relay_run
     assert "SECUREBENCH_ALLOW_EXTERNAL_TOOLS=true" in relay_run
 
 
@@ -317,6 +321,7 @@ def test_docker_provider_relay_policy_mounts_codex_subscription_login(monkeypatc
     )
     assert "SECUREBENCH_CREDENTIAL_ENV=None" not in relay_run
     assert "SECUREBENCH_ALLOWED_PATH_PREFIXES=[\"/backend-api/codex/\"]" in relay_run
+    assert 'SECUREBENCH_ALLOWED_METHODS=["GET", "POST"]' in relay_run
     user_index = relay_run.index("--user")
     assert relay_run[user_index + 1].count(":") == 1
     assert (
@@ -324,6 +329,7 @@ def test_docker_provider_relay_policy_mounts_codex_subscription_login(monkeypatc
         in relay_run
     )
     assert any("target=/opt/securebench/codex_oauth.py,readonly" in item for item in relay_run)
+    assert any("target=/opt/securebench/locking.py,readonly" in item for item in relay_run)
 
 
 def test_codex_subscription_relay_does_not_require_posix_user_ids(monkeypatch, tmp_path):

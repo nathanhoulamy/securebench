@@ -73,8 +73,9 @@ docker:
 Each run writes sanitized `results.jsonl` plus immutable candidate manifests
 and blobs under `artifacts/`. Per-row Agent workspaces are removed after
 capture and verification. Resume accepts a prior result only when its complete
-row, image, candidate-baseline, and verification-input provenance matches the
-current compiled task.
+row, image, candidate-baseline, verification-input, harness, and sandbox
+execution provenance matches the current compiled task. Concurrent processes
+cannot share one output directory.
 
 The author-facing schema and examples are documented in
 [the recommended row schema](docs/final-recommended-row-schema.md) and

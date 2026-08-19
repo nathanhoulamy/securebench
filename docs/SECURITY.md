@@ -43,23 +43,35 @@ Timeouts and rejected captures are also sent to the Oracle as candidate-error
 evidence rather than being scored by the runner.
 
 Public `results.jsonl` records contain candidate/evidence digests, check
-summaries, public diagnostics, and manifest/row/image/baseline/verification
-provenance. Raw Agent
+summaries, public diagnostics, and manifest, row, image, baseline, verification,
+and execution provenance. Raw Agent
 stdout, stderr, metadata, parsed evidence, runtime resources, and host paths are
-not serialized. Resume validates the complete result envelope and all current
-provenance digests before reusing a row.
+not serialized. The result component has no live resource view. Resume validates
+the complete result envelope, declared checks, stored candidate content, and all
+current provenance digests before reusing a row. One process holds an exclusive
+lock on an output directory for the full run. Execution provenance binds the
+normalized harness configuration, effective Agent-visible environment values,
+and Docker limit overrides; provider credentials filtered from the Agent are
+not included.
 
 ## Credentials and network
 
 Named provider harnesses keep real credentials host-side and use a relay to
-inject them outside the Agent container. Provider-hosted external tools are
-blocked unless tester configuration explicitly enables them. Row
+inject them outside the Agent container. Credential-bearing relay requests are
+restricted to the provider's inference paths and required HTTP methods. Tool
+declarations fail closed when they cannot be inspected, and relay requests and
+decision logs are bounded. Provider-hosted external tools are blocked unless
+tester configuration explicitly enables them. Generic allowlisted HTTPS egress
+requires the TLS SNI to match the CONNECT authority; plain HTTP forwarding
+replaces the Agent-supplied Host header with the validated URL host. Row
 `agent_network` declares benchmark requirements; harness allowlists remain a
 tester-owned upper bound on actual connectivity.
 
 ## Current limits
 
 - Result records are not signed.
+- Generic TLS egress does not terminate TLS, so it cannot inspect encrypted HTTP
+  authority or content after validating CONNECT, DNS, public IPs, and SNI.
 - Writable public asset mounts are schema-valid but blocked by current
   execution preflight until composed stopped-filesystem capture is available.
 - `filesystem_overlay`, protocol checks, and `batched-split/v1` are registered

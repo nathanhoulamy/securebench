@@ -53,10 +53,14 @@ from securebench.harnesses.codex_oauth import (
     codex_auth_file,
     ensure_valid_codex_oauth_credentials,
 )
-from securebench.workspaces.materialization import VisibilityAwareMaterializer, docker_resource_mounts
 from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
 from securebench.tasks import BenchmarkTask
+from securebench.workspaces.cleanup import remove_untrusted_tree
+from securebench.workspaces.materialization import (
+    VisibilityAwareMaterializer,
+    docker_resource_mounts,
+)
 
 
 CODEX_CONFIG_FIELDS = {
@@ -103,16 +107,8 @@ CODEX_PROVIDER_RELAY_SPEC = ProviderRelaySpec(
     credential_env="OPENAI_API_KEY",
     credential_kind="bearer",
     base_url=f"http://{PROVIDER_RELAY_ALIAS}:{PROVIDER_RELAY_PORT}/v1",
-    blocked_tool_types=(
-        "web_search",
-        "file_search",
-        "code_interpreter",
-        "computer_use",
-        "image_generation",
-        "mcp",
-    ),
-    blocked_tool_prefixes=("web_search_", "computer_use_"),
     allowed_client_tool_types=("function", "custom", "shell", "apply_patch"),
+    allowed_path_prefixes=("/v1/responses",),
 )
 CODEX_SUBSCRIPTION_RELAY_SPEC = ProviderRelaySpec(
     provider=CODEX_PROVIDER,
@@ -120,10 +116,9 @@ CODEX_SUBSCRIPTION_RELAY_SPEC = ProviderRelaySpec(
     credential_env=None,
     credential_kind="codex-oauth",
     base_url=f"http://{PROVIDER_RELAY_ALIAS}:{PROVIDER_RELAY_PORT}/backend-api",
-    blocked_tool_types=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_types,
-    blocked_tool_prefixes=CODEX_PROVIDER_RELAY_SPEC.blocked_tool_prefixes,
     allowed_client_tool_types=CODEX_PROVIDER_RELAY_SPEC.allowed_client_tool_types,
     allowed_path_prefixes=("/backend-api/codex/",),
+    allowed_methods=("GET", "POST"),
 )
 
 
@@ -202,13 +197,12 @@ class CodexHarnessProducer(CandidateProducer):
             raise ConfigError(
                 "Codex harness requires a persistent workspace_root for stopped-state capture"
             )
-        state_cleanup = None
+        state_root: Path | None = None
 
         try:
             task_workspace.mkdir(parents=True, exist_ok=True)
             materialize_image_workdir(task, task_workspace)
-            state_cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-home-")
-            state_root = Path(state_cleanup.name)
+            state_root = Path(tempfile.mkdtemp(prefix="securebench-codex-home-"))
             if self.auth == "subscription":
                 write_dummy_codex_auth(state_root / "auth.json")
             staging = HostSandbox(root=task_workspace)
@@ -328,8 +322,8 @@ class CodexHarnessProducer(CandidateProducer):
                 finally:
                     close_sandbox(sandbox)
         finally:
-            if state_cleanup is not None:
-                state_cleanup.cleanup()
+            if state_root is not None:
+                remove_untrusted_tree(state_root, image=image)
 
 
 def codex_config(config: dict[str, Any]) -> dict[str, Any]:

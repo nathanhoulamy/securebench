@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -20,6 +21,7 @@ BENCHMARK_FIELDS = {"manifest", "tasks"}
 HARNESS_FIELDS = {"type", "env", "config"}
 DOCKER_FIELDS = {"max_cached_images"}
 HARNESS_TYPES = {"codex", "claude_code", "command"}
+ENVIRONMENT_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 @dataclass(frozen=True)
@@ -169,9 +171,13 @@ def _env_names(value: Any, field: str) -> tuple[str, ...]:
     if not isinstance(value, list):
         raise ConfigError(f"{field} must be a list of non-empty environment variable names")
     names = []
+    seen = set()
     for index, item in enumerate(value):
-        if not isinstance(item, str) or not item or "=" in item:
-            raise ConfigError(f"{field}[{index}] must be a non-empty environment variable name without '='")
+        if not isinstance(item, str) or not ENVIRONMENT_NAME_RE.fullmatch(item):
+            raise ConfigError(f"{field}[{index}] must be a valid environment variable name")
+        if item in seen:
+            raise ConfigError(f"{field} contains duplicate environment variable name: {item}")
+        seen.add(item)
         names.append(item)
     return tuple(names)
 

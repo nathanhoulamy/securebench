@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
@@ -16,6 +19,8 @@ from securebench.verification import (
     OracleSession,
     OracleVerdict,
 )
+from securebench.verification.models import VerificationInfrastructureError
+from securebench.verification.oracle import OracleProcessSession
 
 
 DIGEST = "sha256:" + "c" * 64
@@ -142,7 +147,7 @@ def test_artifact_evidence_is_internal_and_result_is_sanitized(tmp_path):
 
     assert result.status == "passed"
     assert oracle.evidence[0].parsed_value == {"private_observation": "secret-value"}
-    record = result.to_record(run_id="run-1")
+    record = result.to_record(run_id="run-1", execution_digest=DIGEST)
     encoded = json.dumps(record)
     assert "secret-value" not in encoded
     assert "parsed_value" not in encoded
@@ -222,6 +227,34 @@ for line in sys.stdin:
     assert result.status == "passed"
     assert result.public_diagnostics == {"message": "oracle evaluated artifact"}
     assert not (oracle_root / "__pycache__").exists()
+
+
+def test_oracle_request_write_obeys_timeout(tmp_path):
+    oracle_root = tmp_path / "oracle"
+    oracle_root.mkdir()
+    (oracle_root / "oracle.yaml").write_text(
+        """
+abi: securebench.oracle/v1
+command: ["{python}", "oracle.py"]
+timeout_seconds: 0.1
+""".lstrip()
+    )
+    (oracle_root / "oracle.py").write_text(
+        "import time\ntime.sleep(10)\n"
+    )
+    session = OracleProcessSession(oracle_root)
+    started = time.monotonic()
+
+    try:
+        with pytest.raises(VerificationInfrastructureError, match="request timeout"):
+            session._request(
+                {"op": "large", "payload": "x" * (2 * 1024 * 1024)},
+                expected="ack",
+            )
+    finally:
+        session.close()
+
+    assert time.monotonic() - started < 2
 
 
 def test_unknown_parser_is_an_infrastructure_error(tmp_path):

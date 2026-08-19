@@ -111,6 +111,8 @@ class OracleProcessSession(OracleSession):
             text=False,
             bufsize=0,
         )
+        assert self.process.stdin is not None
+        os.set_blocking(self.process.stdin.fileno(), False)
 
     def initialize(self, task: BenchmarkTask, *, run_seed: str) -> None:
         resources = {
@@ -161,12 +163,15 @@ class OracleProcessSession(OracleSession):
     def close(self) -> None:
         try:
             if self.process.poll() is None:
-                self.process.terminate()
                 try:
+                    self.process.terminate()
                     self.process.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    self.process.kill()
-                    self.process.wait(timeout=1)
+                except (OSError, subprocess.TimeoutExpired):
+                    try:
+                        self.process.kill()
+                        self.process.wait(timeout=1)
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
         finally:
             for stream in (self.process.stdin, self.process.stdout):
                 if stream is not None:
@@ -195,13 +200,7 @@ class OracleProcessSession(OracleSession):
             raise VerificationInfrastructureError(
                 "oracle_request_invalid", "Oracle request was not finite JSON data"
             ) from exc
-        try:
-            self.process.stdin.write(encoded)
-            self.process.stdin.flush()
-        except OSError as exc:
-            raise VerificationInfrastructureError(
-                "oracle_io_error", "Failed to send evidence to Oracle"
-            ) from exc
+        self._write_request(encoded)
         response = self._read_response()
         if response.get("type") == "error":
             raise VerificationInfrastructureError(
@@ -212,6 +211,44 @@ class OracleProcessSession(OracleSession):
                 "oracle_protocol_error", "Oracle returned an unexpected response"
             )
         return response
+
+    def _write_request(self, encoded: bytes) -> None:
+        assert self.process.stdin is not None
+        selector = selectors.DefaultSelector()
+        selector.register(self.process.stdin, selectors.EVENT_WRITE)
+        deadline = time.monotonic() + self.timeout_seconds
+        offset = 0
+        try:
+            while offset < len(encoded):
+                if self.process.poll() is not None:
+                    raise VerificationInfrastructureError(
+                        "oracle_exited", "Oracle process exited unexpectedly"
+                    )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise VerificationInfrastructureError(
+                        "oracle_timeout", "Oracle exceeded its request timeout"
+                    )
+                if not selector.select(remaining):
+                    continue
+                try:
+                    written = os.write(
+                        self.process.stdin.fileno(),
+                        encoded[offset : offset + 64 * 1024],
+                    )
+                except BlockingIOError:
+                    continue
+                except OSError as exc:
+                    raise VerificationInfrastructureError(
+                        "oracle_io_error", "Failed to send evidence to Oracle"
+                    ) from exc
+                if written <= 0:
+                    raise VerificationInfrastructureError(
+                        "oracle_io_error", "Failed to send evidence to Oracle"
+                    )
+                offset += written
+        finally:
+            selector.close()
 
     def _read_response(self) -> dict[str, Any]:
         assert self.process.stdout is not None

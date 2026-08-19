@@ -1,5 +1,8 @@
 import base64
 import json
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +15,7 @@ from securebench.harnesses.codex_oauth import (
     ensure_valid_codex_oauth_credentials,
     load_codex_oauth_credentials,
 )
+from securebench import locking
 
 
 def jwt(claims):
@@ -202,3 +206,22 @@ def test_run_codex_login_uses_isolated_codex_home(monkeypatch, tmp_path):
     assert "OPENAI_API_KEY" not in seen["env"]
     assert oct((tmp_path / "codex").stat().st_mode & 0o777) == "0o700"
     assert oct(path.stat().st_mode & 0o777) == "0o600"
+
+
+def test_codex_oauth_imports_with_only_sidecar_companion_mounts(tmp_path):
+    shutil.copy2(codex_oauth.__file__, tmp_path / "codex_oauth.py")
+    shutil.copy2(locking.__file__, tmp_path / "locking.py")
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            f"import sys; sys.path.insert(0, {str(tmp_path)!r}); import codex_oauth",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr

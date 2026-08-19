@@ -74,8 +74,12 @@ class DockerSandbox(Sandbox):
         self.mounts = tuple(mounts)
         self.workspace_mount_target = _docker_bind_mount_target(workspace_mount_target, allow_workspace_root=True)
         self._container_name: str | None = None
-        self._tempdir = None if root is not None else tempfile.TemporaryDirectory(prefix="securebench-")
-        self.root = (Path(root) if root is not None else Path(self._tempdir.name)).resolve()
+        self._owns_root = root is None
+        self.root = (
+            Path(root)
+            if root is not None
+            else Path(tempfile.mkdtemp(prefix="securebench-"))
+        ).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         emit_progress(
             "sandbox_create",
@@ -198,12 +202,19 @@ class DockerSandbox(Sandbox):
         )
 
     def close(self) -> None:
-        """Remove the persistent container if it has been started."""
-        if self._container_name is None:
-            return
-        name = self._container_name
-        _remove_named_container(name)
-        self._container_name = None
+        """Remove the persistent container and any sandbox-owned writable root."""
+        if self._container_name is not None:
+            name = self._container_name
+            _remove_named_container(name)
+            self._container_name = None
+        if self._owns_root:
+            from securebench.workspaces.cleanup import remove_untrusted_tree
+
+            try:
+                remove_untrusted_tree(self.root, image=self.image)
+            except Exception as exc:
+                raise DockerSandboxError("failed to remove Docker sandbox workspace") from exc
+            self._owns_root = False
 
     def __enter__(self) -> "DockerSandbox":
         return self
@@ -362,6 +373,7 @@ def _docker_bind_mount_args(
     workspace_mount_target: str = "/workspace",
 ) -> tuple[str, ...]:
     args: list[str] = []
+    targets: list[PurePosixPath] = []
     for mount in mounts:
         if not isinstance(mount, DockerBindMount):
             raise ValueError("Docker mounts must be DockerBindMount instances")
@@ -378,6 +390,15 @@ def _docker_bind_mount_args(
             raise ValueError("Docker bind mount source must be an existing file or directory")
         source = str(source_path)
         target = _docker_bind_mount_target(mount.target, workspace_mount_target=workspace_mount_target)
+        target_path = PurePosixPath(target)
+        if any(
+            target_path == existing
+            or target_path.is_relative_to(existing)
+            or existing.is_relative_to(target_path)
+            for existing in targets
+        ):
+            raise ValueError(f"Docker bind mount targets overlap at: {target}")
+        targets.append(target_path)
         option = f"type=bind,source={source},target={target}"
         if mount.read_only:
             option += ",readonly"

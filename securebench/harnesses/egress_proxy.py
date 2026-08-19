@@ -10,11 +10,17 @@ import socket
 import socketserver
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler
-from typing import Any
+from typing import Any, BinaryIO
 from urllib.parse import urlsplit
 
 
 ALLOWED_PORTS = {80, 443}
+MAX_EGRESS_REQUEST_BYTES = 16 * 1024 * 1024
+MAX_TLS_CLIENT_HELLO_BYTES = 64 * 1024
+TLS_HANDSHAKE_CONTENT_TYPE = 22
+TLS_CLIENT_HELLO_TYPE = 1
+TLS_SERVER_NAME_EXTENSION = 0
+TLS_HOST_NAME_TYPE = 0
 
 
 class DestinationPolicyError(Exception):
@@ -67,6 +73,9 @@ class AllowlistingProxyHandler(BaseHTTPRequestHandler):
             self.send_error(400)
             return
         host, port = destination
+        if port != 443:
+            self.send_error(403)
+            return
         try:
             upstream = connect_allowed_destination(host, port, self.domains, timeout=self.timeout)
         except DestinationPolicyError:
@@ -77,7 +86,15 @@ class AllowlistingProxyHandler(BaseHTTPRequestHandler):
             return
         self.send_response(200, "Connection Established")
         self.end_headers()
-        self._tunnel(upstream)
+        try:
+            self.connection.settimeout(self.timeout)
+            client_hello, server_name = read_tls_client_hello(self.rfile)
+            if normalize_hostname(server_name) != normalize_hostname(host):
+                raise DestinationPolicyError("TLS server name does not match CONNECT authority")
+            upstream.sendall(client_hello)
+            self._tunnel(upstream)
+        except (DestinationPolicyError, OSError):
+            upstream.close()
 
     def do_GET(self) -> None:
         self._proxy_absolute_request()
@@ -102,12 +119,41 @@ class AllowlistingProxyHandler(BaseHTTPRequestHandler):
 
     def _proxy_absolute_request(self) -> None:
         url = urlsplit(self.path)
-        if url.scheme not in ("http", "https") or not url.hostname:
+        if url.scheme != "http" or not url.hostname or url.username is not None:
             self.send_error(400)
             return
         try:
-            port = url.port or (443 if url.scheme == "https" else 80)
+            port = url.port or 80
         except ValueError:
+            self.send_error(400)
+            return
+        if port != 80 or self.headers.get("Transfer-Encoding") is not None:
+            self.send_error(400)
+            return
+        content_lengths = self.headers.get_all("Content-Length", [])
+        if len(content_lengths) > 1:
+            self.send_error(400)
+            return
+        content_length = content_lengths[0] if content_lengths else None
+        remaining = 0
+        if content_length is not None:
+            try:
+                remaining = int(content_length)
+            except ValueError:
+                self.send_error(400)
+                return
+            if remaining < 0:
+                self.send_error(400)
+                return
+            if remaining > MAX_EGRESS_REQUEST_BYTES:
+                self.send_error(413)
+                return
+        path = url.path or "/"
+        if url.query:
+            path += f"?{url.query}"
+        try:
+            request_line = f"{self.command} {path} {self.request_version}\r\n".encode("ascii")
+        except UnicodeEncodeError:
             self.send_error(400)
             return
         try:
@@ -119,24 +165,39 @@ class AllowlistingProxyHandler(BaseHTTPRequestHandler):
             self.send_error(502)
             return
         with upstream:
-            path = url.path or "/"
-            if url.query:
-                path += f"?{url.query}"
-            upstream.sendall(f"{self.command} {path} {self.request_version}\r\n".encode("ascii"))
+            upstream.sendall(request_line)
+            connection_headers = {
+                token.strip().lower()
+                for value in self.headers.get_all("Connection", [])
+                for token in value.split(",")
+                if token.strip()
+            }
             for name, value in self.headers.items():
-                if name.lower() in {"proxy-connection", "proxy-authorization"}:
+                lower = name.lower()
+                if lower in connection_headers or lower in {
+                    "connection",
+                    "content-length",
+                    "host",
+                    "keep-alive",
+                    "proxy-connection",
+                    "proxy-authorization",
+                    "te",
+                    "trailer",
+                    "transfer-encoding",
+                    "upgrade",
+                }:
                     continue
                 upstream.sendall(f"{name}: {value}\r\n".encode("latin-1"))
-            upstream.sendall(b"\r\n")
-            content_length = self.headers.get("Content-Length")
+            upstream.sendall(f"Host: {http_host_header(url.hostname, port)}\r\n".encode("ascii"))
             if content_length is not None:
-                remaining = int(content_length)
-                while remaining > 0:
-                    chunk = self.rfile.read(min(65536, remaining))
-                    if not chunk:
-                        break
-                    remaining -= len(chunk)
-                    upstream.sendall(chunk)
+                upstream.sendall(f"Content-Length: {remaining}\r\n".encode("ascii"))
+            upstream.sendall(b"Connection: close\r\n\r\n")
+            while remaining > 0:
+                chunk = self.rfile.read(min(65536, remaining))
+                if not chunk:
+                    return
+                remaining -= len(chunk)
+                upstream.sendall(chunk)
             self._copy_upstream_to_client(upstream)
 
     def _tunnel(self, upstream: socket.socket) -> None:
@@ -185,6 +246,156 @@ def _host_port(host: str, port: str) -> tuple[str, int] | None:
     if parsed <= 0 or parsed > 65535:
         return None
     return host, parsed
+
+
+def normalize_hostname(host: str) -> str:
+    return host.lower().rstrip(".")
+
+
+def http_host_header(host: str, port: int) -> str:
+    normalized = normalize_hostname(host)
+    if ":" in normalized:
+        normalized = f"[{normalized}]"
+    return normalized if port == 80 else f"{normalized}:{port}"
+
+
+def read_tls_client_hello(
+    reader: BinaryIO,
+    *,
+    max_bytes: int = MAX_TLS_CLIENT_HELLO_BYTES,
+) -> tuple[bytes, str]:
+    """Read one TLS ClientHello and return its wire bytes and cleartext SNI."""
+    wire = bytearray()
+    handshake = bytearray()
+    expected_handshake_bytes: int | None = None
+
+    while expected_handshake_bytes is None or len(handshake) < expected_handshake_bytes:
+        header = _read_exact(reader, 5)
+        if header[0] != TLS_HANDSHAKE_CONTENT_TYPE:
+            raise DestinationPolicyError("TLS tunnel did not start with a handshake record")
+        record_length = int.from_bytes(header[3:5], "big")
+        if record_length == 0 or len(wire) + 5 + record_length > max_bytes:
+            raise DestinationPolicyError("TLS ClientHello exceeds the proxy inspection limit")
+        payload = _read_exact(reader, record_length)
+        wire.extend(header)
+        wire.extend(payload)
+        handshake.extend(payload)
+
+        if expected_handshake_bytes is None and len(handshake) >= 4:
+            if handshake[0] != TLS_CLIENT_HELLO_TYPE:
+                raise DestinationPolicyError("TLS tunnel did not start with a ClientHello")
+            expected_handshake_bytes = 4 + int.from_bytes(handshake[1:4], "big")
+            if expected_handshake_bytes > max_bytes:
+                raise DestinationPolicyError("TLS ClientHello exceeds the proxy inspection limit")
+
+    if expected_handshake_bytes is None or len(handshake) != expected_handshake_bytes:
+        raise DestinationPolicyError("TLS handshake record contains data after the ClientHello")
+    server_name = client_hello_server_name(bytes(handshake[4:]))
+    return bytes(wire), server_name
+
+
+def _read_exact(reader: BinaryIO, length: int) -> bytes:
+    data = bytearray()
+    while len(data) < length:
+        chunk = reader.read(length - len(data))
+        if not chunk:
+            raise DestinationPolicyError("TLS ClientHello ended prematurely")
+        data.extend(chunk)
+    return bytes(data)
+
+
+def client_hello_server_name(client_hello: bytes) -> str:
+    """Extract exactly one DNS host_name from a TLS ClientHello body."""
+    offset = 34  # legacy_version (2) and random (32)
+    offset = _skip_vector(client_hello, offset, length_bytes=1, field="session ID")
+    offset = _skip_vector(client_hello, offset, length_bytes=2, field="cipher suites")
+    offset = _skip_vector(client_hello, offset, length_bytes=1, field="compression methods")
+    extensions, offset = _take_vector(
+        client_hello,
+        offset,
+        length_bytes=2,
+        field="extensions",
+    )
+    if offset != len(client_hello):
+        raise DestinationPolicyError("malformed TLS ClientHello extensions")
+
+    server_name: str | None = None
+    extension_offset = 0
+    while extension_offset < len(extensions):
+        if extension_offset + 4 > len(extensions):
+            raise DestinationPolicyError("malformed TLS extension header")
+        extension_type = int.from_bytes(extensions[extension_offset : extension_offset + 2], "big")
+        extension_length = int.from_bytes(
+            extensions[extension_offset + 2 : extension_offset + 4],
+            "big",
+        )
+        extension_offset += 4
+        extension_end = extension_offset + extension_length
+        if extension_end > len(extensions):
+            raise DestinationPolicyError("malformed TLS extension body")
+        extension = extensions[extension_offset:extension_end]
+        extension_offset = extension_end
+        if extension_type != TLS_SERVER_NAME_EXTENSION:
+            continue
+        if server_name is not None:
+            raise DestinationPolicyError("TLS ClientHello contains duplicate SNI extensions")
+        server_name = _server_name_from_extension(extension)
+
+    if server_name is None:
+        raise DestinationPolicyError("TLS ClientHello does not contain SNI")
+    return server_name
+
+
+def _server_name_from_extension(extension: bytes) -> str:
+    names, offset = _take_vector(extension, 0, length_bytes=2, field="server names")
+    if offset != len(extension):
+        raise DestinationPolicyError("malformed TLS server-name extension")
+    name_offset = 0
+    host_name: str | None = None
+    while name_offset < len(names):
+        if name_offset + 3 > len(names):
+            raise DestinationPolicyError("malformed TLS server-name entry")
+        name_type = names[name_offset]
+        name_length = int.from_bytes(names[name_offset + 1 : name_offset + 3], "big")
+        name_offset += 3
+        name_end = name_offset + name_length
+        if name_end > len(names):
+            raise DestinationPolicyError("malformed TLS server name")
+        raw_name = names[name_offset:name_end]
+        name_offset = name_end
+        if name_type != TLS_HOST_NAME_TYPE:
+            continue
+        if host_name is not None or not raw_name or b"\x00" in raw_name:
+            raise DestinationPolicyError("TLS ClientHello contains an invalid host_name")
+        try:
+            host_name = raw_name.decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise DestinationPolicyError("TLS SNI host_name is not ASCII") from exc
+    if host_name is None:
+        raise DestinationPolicyError("TLS ClientHello does not contain a host_name")
+    return host_name
+
+
+def _skip_vector(data: bytes, offset: int, *, length_bytes: int, field: str) -> int:
+    _, offset = _take_vector(data, offset, length_bytes=length_bytes, field=field)
+    return offset
+
+
+def _take_vector(
+    data: bytes,
+    offset: int,
+    *,
+    length_bytes: int,
+    field: str,
+) -> tuple[bytes, int]:
+    length_end = offset + length_bytes
+    if length_end > len(data):
+        raise DestinationPolicyError(f"malformed TLS ClientHello {field}")
+    length = int.from_bytes(data[offset:length_end], "big")
+    value_end = length_end + length
+    if value_end > len(data):
+        raise DestinationPolicyError(f"malformed TLS ClientHello {field}")
+    return data[length_end:value_end], value_end
 
 
 def is_allowed_destination(host: str, port: int, allowed_domains: tuple[str, ...]) -> bool:

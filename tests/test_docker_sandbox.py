@@ -146,6 +146,28 @@ def test_docker_sandbox_surfaces_cleanup_failure(monkeypatch, tmp_path):
         sandbox.close()
 
 
+def test_docker_sandbox_cleans_owned_temporary_workspace_with_untrusted_cleanup(
+    monkeypatch,
+):
+    cleaned = []
+    sandbox = DockerSandbox(image="agent-image")
+    owned_root = sandbox.root
+
+    def cleanup(path, *, image):
+        cleaned.append((path, image))
+        path.rmdir()
+
+    monkeypatch.setattr(
+        "securebench.workspaces.cleanup.remove_untrusted_tree",
+        cleanup,
+    )
+
+    sandbox.close()
+
+    assert cleaned == [(owned_root, "agent-image")]
+    assert not owned_root.exists()
+
+
 def test_docker_sandbox_allows_limit_overrides_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("SECUREBENCH_DOCKER_MEM_LIMIT", "8g")
     monkeypatch.setenv("SECUREBENCH_DOCKER_PIDS_LIMIT", "1024")
@@ -371,6 +393,25 @@ def test_docker_sandbox_allows_explicit_asset_mount_below_configured_workspace(
     assert f"source={asset}" in option
     assert "target=/app/input.txt" in option
     assert option.endswith(",readonly")
+
+
+def test_docker_sandbox_rejects_overlapping_extra_mounts_before_start(tmp_path):
+    parent = tmp_path / "parent"
+    child = tmp_path / "child"
+    parent.mkdir()
+    child.mkdir()
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path / "workspace",
+        persistent=False,
+        mounts=(
+            DockerBindMount(parent, "/opt/securebench"),
+            DockerBindMount(child, "/opt/securebench/codex"),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="mount targets overlap"):
+        sandbox.run(["true"])
 
 
 def test_docker_sandbox_resolves_relative_paths_against_workspace_target(monkeypatch, tmp_path):

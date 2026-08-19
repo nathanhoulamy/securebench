@@ -49,10 +49,10 @@ class ProviderRelaySpec:
     credential_env: str | None
     credential_kind: str
     base_url: str
-    blocked_tool_types: tuple[str, ...] = ()
-    blocked_tool_prefixes: tuple[str, ...] = ()
     allowed_client_tool_types: tuple[str, ...] = ()
+    allow_untyped_client_tools: bool = False
     allowed_path_prefixes: tuple[str, ...] = ()
+    allowed_methods: tuple[str, ...] = ("POST",)
 
 
 def allowed_domains_config(value: Any, field: str = "harness.config.allowed_domains") -> tuple[str, ...]:
@@ -429,6 +429,11 @@ class DockerProviderRelayPolicy:
                         f"type=bind,source={codex_oauth_script()},"
                         "target=/opt/securebench/codex_oauth.py,readonly"
                     ),
+                    "--mount",
+                    (
+                        f"type=bind,source={locking_script()},"
+                        "target=/opt/securebench/locking.py,readonly"
+                    ),
                 ]
             )
         else:
@@ -451,13 +456,13 @@ class DockerProviderRelayPolicy:
                 "-e",
                 f"SECUREBENCH_CREDENTIAL_KIND={self.spec.credential_kind}",
                 "-e",
-                f"SECUREBENCH_BLOCKED_TOOL_TYPES={json.dumps(sorted(self.spec.blocked_tool_types))}",
-                "-e",
-                f"SECUREBENCH_BLOCKED_TOOL_PREFIXES={json.dumps(sorted(self.spec.blocked_tool_prefixes))}",
-                "-e",
                 f"SECUREBENCH_ALLOWED_CLIENT_TOOL_TYPES={json.dumps(sorted(self.spec.allowed_client_tool_types))}",
                 "-e",
+                f"SECUREBENCH_ALLOW_UNTYPED_CLIENT_TOOLS={str(self.spec.allow_untyped_client_tools).lower()}",
+                "-e",
                 f"SECUREBENCH_ALLOWED_PATH_PREFIXES={json.dumps(sorted(self.spec.allowed_path_prefixes))}",
+                "-e",
+                f"SECUREBENCH_ALLOWED_METHODS={json.dumps(sorted(self.spec.allowed_methods))}",
                 "-e",
                 f"SECUREBENCH_ALLOW_EXTERNAL_TOOLS={str(self.allow_external_tools).lower()}",
                 "-e",
@@ -571,16 +576,30 @@ def relay_decision_summary(log_dir: str | Path | None) -> dict[str, int]:
         return {"provider_relay_requests": 0, "provider_relay_blocked": 0}
     requests = 0
     blocked = 0
-    for line in path.read_text(errors="ignore").splitlines():
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(record, dict):
-            continue
-        requests += 1
-        if record.get("status") == "blocked":
-            blocked += 1
+    try:
+        with path.open("rb") as log_file:
+            while True:
+                line = log_file.readline(64 * 1024 + 1)
+                if not line:
+                    break
+                oversized = len(line) > 64 * 1024
+                while oversized and not line.endswith(b"\n"):
+                    line = log_file.readline(64 * 1024 + 1)
+                    if not line or line.endswith(b"\n"):
+                        break
+                if oversized:
+                    continue
+                try:
+                    record = json.loads(line)
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                requests += 1
+                if record.get("status") == "blocked":
+                    blocked += 1
+    except OSError:
+        return {"provider_relay_requests": 0, "provider_relay_blocked": 0}
     return {
         "provider_relay_requests": requests,
         "provider_relay_blocked": blocked,
@@ -597,6 +616,10 @@ def provider_relay_script() -> Path:
 
 def codex_oauth_script() -> Path:
     return Path(__file__).resolve().parent / "codex_oauth.py"
+
+
+def locking_script() -> Path:
+    return Path(__file__).resolve().parents[1] / "locking.py"
 
 
 def _proxy_env() -> dict[str, str]:
