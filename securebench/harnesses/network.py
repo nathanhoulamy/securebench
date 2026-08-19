@@ -225,30 +225,33 @@ class DockerEgressPolicy:
         self._cleanup()
 
     def _cleanup(self) -> None:
+        failures: list[str] = []
         if self.proxy_container is not None:
-            subprocess.run(
+            if _docker_cleanup_succeeded(
                 ["docker", "rm", "-f", self.proxy_container],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            self.proxy_container = None
+                missing_marker="No such container",
+            ):
+                self.proxy_container = None
+            else:
+                failures.append("egress proxy container")
         if self._network_name is not None:
-            subprocess.run(
+            if _docker_cleanup_succeeded(
                 ["docker", "network", "rm", self._network_name],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            self._network_name = None
+                missing_marker="not found",
+            ):
+                self._network_name = None
+            else:
+                failures.append("egress network")
         if self._upstream_network_name is not None:
-            subprocess.run(
+            if _docker_cleanup_succeeded(
                 ["docker", "network", "rm", self._upstream_network_name],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            self._upstream_network_name = None
+                missing_marker="not found",
+            ):
+                self._upstream_network_name = None
+            else:
+                failures.append("upstream network")
+        if failures:
+            raise ConfigError("Docker egress cleanup failed for: " + ", ".join(failures))
 
 
 def docker_egress_policy(allowed_domains: tuple[str, ...]) -> DockerEgressPolicy:
@@ -487,35 +490,44 @@ class DockerProviderRelayPolicy:
         )
 
     def _cleanup(self) -> None:
-        for container in (self.relay_container, self.proxy_container):
-            if container is not None:
-                subprocess.run(
-                    ["docker", "rm", "-f", container],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                )
-        self.relay_container = None
-        self.proxy_container = None
+        failures: list[str] = []
+        if self.relay_container is not None:
+            if _docker_cleanup_succeeded(
+                ["docker", "rm", "-f", self.relay_container],
+                missing_marker="No such container",
+            ):
+                self.relay_container = None
+            else:
+                failures.append("provider relay container")
+        if self.proxy_container is not None:
+            if _docker_cleanup_succeeded(
+                ["docker", "rm", "-f", self.proxy_container],
+                missing_marker="No such container",
+            ):
+                self.proxy_container = None
+            else:
+                failures.append("egress proxy container")
         if self._network_name is not None:
-            subprocess.run(
+            if _docker_cleanup_succeeded(
                 ["docker", "network", "rm", self._network_name],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            self._network_name = None
+                missing_marker="not found",
+            ):
+                self._network_name = None
+            else:
+                failures.append("provider relay network")
         if self._upstream_network_name is not None:
-            subprocess.run(
+            if _docker_cleanup_succeeded(
                 ["docker", "network", "rm", self._upstream_network_name],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            self._upstream_network_name = None
-        if self._log_cleanup is not None:
+                missing_marker="not found",
+            ):
+                self._upstream_network_name = None
+            else:
+                failures.append("provider upstream network")
+        if not failures and self._log_cleanup is not None:
             self._log_cleanup.cleanup()
             self._log_cleanup = None
+        if failures:
+            raise ConfigError("Docker provider cleanup failed for: " + ", ".join(failures))
 
 
 def docker_provider_relay_policy(
@@ -606,3 +618,8 @@ def _run_docker(command: list[str], action: str) -> None:
     completed = subprocess.run(command, check=False, capture_output=True, text=True)
     if completed.returncode != 0:
         raise ConfigError(f"Failed to {action}: {completed.stderr.strip()}")
+
+
+def _docker_cleanup_succeeded(command: list[str], *, missing_marker: str) -> bool:
+    completed = subprocess.run(command, check=False, capture_output=True, text=True)
+    return completed.returncode == 0 or missing_marker.lower() in completed.stderr.lower()

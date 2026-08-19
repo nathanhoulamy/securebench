@@ -3,7 +3,29 @@ from types import SimpleNamespace
 
 import pytest
 
-from securebench.sandboxes import TIMEOUT_EXIT_CODE, DockerBindMount, DockerSandbox
+from securebench.sandboxes import (
+    TIMEOUT_EXIT_CODE,
+    DockerBindMount,
+    DockerSandbox,
+    DockerSandboxError,
+)
+
+
+@pytest.fixture(autouse=True)
+def route_bounded_runner_through_mockable_subprocess(monkeypatch):
+    def run(command, *, cwd=None, env=None, timeout=None, stdin=None, on_output=None):
+        return subprocess.run(
+            command,
+            cwd=cwd,
+            env=env,
+            check=False,
+            capture_output=True,
+            input=stdin,
+            text=not isinstance(stdin, bytes),
+            timeout=timeout,
+        )
+
+    monkeypatch.setattr("securebench.sandboxes.docker.run_bounded_subprocess", run)
 
 
 def test_docker_sandbox_reuses_persistent_container_and_passes_env_names(monkeypatch, tmp_path):
@@ -72,6 +94,8 @@ def test_docker_sandbox_can_use_disposable_container_per_command(monkeypatch, tm
 
     assert result.stdout == "ok"
     assert seen["command"][:3] == ["docker", "run", "--rm"]
+    assert seen["command"][3] == "--name"
+    assert seen["command"][4].startswith("securebench-")
     assert ["--entrypoint", ""] == seen["command"][
         seen["command"].index("--entrypoint") : seen["command"].index("--entrypoint") + 2
     ]
@@ -80,6 +104,46 @@ def test_docker_sandbox_can_use_disposable_container_per_command(monkeypatch, tm
     assert "--read-only" in seen["command"]
     assert "--mount" not in seen["command"]
     assert seen["command"][-2:] == ["python", "--version"]
+
+
+def test_docker_sandbox_removes_container_after_start_failure(monkeypatch, tmp_path):
+    seen = []
+
+    def fake_run(command, **kwargs):
+        seen.append(command)
+        if command[:3] == ["docker", "run", "-d"]:
+            return SimpleNamespace(returncode=125, stdout="", stderr="start failed")
+        if command[:3] == ["docker", "rm", "-f"]:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(command)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    sandbox = DockerSandbox(image="agent-image", root=tmp_path)
+
+    with pytest.raises(DockerSandboxError, match="failed to start"):
+        sandbox.run(["python", "--version"])
+
+    assert seen[0][:3] == ["docker", "run", "-d"]
+    assert seen[1][:3] == ["docker", "rm", "-f"]
+    assert sandbox._container_name is None
+
+
+def test_docker_sandbox_surfaces_cleanup_failure(monkeypatch, tmp_path):
+    def fake_run(command, **kwargs):
+        if command[:3] == ["docker", "run", "-d"]:
+            return SimpleNamespace(returncode=0, stdout="container-id\n", stderr="")
+        if command[:2] == ["docker", "exec"]:
+            return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+        if command[:3] == ["docker", "rm", "-f"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="daemon error")
+        raise AssertionError(command)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    sandbox = DockerSandbox(image="agent-image", root=tmp_path)
+    sandbox.run(["python", "--version"])
+
+    with pytest.raises(DockerSandboxError, match="failed to remove"):
+        sandbox.close()
 
 
 def test_docker_sandbox_allows_limit_overrides_from_env(monkeypatch, tmp_path):
@@ -201,6 +265,27 @@ def test_docker_sandbox_run_reports_timeout_and_closes_persistent_container(monk
     assert seen["commands"][0][:2] == ["docker", "run"]
     assert seen["commands"][1][:2] == ["docker", "exec"]
     assert seen["commands"][2][:3] == ["docker", "rm", "-f"]
+
+
+def test_disposable_docker_sandbox_removes_named_container_after_timeout(monkeypatch, tmp_path):
+    seen = []
+
+    def fake_run(command, **kwargs):
+        seen.append(command)
+        if command[:3] == ["docker", "run", "--rm"]:
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        if command[:3] == ["docker", "rm", "-f"]:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(command)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    sandbox = DockerSandbox(image="agent-image", root=tmp_path, persistent=False)
+
+    result = sandbox.run(["sleep", "10"], timeout=2)
+
+    assert result.timed_out is True
+    assert seen[0][3] == "--name"
+    assert seen[1] == ["docker", "rm", "-f", seen[0][4]]
 
 
 def test_docker_sandbox_preserves_absolute_container_workdir(monkeypatch, tmp_path):

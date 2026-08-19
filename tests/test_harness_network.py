@@ -149,6 +149,22 @@ def test_docker_egress_policy_cleans_up_after_start_failure(monkeypatch):
     assert commands[-1][:3] == ["docker", "network", "rm"]
 
 
+def test_docker_egress_policy_surfaces_cleanup_failure(monkeypatch):
+    def fake_run(command, **kwargs):
+        if command[:3] == ["docker", "rm", "-f"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="daemon failure")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    policy = DockerEgressPolicy(("api.openai.com",))
+
+    with pytest.raises(ConfigError, match="egress cleanup failed"):
+        with policy:
+            pass
+
+    assert policy.proxy_container is not None
+
+
 def test_harness_provider_relay_specs_own_base_urls():
     assert CODEX_PROVIDER_RELAY_SPEC.base_url == "http://securebench-provider-relay:8090/v1"
     assert (
@@ -229,6 +245,23 @@ def test_docker_provider_relay_policy_starts_generic_proxy_when_domains_allowed(
     assert "SECUREBENCH_CREDENTIAL_ENV=ANTHROPIC_API_KEY" in relay_run
     assert "SECUREBENCH_CREDENTIAL_KIND=x-api-key" in relay_run
     assert "SECUREBENCH_ALLOW_EXTERNAL_TOOLS=true" in relay_run
+
+
+def test_docker_provider_relay_policy_surfaces_cleanup_failure(monkeypatch):
+    def fake_run(command, **kwargs):
+        if command[:3] == ["docker", "rm", "-f"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="daemon failure")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setenv("OPENAI_API_KEY", "secret")
+    monkeypatch.setattr("subprocess.run", fake_run)
+    policy = DockerProviderRelayPolicy(CODEX_PROVIDER_RELAY_SPEC, ())
+
+    with pytest.raises(ConfigError, match="provider cleanup failed"):
+        with policy:
+            pass
+
+    assert policy.relay_container is not None
 
 
 def test_docker_provider_relay_policy_passes_claude_subscription_token_by_name(monkeypatch):

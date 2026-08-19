@@ -52,7 +52,7 @@ class CandidateFilesystem(Protocol):
     def read_file(self, path: str, *, maximum: int) -> bytes:
         ...
 
-    def walk(self, path: str) -> Iterable[FilesystemEntry]:
+    def walk(self, path: str, *, maximum_entries: int) -> Iterable[FilesystemEntry]:
         ...
 
 
@@ -107,28 +107,47 @@ class HostWorkspaceFilesystem:
             raise CandidateCaptureError(f"candidate file changed during capture: {path}")
         return bytes(content)
 
-    def walk(self, path: str) -> Iterable[FilesystemEntry]:
+    def walk(self, path: str, *, maximum_entries: int) -> Iterable[FilesystemEntry]:
         root = self._host_path(path)
-        root_info = root.lstat()
+        try:
+            root_info = root.lstat()
+        except OSError as exc:
+            raise CandidateCaptureError(f"candidate tree is inaccessible: {path}") from exc
         if not stat.S_ISDIR(root_info.st_mode):
             raise CandidateCaptureError(f"candidate path is not a directory: {path}")
         entries: list[FilesystemEntry] = []
-        for current, directory_names, file_names in os.walk(root, topdown=True, followlinks=False):
-            directory_names.sort()
-            file_names.sort()
-            current_path = Path(current)
-            for name in tuple(directory_names):
-                child = current_path / name
-                relative = child.relative_to(root).as_posix()
-                child_info = child.lstat()
-                entry = _filesystem_entry(relative, child_info, child)
-                entries.append(entry)
-                if entry.kind == "symlink":
-                    directory_names.remove(name)
-            for name in file_names:
-                child = current_path / name
-                relative = child.relative_to(root).as_posix()
-                entries.append(_filesystem_entry(relative, child.lstat(), child))
+        pending = [root]
+        while pending:
+            current = pending.pop()
+            directories: list[Path] = []
+            try:
+                with os.scandir(current) as children:
+                    for child_entry in children:
+                        if len(entries) >= maximum_entries:
+                            raise CandidateCaptureError(
+                                f"candidate tree exceeds max_files: {maximum_entries}"
+                            )
+                        child = Path(child_entry.path)
+                        relative = child.relative_to(root).as_posix()
+                        _validate_candidate_relative_path(relative)
+                        info = child_entry.stat(follow_symlinks=False)
+                        entry = _filesystem_entry(relative, info, child)
+                        entries.append(entry)
+                        if entry.kind == "directory":
+                            directories.append(child)
+            except CandidateCaptureError:
+                raise
+            except OSError as exc:
+                raise CandidateCaptureError(
+                    f"candidate tree is inaccessible below: {path}"
+                ) from exc
+            pending.extend(
+                sorted(
+                    directories,
+                    key=lambda value: value.relative_to(root).as_posix().encode("utf-8"),
+                    reverse=True,
+                )
+            )
         return tuple(sorted(entries, key=lambda entry: entry.path.encode("utf-8")))
 
     def _host_path(self, path: str) -> Path:
@@ -288,7 +307,7 @@ def _capture_tree(
     nodes: list[dict[str, object]] = []
     entry_count = 0
     total_bytes = 0
-    for info in filesystem.walk(declared.path):
+    for info in filesystem.walk(declared.path, maximum_entries=declared.max_files):
         _validate_candidate_relative_path(info.path)
         entry_count += 1
         if entry_count > declared.max_files:

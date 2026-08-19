@@ -265,6 +265,7 @@ def _oracle_environment() -> dict[str, str]:
     environment = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "PYTHONIOENCODING": "utf-8",
+        "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONUNBUFFERED": "1",
     }
     for name in ("LANG", "LC_ALL", "TMPDIR"):

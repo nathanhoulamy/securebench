@@ -59,6 +59,7 @@ def materialize_image_workdir(task: BenchmarkTask, destination: Path) -> None:
         text=True,
     )
     if created.returncode != 0:
+        _remove_materialization_container(container)
         raise ConfigError(
             "failed to create image materialization container "
             f"for {image!r}: {created.stderr.strip()}"
@@ -76,12 +77,18 @@ def materialize_image_workdir(task: BenchmarkTask, destination: Path) -> None:
                 f"{source!r} from {image!r}: {copied.stderr.strip()}"
             )
     finally:
-        subprocess.run(
-            ["docker", "rm", "-f", container],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        _remove_materialization_container(container)
+
+
+def _remove_materialization_container(container: str) -> None:
+    removed = subprocess.run(
+        ["docker", "rm", "-f", container],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if removed.returncode != 0 and "No such container" not in removed.stderr:
+        raise ConfigError("failed to remove image materialization container")
 
 
 def run_timeout_seconds(
@@ -141,10 +148,9 @@ def workspace_root(task: BenchmarkTask, root: str | Path | None) -> Path | None:
 
 def workspace_dir_name(task: BenchmarkTask) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", task.id).strip("._")
-    if cleaned == task.id and cleaned:
-        return cleaned
-    digest = sha256(task.id.encode("utf-8")).hexdigest()[:8]
-    return f"{cleaned or 'task'}-{digest}"
+    prefix = cleaned[:80].rstrip("._-") or "task"
+    digest = sha256(task.id.encode("utf-8")).hexdigest()
+    return f"{prefix}-{digest}"
 
 
 def agent_task_json(task: BenchmarkTask) -> str:

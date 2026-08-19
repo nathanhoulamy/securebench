@@ -25,6 +25,14 @@ def test_resource_digest_includes_permission_bits(tmp_path):
     assert path_digest(resource) != before
 
 
+def test_pack_rejects_non_positive_row_limit(tmp_path):
+    manifest, tasks = write_pack(tmp_path)
+    pack = load_benchmark_pack(manifest, tasks)
+
+    with pytest.raises(ConfigError, match="limit must be a positive integer"):
+        pack.load_rows(limit=0)
+
+
 def write_pack(root: Path) -> tuple[Path, Path]:
     (root / "assets" / "task").mkdir(parents=True)
     (root / "evaluation_inputs" / "task" / "adapter").mkdir(parents=True)

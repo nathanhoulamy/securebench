@@ -190,6 +190,26 @@ def test_file_bundle_enforces_byte_bounds_while_reading(tmp_path):
         )
 
 
+def test_file_bundle_bounds_tree_enumeration(tmp_path):
+    workspace = tmp_path / "workspace"
+    repository = workspace / "repository"
+    repository.mkdir(parents=True)
+    (workspace / "result.json").write_text("{}")
+    for index in range(3):
+        (repository / f"file-{index}.txt").write_text("data")
+    spec = file_bundle_spec(tree=True)
+    tree = spec.files[1].model_copy(update={"max_files": 2})
+    bounded = spec.model_copy(update={"files": (spec.files[0], tree)})
+
+    with pytest.raises(CandidateCaptureError, match="exceeds max_files"):
+        capture_file_bundle(
+            HostWorkspaceFilesystem(workspace, guest_root="/app"),
+            bounded,
+            CandidateStore(tmp_path / "store"),
+            baseline_digest=BASELINE,
+        )
+
+
 def test_candidate_store_detects_blob_tampering(tmp_path):
     store = CandidateStore(tmp_path / "store")
     digest = store.put_blob(b"trusted")

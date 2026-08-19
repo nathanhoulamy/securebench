@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import os
-import selectors
 import subprocess
 import tempfile
-import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -16,6 +14,7 @@ from securebench.sandboxes.base import (
     CommandResult,
     Sandbox,
     resolve_sandbox_host_path,
+    run_bounded_subprocess,
     timeout_command_result,
     timeout_output,
 )
@@ -32,6 +31,10 @@ class DockerBindMount:
     source: str | Path
     target: str
     read_only: bool = True
+
+
+class DockerSandboxError(RuntimeError):
+    """Docker could not establish or clean up the trusted sandbox boundary."""
 
 
 class DockerSandbox(Sandbox):
@@ -101,22 +104,8 @@ class DockerSandbox(Sandbox):
             command=" ".join(normalized),
         )
         if self.persistent:
-            start_result = self._ensure_container()
-            if start_result is not None:
-                emit_progress(
-                    "sandbox_result",
-                    kind="docker",
-                    exit_code=start_result.exit_code,
-                    command="docker run",
-                    stdout=start_result.stdout,
-                    stderr=start_result.stderr,
-                )
-                return CommandResult(
-                    command=normalized,
-                    exit_code=start_result.exit_code,
-                    stdout=start_result.stdout,
-                    stderr=start_result.stderr,
-                )
+            self._ensure_container()
+            command_container_name = None
             docker_command = [
                 "docker",
                 "exec",
@@ -127,10 +116,13 @@ class DockerSandbox(Sandbox):
                 *normalized,
             ]
         else:
+            command_container_name = f"securebench-{uuid.uuid4().hex}"
             docker_command = [
                 "docker",
                 "run",
                 "--rm",
+                "--name",
+                command_container_name,
                 "--entrypoint",
                 "",
                 *(("-i",) if stdin is not None else ()),
@@ -155,22 +147,24 @@ class DockerSandbox(Sandbox):
                 *normalized,
             ]
         try:
-            if _is_codex_agent_command(normalized) and wants_agent_output():
+            stream_agent_output = _is_codex_agent_command(normalized) and wants_agent_output()
+            if stream_agent_output:
                 if stdin is not None:
                     raise ValueError("Streaming agent commands do not support stdin")
-                completed = _run_streaming_agent_command(docker_command, timeout=timeout)
-            else:
-                completed = subprocess.run(
-                    docker_command,
-                    check=False,
-                    capture_output=True,
-                    input=stdin,
-                    text=not isinstance(stdin, bytes),
-                    timeout=timeout,
-                )
+            output_emitter = _AgentOutputEmitter() if stream_agent_output else None
+            completed = run_bounded_subprocess(
+                docker_command,
+                timeout=timeout,
+                stdin=stdin,
+                on_output=None if output_emitter is None else output_emitter.feed,
+            )
+            if output_emitter is not None:
+                output_emitter.flush()
         except subprocess.TimeoutExpired as exc:
             if self.persistent:
                 self.close()
+            elif command_container_name is not None:
+                _remove_named_container(command_container_name)
             result = timeout_command_result(
                 normalized,
                 timeout,
@@ -207,12 +201,8 @@ class DockerSandbox(Sandbox):
         """Remove the persistent container if it has been started."""
         if self._container_name is None:
             return
-        subprocess.run(
-            ["docker", "rm", "-f", self._container_name],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        name = self._container_name
+        _remove_named_container(name)
         self._container_name = None
 
     def __enter__(self) -> "DockerSandbox":
@@ -244,9 +234,9 @@ class DockerSandbox(Sandbox):
     def _host_path(self, path: str | PurePosixPath, *, for_write: bool = False) -> Path:
         return resolve_sandbox_host_path(self.root, path, for_write=for_write)
 
-    def _ensure_container(self) -> CommandResult | None:
+    def _ensure_container(self) -> None:
         if self._container_name is not None:
-            return None
+            return
         self._container_name = f"securebench-{uuid.uuid4().hex}"
         emit_progress(
             "sandbox_start",
@@ -289,14 +279,13 @@ class DockerSandbox(Sandbox):
             text=True,
         )
         if completed.returncode != 0:
-            self._container_name = None
-            return CommandResult(
-                command=("docker", "run"),
-                exit_code=completed.returncode,
-                stdout=completed.stdout,
-                stderr=completed.stderr,
-            )
-        return None
+            try:
+                self.close()
+            except DockerSandboxError as cleanup_error:
+                raise DockerSandboxError(
+                    "failed to start and remove Docker sandbox container"
+                ) from cleanup_error
+            raise DockerSandboxError("failed to start Docker sandbox container")
 
 
 def _normalize_command(command: str | list[str] | tuple[str, ...]) -> tuple[str, ...]:
@@ -311,64 +300,35 @@ def _is_codex_agent_command(command: tuple[str, ...]) -> bool:
     return "codex exec" in " ".join(command)
 
 
-def _run_streaming_agent_command(
-    docker_command: list[str],
-    *,
-    timeout: float | None,
-) -> subprocess.CompletedProcess[str]:
-    started = time.monotonic()
-    stdout_parts: list[str] = []
-    stderr_parts: list[str] = []
-    process = subprocess.Popen(
-        docker_command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+class _AgentOutputEmitter:
+    def __init__(self) -> None:
+        self.buffers = {"stdout": "", "stderr": ""}
+
+    def feed(self, stream: str, content: str) -> None:
+        buffer = self.buffers[stream] + content
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            emit_progress("agent_output", stream=stream, line=line)
+        self.buffers[stream] = buffer
+
+    def flush(self) -> None:
+        for stream, content in self.buffers.items():
+            if content:
+                emit_progress("agent_output", stream=stream, line=content)
+                self.buffers[stream] = ""
+
+
+def _remove_named_container(name: str) -> None:
+    completed = subprocess.run(
+        ["docker", "rm", "-f", name],
+        check=False,
+        capture_output=True,
         text=True,
-        bufsize=1,
     )
-    selector = selectors.DefaultSelector()
-    if process.stdout is not None:
-        selector.register(process.stdout, selectors.EVENT_READ, "stdout")
-    if process.stderr is not None:
-        selector.register(process.stderr, selectors.EVENT_READ, "stderr")
-    try:
-        while selector.get_map():
-            if timeout is not None and time.monotonic() - started > timeout:
-                process.kill()
-                exc = subprocess.TimeoutExpired(docker_command, timeout)
-                exc.stdout = "".join(stdout_parts)
-                exc.stderr = "".join(stderr_parts)
-                raise exc
-            events = selector.select(timeout=0.2)
-            if not events and process.poll() is not None:
-                for key in list(selector.get_map().values()):
-                    selector.unregister(key.fileobj)
-                break
-            for key, _ in events:
-                line = key.fileobj.readline()
-                if line == "":
-                    selector.unregister(key.fileobj)
-                    continue
-                if key.data == "stdout":
-                    stdout_parts.append(line)
-                else:
-                    stderr_parts.append(line)
-                emit_progress("agent_output", stream=key.data, line=line)
-        exit_code = process.wait(timeout=1)
-    finally:
-        selector.close()
-        if process.poll() is None:
-            process.kill()
-            try:
-                process.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                pass
-    return subprocess.CompletedProcess(
-        docker_command,
-        exit_code,
-        stdout="".join(stdout_parts),
-        stderr="".join(stderr_parts),
-    )
+    if completed.returncode != 0 and "No such container" not in completed.stderr:
+        raise DockerSandboxError(f"failed to remove Docker sandbox container {name!r}")
+
+
 def _docker_path(path: str, *, workspace_mount_target: str = "/workspace") -> str:
     if path.startswith("/workspace"):
         return path

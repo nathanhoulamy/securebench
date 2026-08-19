@@ -1,6 +1,8 @@
 import json
+import shutil
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
@@ -18,7 +20,7 @@ from securebench.tester_config import (
     TesterHarnessSection as HarnessSection,
     TesterRunSection as RunSection,
 )
-from securebench.tester_run import _resume_records, run_tester_config
+from securebench.tester_run import _reset_task_workspace, _resume_records, run_tester_config
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -128,6 +130,45 @@ def test_runner_routes_capture_rejection_to_oracle_as_candidate_failure(monkeypa
     assert record["status"] == "failed"
     assert record["candidate"] == {"type": None, "digest": None}
     assert "candidate_capture_rejected" in record["public_diagnostics"]["failure_categories"]
+
+
+def test_workspace_cleanup_uses_pinned_image_after_permission_failure(monkeypatch, tmp_path):
+    task = next(
+        compile_benchmark_pack(
+            load_benchmark_pack(PACK / "manifest-v2.yaml", PACK / "tasks-v2.jsonl")
+        )
+    )
+    workspace_root = tmp_path / "workspaces"
+    task_workspace = workspace_root / workspace_dir_name(task)
+    task_workspace.mkdir(parents=True)
+    calls = {"rmtree": 0, "docker": []}
+    real_rmtree = shutil.rmtree
+
+    def fake_rmtree(path):
+        calls["rmtree"] += 1
+        if calls["rmtree"] == 1:
+            raise PermissionError("host cannot traverse Agent directory")
+        real_rmtree(path)
+
+    def fake_run(command, **kwargs):
+        calls["docker"].append(command)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("securebench.tester_run.shutil.rmtree", fake_rmtree)
+    monkeypatch.setattr("securebench.tester_run.subprocess.run", fake_run)
+
+    _reset_task_workspace(workspace_root, task)
+
+    cleanup_run = calls["docker"][0]
+    assert task.environment.image in cleanup_run
+    assert ["--network", "none"] == cleanup_run[
+        cleanup_run.index("--network") : cleanup_run.index("--network") + 2
+    ]
+    assert ["--cap-add", "DAC_OVERRIDE"] == cleanup_run[
+        cleanup_run.index("--cap-add") : cleanup_run.index("--cap-add") + 2
+    ]
+    assert calls["docker"][1][:3] == ["docker", "rm", "-f"]
+    assert not task_workspace.exists()
 
 
 def test_runner_resume_requires_matching_row_provenance(monkeypatch, tmp_path):

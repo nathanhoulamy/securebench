@@ -221,6 +221,7 @@ for line in sys.stdin:
 
     assert result.status == "passed"
     assert result.public_diagnostics == {"message": "oracle evaluated artifact"}
+    assert not (oracle_root / "__pycache__").exists()
 
 
 def test_unknown_parser_is_an_infrastructure_error(tmp_path):

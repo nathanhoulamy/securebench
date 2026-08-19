@@ -24,9 +24,15 @@ content-addressed manifests and blobs. Replay requires the exact baseline
 identity.
 
 The implemented `file_bundle` path reads regular files with no-follow semantics
-and change detection. `git_patch` capture and replay are implemented as
-primitives, but repo-patch artifact materialization/evaluation is deliberately
-blocked by execution preflight until its full engine is available.
+and change detection. Directory enumeration stops at the row-declared entry
+bound rather than first walking an arbitrarily large tree. Agent command output
+is drained without buffering it unboundedly and is capped per stream. Row
+workspaces are removed after execution; if the Agent made their permissions
+host-inaccessible, cleanup restores only the permissions needed for removal in
+a networkless, capability-limited container. `git_patch` capture and replay are
+implemented as primitives, but repo-patch artifact
+materialization/evaluation is deliberately blocked by execution preflight
+until its full engine is available.
 
 ## Verification and results
 

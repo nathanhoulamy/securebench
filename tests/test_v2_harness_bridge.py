@@ -1,4 +1,6 @@
+from hashlib import sha256
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -6,7 +8,7 @@ from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.errors import ConfigError
 from securebench.harnesses.command import CommandHarnessProducer
-from securebench.harnesses.shared import workspace_dir_name
+from securebench.harnesses.shared import materialize_image_workdir, workspace_dir_name
 from securebench.sandboxes import CommandResult
 
 
@@ -69,3 +71,33 @@ def test_command_harness_exposes_ephemeral_workspace_for_declared_capture(monkey
 def test_command_harness_requires_persistent_stopped_state_workspace():
     with pytest.raises(ConfigError, match="persistent workspace_root"):
         CommandHarnessProducer(command=("produce",)).produce(compiled_task())
+
+
+def test_workspace_directory_names_are_bounded_and_collision_resistant():
+    original = compiled_task()
+    long_id = "a" * 512
+    first = original.__class__(**{**original.__dict__, "id": long_id})
+    second = original.__class__(**{**original.__dict__, "id": long_id[:-1] + "b"})
+
+    first_name = workspace_dir_name(first)
+    second_name = workspace_dir_name(second)
+
+    assert len(first_name.encode("utf-8")) < 255
+    assert first_name != second_name
+    assert first_name.endswith("-" + sha256(long_id.encode()).hexdigest())
+
+
+def test_image_materialization_surfaces_container_cleanup_failure(monkeypatch, tmp_path):
+    def fake_run(command, **kwargs):
+        if command[:2] == ["docker", "create"]:
+            return SimpleNamespace(returncode=0, stdout="container", stderr="")
+        if command[:2] == ["docker", "cp"]:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        if command[:3] == ["docker", "rm", "-f"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="daemon failure")
+        raise AssertionError(command)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(ConfigError, match="remove image materialization"):
+        materialize_image_workdir(compiled_task(), tmp_path / "workspace")

@@ -32,6 +32,10 @@ class BenchmarkPack:
         return self.manifest_path.resolve().parent
 
     def iter_rows(self, *, limit: int | None = None) -> Iterator[BenchmarkRowV2]:
+        if limit is not None and (
+            isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0
+        ):
+            raise ConfigError("benchmark row limit must be a positive integer")
         yielded = 0
         seen_ids: set[str] = set()
         for line_number, line in _iter_jsonl_lines(self.tasks_path):

@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import uuid
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
@@ -261,7 +262,66 @@ def _reset_task_workspace(workspace_root: Path, task: BenchmarkTask) -> None:
     if not task_workspace.is_relative_to(root):
         raise ValueError(f"task workspace escapes workspace root: {task_workspace}")
     if task_workspace.exists():
-        shutil.rmtree(task_workspace)
+        try:
+            shutil.rmtree(task_workspace)
+        except PermissionError:
+            _restore_workspace_permissions(task_workspace, task.environment.image)
+            shutil.rmtree(task_workspace)
+
+
+def _restore_workspace_permissions(workspace: Path, image: str) -> None:
+    """Use the pinned row image to make a hostile bind mount removable."""
+    container = f"securebench-cleanup-{uuid.uuid4().hex}"
+    command = [
+        "docker",
+        "run",
+        "--name",
+        container,
+        "--entrypoint",
+        "",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--cap-add",
+        "DAC_OVERRIDE",
+        "--cap-add",
+        "FOWNER",
+        "--security-opt",
+        "no-new-privileges:true",
+        "--memory",
+        "128m",
+        "--pids-limit",
+        "32",
+        "--mount",
+        f"type=bind,source={workspace},target=/securebench-cleanup",
+        image,
+        "chmod",
+        "-R",
+        "a+rwX",
+        "--",
+        "/securebench-cleanup",
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError("failed to restore untrusted workspace permissions")
+    finally:
+        removed = subprocess.run(
+            ["docker", "rm", "-f", container],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if removed.returncode != 0 and "No such container" not in removed.stderr:
+            raise RuntimeError("failed to remove workspace cleanup container")
 
 
 def _resume_records(

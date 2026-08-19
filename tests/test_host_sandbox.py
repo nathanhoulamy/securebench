@@ -1,14 +1,17 @@
-import pytest
 import subprocess
+import sys
+
+import pytest
 
 from securebench.sandboxes import TIMEOUT_EXIT_CODE, HostSandbox
+from securebench.sandboxes.base import MAX_COMMAND_OUTPUT_BYTES
 
 
 def test_host_sandbox_run_reports_timeout(monkeypatch, tmp_path):
     def fake_run(*args, **kwargs):
         raise subprocess.TimeoutExpired(args[0], kwargs["timeout"], output="partial out", stderr="partial err")
 
-    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("securebench.sandboxes.host.run_bounded_subprocess", fake_run)
     sandbox = HostSandbox(root=tmp_path)
 
     result = sandbox.run(["sleep", "10"], timeout=2)
@@ -34,6 +37,24 @@ def test_host_sandbox_normalizes_output_when_stdin_is_bytes(tmp_path):
     result = sandbox.run(["sh", "-c", "cat"], stdin=b"binary patch")
 
     assert result.stdout == "binary patch"
+
+
+def test_host_sandbox_bounds_stdout_and_stderr(tmp_path):
+    sandbox = HostSandbox(root=tmp_path)
+    size = MAX_COMMAND_OUTPUT_BYTES * 2
+
+    result = sandbox.run(
+        [
+            sys.executable,
+            "-c",
+            f"import os; os.write(1, b'x' * {size}); os.write(2, b'y' * {size})",
+        ]
+    )
+
+    assert len(result.stdout.encode()) <= MAX_COMMAND_OUTPUT_BYTES
+    assert len(result.stderr.encode()) <= MAX_COMMAND_OUTPUT_BYTES
+    assert result.stdout.endswith("[securebench: output truncated]\n")
+    assert result.stderr.endswith("[securebench: output truncated]\n")
 
 
 def test_host_sandbox_read_file_rejects_symlink_escape(tmp_path):

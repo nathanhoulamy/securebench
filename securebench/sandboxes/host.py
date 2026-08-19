@@ -13,6 +13,7 @@ from securebench.sandboxes.base import (
     CommandResult,
     Sandbox,
     resolve_sandbox_host_path,
+    run_bounded_subprocess,
     timeout_command_result,
     timeout_output,
 )
@@ -60,15 +61,12 @@ class HostSandbox(Sandbox):
             command=" ".join(normalized),
         )
         try:
-            completed = subprocess.run(
+            completed = run_bounded_subprocess(
                 normalized,
                 cwd=self._host_path(workdir or "."),
                 env=_host_env(self.env_names),
-                check=False,
-                capture_output=True,
-                input=stdin,
-                text=not isinstance(stdin, bytes),
                 timeout=timeout,
+                stdin=stdin,
             )
         except subprocess.TimeoutExpired as exc:
             result = timeout_command_result(
