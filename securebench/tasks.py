@@ -30,6 +30,8 @@ class BenchmarkTask:
     manifest_path: Path
     manifest_digest: str
     row_digest: str
+    baseline_digest: str
+    verification_digest: str
 
     def agent_payload(self) -> dict[str, object]:
         """Return only the author-declared prompt/input object."""

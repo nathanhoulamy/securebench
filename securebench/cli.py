@@ -11,7 +11,6 @@ from securebench.audit.report import render_text_summary, write_json_report
 from securebench.env import load_env_file
 from securebench.progress import NullProgressReporter, StreamProgressReporter
 from securebench.harnesses.codex_oauth import (
-    CodexOAuthError,
     ensure_valid_codex_oauth_credentials,
     run_codex_login,
     run_codex_logout,
@@ -182,7 +181,7 @@ def _auth(args: argparse.Namespace) -> int:
             run_codex_logout()
             print("securebench: Codex subscription login removed")
             return 0
-    except (CodexOAuthError, OSError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         print(f"securebench: error: {exc}")
         return 1
     print(f"securebench: error: unsupported Codex auth action {args.auth_action!r}")

@@ -44,7 +44,6 @@ class CodexOAuthError(OSError):
 class CodexOAuthCredentials:
     access_token: str = field(repr=False)
     refresh_token: str = field(repr=False)
-    id_token: str = field(repr=False)
     account_id: str
     plan_type: str | None
     expires_at: int | None
@@ -121,15 +120,7 @@ def _codex_auth_env(home: Path) -> dict[str, str]:
 
 def load_codex_oauth_credentials(path: Path | None = None) -> CodexOAuthCredentials:
     auth_path = codex_auth_file() if path is None else path
-    try:
-        document = json.loads(auth_path.read_text())
-    except FileNotFoundError as exc:
-        raise CodexOAuthError(
-            "No SecureBench Codex subscription login found; run "
-            "`securebench auth codex login` first"
-        ) from exc
-    except (OSError, json.JSONDecodeError) as exc:
-        raise CodexOAuthError(f"Could not read Codex credentials from {auth_path}") from exc
+    document = _read_auth_document(auth_path)
     return _credentials_from_document(document, auth_path)
 
 
@@ -190,7 +181,6 @@ def _credentials_from_document(
     return CodexOAuthCredentials(
         access_token=access_token,
         refresh_token=refresh_token,
-        id_token=id_token,
         account_id=account_id,
         plan_type=plan_type,
         expires_at=expires_at,

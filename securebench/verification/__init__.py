@@ -8,7 +8,6 @@ from securebench.verification.models import (
 )
 from securebench.verification.oracle import OracleProcessSession, OracleSession
 from securebench.verification.parsers import ParserRegistry, default_parser_registry
-from securebench.verification.results import ResultWriter
 
 __all__ = [
     "ArtifactVerificationEngine",
@@ -17,7 +16,6 @@ __all__ = [
     "OracleSession",
     "OracleVerdict",
     "ParserRegistry",
-    "ResultWriter",
     "VerificationResultV2",
     "default_parser_registry",
 ]

@@ -92,7 +92,12 @@ def run_timeout_seconds(
 ) -> float | None:
     if context_timeout is not None:
         return optional_positive_number(context_timeout, "timeout")
-    return task_timeout_seconds(task) or fallback_timeout
+    row_timeout = task_timeout_seconds(task)
+    if fallback_timeout is None:
+        return row_timeout
+    configured_ceiling = optional_positive_number(fallback_timeout, "harness timeout")
+    assert configured_ceiling is not None
+    return min(row_timeout, configured_ceiling)
 
 
 def workspace_path(value: Any, field: str) -> str:
@@ -143,7 +148,7 @@ def workspace_dir_name(task: BenchmarkTask) -> str:
 
 
 def agent_task_json(task: BenchmarkTask) -> str:
-    return json.dumps(task.agent_payload(), indent=2, sort_keys=True) + "\n"
+    return json.dumps(task.agent_payload(), indent=2, sort_keys=True, allow_nan=False) + "\n"
 
 
 def reject_task_file_collision(task_file: str, plan: MaterializationPlan) -> None:

@@ -10,7 +10,7 @@ SecureBench treats the Agent, its output, and its workspace as adversarial.
 - The manifest assigns disjoint pack source roots to all three lanes. The
   compiler rejects root overlap, traversal, symlink traversal, and special
   resource types.
-- The Agent receives its prompt/input and explicitly mounted public assets. It
+- The Agent receives its prompt/input and explicitly mounted read-only public assets. It
   does not receive the verification graph, Oracle location, runtime resources,
   or candidate-capture policy as task content.
 
@@ -37,9 +37,11 @@ Timeouts and rejected captures are also sent to the Oracle as candidate-error
 evidence rather than being scored by the runner.
 
 Public `results.jsonl` records contain candidate/evidence digests, check
-summaries, public diagnostics, and manifest/row/image provenance. Raw Agent
+summaries, public diagnostics, and manifest/row/image/baseline/verification
+provenance. Raw Agent
 stdout, stderr, metadata, parsed evidence, runtime resources, and host paths are
-not serialized. Resume requires matching run and row provenance.
+not serialized. Resume validates the complete result envelope and all current
+provenance digests before reusing a row.
 
 ## Credentials and network
 
@@ -52,6 +54,8 @@ tester-owned upper bound on actual connectivity.
 ## Current limits
 
 - Result records are not signed.
+- Writable public asset mounts are schema-valid but blocked by current
+  execution preflight until composed stopped-filesystem capture is available.
 - `filesystem_overlay`, protocol checks, and `batched-split/v1` are registered
   design surfaces but not executable.
 - `git_patch` end-to-end evaluation is not yet executable.

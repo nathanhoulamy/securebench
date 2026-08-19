@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Iterator
 
 from securebench.benchmark_pack import BenchmarkPack
+from securebench.baselines import baseline_digest, verification_digest
 from securebench.errors import ConfigError
 from securebench.resources import Resource, ResourceBundle
 from securebench.schemas.benchmark import BenchmarkPackManifestV2, BenchmarkRowV2
@@ -94,7 +95,11 @@ def compile_benchmark_row(
         row.model_dump(mode="json"),
         sort_keys=True,
         separators=(",", ":"),
+        allow_nan=False,
     ).encode()
+    resource_bundle = ResourceBundle(resources)
+    manifest_digest = "sha256:" + hashlib.sha256(manifest_bytes).hexdigest()
+    row_digest = "sha256:" + hashlib.sha256(row_bytes).hexdigest()
     return BenchmarkTask(
         id=row.id,
         benchmark_id=manifest.id,
@@ -104,11 +109,23 @@ def compile_benchmark_row(
         environment=row.environment,
         verification=row.verification,
         metadata=dict(row.metadata),
-        resources=ResourceBundle(resources),
+        resources=resource_bundle,
         pack_root=pack_root,
         manifest_path=manifest_file,
-        manifest_digest="sha256:" + hashlib.sha256(manifest_bytes).hexdigest(),
-        row_digest="sha256:" + hashlib.sha256(row_bytes).hexdigest(),
+        manifest_digest=manifest_digest,
+        row_digest=row_digest,
+        baseline_digest=baseline_digest(
+            resources=resource_bundle,
+            manifest_digest=manifest_digest,
+            row_digest=row_digest,
+            image=row.environment.image,
+            workdir=row.environment.workdir,
+        ),
+        verification_digest=verification_digest(
+            resources=resource_bundle,
+            manifest_digest=manifest_digest,
+            row_digest=row_digest,
+        ),
     )
 
 

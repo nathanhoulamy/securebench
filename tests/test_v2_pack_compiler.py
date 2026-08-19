@@ -5,12 +5,24 @@ from pathlib import Path
 
 import pytest
 
+from securebench.baselines import path_digest
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.errors import ConfigError
 
 
 DIGEST = "sha256:" + "b" * 64
+
+
+def test_resource_digest_includes_permission_bits(tmp_path):
+    resource = tmp_path / "tool.sh"
+    resource.write_text("#!/bin/sh\nexit 0\n")
+    resource.chmod(0o600)
+    before = path_digest(resource)
+
+    resource.chmod(0o700)
+
+    assert path_digest(resource) != before
 
 
 def write_pack(root: Path) -> tuple[Path, Path]:

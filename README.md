@@ -70,10 +70,11 @@ docker:
   max_cached_images: 2
 ```
 
-Each run writes sanitized `results.jsonl`, immutable candidate manifests and
-blobs under `artifacts/`, and ephemeral per-row Agent workspaces under
-`workspaces/`. Resume accepts a prior row only when its run id and row digest
-match the current pack.
+Each run writes sanitized `results.jsonl` plus immutable candidate manifests
+and blobs under `artifacts/`. Per-row Agent workspaces are removed after
+capture and verification. Resume accepts a prior result only when its complete
+row, image, candidate-baseline, and verification-input provenance matches the
+current compiled task.
 
 The author-facing schema and examples are documented in
 [the recommended row schema](docs/final-recommended-row-schema.md) and

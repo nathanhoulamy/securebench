@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from securebench.baselines import task_baseline_digest, task_verification_digest
 from securebench.candidates.models import StoredCandidate
 from securebench.candidates.store import CandidateStore
-from securebench.schemas.benchmark import ArtifactCheck, ArtifactSpec, FileBundleCandidate
+from securebench.schemas.benchmark import ArtifactCheck, ArtifactSpec
 from securebench.tasks import BenchmarkTask
 from securebench.verification.models import (
     ArtifactEvidence,
@@ -39,6 +40,7 @@ class ArtifactVerificationEngine:
         session = oracle
         owns_session = session is None
         try:
+            _validate_candidate_binding(task, candidate, store)
             if session is None:
                 session = OracleProcessSession(_oracle_root(task))
             session.initialize(task, run_seed=run_seed)
@@ -81,6 +83,21 @@ class ArtifactVerificationEngine:
             if owns_session and session is not None:
                 session.close()
 
+    def infrastructure_error(
+        self,
+        task: BenchmarkTask,
+        *,
+        code: str,
+        message: str,
+        candidate: StoredCandidate | None = None,
+    ) -> VerificationResultV2:
+        """Create a sanitized result when trusted row orchestration fails."""
+        return _infrastructure_result(
+            task,
+            candidate,
+            VerificationInfrastructureError(code, message),
+        )
+
     def verify_candidate_error(
         self,
         task: BenchmarkTask,
@@ -94,6 +111,7 @@ class ArtifactVerificationEngine:
         session = oracle
         owns_session = session is None
         try:
+            _validate_task_inputs(task)
             if session is None:
                 session = OracleProcessSession(_oracle_root(task))
             session.initialize(task, run_seed=run_seed)
@@ -261,6 +279,43 @@ def _candidate_artifact(
     )
 
 
+def _validate_candidate_binding(
+    task: BenchmarkTask,
+    candidate: StoredCandidate,
+    store: CandidateStore,
+) -> None:
+    _validate_task_inputs(task)
+    manifest = store.load_candidate(candidate.digest)
+    if candidate.type != manifest.type:
+        raise VerificationInfrastructureError(
+            "candidate_reference_mismatch",
+            "Stored candidate type does not match its reference",
+        )
+    if candidate.baseline_digest != manifest.baseline_digest:
+        raise VerificationInfrastructureError(
+            "candidate_reference_mismatch",
+            "Stored candidate baseline does not match its reference",
+        )
+    if manifest.baseline_digest != task.baseline_digest:
+        raise VerificationInfrastructureError(
+            "candidate_baseline_mismatch",
+            "Stored candidate was captured from a different baseline",
+        )
+
+
+def _validate_task_inputs(task: BenchmarkTask) -> None:
+    if task_baseline_digest(task) != task.baseline_digest:
+        raise VerificationInfrastructureError(
+            "candidate_baseline_changed",
+            "Candidate-visible baseline resources changed after row compilation",
+        )
+    if task_verification_digest(task) != task.verification_digest:
+        raise VerificationInfrastructureError(
+            "verification_inputs_changed",
+            "Verification resources changed after row compilation",
+        )
+
+
 def _oracle_root(task: BenchmarkTask) -> str:
     _, identifier = task.verification.oracle.split(".", 1)
     resource = task.resources.resources.get(f"host.{identifier}")
@@ -313,6 +368,8 @@ def _result(
         manifest_digest=task.manifest_digest,
         row_digest=task.row_digest,
         image_digest=_image_digest(task.environment.image),
+        baseline_digest=task.baseline_digest,
+        verification_digest=task.verification_digest,
         checks=summaries,
         public_diagnostics=_bounded_public_diagnostics(verdict.public_diagnostics),
     )
@@ -335,6 +392,8 @@ def _infrastructure_result(
         manifest_digest=task.manifest_digest,
         row_digest=task.row_digest,
         image_digest=_image_digest(task.environment.image),
+        baseline_digest=task.baseline_digest,
+        verification_digest=task.verification_digest,
         infrastructure_error={"code": error.code, "message": error.public_message},
     )
 
@@ -343,7 +402,12 @@ def _bounded_public_diagnostics(value: dict[str, Any]) -> dict[str, Any]:
     import json
 
     try:
-        encoded = json.dumps(value, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        encoded = json.dumps(
+            value,
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
     except (TypeError, ValueError) as exc:
         raise VerificationInfrastructureError(
             "oracle_diagnostics_invalid", "Oracle public diagnostics are not JSON serializable"

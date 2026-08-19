@@ -104,7 +104,13 @@ def _task_findings(task: BenchmarkTask) -> tuple[AuditFinding, ...]:
         )
     )
     provenance_missing = not all(
-        value.startswith("sha256:") for value in (task.manifest_digest, task.row_digest)
+        value.startswith("sha256:")
+        for value in (
+            task.manifest_digest,
+            task.row_digest,
+            task.baseline_digest,
+            task.verification_digest,
+        )
     )
     findings.append(
         _finding(
@@ -112,7 +118,7 @@ def _task_findings(task: BenchmarkTask) -> tuple[AuditFinding, ...]:
             vulnerability=RESULT_INTEGRITY_GAP,
             family=task.family,
             status="failed" if provenance_missing else "passed",
-            message="compiled task carries manifest and row digests",
+            message="compiled task binds row, baseline, and verification inputs",
             evidence={"missing": provenance_missing},
             recommendation="Keep provenance digests in every result envelope.",
         )

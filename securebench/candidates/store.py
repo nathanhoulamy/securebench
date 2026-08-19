@@ -57,6 +57,8 @@ class CandidateStore:
         baseline_digest: str,
         payload: dict[str, Any],
     ) -> StoredCandidate:
+        if candidate_type not in {"git_patch", "file_bundle", "filesystem_overlay"}:
+            raise CandidateStoreError(f"unsupported candidate type: {candidate_type!r}")
         try:
             _sha256_hex(baseline_digest)
         except CandidateStoreError as exc:
@@ -67,7 +69,10 @@ class CandidateStore:
             "baseline_digest": baseline_digest,
             "payload": payload,
         }
-        encoded = _canonical_json(document)
+        try:
+            encoded = _canonical_json(document)
+        except (TypeError, ValueError) as exc:
+            raise CandidateStoreError("candidate manifest payload is not canonical JSON") from exc
         digest = _digest_bytes(encoded)
         target = self._candidate_path(digest) / "manifest.json"
         if target.exists():
@@ -141,9 +146,16 @@ class CandidateStore:
 
 
 def _canonical_json(value: Any) -> bytes:
-    return (json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n").encode(
-        "utf-8"
-    )
+    return (
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
 
 
 def _digest_bytes(content: bytes) -> str:

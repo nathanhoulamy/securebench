@@ -13,7 +13,6 @@ from securebench.tasks import BenchmarkTask
 class CandidateProduction:
     """Ephemeral output of an Agent harness, before trusted capture."""
 
-    patch: str | None = None
     workspace: str | None = None
     stdout: str = ""
     stderr: str = ""

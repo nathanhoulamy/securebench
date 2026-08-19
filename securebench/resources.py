@@ -30,9 +30,6 @@ COMPONENT_VISIBILITIES: dict[str, tuple[str, ...]] = {
     "oracle": ("public", "hidden"),
     "result": ("public", "evaluation_inputs", "hidden"),
 }
-REDACTED = "<redacted>"
-
-
 @dataclass(frozen=True)
 class Resource:
     """One benchmark datum plus the visibility label assigned by an adapter."""
@@ -57,16 +54,6 @@ class ComponentView:
 
     component: Component
     resources: tuple[Resource, ...] = ()
-    redact_non_public: bool = False
-
-    def payload(self) -> dict[str, Any]:
-        payload: dict[str, Any] = {}
-        for resource in self.resources:
-            if self.redact_non_public and resource.visibility != "public":
-                payload[resource.name] = REDACTED
-            else:
-                payload[resource.name] = resource.value
-        return payload
 
     def summary(self) -> list[dict[str, Any]]:
         summary = []
@@ -76,9 +63,7 @@ class ComponentView:
                 "visibility": resource.visibility,
                 "kind": resource.kind,
             }
-            if resource.visibility == "public":
-                item["value"] = resource.value
-            else:
+            if resource.visibility != "public":
                 item["redacted"] = True
             summary.append(item)
         return summary
@@ -107,11 +92,7 @@ class ResourceBundle:
             resources=tuple(
                 resource for resource in self.resources.values() if resource.visibility in allowed
             ),
-            redact_non_public=component == "result",
         )
-
-    def payload_for(self, component: Component) -> dict[str, Any]:
-        return self.view_for(component).payload()
 
     def summary(self) -> list[dict[str, Any]]:
         return self.view_for("result").summary()

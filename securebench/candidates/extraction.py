@@ -11,7 +11,7 @@ from securebench.sandboxes import CommandResult, Sandbox
 from securebench.tasks import BenchmarkTask
 
 
-ExtractionMode = Literal["git_diff", "workspace"]
+ExtractionMode = Literal["git_patch", "workspace"]
 
 
 @dataclass(frozen=True)
@@ -48,7 +48,7 @@ def default_extraction_spec(
     candidate_type = task.verification.candidate.type
     if candidate_type == "git_patch":
         return CandidateExtractionSpec(
-            mode="git_diff",
+            mode="git_patch",
             candidate_type=candidate_type,
             workdir=_task_workdir(task),
         )
@@ -63,7 +63,7 @@ def default_extraction_spec(
 
 def extraction_instructions(spec: CandidateExtractionSpec) -> str:
     """Return prompt text that tells an agent how SecureBench will collect its answer."""
-    if spec.mode == "git_diff":
+    if spec.mode == "git_patch":
         return (
             "Make the required repository changes in the workspace. "
             "SecureBench will collect the final git diff after you finish."
@@ -83,41 +83,10 @@ def extract_candidate(
     """Collect a candidate artifact according to a shared extraction spec."""
     if run_result.timed_out:
         raise CandidateProductionTimeout(run_result)
-    if spec.mode == "git_diff":
-        intent_result = sandbox.run(
-            ["git", "add", "--intent-to-add", "--all", "--"],
-            workdir=spec.workdir,
-            timeout=timeout,
-        )
-        if intent_result.timed_out:
-            raise CandidateProductionTimeout(intent_result, phase="candidate_extraction")
-        if intent_result.exit_code != 0:
-            raise ConfigError(
-                "failed to prepare repository candidate extraction "
-                f"(exit code {intent_result.exit_code}): {intent_result.stderr.strip()}"
-            )
-        diff_result = sandbox.run(
-            ["git", "diff", "HEAD", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "--"],
-            workdir=spec.workdir,
-            timeout=timeout,
-        )
-        if diff_result.timed_out:
-            raise CandidateProductionTimeout(diff_result, phase="candidate_extraction")
-        if diff_result.exit_code != 0:
-            raise ConfigError(
-                "failed to extract repository candidate diff "
-                f"(exit code {diff_result.exit_code}): {diff_result.stderr.strip()}"
-            )
-        return _candidate_artifact(
-            spec,
-            diff_result.stdout,
-            stdout=run_result.stdout,
-            stderr=run_result.stderr,
-            metadata={
-                **_metadata(spec),
-                "candidate_diff_exit_code": diff_result.exit_code,
-                "candidate_diff_stderr": diff_result.stderr,
-            },
+    if spec.mode == "git_patch":
+        raise ConfigError(
+            "git_patch stopped-state extraction is not implemented; "
+            "execution preflight should reject this row before Agent launch"
         )
     if spec.mode == "workspace":
         if run_result.exit_code != 0:
@@ -138,22 +107,6 @@ def extract_candidate(
             },
         )
     raise ConfigError(f"Unsupported candidate extraction mode: {spec.mode!r}")
-
-
-def _candidate_artifact(
-    spec: CandidateExtractionSpec,
-    candidate: str,
-    *,
-    stdout: str,
-    stderr: str,
-    metadata: dict[str, object],
-) -> CandidateProduction:
-    return CandidateProduction(
-        patch=candidate if spec.candidate_type == "git_patch" else None,
-        stdout=stdout,
-        stderr=stderr,
-        metadata=metadata,
-    )
 
 
 def _metadata(spec: CandidateExtractionSpec) -> dict[str, object]:

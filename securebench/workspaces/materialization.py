@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 MaterializationComponent = Literal["agent", "evaluation_runtime", "oracle"]
-SerializationFormat = Literal["json", "copy"]
+SerializationFormat = Literal["json", "mount"]
 MaterializationPlacement = Literal["internal", "workspace"]
 
 SUPPORTED_MATERIALIZATION_KINDS = {"text", "json"}
@@ -55,48 +55,6 @@ class MaterializationPlan:
 
     component: MaterializationComponent
     resources: tuple[MaterializedResource, ...]
-
-
-class ResourceMaterializer:
-    """Build and write framework-owned resource materialization plans."""
-
-    def build_plan(self, source: ResourceBundle | Any, component: Component) -> MaterializationPlan:
-        """Return the resources and paths that would be materialized."""
-        target_component = _materialization_component(component)
-        bundle = _resource_bundle(source)
-
-        planned = []
-        for resource in bundle.view_for(target_component).resources:
-            _validate_materializable_resource(resource)
-            planned.append(
-                MaterializedResource(
-                    name=resource.name,
-                    visibility=resource.visibility,
-                    kind=resource.kind,
-                    component=target_component,
-                    relative_path=_resource_path(resource, target_component),
-                    read_only=_resource_default_read_only(resource, target_component),
-                )
-            )
-        plan = MaterializationPlan(component=target_component, resources=tuple(planned))
-        validate_materialization_plan(plan)
-        return plan
-
-    def materialize(
-        self,
-        source: ResourceBundle | Any,
-        target: MaterializationTarget,
-        component: Component,
-    ) -> MaterializationPlan:
-        """Write materialized resource files and return the applied plan."""
-        target_component = _materialization_component(component)
-        bundle = _resource_bundle(source)
-        plan = self.build_plan(bundle, target_component)
-
-        for item in plan.resources:
-            resource = bundle.resources[item.name]
-            _write_materialized_file(item, target, _serialize_json(resource.value))
-        return plan
 
 
 class VisibilityAwareMaterializer:
@@ -138,31 +96,30 @@ class VisibilityAwareMaterializer:
         target: MaterializationTarget,
         component: Component,
     ) -> MaterializationPlan:
-        """Write value-backed resources and copy file-backed resources."""
+        """Write value-backed resources; file resources remain explicit mounts."""
         target_component = _materialization_component(component)
         bundle = _resource_bundle(source)
         plan = self.build_plan(source, target_component)
 
         for item in plan.resources:
-            if item.serialization == "copy":
-                _copy_materialized_resource(item, target)
-            else:
+            if item.serialization == "json":
                 resource = bundle.resources[item.name]
                 _write_materialized_file(item, target, _serialize_json(resource.value))
         return plan
 
 
-def docker_resource_mounts(plan: MaterializationPlan, workspace_root: str | Path) -> tuple[DockerBindMount, ...]:
+def docker_resource_mounts(plan: MaterializationPlan) -> tuple[DockerBindMount, ...]:
     """Return explicit Docker mounts for compiled file resources."""
     from securebench.sandboxes import DockerBindMount
 
-    root = Path(workspace_root)
     mounts = []
     for item in plan.resources:
         if item.container_path is not None:
+            if item.source_path is None:
+                raise MaterializationError(f"mounted resource {item.name!r} has no source path")
             mounts.append(
                 DockerBindMount(
-                    source=root.joinpath(*PurePosixPath(item.relative_path).parts),
+                    source=item.source_path,
                     target=item.container_path,
                     read_only=item.read_only,
                 )
@@ -237,6 +194,11 @@ def _compiled_file_resource(
         raise MaterializationError(f"resource {resource.name!r}.mount must be an absolute safe path")
     if not isinstance(read_only, bool):
         raise MaterializationError(f"resource {resource.name!r}.read_only must be a boolean")
+    if not read_only:
+        raise MaterializationError(
+            f"resource {resource.name!r} requests a writable mount, but direct pack-source "
+            "mounts must be read-only"
+        )
     lane = "evaluation_inputs" if resource.visibility == "evaluation_inputs" else "public"
     staging = PurePosixPath("securebench") / lane / "files" / _safe_resource_name(resource.name)
     return MaterializedResource(
@@ -245,7 +207,7 @@ def _compiled_file_resource(
         kind=resource.kind,
         component=component,
         relative_path=str(staging),
-        serialization="copy",
+        serialization="mount",
         placement="internal",
         source_path=str(source),
         container_path=str(mount),
@@ -264,37 +226,6 @@ def _source_kind(path: Path, field: str) -> ResourceKind:
                 raise MaterializationError(f"{field} source directory may not contain symlinks")
         return "directory"
     raise MaterializationError(f"{field} source must be a file or directory")
-
-
-def _copy_materialized_resource(item: MaterializedResource, target: MaterializationTarget) -> None:
-    if item.source_path is None:
-        raise MaterializationError(f"copy resource {item.name!r} requires source_path")
-    source = Path(item.source_path)
-    if item.kind == "file":
-        _write_materialized_file(item, target, source.read_bytes())
-        return
-    if item.kind == "directory":
-        target_root = getattr(target, "root", None)
-        if target_root is not None:
-            destination = Path(target_root).joinpath(*PurePosixPath(item.relative_path).parts)
-            destination.mkdir(parents=True, exist_ok=True)
-        for child in sorted(source.rglob("*")):
-            if child.is_file():
-                relative_child = PurePosixPath(child.relative_to(source).as_posix())
-                child_item = MaterializedResource(
-                    name=item.name,
-                    visibility=item.visibility,
-                    kind="file",
-                    component=item.component,
-                    relative_path=str(PurePosixPath(item.relative_path) / relative_child),
-                    serialization=item.serialization,
-                    placement=item.placement,
-                    source_path=str(child),
-                    read_only=item.read_only,
-                )
-                _write_materialized_file(child_item, target, child.read_bytes())
-        return
-    raise MaterializationError(f"copy resource {item.name!r} must be a file or directory")
 
 
 def _write_materialized_file(item: MaterializedResource, target: MaterializationTarget, content: str | bytes) -> None:
@@ -358,6 +289,6 @@ def _validate_generated_path(path: PurePosixPath) -> None:
 
 def _serialize_json(value: Any) -> str:
     try:
-        return json.dumps(value, indent=2, sort_keys=True) + "\n"
+        return json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n"
     except (TypeError, ValueError) as exc:
         raise MaterializationError(f"resource value is not JSON serializable: {exc}") from exc

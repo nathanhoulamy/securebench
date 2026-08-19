@@ -72,7 +72,7 @@ class DockerSandbox(Sandbox):
         self.workspace_mount_target = _docker_bind_mount_target(workspace_mount_target, allow_workspace_root=True)
         self._container_name: str | None = None
         self._tempdir = None if root is not None else tempfile.TemporaryDirectory(prefix="securebench-")
-        self.root = Path(root) if root is not None else Path(self._tempdir.name)
+        self.root = (Path(root) if root is not None else Path(self._tempdir.name)).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         emit_progress(
             "sandbox_create",
@@ -405,9 +405,18 @@ def _docker_bind_mount_args(
     for mount in mounts:
         if not isinstance(mount, DockerBindMount):
             raise ValueError("Docker mounts must be DockerBindMount instances")
-        source = str(Path(mount.source))
-        if not source:
+        raw_source = os.fspath(mount.source)
+        if not raw_source:
             raise ValueError("Docker bind mount source must be non-empty")
+        source_path = Path(raw_source)
+        if not source_path.is_absolute():
+            raise ValueError("Docker bind mount source must be absolute")
+        if source_path.is_symlink():
+            raise ValueError("Docker bind mount source must not be a symlink")
+        source_path = source_path.resolve()
+        if not source_path.is_file() and not source_path.is_dir():
+            raise ValueError("Docker bind mount source must be an existing file or directory")
+        source = str(source_path)
         target = _docker_bind_mount_target(mount.target, workspace_mount_target=workspace_mount_target)
         option = f"type=bind,source={source},target={target}"
         if mount.read_only:
@@ -428,7 +437,7 @@ def _docker_bind_mount_target(
         raise ValueError(f"Docker bind mount target may not contain backslashes: {path!r}")
     candidate = PurePosixPath(path)
     if candidate.is_absolute():
-        workspace_root = PurePosixPath("/workspace")
+        workspace_root = PurePosixPath(workspace_mount_target)
         allowed_workspace_roots = (
             workspace_root,
             PurePosixPath("/app"),
@@ -450,7 +459,7 @@ def _docker_bind_mount_target(
             PurePosixPath("/tmp"),
         )
         if candidate == workspace_root or candidate.is_relative_to(workspace_root):
-            relative = PurePosixPath(*candidate.parts[2:])
+            relative = candidate.relative_to(workspace_root)
             if ".." in relative.parts:
                 raise ValueError(f"Docker bind mount target may not contain '..': {path!r}")
             if str(relative) in ("", "."):
@@ -459,7 +468,10 @@ def _docker_bind_mount_target(
                 raise ValueError("Docker bind mount target must not be the workspace root")
             return str(workspace_root / relative)
         if not any(candidate == root or candidate.is_relative_to(root) for root in allowed_external_roots):
-            raise ValueError(f"Docker bind mount target must be under /workspace, /opt/securebench, or /tmp: {path!r}")
+            raise ValueError(
+                "Docker bind mount target must be under the configured workspace, "
+                f"/opt/securebench, /securebench-workspace, or /tmp: {path!r}"
+            )
         relative = candidate
     else:
         relative = candidate

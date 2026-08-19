@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -199,6 +198,17 @@ def test_candidate_store_detects_blob_tampering(tmp_path):
 
     with pytest.raises(CandidateStoreError, match="digest mismatch"):
         store.read_blob(digest)
+
+
+def test_candidate_store_rejects_non_finite_manifest_data(tmp_path):
+    store = CandidateStore(tmp_path / "store")
+
+    with pytest.raises(CandidateStoreError, match="not canonical JSON"):
+        store.put_candidate(
+            "file_bundle",
+            BASELINE,
+            {"invalid_number": float("nan")},
+        )
 
 
 def test_file_bundle_replay_requires_exact_baseline(tmp_path):

@@ -21,6 +21,7 @@ from securebench.candidates.extraction import (
 )
 from securebench.candidates import CandidateProducer, CandidateProduction
 from securebench.errors import ConfigError
+from securebench.execution_profiles import validate_executable_task
 from securebench.harnesses.shared import (
     agent_task_json,
     close_sandbox,
@@ -70,7 +71,6 @@ CODEX_CONFIG_FIELDS = {
 }
 CODEX_OVERLAY_TARGET = "/opt/securebench/codex"
 CODEX_HOME_TARGET = "/opt/securebench/codex-home"
-CODEX_CONFIG_TARGET = "/opt/securebench/codex-config"
 CODEX_DEFAULT_VERSION = "latest"
 CODEX_DEFAULT_TASK_FILE = "task.json"
 CODEX_DEFAULT_TIMEOUT_SECONDS = 900.0
@@ -183,6 +183,7 @@ class CodexHarnessProducer(CandidateProducer):
         self.materializer = VisibilityAwareMaterializer()
 
     def produce(self, task: BenchmarkTask, **context: Any) -> CandidateProduction:
+        validate_executable_task(task)
         image = container_image_for_task(task)
         relay_spec = codex_provider_relay_spec(self.auth)
         credential_file = codex_subscription_credential_file(self.auth)
@@ -197,12 +198,11 @@ class CodexHarnessProducer(CandidateProducer):
             task,
             context.get("workspace_root", self.workspace_root),
         )
-        cleanup = None
         if task_workspace is None:
-            cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-")
-            task_workspace = Path(cleanup.name)
+            raise ConfigError(
+                "Codex harness requires a persistent workspace_root for stopped-state capture"
+            )
         state_cleanup = None
-        config_cleanup = None
 
         try:
             task_workspace.mkdir(parents=True, exist_ok=True)
@@ -211,8 +211,6 @@ class CodexHarnessProducer(CandidateProducer):
             state_root = Path(state_cleanup.name)
             if self.auth == "subscription":
                 write_dummy_codex_auth(state_root / "auth.json")
-            config_cleanup = tempfile.TemporaryDirectory(prefix="securebench-codex-config-")
-            config_root = Path(config_cleanup.name)
             staging = HostSandbox(root=task_workspace)
             plan = self.materializer.materialize(task, staging, "agent")
             reject_task_file_collision(self.task_file, plan)
@@ -236,12 +234,6 @@ class CodexHarnessProducer(CandidateProducer):
             ) as egress:
                 if egress.provider_base_url is None:
                     raise ConfigError("codex provider relay did not provide a base URL")
-                write_codex_config(
-                    config_root,
-                    egress.provider_base_url,
-                    auth=self.auth,
-                    allow_external_tools=self.allow_external_tools,
-                )
                 sandbox = DockerSandbox(
                     image=image,
                     root=task_workspace,
@@ -250,7 +242,7 @@ class CodexHarnessProducer(CandidateProducer):
                     network=egress.network,
                     read_only=False,
                     mounts=(
-                        *docker_resource_mounts(plan, task_workspace),
+                        *docker_resource_mounts(plan),
                         DockerBindMount(
                             source=overlay.path,
                             target=CODEX_OVERLAY_TARGET,
@@ -260,11 +252,6 @@ class CodexHarnessProducer(CandidateProducer):
                             source=state_root,
                             target=CODEX_HOME_TARGET,
                             read_only=False,
-                        ),
-                        DockerBindMount(
-                            source=config_root,
-                            target=CODEX_CONFIG_TARGET,
-                            read_only=True,
                         ),
                     ),
                     workspace_mount_target=workspace_mount_target,
@@ -290,12 +277,6 @@ class CodexHarnessProducer(CandidateProducer):
                         mount_target=workspace_mount_target,
                     )
                     agent_workdir = codex_agent_workdir(task)
-                    baseline = prepare_repo_patch_baseline(
-                        sandbox,
-                        task,
-                        agent_workdir,
-                        timeout,
-                    )
                     config_args = codex_config_args(
                         egress.provider_base_url,
                         auth=self.auth,
@@ -321,7 +302,6 @@ class CodexHarnessProducer(CandidateProducer):
                     )
                     relay_summary = relay_decision_summary(egress.relay_log_dir)
                     return CandidateProduction(
-                        patch=candidate.patch,
                         workspace=candidate.workspace,
                         stdout=result.stdout,
                         stderr=result.stderr,
@@ -342,19 +322,14 @@ class CodexHarnessProducer(CandidateProducer):
                             "provider": egress.provider,
                             "allow_external_tools": self.allow_external_tools,
                             **relay_summary,
-                            **baseline,
                             **candidate.metadata,
                         },
                     )
                 finally:
                     close_sandbox(sandbox)
         finally:
-            if config_cleanup is not None:
-                config_cleanup.cleanup()
             if state_cleanup is not None:
                 state_cleanup.cleanup()
-            if cleanup is not None:
-                cleanup.cleanup()
 
 
 def codex_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -556,107 +531,6 @@ def run_docker(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(command, check=False, capture_output=True, text=True)
 
 
-def write_codex_relay_config(
-    home: Path,
-    base_url: str,
-    *,
-    allow_external_tools: bool = False,
-) -> None:
-    home.mkdir(parents=True, exist_ok=True)
-    lines = [f'model_provider = "{CODEX_RELAY_PROVIDER_ID}"']
-    if not allow_external_tools:
-        lines.extend(
-            [
-                'web_search = "disabled"',
-                "",
-                "[tools]",
-                "web_search = false",
-            ]
-        )
-    lines.extend(
-        [
-            "",
-            f'[model_providers.{CODEX_RELAY_PROVIDER_ID}]',
-            'name = "SecureBench OpenAI Relay"',
-            f'base_url = "{base_url}"',
-            'env_key = "OPENAI_API_KEY"',
-            'wire_api = "responses"',
-            "",
-        ]
-    )
-    content = "\n".join(lines)
-    (home / "config.toml").write_text(content)
-    dot_codex = home / ".codex"
-    dot_codex.mkdir(exist_ok=True)
-    (dot_codex / "config.toml").write_text(content)
-
-
-def write_codex_config(
-    home: Path,
-    base_url: str,
-    *,
-    auth: str,
-    allow_external_tools: bool = False,
-) -> None:
-    if codex_auth_mode(auth) == "subscription":
-        write_codex_subscription_config(
-            home,
-            base_url,
-            allow_external_tools=allow_external_tools,
-        )
-        return
-    write_codex_relay_config(
-        home,
-        base_url,
-        allow_external_tools=allow_external_tools,
-    )
-
-
-def write_codex_subscription_config(
-    home: Path,
-    base_url: str,
-    *,
-    allow_external_tools: bool = False,
-) -> None:
-    home.mkdir(parents=True, exist_ok=True)
-    model_base_url = codex_subscription_model_base_url(base_url)
-    lines = [
-        f"model_provider = {toml_string(CODEX_SUBSCRIPTION_RELAY_PROVIDER_ID)}",
-        f"chatgpt_base_url = {toml_string(base_url)}",
-        'forced_login_method = "chatgpt"',
-        'cli_auth_credentials_store = "file"',
-    ]
-    if not allow_external_tools:
-        lines.append('web_search = "disabled"')
-    lines.extend(
-        [
-            "",
-            f"[model_providers.{CODEX_SUBSCRIPTION_RELAY_PROVIDER_ID}]",
-            f"name = {toml_string('SecureBench ChatGPT Relay')}",
-            f"base_url = {toml_string(model_base_url)}",
-            'wire_api = "responses"',
-            "requires_openai_auth = true",
-            "supports_websockets = false",
-        ]
-    )
-    if not allow_external_tools:
-        lines.extend(
-            [
-                "",
-                "[tools]",
-                "web_search = false",
-                "",
-                "[features]",
-                "image_generation = false",
-            ]
-        )
-    content = "\n".join([*lines, ""])
-    (home / "config.toml").write_text(content)
-    dot_codex = home / ".codex"
-    dot_codex.mkdir(exist_ok=True)
-    (dot_codex / "config.toml").write_text(content)
-
-
 def codex_relay_config_args(
     base_url: str,
     *,
@@ -826,51 +700,6 @@ def codex_shell_command(inner: str) -> str:
         'if [ -z "$CODEX_API_KEY" ] && [ -n "$OPENAI_API_KEY" ]; then export CODEX_API_KEY="$OPENAI_API_KEY"; fi; '
         f"{inner}"
     )
-
-
-def prepare_repo_patch_baseline(
-    sandbox: DockerSandbox,
-    task: BenchmarkTask,
-    workdir: str | None,
-    timeout: float | None,
-) -> dict[str, object]:
-    """Commit image-provided dirty state so extracted diffs only include agent changes."""
-    if task.family != "repo_patch" or workdir is None:
-        return {}
-    status = sandbox.run(["git", "status", "--porcelain=v1"], workdir=workdir, timeout=timeout)
-    if status.exit_code != 0:
-        raise ConfigError(
-            f"failed to inspect repo_patch baseline state for task {task.id!r}: "
-            f"{status.stderr.strip()}"
-        )
-    if not status.stdout.strip():
-        return {"repo_patch_baseline": "clean"}
-    add = sandbox.run(["git", "add", "-A"], workdir=workdir, timeout=timeout)
-    if add.exit_code != 0:
-        raise ConfigError(
-            f"failed to stage repo_patch baseline state for task {task.id!r}: {add.stderr.strip()}"
-        )
-    commit = sandbox.run(
-        [
-            "git",
-            "-c",
-            "user.name=SecureBench",
-            "-c",
-            "user.email=securebench@example.invalid",
-            "commit",
-            "--no-verify",
-            "-m",
-            "securebench baseline",
-        ],
-        workdir=workdir,
-        timeout=timeout,
-    )
-    if commit.exit_code != 0:
-        raise ConfigError(
-            f"failed to commit repo_patch baseline state for task {task.id!r}: "
-            f"{commit.stderr.strip()}"
-        )
-    return {"repo_patch_baseline": "committed"}
 
 
 def codex_agent_workdir(task: BenchmarkTask) -> str:

@@ -4,7 +4,6 @@ from securebench.workspaces.materialization import (
     MaterializationError,
     MaterializationPlan,
     MaterializedResource,
-    ResourceMaterializer,
     VisibilityAwareMaterializer,
     docker_resource_mounts,
 )
@@ -24,7 +23,6 @@ __all__ = [
     "PathPolicy",
     "PathPolicyDecision",
     "PathPolicyError",
-    "ResourceMaterializer",
     "VisibilityAwareMaterializer",
     "docker_resource_mounts",
     "validate_materialization_plan",

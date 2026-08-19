@@ -562,7 +562,8 @@ def _immutable_image_reference(value: str) -> str:
         raise ValueError(
             "environment.image must be pinned by sha256 digest (name@sha256:... or sha256:...)"
         )
-    return value
+    start, end = digest.span(1)
+    return value[:start] + value[start:end].lower() + value[end:]
 
 
 def _unique(values: Any, field: str) -> None:

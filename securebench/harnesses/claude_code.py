@@ -17,10 +17,10 @@ from securebench.candidates.extraction import (
     extraction_instructions,
 )
 from securebench.errors import ConfigError
+from securebench.execution_profiles import validate_executable_task
 from securebench.harnesses.codex import (
     DockerPlatform,
     docker_image_platform,
-    prepare_repo_patch_baseline,
     run_docker,
     shell_quote,
 )
@@ -161,6 +161,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
         self.materializer = VisibilityAwareMaterializer()
 
     def produce(self, task: BenchmarkTask, **context: Any) -> CandidateProduction:
+        validate_executable_task(task)
         image = container_image_for_task(task)
         relay_spec = claude_code_provider_relay_spec(self.auth)
         require_provider_credential(relay_spec)
@@ -169,10 +170,10 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
             task,
             context.get("workspace_root", self.workspace_root),
         )
-        cleanup = None
         if task_workspace is None:
-            cleanup = tempfile.TemporaryDirectory(prefix="securebench-claude-code-")
-            task_workspace = Path(cleanup.name)
+            raise ConfigError(
+                "Claude Code harness requires a persistent workspace_root for stopped-state capture"
+            )
         state_cleanup = None
 
         try:
@@ -211,7 +212,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                     network=egress.network,
                     read_only=False,
                     mounts=(
-                        *docker_resource_mounts(plan, task_workspace),
+                        *docker_resource_mounts(plan),
                         DockerBindMount(
                             source=overlay.path,
                             target=CLAUDE_CODE_OVERLAY_TARGET,
@@ -246,7 +247,6 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                         mount_target=workspace_mount_target,
                     )
                     agent_workdir = claude_code_agent_workdir(task)
-                    baseline = prepare_repo_patch_baseline(sandbox, task, agent_workdir, timeout)
                     result = sandbox.run(
                         claude_code_shell_command(
                             f"claude -p --model {shell_quote(self.model)} "
@@ -266,7 +266,6 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                     )
                     relay_summary = relay_decision_summary(egress.relay_log_dir)
                     return CandidateProduction(
-                        patch=candidate.patch,
                         workspace=candidate.workspace,
                         stdout=result.stdout,
                         stderr=result.stderr,
@@ -286,7 +285,6 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                             "provider": egress.provider,
                             "allow_external_tools": self.allow_external_tools,
                             **relay_summary,
-                            **baseline,
                             **candidate.metadata,
                         },
                     )
@@ -295,8 +293,6 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
         finally:
             if state_cleanup is not None:
                 state_cleanup.cleanup()
-            if cleanup is not None:
-                cleanup.cleanup()
 
 
 def claude_code_config(config: dict[str, Any]) -> dict[str, Any]:

@@ -10,7 +10,6 @@ from securebench.verification import ArtifactVerificationEngine
 
 ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / "benchmarks" / "terminal-bench"
-BASELINE = "sha256:" + "e" * 64
 
 
 def candidate_calendar(start: str, end: str) -> str:
@@ -48,7 +47,7 @@ def verify_calendar(tmp_path: Path, content: str):
         HostWorkspaceFilesystem(workspace, guest_root="/app"),
         task.verification.candidate,
         store,
-        baseline_digest=BASELINE,
+        baseline_digest=task.baseline_digest,
     )
     return ArtifactVerificationEngine().verify(
         task,

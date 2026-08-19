@@ -1,7 +1,10 @@
 from pathlib import Path
 
+import pytest
+
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
+from securebench.errors import ConfigError
 from securebench.harnesses.command import CommandHarnessProducer
 from securebench.harnesses.shared import workspace_dir_name
 from securebench.sandboxes import CommandResult
@@ -53,7 +56,6 @@ def test_command_harness_exposes_ephemeral_workspace_for_declared_capture(monkey
         workspace_root=tmp_path,
     ).produce(task)
 
-    assert production.patch is None
     assert production.workspace == str(tmp_path / workspace_dir_name(task))
     assert production.metadata["candidate_type"] == "file_bundle"
     sandbox = FakeDockerSandbox.instances[-1]
@@ -61,3 +63,9 @@ def test_command_harness_exposes_ephemeral_workspace_for_declared_capture(monkey
     assert sandbox.closed is True
     assert len(sandbox.mounts) == 3
     assert not any("oracle" in str(mount.source) for mount in sandbox.mounts)
+    assert all(not Path(mount.source).is_relative_to(Path(production.workspace)) for mount in sandbox.mounts)
+
+
+def test_command_harness_requires_persistent_stopped_state_workspace():
+    with pytest.raises(ConfigError, match="persistent workspace_root"):
+        CommandHarnessProducer(command=("produce",)).produce(compiled_task())

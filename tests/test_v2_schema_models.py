@@ -115,6 +115,21 @@ def test_row_defaults_and_family_contract_are_applied():
     assert isinstance(row.verification.candidate, FileBundleCandidate)
 
 
+def test_environment_image_digest_is_canonicalized_to_lowercase():
+    data = manifest_data()
+    data["defaults"]["environment"]["image"] = (
+        "example.invalid/agent@sha256:" + "A" * 64
+    )
+    manifest = BenchmarkPackManifestV2.model_validate(data)
+
+    row = normalize_benchmark_row(
+        BenchmarkRowDocumentV2.model_validate(passive_row_data()),
+        manifest,
+    )
+
+    assert row.environment.image.endswith("sha256:" + "a" * 64)
+
+
 def test_v1_eval_rows_are_rejected():
     row = passive_row_data(eval={"checker": {}})
     with pytest.raises(ValidationError, match="eval"):

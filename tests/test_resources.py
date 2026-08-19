@@ -1,6 +1,6 @@
 import pytest
 
-from securebench.resources import REDACTED, Resource, ResourceBundle, evaluation_input, hidden, public
+from securebench.resources import Resource, ResourceBundle, evaluation_input, hidden, public
 
 
 def test_resource_helper_constructors_require_names_and_assign_visibility():
@@ -43,15 +43,15 @@ def test_component_views_include_only_allowed_resources():
         )
     )
 
-    assert bundle.payload_for("agent") == {"prompt": "solve"}
-    assert bundle.payload_for("evaluation_runtime") == {
-        "prompt": "solve",
-        "cases": [{"args": []}],
-    }
-    assert bundle.payload_for("oracle") == {
-        "prompt": "solve",
-        "expected": [1],
-    }
+    assert [resource.name for resource in bundle.view_for("agent").resources] == ["prompt"]
+    assert [resource.name for resource in bundle.view_for("evaluation_runtime").resources] == [
+        "prompt",
+        "cases",
+    ]
+    assert [resource.name for resource in bundle.view_for("oracle").resources] == [
+        "prompt",
+        "expected",
+    ]
 
 
 def test_result_view_redacts_non_public_values():
@@ -63,13 +63,8 @@ def test_result_view_redacts_non_public_values():
         )
     )
 
-    assert bundle.payload_for("result") == {
-        "prompt": "solve",
-        "cases": REDACTED,
-        "expected": REDACTED,
-    }
     summary = bundle.summary()
-    assert summary[0]["value"] == "solve"
+    assert "value" not in summary[0]
     assert summary[1]["redacted"] is True
     assert summary[2]["redacted"] is True
     assert "expose" not in summary[0]
@@ -84,7 +79,7 @@ def test_resource_bundle_is_dict_backed_and_accepts_mappings():
     )
 
     assert list(bundle.resources) == ["prompt", "answer"]
-    assert bundle.payload_for("agent") == {"prompt": "solve"}
+    assert [resource.name for resource in bundle.view_for("agent").resources] == ["prompt"]
 
     with pytest.raises(ValueError, match="does not match"):
         ResourceBundle({"wrong": Resource("prompt", "solve", "public")})

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import tempfile
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, replace
@@ -28,6 +30,7 @@ from securebench.progress import ProgressReporter, emit_progress, progress_conte
 from securebench.tasks import BenchmarkTask
 from securebench.tester_config import TesterConfig
 from securebench.verification import ArtifactVerificationEngine
+from securebench.verification.models import RESULT_SCHEMA_VERSION
 
 
 DEFAULT_RESULTS_FILENAME = "results.jsonl"
@@ -77,7 +80,7 @@ def run_tester_config(
         validate_executable_task(task)
     producer = build_harness_producer(config.harness, workspace_root=workspace_root)
 
-    existing = _resume_records(output_path, config.run.id, tasks) if resume else []
+    existing = _resume_records(output_path, config.run.id, tasks, store) if resume else []
     completed_ids = {record["task_id"] for record in existing}
     remaining = [task for task in tasks if task.id not in completed_ids]
     indexes = {task.id: index for index, task in enumerate(tasks, start=1)}
@@ -85,6 +88,7 @@ def run_tester_config(
     image_pruner = DockerImageBatchPruner(config.docker.max_cached_images)
     remaining_image_uses = Counter(environment_image_for_task(task) for task in remaining)
 
+    _initialize_results_file(output_path, existing)
     with progress_context(progress):
         emit_progress(
             "run_start",
@@ -94,14 +98,11 @@ def run_tester_config(
         )
         if existing:
             emit_progress("resume", completed=len(existing), remaining=len(remaining), output_path=output_path)
-        with output_path.open("w") as output_file:
-            for record in existing:
-                output_file.write(json.dumps(record, sort_keys=True) + "\n")
-            output_file.flush()
-
+        with output_path.open("a", encoding="utf-8") as output_file:
             def persist(completed: _CompletedTask) -> None:
-                output_file.write(json.dumps(completed.record, sort_keys=True) + "\n")
+                output_file.write(_encode_record(completed.record))
                 output_file.flush()
+                os.fsync(output_file.fileno())
                 _add_record(counters, completed.record)
                 image = environment_image_for_task(completed.task)
                 remaining_image_uses[image] -= 1
@@ -169,50 +170,80 @@ def _execute_task(
 ) -> _CompletedTask:
     with progress_context(progress):
         emit_progress("task_start", index=index, total=total, task_id=task.id, family=task.family)
-        emit_progress("producer_start", task_id=task.id)
-        _reset_task_workspace(workspace_root, task)
         engine = ArtifactVerificationEngine()
         run_seed = f"{config.run.id}:{task.id}"
         try:
-            production = producer.produce(task)
-        except (CandidateProductionTimeout, CandidateProductionError) as exc:
-            emit_progress("producer_done", task_id=task.id, candidate_type="none", status="failed")
-            result = engine.verify_candidate_error(
-                task,
-                code=(
+            emit_progress("producer_start", task_id=task.id)
+            _reset_task_workspace(workspace_root, task)
+            try:
+                production = producer.produce(task)
+            except (CandidateProductionTimeout, CandidateProductionError) as exc:
+                code = (
                     "producer_timeout"
                     if isinstance(exc, CandidateProductionTimeout)
                     else "producer_failed"
-                ),
-                message=str(exc),
-                run_seed=run_seed,
-            )
-        else:
-            emit_progress(
-                "producer_done",
-                task_id=task.id,
-                candidate_type=task.verification.candidate.type,
-            )
-            emit_progress("candidate_capture_start", task_id=task.id)
-            try:
-                candidate = capture_production(task, production, store)
-            except CandidateCaptureError as exc:
-                emit_progress("candidate_capture_done", task_id=task.id, status="rejected")
+                )
+                emit_progress("producer_done", task_id=task.id, candidate_type="none", status="failed")
                 result = engine.verify_candidate_error(
                     task,
-                    code="candidate_capture_rejected",
-                    message=str(exc),
+                    code=code,
+                    message=(
+                        "Agent candidate production timed out"
+                        if code == "producer_timeout"
+                        else "Agent candidate production failed"
+                    ),
                     run_seed=run_seed,
                 )
             else:
                 emit_progress(
-                    "candidate_capture_done",
+                    "producer_done",
                     task_id=task.id,
-                    status="captured",
-                    candidate_digest=candidate.digest,
+                    candidate_type=task.verification.candidate.type,
                 )
-                emit_progress("verification_start", task_id=task.id)
-                result = engine.verify(task, candidate, store, run_seed=run_seed)
+                emit_progress("candidate_capture_start", task_id=task.id)
+                try:
+                    candidate = capture_production(task, production, store)
+                except CandidateCaptureError:
+                    emit_progress("candidate_capture_done", task_id=task.id, status="rejected")
+                    result = engine.verify_candidate_error(
+                        task,
+                        code="candidate_capture_rejected",
+                        message="Candidate capture was rejected",
+                        run_seed=run_seed,
+                    )
+                else:
+                    emit_progress(
+                        "candidate_capture_done",
+                        task_id=task.id,
+                        status="captured",
+                        candidate_digest=candidate.digest,
+                    )
+                    emit_progress("verification_start", task_id=task.id)
+                    result = engine.verify(task, candidate, store, run_seed=run_seed)
+        except Exception as exc:
+            emit_progress(
+                "task_internal_error",
+                task_id=task.id,
+                error_type=type(exc).__name__,
+            )
+            result = engine.infrastructure_error(
+                task,
+                code="task_execution_internal_error",
+                message=f"Trusted row execution failed: {type(exc).__name__}",
+            )
+        try:
+            _reset_task_workspace(workspace_root, task)
+        except Exception as exc:
+            emit_progress(
+                "task_cleanup_failed",
+                task_id=task.id,
+                error_type=type(exc).__name__,
+            )
+            result = engine.infrastructure_error(
+                task,
+                code="task_workspace_cleanup_failed",
+                message=f"Failed to remove untrusted row workspace: {type(exc).__name__}",
+            )
         emit_progress(
             "verification_done",
             task_id=task.id,
@@ -237,10 +268,11 @@ def _resume_records(
     output_path: Path,
     run_id: str,
     tasks: list[BenchmarkTask],
+    store: CandidateStore,
 ) -> list[dict[str, Any]]:
     if not output_path.exists():
         return []
-    expected = {task.id: task.row_digest for task in tasks}
+    expected = {task.id: _expected_provenance(task) for task in tasks}
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
     for line in output_path.read_text(errors="ignore").splitlines():
@@ -258,15 +290,236 @@ def _resume_records(
         if (
             not isinstance(task_id, str)
             or task_id in seen
-            or expected.get(task_id) is None
-            or not isinstance(provenance, dict)
-            or provenance.get("row_digest") != expected[task_id]
-            or record.get("status") not in {"passed", "failed", "infrastructure_error"}
+            or task_id not in expected
+            or not _valid_resume_record(record, expected[task_id])
+            or not _resume_candidate_available(record, expected[task_id], store)
         ):
             continue
         seen.add(task_id)
         records.append(record)
     return records
+
+
+def _resume_candidate_available(
+    record: dict[str, Any],
+    expected: dict[str, str],
+    store: CandidateStore,
+) -> bool:
+    candidate = record["candidate"]
+    digest = candidate["digest"]
+    if digest is None:
+        return True
+    try:
+        manifest = store.load_candidate(digest)
+        if (
+            manifest.type != candidate["type"]
+            or manifest.baseline_digest != expected["baseline_digest"]
+        ):
+            return False
+        if manifest.type == "file_bundle":
+            entries = manifest.payload.get("entries")
+            if not isinstance(entries, list):
+                return False
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    return False
+                if entry.get("kind") == "regular_file":
+                    if not _resume_blob_available(entry, store):
+                        return False
+                elif entry.get("kind") == "directory_tree":
+                    nodes = entry.get("nodes")
+                    if not isinstance(nodes, list) or any(
+                        not isinstance(node, dict)
+                        or node.get("kind") not in {"directory", "regular_file", "symlink"}
+                        or (
+                            node.get("kind") == "regular_file"
+                            and not _resume_blob_available(node, store)
+                        )
+                        for node in nodes
+                    ):
+                        return False
+                else:
+                    return False
+        elif manifest.type == "git_patch":
+            if not _resume_blob_available(
+                {
+                    "blob": manifest.payload.get("patch_blob"),
+                    "size": manifest.payload.get("patch_bytes"),
+                },
+                store,
+            ):
+                return False
+        else:
+            return False
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _resume_blob_available(value: dict[str, Any], store: CandidateStore) -> bool:
+    digest = value.get("blob")
+    size = value.get("size")
+    if not isinstance(digest, str) or not isinstance(size, int) or size < 0:
+        return False
+    store.read_blob(digest, expected_size=size)
+    return True
+
+
+def _valid_resume_record(record: dict[str, Any], expected: dict[str, str]) -> bool:
+    status = record.get("status")
+    passed = record.get("passed")
+    score = record.get("score")
+    candidate = record.get("candidate")
+    provenance = record.get("provenance")
+    infrastructure_error = record.get("infrastructure_error")
+    expected_fields = {
+        "schema_version",
+        "run_id",
+        "task_id",
+        "benchmark_id",
+        "status",
+        "passed",
+        "score",
+        "candidate",
+        "execution_profile",
+        "provenance",
+        "checks",
+        "public_diagnostics",
+    }
+    if status == "infrastructure_error":
+        expected_fields.add("infrastructure_error")
+    return (
+        set(record) == expected_fields
+        and record.get("schema_version") == RESULT_SCHEMA_VERSION
+        and record.get("benchmark_id") == expected["benchmark_id"]
+        and record.get("execution_profile") == expected["execution_profile"]
+        and status in {"passed", "failed", "infrastructure_error"}
+        and isinstance(passed, bool)
+        and passed is (status == "passed")
+        and isinstance(score, (int, float))
+        and not isinstance(score, bool)
+        and 0.0 <= float(score) <= 1.0
+        and isinstance(candidate, dict)
+        and set(candidate) == {"type", "digest"}
+        and _valid_candidate_reference(candidate)
+        and isinstance(provenance, dict)
+        and provenance == {
+            key: value
+            for key, value in expected.items()
+            if key not in {"benchmark_id", "execution_profile"}
+        }
+        and _valid_check_records(record.get("checks"))
+        and _valid_json_object(record.get("public_diagnostics"))
+        and (
+            isinstance(infrastructure_error, dict)
+            and set(infrastructure_error) == {"code", "message"}
+            and all(isinstance(value, str) and value for value in infrastructure_error.values())
+            if status == "infrastructure_error"
+            else infrastructure_error is None
+        )
+    )
+
+
+def _valid_check_records(value: object) -> bool:
+    if not isinstance(value, list):
+        return False
+    identifiers: set[str] = set()
+    for check in value:
+        if not isinstance(check, dict) or set(check) != {
+            "id",
+            "type",
+            "status",
+            "cases",
+            "evidence_digests",
+        }:
+            return False
+        identifier = check.get("id")
+        cases = check.get("cases")
+        evidence = check.get("evidence_digests")
+        if (
+            not isinstance(identifier, str)
+            or not identifier
+            or identifier in identifiers
+            or not isinstance(check.get("type"), str)
+            or not check["type"]
+            or check.get("status") not in {"passed", "failed", "infrastructure_error"}
+            or isinstance(cases, bool)
+            or not isinstance(cases, int)
+            or cases < 0
+            or not isinstance(evidence, list)
+            or not all(_is_digest(item) for item in evidence)
+        ):
+            return False
+        identifiers.add(identifier)
+    return True
+
+
+def _valid_json_object(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    try:
+        json.dumps(value, sort_keys=True, allow_nan=False)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _valid_candidate_reference(candidate: dict[str, Any]) -> bool:
+    candidate_type = candidate.get("type")
+    digest = candidate.get("digest")
+    if candidate_type is None or digest is None:
+        return candidate_type is None and digest is None
+    return candidate_type in {"file_bundle", "git_patch", "filesystem_overlay"} and _is_digest(digest)
+
+
+def _expected_provenance(task: BenchmarkTask) -> dict[str, str]:
+    return {
+        "benchmark_id": task.benchmark_id,
+        "execution_profile": task.verification.execution_profile,
+        "manifest_digest": task.manifest_digest,
+        "row_digest": task.row_digest,
+        "image_digest": _image_digest(task.environment.image),
+        "baseline_digest": task.baseline_digest,
+        "verification_digest": task.verification_digest,
+    }
+
+
+def _image_digest(reference: str) -> str:
+    return reference.rsplit("@", 1)[1] if "@" in reference else reference
+
+
+def _is_digest(value: object) -> bool:
+    if not isinstance(value, str) or not value.startswith("sha256:"):
+        return False
+    hexadecimal = value.removeprefix("sha256:")
+    return len(hexadecimal) == 64 and all(character in "0123456789abcdef" for character in hexadecimal)
+
+
+def _initialize_results_file(output_path: Path, records: list[dict[str, Any]]) -> None:
+    """Atomically canonicalize resume state before append-only row persistence."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".results-", dir=output_path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as output_file:
+            for record in records:
+                output_file.write(_encode_record(record))
+            output_file.flush()
+            os.fsync(output_file.fileno())
+        os.replace(temporary, output_path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def _encode_record(record: dict[str, Any]) -> str:
+    return json.dumps(
+        record,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ) + "\n"
 
 
 def _summary_counters(records: list[dict[str, Any]]) -> dict[str, Any]:

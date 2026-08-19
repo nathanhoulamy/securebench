@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from securebench.benchmark_compiler import compile_benchmark_pack
@@ -14,12 +15,10 @@ from securebench.verification import (
     ArtifactVerificationEngine,
     OracleSession,
     OracleVerdict,
-    ResultWriter,
 )
 
 
 DIGEST = "sha256:" + "c" * 64
-BASELINE = "sha256:" + "d" * 64
 
 
 class RecordingOracle(OracleSession):
@@ -123,7 +122,7 @@ def capture_result(tmp_path: Path, task, content: bytes):
         HostWorkspaceFilesystem(workspace, guest_root="/app"),
         task.verification.candidate,
         store,
-        baseline_digest=BASELINE,
+        baseline_digest=task.baseline_digest,
     )
     return store, candidate
 
@@ -168,25 +167,6 @@ def test_parser_rejection_is_candidate_evidence_for_oracle(tmp_path):
     assert oracle.evidence[0].error_code == "invalid_json"
 
 
-def test_result_writer_persists_only_public_projection(tmp_path):
-    task = write_artifact_pack(tmp_path / "pack")
-    store, candidate = capture_result(tmp_path, task, b'{"ok":true}')
-    result = ArtifactVerificationEngine().verify(
-        task,
-        candidate,
-        store,
-        run_seed="seed-3",
-        oracle=RecordingOracle(),
-    )
-    output = tmp_path / "results.jsonl"
-
-    record = ResultWriter(output, run_id="run-3").append(result)
-
-    assert json.loads(output.read_text()) == record
-    assert set(record["candidate"]) == {"type", "digest"}
-    assert "manifest_path" not in output.read_text()
-
-
 def test_pack_local_oracle_process_owns_final_verdict(tmp_path):
     task = write_artifact_pack(tmp_path / "pack")
     oracle_root = tmp_path / "pack" / "hidden" / "task" / "oracle"
@@ -222,6 +202,14 @@ for line in sys.stdin:
         }), flush=True)
 """.lstrip()
     )
+    task = next(
+        compile_benchmark_pack(
+            load_benchmark_pack(
+                tmp_path / "pack" / "manifest.yaml",
+                tmp_path / "pack" / "tasks.jsonl",
+            )
+        )
+    )
     store, candidate = capture_result(tmp_path, task, b'{"answer":42}')
 
     result = ArtifactVerificationEngine().verify(
@@ -249,3 +237,20 @@ def test_unknown_parser_is_an_infrastructure_error(tmp_path):
 
     assert result.status == "infrastructure_error"
     assert result.infrastructure_error["code"] == "verification_internal_error"
+
+
+def test_verification_rejects_candidate_from_another_baseline(tmp_path):
+    task = write_artifact_pack(tmp_path / "pack")
+    store, candidate = capture_result(tmp_path, task, b'{}')
+    mismatched = replace(candidate, baseline_digest="sha256:" + "0" * 64)
+
+    result = ArtifactVerificationEngine().verify(
+        task,
+        mismatched,
+        store,
+        run_seed="seed-mismatch",
+        oracle=RecordingOracle(),
+    )
+
+    assert result.status == "infrastructure_error"
+    assert result.infrastructure_error["code"] == "candidate_reference_mismatch"

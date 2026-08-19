@@ -260,6 +260,34 @@ def test_docker_sandbox_can_mount_workspace_at_app_target(monkeypatch, tmp_path)
     assert seen["command"][seen["command"].index("-w") + 1] == "/app"
 
 
+def test_docker_sandbox_allows_explicit_asset_mount_below_configured_workspace(
+    monkeypatch, tmp_path
+):
+    seen = {}
+    asset = tmp_path / "input.txt"
+    asset.write_text("input")
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path / "workspace",
+        persistent=False,
+        mounts=(DockerBindMount(asset, "/app/input.txt"),),
+        workspace_mount_target="/app",
+    )
+
+    sandbox.run(["ls"], workdir="/app")
+
+    option = seen["command"][seen["command"].index("--mount") + 1]
+    assert f"source={asset}" in option
+    assert "target=/app/input.txt" in option
+    assert option.endswith(",readonly")
+
+
 def test_docker_sandbox_resolves_relative_paths_against_workspace_target(monkeypatch, tmp_path):
     seen = {}
 
@@ -392,6 +420,7 @@ def test_docker_sandbox_accepts_writable_bind_mounts(monkeypatch, tmp_path):
         return SimpleNamespace(returncode=0, stdout="ok", stderr="")
 
     monkeypatch.setattr("subprocess.run", fake_run)
+    (tmp_path / "output").mkdir()
 
     sandbox = DockerSandbox(
         image="agent-image",
@@ -403,6 +432,28 @@ def test_docker_sandbox_accepts_writable_bind_mounts(monkeypatch, tmp_path):
 
     mount_index = seen["command"].index("--mount")
     assert seen["command"][mount_index + 1] == f"type=bind,source={tmp_path / 'output'},target=/workspace/output"
+
+
+def test_docker_sandbox_rejects_ambiguous_bind_mount_sources(tmp_path):
+    relative = DockerSandbox(
+        image="agent-image",
+        root=tmp_path / "workspace",
+        mounts=(DockerBindMount(source="input.txt", target="input.txt"),),
+    )
+    with pytest.raises(ValueError, match="source must be absolute"):
+        relative.run(["python", "--version"])
+
+    target = tmp_path / "target.txt"
+    target.write_text("data")
+    link = tmp_path / "link.txt"
+    link.symlink_to(target)
+    symlink = DockerSandbox(
+        image="agent-image",
+        root=tmp_path / "workspace",
+        mounts=(DockerBindMount(source=link, target="input.txt"),),
+    )
+    with pytest.raises(ValueError, match="must not be a symlink"):
+        symlink.run(["python", "--version"])
 
 
 def test_docker_sandbox_accepts_agent_overlay_bind_mounts(monkeypatch, tmp_path):
@@ -429,6 +480,7 @@ def test_docker_sandbox_accepts_agent_overlay_bind_mounts(monkeypatch, tmp_path)
 
 
 def test_docker_sandbox_rejects_invalid_bind_mount_targets(tmp_path):
+    (tmp_path / "input.txt").write_text("data")
     sandbox = DockerSandbox(
         image="agent-image",
         root=tmp_path,

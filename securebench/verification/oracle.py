@@ -104,7 +104,10 @@ class OracleProcessSession(OracleSession):
             env=_oracle_environment(),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            # Oracle diagnostics are trusted-host details and are never public.
+            # Discarding them also prevents an undrained stderr pipe from
+            # deadlocking the bounded request/response channel.
+            stderr=subprocess.DEVNULL,
             text=False,
             bufsize=0,
         )
@@ -156,13 +159,21 @@ class OracleProcessSession(OracleSession):
             ) from exc
 
     def close(self) -> None:
-        if self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=1)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=1)
+        try:
+            if self.process.poll() is None:
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait(timeout=1)
+        finally:
+            for stream in (self.process.stdin, self.process.stdout):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
 
     def _request(self, request: dict[str, Any], *, expected: str) -> dict[str, Any]:
         if self.process.poll() is not None:
@@ -170,7 +181,20 @@ class OracleProcessSession(OracleSession):
                 "oracle_exited", "Oracle process exited unexpectedly"
             )
         assert self.process.stdin is not None
-        encoded = json.dumps(request, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+        try:
+            encoded = (
+                json.dumps(
+                    request,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
+                + b"\n"
+            )
+        except (TypeError, ValueError) as exc:
+            raise VerificationInfrastructureError(
+                "oracle_request_invalid", "Oracle request was not finite JSON data"
+            ) from exc
         try:
             self.process.stdin.write(encoded)
             self.process.stdin.flush()

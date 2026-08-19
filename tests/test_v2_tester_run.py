@@ -1,7 +1,15 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
-from securebench.candidates import CandidateProduction, CandidateProductionError, CandidateProductionTimeout
+from securebench.benchmark_compiler import compile_benchmark_pack
+from securebench.benchmark_pack import load_benchmark_pack
+from securebench.candidates import (
+    CandidateProduction,
+    CandidateProductionError,
+    CandidateProductionTimeout,
+    CandidateStore,
+)
 from securebench.harnesses.shared import workspace_dir_name
 from securebench.sandboxes import CommandResult
 from securebench.tester_config import (
@@ -10,7 +18,7 @@ from securebench.tester_config import (
     TesterHarnessSection as HarnessSection,
     TesterRunSection as RunSection,
 )
-from securebench.tester_run import run_tester_config
+from securebench.tester_run import _resume_records, run_tester_config
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,10 +90,21 @@ def test_runner_persists_only_durable_candidate_and_sanitized_oracle_result(monk
     assert record["candidate"]["digest"].startswith("sha256:")
     assert record["provenance"]["row_digest"].startswith("sha256:")
     assert record["provenance"]["image_digest"].startswith("sha256:")
+    assert record["provenance"]["baseline_digest"].startswith("sha256:")
+    assert record["provenance"]["verification_digest"].startswith("sha256:")
+    assert record["schema_version"] == "2"
     encoded = json.dumps(record)
     assert "must not enter result" not in encoded
     assert "source_path" not in encoded
     assert list((current.run.output_dir / "artifacts" / "candidates" / "sha256").rglob("manifest.json"))
+    compiled = next(
+        compile_benchmark_pack(
+            load_benchmark_pack(current.benchmark.manifest, current.benchmark.tasks)
+        )
+    )
+    assert not (
+        current.run.output_dir / "workspaces" / workspace_dir_name(compiled)
+    ).exists()
 
 
 def test_runner_routes_capture_rejection_to_oracle_as_candidate_failure(monkeypatch, tmp_path):
@@ -128,6 +147,80 @@ def test_runner_resume_requires_matching_row_provenance(monkeypatch, tmp_path):
     assert len(Path(first.output_path).read_text().splitlines()) == 1
 
 
+def test_runner_resume_reexecutes_when_candidate_artifact_is_missing(monkeypatch, tmp_path):
+    current = config(tmp_path)
+    producer = GoodProducer(current.run.output_dir / "workspaces")
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: producer,
+    )
+    first = run_tester_config(current)
+    manifest = next(
+        (current.run.output_dir / "artifacts" / "candidates" / "sha256").rglob(
+            "manifest.json"
+        )
+    )
+    manifest.unlink()
+
+    run_tester_config(current, resume=True)
+
+    assert producer.calls == 2
+    assert len(Path(first.output_path).read_text().splitlines()) == 1
+
+
+def test_runner_resume_reexecutes_when_result_check_shape_is_invalid(monkeypatch, tmp_path):
+    current = config(tmp_path)
+    producer = GoodProducer(current.run.output_dir / "workspaces")
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: producer,
+    )
+    first = run_tester_config(current)
+    record = json.loads(Path(first.output_path).read_text())
+    record["checks"][0]["evidence_digests"] = ["not-a-digest"]
+    Path(first.output_path).write_text(json.dumps(record) + "\n")
+
+    run_tester_config(current, resume=True)
+
+    assert producer.calls == 2
+    repaired = json.loads(Path(first.output_path).read_text())
+    assert repaired["checks"][0]["evidence_digests"][0].startswith("sha256:")
+
+
+def test_resume_rejects_changed_verification_inputs(tmp_path):
+    current = config(tmp_path)
+    task = next(
+        compile_benchmark_pack(
+            load_benchmark_pack(current.benchmark.manifest, current.benchmark.tasks)
+        )
+    )
+    record = {
+        "schema_version": "2",
+        "run_id": current.run.id,
+        "task_id": task.id,
+        "benchmark_id": task.benchmark_id,
+        "status": "failed",
+        "passed": False,
+        "score": 0.0,
+        "candidate": {"type": None, "digest": None},
+        "execution_profile": task.verification.execution_profile,
+        "provenance": {
+            "manifest_digest": task.manifest_digest,
+            "row_digest": task.row_digest,
+            "image_digest": task.environment.image,
+            "baseline_digest": task.baseline_digest,
+            "verification_digest": task.verification_digest,
+        },
+        "checks": [],
+        "public_diagnostics": {},
+    }
+    output = tmp_path / "results.jsonl"
+    output.write_text(json.dumps(record) + "\n")
+    changed = replace(task, verification_digest="sha256:" + "0" * 64)
+
+    assert _resume_records(output, current.run.id, [changed], CandidateStore(tmp_path / "store")) == []
+
+
 def test_runner_routes_producer_timeout_to_oracle(monkeypatch, tmp_path):
     current = config(tmp_path)
 
@@ -167,3 +260,24 @@ def test_runner_routes_agent_failure_to_oracle(monkeypatch, tmp_path):
 
     assert summary.passed == 0
     assert "producer_failed" in record["public_diagnostics"]["failure_categories"]
+
+
+def test_runner_isolates_unexpected_row_infrastructure_failure(monkeypatch, tmp_path):
+    current = config(tmp_path)
+
+    class BrokenProducer:
+        def produce(self, task):
+            raise OSError("host path that must not be published")
+
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: BrokenProducer(),
+    )
+
+    summary = run_tester_config(current)
+    record = json.loads(Path(summary.output_path).read_text())
+
+    assert summary.total == summary.verified == summary.infrastructure_errors == 1
+    assert record["status"] == "infrastructure_error"
+    assert record["infrastructure_error"]["code"] == "task_execution_internal_error"
+    assert "host path" not in json.dumps(record)
