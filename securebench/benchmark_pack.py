@@ -8,8 +8,15 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterator
 
 import yaml
+from pydantic import ValidationError
 
 from securebench.errors import ConfigError
+from securebench.schemas.benchmark import (
+    BenchmarkPackManifestV2,
+    BenchmarkRowDocumentV2,
+    BenchmarkRowV2,
+    normalize_benchmark_row,
+)
 
 
 DEFAULT_PUBLIC_ASSET_ROOT = "assets/"
@@ -84,6 +91,90 @@ class BenchmarkPack:
     def load_rows(self, *, limit: int | None = None) -> list[BenchmarkRow]:
         """Load benchmark rows eagerly into a list."""
         return list(self.iter_rows(limit=limit))
+
+
+@dataclass(frozen=True)
+class BenchmarkPackV2:
+    """A strict v2 manifest plus its JSONL rows and filesystem location."""
+
+    manifest: BenchmarkPackManifestV2
+    manifest_path: Path
+    tasks_path: Path
+
+    @property
+    def root(self) -> Path:
+        return self.manifest_path.resolve().parent
+
+    def iter_rows(self, *, limit: int | None = None) -> Iterator[BenchmarkRowV2]:
+        yielded = 0
+        for line_number, line in _iter_jsonl_lines(self.tasks_path):
+            if limit is not None and yielded >= limit:
+                break
+            raw = _load_jsonl_object(self.tasks_path, line_number, line)
+            yield parse_benchmark_row_v2(
+                raw,
+                manifest=self.manifest,
+                line_number=line_number,
+            )
+            yielded += 1
+
+    def load_rows(self, *, limit: int | None = None) -> list[BenchmarkRowV2]:
+        return list(self.iter_rows(limit=limit))
+
+
+def parse_benchmark_manifest_v2(data: dict[str, Any]) -> BenchmarkPackManifestV2:
+    """Parse a strict v2 manifest and reject all legacy fields."""
+    try:
+        return BenchmarkPackManifestV2.model_validate(data)
+    except ValidationError as exc:
+        raise ConfigError(_pydantic_error("benchmark manifest", exc)) from exc
+
+
+def load_benchmark_manifest_v2(path: str | Path) -> BenchmarkPackManifestV2:
+    manifest_path = Path(path)
+    loaded = yaml.safe_load(manifest_path.read_text())
+    if not isinstance(loaded, dict):
+        raise ConfigError("Benchmark manifest root must be an object")
+    return parse_benchmark_manifest_v2(loaded)
+
+
+def parse_benchmark_row_v2(
+    row: dict[str, Any],
+    *,
+    manifest: BenchmarkPackManifestV2,
+    line_number: int | None = None,
+) -> BenchmarkRowV2:
+    """Parse one v2 row and apply manifest defaults."""
+    context = "benchmark row" if line_number is None else f"benchmark row line {line_number}"
+    try:
+        document = BenchmarkRowDocumentV2.model_validate(row)
+        return normalize_benchmark_row(document, manifest)
+    except (ValidationError, ValueError) as exc:
+        if isinstance(exc, ValidationError):
+            message = _pydantic_error(context, exc)
+        else:
+            message = f"{context}: {exc}"
+        raise ConfigError(message) from exc
+
+
+def load_benchmark_pack_v2(
+    manifest_path: str | Path,
+    tasks_path: str | Path,
+) -> BenchmarkPackV2:
+    """Load a strict v2 benchmark pack."""
+    resolved_manifest_path = Path(manifest_path)
+    return BenchmarkPackV2(
+        manifest=load_benchmark_manifest_v2(resolved_manifest_path),
+        manifest_path=resolved_manifest_path,
+        tasks_path=Path(tasks_path),
+    )
+
+
+def _pydantic_error(context: str, exc: ValidationError) -> str:
+    first = exc.errors(include_url=False)[0]
+    location = ".".join(str(part) for part in first.get("loc", ()))
+    field = f".{location}" if location else ""
+    return f"{context}{field}: {first.get('msg', 'invalid value')}"
 
 
 def load_benchmark_manifest(path: str | Path) -> BenchmarkPackManifest:

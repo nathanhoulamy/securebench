@@ -1,0 +1,13 @@
+schema_version: "2.0"
+id: terminal-bench-v2
+
+defaults:
+  family: terminal_task
+
+resource_roots:
+  public: docker/
+  runtime: v2/evaluation_inputs/
+  host: v2/hidden/
+
+asset_defaults:
+  read_only: true

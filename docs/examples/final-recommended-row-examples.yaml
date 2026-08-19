@@ -14,7 +14,7 @@ assets:
     mount: /app/carol_calendar.ics
     read_only: true
 environment:
-  image: securebench-terminal-bench-constraints-scheduling@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  image: alexgshaw/constraints-scheduling@sha256:567ce5a189f8d11ac461790876e934cc7af38391baf89a78f95f4dafc1fec3b0
   workdir: /app
   timeout_seconds: 1200
   agent_network: internet

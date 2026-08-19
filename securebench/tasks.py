@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from securebench.resources import Component, Resource, ResourceBundle, ResourceKind
+
+if TYPE_CHECKING:
+    from securebench.schemas.benchmark import EnvironmentSpec, VerificationSpec
 
 
 TaskType = str
@@ -37,6 +41,44 @@ class SecureBenchTask:
 
     def hidden_payload(self) -> dict[str, Any]:
         return self.resources.payload_for("evaluator")
+
+    def view_for(self, component: Component):
+        return self.resources.view_for(component)
+
+    def resource_summary(self) -> list[dict[str, Any]]:
+        return self.resources.summary()
+
+
+@dataclass(frozen=True)
+class CompiledTaskV2:
+    """Fully compiled split-verification task.
+
+    Security-authoritative fields are typed top-level data. Metadata remains
+    provenance-only and cannot alter materialization or verification.
+    """
+
+    id: str
+    benchmark_id: str
+    family: str
+    input: dict[str, Any]
+    assets: tuple[Any, ...]
+    environment: Any
+    verification: Any
+    metadata: dict[str, Any]
+    resources: ResourceBundle
+    pack_root: Path
+    manifest_path: Path
+    manifest_digest: str
+    row_digest: str
+
+    @property
+    def task_type(self) -> str:
+        """Family name used by Agent harness preparation."""
+        return self.family
+
+    def agent_payload(self) -> dict[str, Any]:
+        """Return only author-declared public input for the Agent task file."""
+        return dict(self.input)
 
     def view_for(self, component: Component):
         return self.resources.view_for(component)

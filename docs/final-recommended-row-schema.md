@@ -551,7 +551,7 @@ failures.
 | `candidate.max_changed_bytes` | Git patch only | Maximum summed final logical sizes of added and modified files after materialization. |
 | `candidate.allow_paths` | no, Git patch only | Optional path allowlist that cannot weaken protected paths. |
 | `candidate.exclude_paths` | no, Git patch only | Additional excluded paths. |
-| `candidate.max_total_files` | File bundle only | Aggregate number of exported regular files. |
+| `candidate.max_total_files` | File bundle only | Aggregate number of exported filesystem entries, including directories and permitted symlinks. |
 | `candidate.max_total_bytes` | File bundle only | Aggregate logical bytes across entries. |
 | `candidate.files` | File bundle only | Exact exported regular files or bounded directory trees. |
 | `candidate.include_roots` | Overlay only | Absolute roots whose durable changes may be captured. |
@@ -568,7 +568,7 @@ failures.
 | `artifact.source.entry` | conditional | References a regular-file or directory-tree `file_bundle` entry ID. |
 | `artifact.source.path` | conditional | References a bounded materialized patch or overlay path. |
 | `artifact.parser` | yes | Registered parser profile. |
-| `artifact.limits` | yes | Either `max_bytes` for a regular file or `max_files` plus `max_total_bytes` for a tree. |
+| `artifact.limits` | yes | Either `max_bytes` for a regular file or `max_files` (all filesystem entries) plus `max_total_bytes` for a tree. |
 | `protocol.adapter` | Protocol check only | Runtime-resource reference containing adapter manifest and implementation. |
 | `protocol.protocol` | Protocol check only | Public versioned protocol ID validated against the adapter manifest. |
 | `protocol.challenge` | Protocol check only | Host source and current-case bounds. |

@@ -7,15 +7,32 @@ from typing import Any, Iterable, Literal, Mapping
 
 
 ResourceVisibility = Literal["public", "evaluation_inputs", "hidden"]
-Component = Literal["agent", "test_sandbox", "evaluator", "result"]
+Component = Literal[
+    "agent",
+    "evaluation_runtime",
+    "oracle",
+    "result",
+    "test_sandbox",
+    "evaluator",
+]
 ResourceKind = Literal["text", "json", "file", "directory", "artifact", "scratch"]
 
 
 VISIBILITIES = {"public", "evaluation_inputs", "hidden"}
-COMPONENTS = {"agent", "test_sandbox", "evaluator", "result"}
+COMPONENTS = {
+    "agent",
+    "evaluation_runtime",
+    "oracle",
+    "result",
+    # Transitional internal aliases removed when the v1 verifier code is deleted.
+    "test_sandbox",
+    "evaluator",
+}
 RESOURCE_KINDS = {"text", "json", "file", "directory", "artifact", "scratch"}
 COMPONENT_VISIBILITIES: dict[str, tuple[str, ...]] = {
     "agent": ("public",),
+    "evaluation_runtime": ("public", "evaluation_inputs"),
+    "oracle": ("public", "hidden"),
     "test_sandbox": ("public", "evaluation_inputs"),
     "evaluator": ("public", "hidden"),
     "result": ("public", "evaluation_inputs", "hidden"),
