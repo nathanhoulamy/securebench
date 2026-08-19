@@ -1,0 +1,840 @@
+{
+  "$defs": {
+    "ArtifactCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/ArtifactSpec"
+          },
+          "minItems": 1,
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "artifact",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "artifacts"
+      ],
+      "title": "ArtifactCheck",
+      "type": "object"
+    },
+    "ArtifactLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_bytes": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Bytes"
+        },
+        "max_files": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Files"
+        },
+        "max_total_bytes": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Total Bytes"
+        }
+      },
+      "title": "ArtifactLimits",
+      "type": "object"
+    },
+    "ArtifactSource": {
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entry"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        }
+      },
+      "title": "ArtifactSource",
+      "type": "object"
+    },
+    "ArtifactSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/ArtifactLimits"
+        },
+        "parser": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Parser",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ArtifactSource"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "parser",
+        "limits"
+      ],
+      "title": "ArtifactSpec",
+      "type": "object"
+    },
+    "ChallengeSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "max_case_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Max Case Bytes",
+          "type": "integer"
+        },
+        "max_cases": {
+          "exclusiveMinimum": 0,
+          "title": "Max Cases",
+          "type": "integer"
+        },
+        "source": {
+          "maxLength": 256,
+          "pattern": "^(runtime|host)\\.[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "max_cases",
+        "max_case_bytes"
+      ],
+      "title": "ChallengeSpec",
+      "type": "object"
+    },
+    "DirectoryTreeEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_internal_symlinks": {
+          "default": false,
+          "title": "Allow Internal Symlinks",
+          "type": "boolean"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "directory_tree",
+          "title": "Kind",
+          "type": "string"
+        },
+        "max_files": {
+          "exclusiveMinimum": 0,
+          "title": "Max Files",
+          "type": "integer"
+        },
+        "max_total_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Max Total Bytes",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "kind",
+        "max_files",
+        "max_total_bytes"
+      ],
+      "title": "DirectoryTreeEntry",
+      "type": "object"
+    },
+    "EnvironmentDefaults": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_network": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "restricted",
+                "internet"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Network"
+        },
+        "build_context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Build Context"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        },
+        "workdir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workdir"
+        }
+      },
+      "title": "EnvironmentDefaults",
+      "type": "object"
+    },
+    "FileBundleCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "directory_tree": "#/$defs/DirectoryTreeEntry",
+                "regular_file": "#/$defs/RegularFileEntry"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/RegularFileEntry"
+              },
+              {
+                "$ref": "#/$defs/DirectoryTreeEntry"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Files",
+          "type": "array"
+        },
+        "max_total_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Max Total Bytes",
+          "type": "integer"
+        },
+        "max_total_files": {
+          "exclusiveMinimum": 0,
+          "title": "Max Total Files",
+          "type": "integer"
+        },
+        "type": {
+          "const": "file_bundle",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "max_total_files",
+        "max_total_bytes",
+        "files"
+      ],
+      "title": "FileBundleCandidate",
+      "type": "object"
+    },
+    "FilesystemOverlayCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "include_roots": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Include Roots",
+          "type": "array"
+        },
+        "max_files": {
+          "exclusiveMinimum": 0,
+          "title": "Max Files",
+          "type": "integer"
+        },
+        "max_total_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Max Total Bytes",
+          "type": "integer"
+        },
+        "type": {
+          "const": "filesystem_overlay",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "include_roots",
+        "max_files",
+        "max_total_bytes"
+      ],
+      "title": "FilesystemOverlayCandidate",
+      "type": "object"
+    },
+    "GitPatchCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Allow Paths",
+          "type": "array"
+        },
+        "exclude_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Exclude Paths",
+          "type": "array"
+        },
+        "max_changed_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Max Changed Bytes",
+          "type": "integer"
+        },
+        "max_changed_files": {
+          "exclusiveMinimum": 0,
+          "title": "Max Changed Files",
+          "type": "integer"
+        },
+        "max_patch_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Max Patch Bytes",
+          "type": "integer"
+        },
+        "type": {
+          "const": "git_patch",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "max_patch_bytes",
+        "max_changed_files",
+        "max_changed_bytes"
+      ],
+      "title": "GitPatchCandidate",
+      "type": "object"
+    },
+    "HostResource": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "HostResource",
+      "type": "object"
+    },
+    "ProtocolArtifactSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/ArtifactLimits"
+        },
+        "parser": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Parser",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "parser",
+        "limits"
+      ],
+      "title": "ProtocolArtifactSpec",
+      "type": "object"
+    },
+    "ProtocolCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "maxLength": 256,
+          "pattern": "^(runtime|host)\\.[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifacts": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ProtocolArtifactSpec"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "challenge": {
+          "$ref": "#/$defs/ChallengeSpec"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/ProtocolLimits"
+        },
+        "protocol": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Protocol",
+          "type": "string"
+        },
+        "services": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ServiceSpec"
+          },
+          "title": "Services",
+          "type": "array"
+        },
+        "type": {
+          "const": "protocol",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "adapter",
+        "protocol",
+        "challenge",
+        "limits"
+      ],
+      "title": "ProtocolCheck",
+      "type": "object"
+    },
+    "ProtocolLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "observation_bytes_per_case": {
+          "exclusiveMinimum": 0,
+          "title": "Observation Bytes Per Case",
+          "type": "integer"
+        },
+        "seconds_per_case": {
+          "exclusiveMinimum": 0,
+          "title": "Seconds Per Case",
+          "type": "number"
+        }
+      },
+      "required": [
+        "seconds_per_case",
+        "observation_bytes_per_case"
+      ],
+      "title": "ProtocolLimits",
+      "type": "object"
+    },
+    "PublicAsset": {
+      "additionalProperties": false,
+      "properties": {
+        "mount": {
+          "title": "Mount",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "read_only": {
+          "default": true,
+          "title": "Read Only",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "mount"
+      ],
+      "title": "PublicAsset",
+      "type": "object"
+    },
+    "RegularFileEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "regular_file",
+          "title": "Kind",
+          "type": "string"
+        },
+        "max_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Max Bytes",
+          "type": "integer"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "kind",
+        "max_bytes"
+      ],
+      "title": "RegularFileEntry",
+      "type": "object"
+    },
+    "RuntimeResource": {
+      "additionalProperties": false,
+      "properties": {
+        "mount": {
+          "title": "Mount",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "mount"
+      ],
+      "title": "RuntimeResource",
+      "type": "object"
+    },
+    "ServiceSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Component",
+          "type": "string"
+        },
+        "configuration": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "pattern": "^(runtime|host)\\.[A-Za-z][A-Za-z0-9_.-]*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Configuration"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "limits": {
+          "additionalProperties": true,
+          "title": "Limits",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "component",
+        "limits"
+      ],
+      "title": "ServiceSpec",
+      "type": "object"
+    },
+    "VerificationResources": {
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "patternProperties": {
+            "^[A-Za-z][A-Za-z0-9_.-]*$": {
+              "$ref": "#/$defs/HostResource"
+            }
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "minLength": 1
+          },
+          "title": "Host",
+          "type": "object"
+        },
+        "runtime": {
+          "patternProperties": {
+            "^[A-Za-z][A-Za-z0-9_.-]*$": {
+              "$ref": "#/$defs/RuntimeResource"
+            }
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "minLength": 1
+          },
+          "title": "Runtime",
+          "type": "object"
+        }
+      },
+      "title": "VerificationResources",
+      "type": "object"
+    },
+    "VerificationSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate": {
+          "discriminator": {
+            "mapping": {
+              "file_bundle": "#/$defs/FileBundleCandidate",
+              "filesystem_overlay": "#/$defs/FilesystemOverlayCandidate",
+              "git_patch": "#/$defs/GitPatchCandidate"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/GitPatchCandidate"
+            },
+            {
+              "$ref": "#/$defs/FileBundleCandidate"
+            },
+            {
+              "$ref": "#/$defs/FilesystemOverlayCandidate"
+            }
+          ],
+          "title": "Candidate"
+        },
+        "checks": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "artifact": "#/$defs/ArtifactCheck",
+                "protocol": "#/$defs/ProtocolCheck"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ArtifactCheck"
+              },
+              {
+                "$ref": "#/$defs/ProtocolCheck"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Checks",
+          "type": "array"
+        },
+        "execution_profile": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Execution Profile",
+          "type": "string"
+        },
+        "oracle": {
+          "maxLength": 256,
+          "pattern": "^(runtime|host)\\.[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Oracle",
+          "type": "string"
+        },
+        "resources": {
+          "$ref": "#/$defs/VerificationResources"
+        }
+      },
+      "required": [
+        "execution_profile",
+        "candidate",
+        "checks",
+        "oracle"
+      ],
+      "title": "VerificationSpec",
+      "type": "object"
+    }
+  },
+  "$id": "https://securebench.dev/schemas/benchmark-row-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One row before manifest defaults are applied.",
+  "properties": {
+    "assets": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/PublicAsset"
+      },
+      "title": "Assets",
+      "type": "array"
+    },
+    "environment": {
+      "$ref": "#/$defs/EnvironmentDefaults"
+    },
+    "family": {
+      "anyOf": [
+        {
+          "enum": [
+            "repo_patch",
+            "terminal_task"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Family"
+    },
+    "id": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "input": {
+      "additionalProperties": true,
+      "title": "Input",
+      "type": "object"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "verification": {
+      "$ref": "#/$defs/VerificationSpec"
+    }
+  },
+  "required": [
+    "id",
+    "input",
+    "verification"
+  ],
+  "title": "BenchmarkRowDocumentV2",
+  "type": "object"
+}

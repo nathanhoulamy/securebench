@@ -1,0 +1,172 @@
+{
+  "$defs": {
+    "AssetDefaults": {
+      "additionalProperties": false,
+      "properties": {
+        "read_only": {
+          "default": true,
+          "title": "Read Only",
+          "type": "boolean"
+        }
+      },
+      "title": "AssetDefaults",
+      "type": "object"
+    },
+    "BenchmarkDefaultsV2": {
+      "additionalProperties": false,
+      "properties": {
+        "environment": {
+          "$ref": "#/$defs/EnvironmentDefaults"
+        },
+        "family": {
+          "anyOf": [
+            {
+              "enum": [
+                "repo_patch",
+                "terminal_task"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family"
+        }
+      },
+      "title": "BenchmarkDefaultsV2",
+      "type": "object"
+    },
+    "EnvironmentDefaults": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_network": {
+          "anyOf": [
+            {
+              "enum": [
+                "none",
+                "restricted",
+                "internet"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agent Network"
+        },
+        "build_context": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Build Context"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        },
+        "workdir": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workdir"
+        }
+      },
+      "title": "EnvironmentDefaults",
+      "type": "object"
+    },
+    "ResourceRoots": {
+      "additionalProperties": false,
+      "description": "Non-overlapping source roots for the three visibility lanes.",
+      "properties": {
+        "host": {
+          "default": "hidden/",
+          "title": "Host",
+          "type": "string"
+        },
+        "public": {
+          "default": "assets/",
+          "title": "Public",
+          "type": "string"
+        },
+        "runtime": {
+          "default": "evaluation_inputs/",
+          "title": "Runtime",
+          "type": "string"
+        }
+      },
+      "title": "ResourceRoots",
+      "type": "object"
+    }
+  },
+  "$id": "https://securebench.dev/schemas/benchmark-pack-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "SecureBench v2 benchmark-pack manifest.",
+  "properties": {
+    "asset_defaults": {
+      "$ref": "#/$defs/AssetDefaults"
+    },
+    "defaults": {
+      "$ref": "#/$defs/BenchmarkDefaultsV2"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "resource_roots": {
+      "$ref": "#/$defs/ResourceRoots"
+    },
+    "schema_version": {
+      "const": "2.0",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id"
+  ],
+  "title": "BenchmarkPackManifestV2",
+  "type": "object"
+}
