@@ -24,12 +24,14 @@ slice, not as complete support for every schema branch.
 
 ## Sources of truth
 
-- Design target: [`docs/final-recommended-row-schema.md`](docs/final-recommended-row-schema.md)
-- Representative rows: [`docs/examples/final-recommended-row-examples.yaml`](docs/examples/final-recommended-row-examples.yaml)
+- Design target: [`docs/split-verification/schema.md`](docs/split-verification/schema.md)
+- Executable example: [`docs/split-verification/examples/executable.yaml`](docs/split-verification/examples/executable.yaml)
+- Target-architecture examples: [`docs/split-verification/examples/target-architecture.yaml`](docs/split-verification/examples/target-architecture.yaml)
 - Executable Pydantic models: [`securebench/schemas/benchmark.py`](securebench/schemas/benchmark.py)
 - Generated JSON Schemas: [`schemas/`](schemas/)
 - Runtime capability gate: [`securebench/execution_profiles.py`](securebench/execution_profiles.py)
-- Security guarantees and limitations: [`docs/SECURITY.md`](docs/SECURITY.md)
+- Security guarantees and limitations: [`docs/split-verification/security-model.md`](docs/split-verification/security-model.md)
+- Benchmark conversion portfolio: [`docs/benchmark-conversions/`](docs/benchmark-conversions/)
 
 The Pydantic models are the executable schema source of truth. The design document includes
 future-facing contracts that are schema-valid but not necessarily executable yet.
@@ -170,12 +172,7 @@ SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q \
 There is an unrelated malformed local ref named `refs/heads/main 2`; commands using `--all` may
 warn or fail on it. Do not alter it without the repository owner's approval.
 
-The following pre-existing untracked paths belong to the user and were intentionally not added,
-removed, or rewritten during implementation:
+The following non-documentation paths remain outside this documentation cleanup:
 
 - `benchmarks/terminal-bench/docker/db-wal-recovery/main.db-shm`
 - `benchmarks/terminal-bench/docker/db-wal-recovery/main.db-wal`
-- `docs/benchmark-rows/`
-- `docs/examples/split-verification-rows.yaml`
-- `docs/split-verification-benchmark-examples.md`
-- `docs/split-verification-row-schema.md`

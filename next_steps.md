@@ -137,11 +137,11 @@ and adversarial tests. This remains the highest-risk candidate transport.
 ## Working rules for a future agent
 
 - Begin on `split-verification-v2`, not `main`.
-- Read `current.md`, the recommended schema, `docs/SECURITY.md`, and
+- Read `current.md`, the recommended schema, `docs/split-verification/security-model.md`, and
   `securebench/execution_profiles.py` before editing.
 - Treat schema-valid and executable as separate states; add capability support explicitly rather
   than silently falling back.
-- Preserve the user's pre-existing untracked files listed in `current.md`.
+- Preserve unrelated user files and inspect `git status` before editing.
 - Use `rg` for discovery and `apply_patch` for edits.
 - Keep batches small, add failure-path tests, and test with real Docker when isolation changes.
 - Before handoff, run the commands recorded in `current.md`, inspect leaked Docker resources, build

@@ -45,8 +45,6 @@ credentials to the Agent container. Codex subscription login is managed with:
 .venv/bin/python -m securebench.cli auth codex status
 ```
 
-See [provider authentication](docs/provider-authentication.md) for details.
-
 ## Tester YAML
 
 Tester configuration selects orchestration only; evaluation policy belongs to
@@ -80,5 +78,8 @@ execution provenance matches the current compiled task. Concurrent processes
 cannot share one output directory.
 
 The author-facing schema and examples are documented in
-[the recommended row schema](docs/final-recommended-row-schema.md) and
-[example rows](docs/examples/final-recommended-row-examples.yaml).
+[the split-verification schema](docs/split-verification/schema.md), with
+[an executable example](docs/split-verification/examples/executable.yaml) and
+[target-architecture examples](docs/split-verification/examples/target-architecture.yaml).
+The reviewed TerminalBench and DeepSWE conversion portfolio is indexed under
+[`docs/benchmark-conversions/`](docs/benchmark-conversions/).

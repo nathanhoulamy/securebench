@@ -223,10 +223,13 @@ def test_generated_json_schemas_are_current(tmp_path):
     assert actual == expected
 
 
-def test_recommended_examples_conform_to_the_executable_row_schema():
+def test_split_verification_examples_conform_to_the_v2_row_schema():
     root = Path(__file__).resolve().parents[1]
+    example_root = root / "docs" / "split-verification" / "examples"
     documents = tuple(
-        yaml.safe_load_all((root / "docs" / "examples" / "final-recommended-row-examples.yaml").read_text())
+        document
+        for path in (example_root / "executable.yaml", example_root / "target-architecture.yaml")
+        for document in yaml.safe_load_all(path.read_text())
     )
 
     rows = tuple(BenchmarkRowDocumentV2.model_validate(document) for document in documents)
