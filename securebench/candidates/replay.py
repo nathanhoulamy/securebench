@@ -8,8 +8,49 @@ import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from securebench.candidates.git_repository import (
+    GitRepositoryError,
+    git_command,
+    git_environment,
+    run_git_bytes,
+    validate_clean_repository,
+)
 from securebench.candidates.models import CandidateReplayError, StoredCandidate
 from securebench.candidates.store import CandidateStore
+from securebench.schemas.benchmark import FileBundleCandidate, GitPatchCandidate
+from securebench.tasks import BenchmarkTask
+
+
+def replay_candidate(
+    task: BenchmarkTask,
+    candidate: StoredCandidate,
+    store: CandidateStore,
+    root: str | Path,
+) -> None:
+    """Materialize any currently executable candidate onto its fresh baseline."""
+    spec = task.verification.candidate
+    if isinstance(spec, FileBundleCandidate):
+        replay_file_bundle(
+            candidate,
+            store,
+            root,
+            guest_root=task.environment.workdir,
+            expected_baseline_digest=task.baseline_digest,
+        )
+        return
+    if isinstance(spec, GitPatchCandidate):
+        base_commit = task.input.get("base_commit")
+        if not isinstance(base_commit, str):
+            raise CandidateReplayError("repo_patch task has no canonical base_commit")
+        replay_git_patch(
+            candidate,
+            store,
+            root,
+            expected_baseline_digest=task.baseline_digest,
+            expected_base_commit=base_commit,
+        )
+        return
+    raise CandidateReplayError(f"candidate replay is not implemented for {spec.type!r}")
 
 
 def replay_file_bundle(
@@ -59,30 +100,117 @@ def replay_git_patch(
     repository: str | Path,
     *,
     expected_baseline_digest: str,
+    expected_base_commit: str | None = None,
 ) -> None:
     """Apply a stored patch to an already reconstructed clean repository."""
     manifest = store.load_candidate(candidate.digest)
     _require_candidate(manifest.type, "git_patch", manifest.baseline_digest, expected_baseline_digest)
     blob = manifest.payload.get("patch_blob")
     size = manifest.payload.get("patch_bytes")
-    if not isinstance(blob, str) or not isinstance(size, int):
+    base_commit = manifest.payload.get("base_commit")
+    changed_files = manifest.payload.get("changed_files")
+    changed_bytes = manifest.payload.get("changed_bytes")
+    if (
+        not isinstance(blob, str)
+        or not isinstance(size, int)
+        or not isinstance(base_commit, str)
+        or not isinstance(changed_files, list)
+        or not all(isinstance(path, str) for path in changed_files)
+        or not isinstance(changed_bytes, int)
+    ):
         raise CandidateReplayError("git_patch candidate payload is invalid")
+    if expected_base_commit is not None and base_commit != expected_base_commit:
+        raise CandidateReplayError("git_patch candidate base_commit does not match the task")
+    try:
+        validate_clean_repository(repository, base_commit)
+    except GitRepositoryError as exc:
+        raise CandidateReplayError(str(exc)) from exc
     patch = store.read_blob(blob, expected_size=size)
-    completed = subprocess.run(
-        ["git", "-c", "core.hooksPath=/dev/null", "apply", "--binary", "--index", "--whitespace=nowarn"],
-        cwd=Path(repository),
-        env={
-            **os.environ,
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1",
-        },
-        input=patch,
-        check=False,
-        capture_output=True,
-    )
-    if completed.returncode != 0:
-        error = completed.stderr.decode("utf-8", errors="replace").strip()
-        raise CandidateReplayError(f"failed to replay git_patch candidate: {error}")
+    if patch:
+        completed = subprocess.run(
+            git_command(["apply", "--binary", "--index", "--whitespace=nowarn"]),
+            cwd=Path(repository),
+            env=git_environment(),
+            input=patch,
+            check=False,
+            capture_output=True,
+        )
+        if completed.returncode != 0:
+            error = completed.stderr[:65536].decode("utf-8", errors="replace").strip()
+            raise CandidateReplayError(f"failed to replay git_patch candidate: {error}")
+    try:
+        replayed_patch = run_git_bytes(
+            [
+                "diff",
+                "--cached",
+                "--binary",
+                "--full-index",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--no-renames",
+                "HEAD",
+                "--",
+            ],
+            cwd=Path(repository),
+            context="verify replayed git_patch bytes",
+        )
+        names = run_git_bytes(
+            [
+                "diff",
+                "--cached",
+                "--name-only",
+                "-z",
+                "--no-renames",
+                "--diff-filter=ACDMRTUXB",
+                "HEAD",
+            ],
+            cwd=Path(repository),
+            context="verify replayed git_patch paths",
+        )
+    except GitRepositoryError as exc:
+        raise CandidateReplayError(str(exc)) from exc
+    replayed_paths = [
+        part.decode("utf-8", errors="surrogateescape") for part in names.split(b"\0") if part
+    ]
+    if replayed_patch != patch or replayed_paths != changed_files:
+        raise CandidateReplayError("replayed git_patch does not match its stored manifest")
+    actual_bytes = 0
+    root = Path(repository).resolve()
+    for path in replayed_paths:
+        relative = _safe_relative_path(path)
+        target = root.joinpath(*relative.parts)
+        if target.is_symlink():
+            link_target = os.readlink(target)
+            _validate_replayed_symlink(path, link_target)
+            actual_bytes += len(link_target.encode("utf-8"))
+        elif target.is_file():
+            actual_bytes += target.stat().st_size
+        elif target.exists():
+            raise CandidateReplayError("replayed git_patch produced an unsupported file type")
+    if actual_bytes != changed_bytes:
+        raise CandidateReplayError("replayed git_patch byte count does not match its manifest")
+
+
+def _validate_replayed_symlink(path: str, target: str) -> None:
+    try:
+        target_bytes = target.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise CandidateReplayError(f"replayed symlink target is not valid UTF-8: {path}") from exc
+    if len(target_bytes) > 4096:
+        raise CandidateReplayError(f"replayed symlink target is too long: {path}")
+    target_path = PurePosixPath(target)
+    if target_path.is_absolute() or "\\" in target or "\x00" in target:
+        raise CandidateReplayError(f"replayed symlink escapes repository: {path}")
+    stack = list(PurePosixPath(path).parent.parts)
+    for part in target_path.parts:
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not stack:
+                raise CandidateReplayError(f"replayed symlink escapes repository: {path}")
+            stack.pop()
+        else:
+            stack.append(part)
 
 
 def _replay_tree(root: Path, nodes: list[Any], store: CandidateStore) -> None:

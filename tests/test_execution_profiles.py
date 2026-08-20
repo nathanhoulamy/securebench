@@ -114,16 +114,19 @@ def _validated_task_variant(
     ("variant", "message"),
     [
         (_unsupported_profile, "registered but not implemented"),
-        (_unsupported_git_patch, "git_patch.*schema-valid but not executable"),
         (_unsupported_filesystem_overlay, "filesystem_overlay.*schema-valid but not executable"),
     ],
-    ids=["batched-profile", "git-patch", "filesystem-overlay"],
+    ids=["batched-profile", "filesystem-overlay"],
 )
 def test_executable_capability_matrix_rejects_unsupported_schema_branches(variant, message):
     compiled = variant(task())
 
     with pytest.raises(ConfigError, match=message):
         validate_executable_task(compiled)
+
+
+def test_git_patch_candidate_is_executable_for_repo_patch_rows():
+    validate_executable_task(_unsupported_git_patch(task()))
 
 
 def test_unknown_profile_does_not_fall_back_to_another_policy():

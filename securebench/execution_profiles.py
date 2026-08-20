@@ -10,6 +10,7 @@ from securebench.errors import ConfigError
 from securebench.schemas.benchmark import (
     ArtifactCheck,
     FileBundleCandidate,
+    GitPatchCandidate,
     ProtocolCheck,
     RegularFileEntry,
 )
@@ -56,29 +57,31 @@ def validate_executable_task(task: BenchmarkTask) -> None:
     profile = execution_profile(task.verification.execution_profile)
     if not profile.implemented:
         raise ConfigError(f"Execution profile {profile.id!r} is registered but not implemented")
-    if not isinstance(task.verification.candidate, FileBundleCandidate):
+    candidate = task.verification.candidate
+    if not isinstance(candidate, (FileBundleCandidate, GitPatchCandidate)):
         raise ConfigError(
-            "This implementation batch executes file_bundle candidates; "
+            "This implementation batch executes file_bundle and git_patch candidates; "
             f"{task.verification.candidate.type!r} is schema-valid but not executable yet"
         )
-    workdir = PurePosixPath(task.environment.workdir)
-    outside = [
-        entry.id
-        for entry in task.verification.candidate.files
-        if not PurePosixPath(entry.path).is_relative_to(workdir)
-    ]
-    if outside:
-        raise ConfigError(
-            "The current stopped-workspace capture backend requires file_bundle entries under "
-            f"environment.workdir; outside entry ids: {', '.join(outside)}"
-        )
-    reserved_root = workdir / "securebench"
-    for entry in task.verification.candidate.files:
-        if _paths_overlap(PurePosixPath(entry.path), reserved_root):
+    if isinstance(candidate, FileBundleCandidate):
+        workdir = PurePosixPath(task.environment.workdir)
+        outside = [
+            entry.id
+            for entry in candidate.files
+            if not PurePosixPath(entry.path).is_relative_to(workdir)
+        ]
+        if outside:
             raise ConfigError(
-                f"Candidate entry {entry.id!r} overlaps the framework materialization root "
-                f"{str(reserved_root)!r}"
+                "The current stopped-workspace capture backend requires file_bundle entries under "
+                f"environment.workdir; outside entry ids: {', '.join(outside)}"
             )
+        reserved_root = workdir / "securebench"
+        for entry in candidate.files:
+            if _paths_overlap(PurePosixPath(entry.path), reserved_root):
+                raise ConfigError(
+                    f"Candidate entry {entry.id!r} overlaps the framework materialization root "
+                    f"{str(reserved_root)!r}"
+                )
     _validate_public_assets(task)
     _validate_runtime_resources(task)
     _validate_oracle(task)
@@ -94,7 +97,6 @@ def validate_executable_task(task: BenchmarkTask) -> None:
 def _validate_public_assets(task: BenchmarkTask) -> None:
     workdir = PurePosixPath(task.environment.workdir)
     candidate = task.verification.candidate
-    assert isinstance(candidate, FileBundleCandidate)
     for index, asset in enumerate(task.assets):
         if not asset.read_only:
             raise ConfigError(
@@ -104,19 +106,23 @@ def _validate_public_assets(task: BenchmarkTask) -> None:
         mount = PurePosixPath(asset.mount)
         if mount == workdir:
             raise ConfigError(f"assets[{index}].mount may not replace environment.workdir")
-        for entry in candidate.files:
-            candidate_path = PurePosixPath(entry.path)
-            if _paths_overlap(mount, candidate_path):
-                raise ConfigError(
-                    f"assets[{index}].mount overlaps candidate entry {entry.id!r}; "
-                    "mounted asset state is not part of stopped-workspace capture"
-                )
+        if isinstance(candidate, FileBundleCandidate):
+            for entry in candidate.files:
+                candidate_path = PurePosixPath(entry.path)
+                if _paths_overlap(mount, candidate_path):
+                    raise ConfigError(
+                        f"assets[{index}].mount overlaps candidate entry {entry.id!r}; "
+                        "mounted asset state is not part of stopped-workspace capture"
+                    )
 
 
 def _validate_parsers(task: BenchmarkTask) -> None:
     candidate = task.verification.candidate
-    assert isinstance(candidate, FileBundleCandidate)
-    entries = {entry.id: entry for entry in candidate.files}
+    entries = (
+        {entry.id: entry for entry in candidate.files}
+        if isinstance(candidate, FileBundleCandidate)
+        else {}
+    )
     registry = default_parser_registry()
     for check in task.verification.checks:
         if not isinstance(check, ArtifactCheck):
@@ -128,21 +134,32 @@ def _validate_parsers(task: BenchmarkTask) -> None:
                 raise ConfigError(
                     f"Artifact {artifact.id!r} uses unknown parser profile {artifact.parser!r}"
                 ) from exc
-            assert artifact.source.entry is not None
-            entry = entries[artifact.source.entry]
-            expected = "bytes" if isinstance(entry, RegularFileEntry) else "tree"
+            if isinstance(candidate, FileBundleCandidate):
+                assert artifact.source.entry is not None
+                entry = entries[artifact.source.entry]
+                expected = "bytes" if isinstance(entry, RegularFileEntry) else "tree"
+                source_kind = (
+                    "regular_file" if isinstance(entry, RegularFileEntry) else "directory_tree"
+                )
+            else:
+                assert artifact.source.path is not None
+                path = PurePosixPath(artifact.source.path)
+                if path.parts and path.parts[0] == ".git":
+                    raise ConfigError(
+                        f"Artifact {artifact.id!r} may not observe repository metadata"
+                    )
+                expected = "bytes" if artifact.limits.max_bytes is not None else "tree"
+                source_kind = "repository file" if expected == "bytes" else "repository tree"
             if profile.input_kind != expected:
-                kind = "regular_file" if isinstance(entry, RegularFileEntry) else "directory_tree"
                 raise ConfigError(
                     f"Artifact {artifact.id!r} parser {artifact.parser!r} does not accept "
-                    f"candidate entry kind {kind!r}"
+                    f"candidate source kind {source_kind!r}"
                 )
 
 
 def _validate_runtime_resources(task: BenchmarkTask) -> None:
     workdir = PurePosixPath(task.environment.workdir)
     candidate = task.verification.candidate
-    assert isinstance(candidate, FileBundleCandidate)
     for identifier in task.verification.resources.runtime:
         resource = task.resources.resources.get(f"runtime.{identifier}")
         if resource is None or not isinstance(resource.value, dict):
@@ -153,12 +170,17 @@ def _validate_runtime_resources(task: BenchmarkTask) -> None:
         mount = PurePosixPath(mount_value)
         if mount == workdir:
             raise ConfigError(f"Runtime resource {identifier!r} may not replace environment.workdir")
-        for entry in candidate.files:
-            if _paths_overlap(mount, PurePosixPath(entry.path)):
-                raise ConfigError(
-                    f"Runtime resource {identifier!r} overlaps candidate entry {entry.id!r}; "
-                    "mounted evaluation state is not part of stopped-workspace capture"
-                )
+        if isinstance(candidate, GitPatchCandidate) and mount.is_relative_to(workdir):
+            raise ConfigError(
+                f"Runtime resource {identifier!r} may not mount inside a git_patch repository"
+            )
+        if isinstance(candidate, FileBundleCandidate):
+            for entry in candidate.files:
+                if _paths_overlap(mount, PurePosixPath(entry.path)):
+                    raise ConfigError(
+                        f"Runtime resource {identifier!r} overlaps candidate entry {entry.id!r}; "
+                        "mounted evaluation state is not part of stopped-workspace capture"
+                    )
 
 
 def _validate_protocol_checks(task: BenchmarkTask) -> None:

@@ -12,6 +12,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from securebench.errors import ConfigError
+from securebench.candidates.git_repository import GitRepositoryError, validate_clean_repository
+from securebench.schemas.benchmark import GitPatchCandidate
 from securebench.workspaces.materialization import MaterializationPlan
 from securebench.workspaces.path_policy import PathPolicyError, validate_workspace_mount_for_component
 from securebench.sandboxes import Sandbox
@@ -79,6 +81,14 @@ def materialize_image_workdir(task: BenchmarkTask, destination: Path) -> None:
             )
     finally:
         _remove_materialization_container(container)
+    if isinstance(task.verification.candidate, GitPatchCandidate):
+        base_commit = task.input.get("base_commit")
+        if not isinstance(base_commit, str):
+            raise ConfigError("repo_patch task has no canonical base_commit")
+        try:
+            validate_clean_repository(destination, base_commit)
+        except GitRepositoryError as exc:
+            raise ConfigError(f"image repository baseline is invalid: {exc}") from exc
 
 
 def _remove_materialization_container(container: str) -> None:
@@ -180,6 +190,24 @@ def reject_task_file_collision(
         if paths_overlap(path, resource_path):
             raise ConfigError(
                 f"harness.config.task_file collides with public materialized path: {task_file}"
+            )
+
+
+def reject_git_patch_framework_collisions(
+    task: BenchmarkTask,
+    workspace: Path,
+    *,
+    task_file: str,
+) -> None:
+    """Keep framework-owned Agent inputs out of the repository baseline."""
+    if not isinstance(task.verification.candidate, GitPatchCandidate):
+        return
+    for relative in (task_file, "securebench"):
+        path = workspace.joinpath(*PurePosixPath(relative).parts)
+        if path.exists() or path.is_symlink():
+            raise ConfigError(
+                "git_patch repository baseline collides with framework-owned path: "
+                f"{relative}"
             )
 
 

@@ -471,6 +471,8 @@ class BenchmarkRowV2(StrictModel):
                 optional={"hints"},
                 context="repo_patch input",
             )
+            if re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", self.input["base_commit"]) is None:
+                raise ValueError("repo_patch input.base_commit must be a full lowercase Git object ID")
             if not isinstance(self.verification.candidate, GitPatchCandidate):
                 raise ValueError("repo_patch rows require a git_patch candidate")
         elif self.family == "terminal_task":

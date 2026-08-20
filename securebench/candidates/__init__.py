@@ -12,6 +12,7 @@ from securebench.candidates.capture import (
     HostWorkspaceFilesystem,
     capture_file_bundle,
     capture_git_patch,
+    capture_git_patch_workspace,
 )
 from securebench.candidates.integration import capture_production
 from securebench.candidates.models import (
@@ -20,7 +21,7 @@ from securebench.candidates.models import (
     CandidateStoreError,
     StoredCandidate,
 )
-from securebench.candidates.replay import replay_file_bundle, replay_git_patch
+from securebench.candidates.replay import replay_candidate, replay_file_bundle, replay_git_patch
 from securebench.candidates.store import CandidateStore
 
 __all__ = [
@@ -37,9 +38,11 @@ __all__ = [
     "StoredCandidate",
     "capture_file_bundle",
     "capture_git_patch",
+    "capture_git_patch_workspace",
     "capture_production",
     "default_extraction_spec",
     "extract_candidate",
     "replay_file_bundle",
     "replay_git_patch",
+    "replay_candidate",
 ]

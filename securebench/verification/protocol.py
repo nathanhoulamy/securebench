@@ -11,7 +11,7 @@ from typing import Any
 from yaml import YAMLError
 
 from securebench.candidates import CandidateReplayError, CandidateStore, StoredCandidate
-from securebench.candidates.replay import replay_file_bundle
+from securebench.candidates.replay import replay_candidate
 from securebench.data_formats import strict_yaml_loads
 from securebench.sandboxes import CommandResult, DockerSandbox, HostSandbox
 from securebench.sandboxes.base import MAX_COMMAND_OUTPUT_BYTES
@@ -150,13 +150,7 @@ class ProtocolCheckRunner:
 
             materialize_image_workdir(task, evaluation_root)
             try:
-                replay_file_bundle(
-                    candidate,
-                    store,
-                    evaluation_root,
-                    guest_root=task.environment.workdir,
-                    expected_baseline_digest=task.baseline_digest,
-                )
+                replay_candidate(task, candidate, store, evaluation_root)
             except CandidateReplayError as exc:
                 raise VerificationInfrastructureError(
                     "candidate_replay_failed", "Stored candidate could not be reconstructed"

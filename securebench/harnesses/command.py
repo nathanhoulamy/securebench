@@ -18,6 +18,7 @@ from securebench.harnesses.shared import (
     container_image_for_task,
     materialize_image_workdir,
     optional_positive_number,
+    reject_git_patch_framework_collisions,
     reject_task_file_collision,
     reject_unknown_fields,
     run_timeout_seconds,
@@ -85,6 +86,11 @@ class CommandHarnessProducer(CandidateProducer):
 
         task_workspace.mkdir(parents=True, exist_ok=True)
         materialize_image_workdir(task, task_workspace)
+        reject_git_patch_framework_collisions(
+            task,
+            task_workspace,
+            task_file=self.task_file,
+        )
         staging = HostSandbox(root=task_workspace)
         plan = self.materializer.materialize(task, staging, "agent")
         reject_task_file_collision(

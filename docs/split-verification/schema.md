@@ -94,6 +94,10 @@ These are documentation and semantic-validation rules. They do not require
 another row field. Future families should be added only when the Agent
 workflow materially differs, not when verification differs.
 
+For `repo_patch`, `base_commit` is a full lowercase 40- or 64-hex Git object ID.
+The digest-pinned image's `environment.workdir` supplies the baseline repository
+and must be clean with `HEAD` exactly at that commit.
+
 ### Require one replayable candidate
 
 Every admitted row must produce one durable candidate that can be
@@ -297,8 +301,10 @@ candidate:
 ~~~
 
 `allow_paths` is optional. SecureBench also applies a framework-owned
-protected-path policy that rows cannot weaken. Bounds are checked on both the
-canonical patch and its materialized result.
+protected-path policy that rows cannot weaken. The candidate patch is derived
+from the stopped Agent worktree in a trusted clone; Agent-authored patches and
+Git metadata are ignored. Bounds are checked on both the canonical full-index,
+binary-capable patch and its materialized result.
 
 ### File bundle
 
@@ -370,8 +376,10 @@ source:
 Exactly one of `source.entry` or `source.path` is required. `source.entry`
 references either a regular-file or directory-tree entry in a `file_bundle`.
 For a directory tree, parser limits use both `max_files` and
-`max_total_bytes`. Detailed candidate-specific path semantics remain part of
-the materializer specification.
+`max_total_bytes`. For `git_patch`, `source.path` is repository-relative and
+observation happens passively after replay onto a fresh clean baseline. For
+overlays, detailed path semantics remain part of the future materializer
+specification.
 
 ### Protocol check
 
@@ -576,7 +584,7 @@ failures.
 | `check.type` | yes | `artifact` or `protocol`. |
 | `artifact.artifacts` | Artifact check only | Non-empty list of artifact sources and parser profiles. |
 | `artifact.source.entry` | conditional | References a regular-file or directory-tree `file_bundle` entry ID. |
-| `artifact.source.path` | conditional | References a bounded materialized patch or overlay path. |
+| `artifact.source.path` | conditional | References a bounded materialized path; repository-relative for `git_patch`, absolute within an include root for overlays. |
 | `artifact.parser` | yes | Registered parser profile. |
 | `artifact.limits` | yes | Either `max_bytes` for a regular file or `max_files` (all filesystem entries) plus `max_total_bytes` for a tree. |
 | `protocol.adapter` | Protocol check only | Runtime-resource reference containing adapter manifest and implementation. |

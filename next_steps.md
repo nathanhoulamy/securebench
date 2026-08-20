@@ -26,25 +26,25 @@ service engine.
 Definition of done: authoring ambiguity is rejected consistently, the documentation and executable
 schema agree, and no new schema feature is falsely presented as executable.
 
-## Recommended next batch: complete the `git_patch` vertical slice
+## Completed 2026-08-20: complete the `git_patch` vertical slice
 
 This is the most direct way to make the `repo_patch` family and DeepSWE-style rows executable.
 Reuse the existing capture and replay primitives rather than designing a second candidate format.
 
 Required work:
 
-1. Define how the digest-pinned image/workdir provides the baseline repository and prove it is at
+1. [x] Define how the digest-pinned image/workdir provides the baseline repository and prove it is at
    `input.base_commit` before Agent execution.
-2. Derive a canonical binary-capable patch from the stopped Agent workspace; do not trust an
+2. [x] Derive a canonical binary-capable patch from the stopped Agent workspace; do not trust an
    Agent-authored patch file or stdout.
-3. Connect `capture_production()` to `capture_git_patch()` with framework-owned protected paths,
+3. [x] Connect `capture_production()` to `capture_git_patch()` with framework-owned protected paths,
    author allow/exclude patterns, materialized file/byte bounds, and exact baseline identity.
-4. Introduce one candidate replay/materialization dispatcher used by verification instead of
+4. [x] Introduce one candidate replay/materialization dispatcher used by verification instead of
    hard-coding `replay_file_bundle()` in the protocol runner.
-5. Replay patches into a clean repository baseline for every protocol case.
-6. Implement passive `artifact.source.path` observation for repository-relative paths without
+5. [x] Replay patches into a clean repository baseline for every protocol case.
+6. [x] Implement passive `artifact.source.path` observation for repository-relative paths without
    executing candidate code.
-7. Bind resume validation and result provenance to the patch candidate and its baseline.
+7. [x] Bind resume validation and result provenance to the patch candidate and its baseline.
 
 Tests must cover wrong base commits, dirty baselines, binary patches, rename/delete/symlink cases,
 protected-test modifications, path escapes, oversized materialized results, replay mismatch, and a

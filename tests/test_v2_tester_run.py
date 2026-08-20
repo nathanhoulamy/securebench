@@ -1,5 +1,6 @@
 import json
 import shutil
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,6 +31,7 @@ from securebench.tester_run import (
     _bounded_result_record,
     _encode_record,
     _reset_task_workspace,
+    _resume_candidate_available,
     _resume_records,
     execution_config_digest,
     run_tester_config,
@@ -206,6 +208,180 @@ def test_runner_resume_requires_matching_row_provenance(monkeypatch, tmp_path):
     assert len(Path(first.output_path).read_text().splitlines()) == 1
 
 
+def test_repo_patch_runner_captures_verifies_persists_cleans_and_resumes(
+    monkeypatch,
+    tmp_path,
+):
+    baseline = tmp_path / "baseline"
+    baseline.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=baseline, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "securebench@example.invalid"],
+        cwd=baseline,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "SecureBench"], cwd=baseline, check=True
+    )
+    (baseline / "README.md").write_text("baseline\n")
+    subprocess.run(["git", "add", "."], cwd=baseline, check=True)
+    subprocess.run(
+        ["git", "commit", "--quiet", "-m", "baseline"], cwd=baseline, check=True
+    )
+    base_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=baseline,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    pack = tmp_path / "repo-pack"
+    (pack / "assets").mkdir(parents=True)
+    (pack / "evaluation_inputs").mkdir()
+    oracle_root = pack / "hidden" / "task" / "oracle"
+    oracle_root.mkdir(parents=True)
+    (oracle_root / "oracle.yaml").write_text(
+        "abi: securebench.oracle/v1\n"
+        "command: ['{python}', 'oracle.py']\n"
+        "timeout_seconds: 5\n"
+    )
+    (oracle_root / "oracle.py").write_text(
+        """
+import json
+import sys
+
+accepted = False
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["op"] == "initialize":
+        print(json.dumps({"type": "ack"}), flush=True)
+    elif request["op"] == "evaluate_artifact":
+        accepted = request["evidence"]["parsed_value"] == {"answer": 42}
+        print(json.dumps({"type": "ack"}), flush=True)
+    elif request["op"] == "finalize":
+        print(json.dumps({
+            "type": "verdict",
+            "verdict": {
+                "passed": accepted,
+                "score": 1.0 if accepted else 0.0,
+                "check_outcomes": {"result_artifact": accepted},
+                "public_diagnostics": {},
+            },
+        }), flush=True)
+""".lstrip()
+    )
+    (pack / "manifest.yaml").write_text(
+        """
+schema_version: "2.0"
+id: repo-runner-pack
+defaults:
+  family: repo_patch
+  environment:
+    image: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    workdir: /app
+    timeout_seconds: 30
+    agent_network: none
+resource_roots:
+  public: assets/
+  runtime: evaluation_inputs/
+  host: hidden/
+""".lstrip()
+    )
+    row = {
+        "id": "repo/task",
+        "input": {
+            "repo": "example/repository",
+            "base_commit": base_commit,
+            "instructions": "Write result.json.",
+        },
+        "verification": {
+            "execution_profile": "strict-split/v1",
+            "candidate": {
+                "type": "git_patch",
+                "max_patch_bytes": 4096,
+                "max_changed_files": 1,
+                "max_changed_bytes": 1024,
+                "allow_paths": ["result.json"],
+            },
+            "resources": {"host": {"oracle": {"path": "task/oracle"}}},
+            "checks": [
+                {
+                    "id": "result_artifact",
+                    "type": "artifact",
+                    "artifacts": [
+                        {
+                            "id": "result",
+                            "source": {"path": "result.json"},
+                            "parser": "securebench.strict-json/v1",
+                            "limits": {"max_bytes": 1024},
+                        }
+                    ],
+                }
+            ],
+            "oracle": "host.oracle",
+        },
+    }
+    (pack / "tasks.jsonl").write_text(json.dumps(row) + "\n")
+    current = RunConfig(
+        schema_version="1.0",
+        run=RunSection(id="repo-runner", output_dir=tmp_path / "repo-run"),
+        benchmark=BenchmarkSection(
+            manifest=pack / "manifest.yaml",
+            tasks=pack / "tasks.jsonl",
+        ),
+        harness=HarnessSection(type="command", config={"command": "ignored"}),
+    )
+
+    class RepoProducer:
+        def __init__(self):
+            self.calls = 0
+
+        def produce(self, task):
+            self.calls += 1
+            workspace = current.run.output_dir / "workspaces" / workspace_dir_name(task)
+            subprocess.run(
+                ["git", "clone", "--quiet", str(baseline), str(workspace)], check=True
+            )
+            (workspace / "result.json").write_text('{"answer":42}\n')
+            return CandidateProduction(workspace=str(workspace))
+
+    producer = RepoProducer()
+
+    def materialize(_task, destination):
+        subprocess.run(
+            ["git", "clone", "--quiet", str(baseline), str(destination)], check=True
+        )
+
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: producer,
+    )
+    monkeypatch.setattr("securebench.harnesses.shared.materialize_image_workdir", materialize)
+    monkeypatch.setattr(
+        "securebench.verification.artifacts.remove_untrusted_tree",
+        lambda path, *, image: shutil.rmtree(path),
+    )
+
+    first = run_tester_config(current)
+    second = run_tester_config(current, resume=True)
+    record = json.loads(Path(first.output_path).read_text())
+    task = next(
+        compile_benchmark_pack(
+            load_benchmark_pack(current.benchmark.manifest, current.benchmark.tasks)
+        )
+    )
+
+    assert first.passed == second.passed == 1
+    assert producer.calls == 1
+    assert record["candidate"]["type"] == "git_patch"
+    assert record["candidate"]["digest"].startswith("sha256:")
+    assert record["provenance"]["baseline_digest"] == task.baseline_digest
+    assert not (
+        current.run.output_dir / "workspaces" / workspace_dir_name(task)
+    ).exists()
+
+
 def test_runner_resume_reexecutes_after_harness_config_changes(monkeypatch, tmp_path):
     current = config(tmp_path)
     producer = GoodProducer(current.run.output_dir / "workspaces")
@@ -368,6 +544,36 @@ def test_runner_resume_reexecutes_when_candidate_artifact_is_missing(monkeypatch
 
     assert producer.calls == 2
     assert len(Path(first.output_path).read_text().splitlines()) == 1
+
+
+def test_resume_rejects_git_patch_manifest_for_another_base_commit(tmp_path):
+    store = CandidateStore(tmp_path / "store")
+    patch_blob = store.put_blob(b"")
+    candidate = store.put_candidate(
+        "git_patch",
+        "sha256:" + "1" * 64,
+        {
+            "patch_blob": patch_blob,
+            "patch_bytes": 0,
+            "changed_files": [],
+            "changed_bytes": 0,
+            "base_commit": "b" * 40,
+        },
+    )
+
+    assert not _resume_candidate_available(
+        {
+            "candidate": {
+                "type": "git_patch",
+                "digest": candidate.digest,
+            }
+        },
+        {
+            "baseline_digest": "sha256:" + "1" * 64,
+            "base_commit": "a" * 40,
+        },
+        store,
+    )
 
 
 def test_runner_resume_reexecutes_when_result_check_shape_is_invalid(monkeypatch, tmp_path):

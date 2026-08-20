@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-08-20
 
-Implementation baseline reviewed: `e311c3a` plus the schema/runtime alignment pass
+Implementation baseline reviewed: `aaeedbc` plus the `git_patch` vertical slice
 
 Active development branch: `split-verification-v2`
 
@@ -63,20 +63,20 @@ the runner does not invent a benchmark score.
 | Schema/design area | Current state |
 |---|---|
 | Manifest defaults and closed v2 rows | Implemented |
-| `repo_patch` and `terminal_task` family contracts | Implemented at schema level |
+| `repo_patch` and `terminal_task` family contracts | Implemented |
 | Digest-pinned images and Agent timeout/network fields | Implemented |
 | Three structural visibility lanes | Implemented and centrally enforced |
 | Non-overlapping, symlink-safe resource roots | Implemented |
 | `file_bundle` candidate | Implemented end to end, including bounded directory trees |
-| `git_patch` candidate | Capture/replay primitives exist; end-to-end harness and verification path is blocked |
+| `git_patch` candidate | Implemented end to end with exact clean-commit baselines and canonical stopped-state capture |
 | `filesystem_overlay` candidate | Schema only; capture format and engine are not implemented |
 | Passive artifact check using `source.entry` | Implemented for `file_bundle` |
-| Artifact check using `source.path` | Schema-valid; blocked because patch/overlay execution is not available |
+| Artifact check using `source.path` | Implemented for bounded repository-relative `git_patch` paths; overlay paths remain blocked |
 | Registered passive parsers | JSON, UTF-8 text, ICS, and tree-manifest profiles exist |
 | Basic protocol check | Implemented with finite JSON, bounded I/O, and a fresh offline container per case |
 | Protocol trusted services | Schema-valid; explicitly rejected by preflight |
 | Protocol returned artifacts | Schema-valid; explicitly rejected by preflight |
-| `strict-split/v1` | Implemented for the current file-bundle/artifact/basic-protocol slice |
+| `strict-split/v1` | Implemented for file-bundle and git-patch artifact/basic-protocol paths |
 | `batched-split/v1` | Registered but explicitly not implemented |
 | Host Oracle JSON-lines ABI | Implemented for initialize, artifact evidence, cases, case evidence, and final verdict |
 | Sanitized result/provenance and resume validation | Implemented |
@@ -110,8 +110,14 @@ executable yet.
   that resolve inside the same captured tree.
 - Oracle and adapter manifests fail closed, and Oracle manifests are validated during preflight
   without starting the process.
-- Executable-capability matrix tests prove the registered batched profile, patch and overlay
-  candidates, protocol services, and returned protocol artifacts fail preflight while unsupported.
+- Executable-capability matrix tests prove the registered batched profile, overlay candidate,
+  protocol services, and returned protocol artifacts fail preflight while unsupported.
+- For `repo_patch`, the digest-pinned image workdir must be a clean Git repository at the row's
+  full `base_commit` before the Agent starts. Capture derives a binary-capable canonical patch from
+  the stopped workspace using trusted Git state; it never consumes an Agent-authored patch file.
+- Git patches replay only onto that same clean commit for every protocol case. Passive path
+  artifacts are read from a separately reconstructed repository without importing or executing
+  candidate code.
 - Only Oracle output controls score, pass/fail, and check outcomes.
 - Public result records exclude raw observations, hidden case context, Agent logs, and host paths.
 
@@ -129,13 +135,11 @@ schema support.
 3. `restricted` and `internet` both currently permit only the tester's explicit domain allowlist;
    only `none` changes the row-level ceiling. This is safe, but the intended semantic distinction
    should be documented or implemented before relying on it for benchmark requirements.
-4. Git-patch primitives are not yet connected to the declared `base_commit`, stopped-workspace
-   extraction, generic candidate replay, artifact paths, or protocol evaluation.
-5. The filesystem-overlay canonical format and protected-root policy remain intentionally
+4. The filesystem-overlay canonical format and protected-root policy remain intentionally
    unspecified and unimplemented.
-6. Pack-local Oracle code is trusted and hash-bound but runs as a sanitized host subprocess, not
+5. Pack-local Oracle code is trusted and hash-bound but runs as a sanitized host subprocess, not
    inside a stronger OS sandbox.
-7. Assertion-free adapters, component capability review, base/gold/mutant qualification, and
+6. Assertion-free adapters, component capability review, base/gold/mutant qualification, and
    semantic-fidelity review remain admission/governance responsibilities rather than mechanically
    proven row-schema properties.
 
@@ -143,9 +147,10 @@ schema support.
 
 At the implementation baseline above:
 
-- full suite: `334 passed, 1 skipped`;
-- the skipped real-Docker protocol test passed separately with
-  `SECUREBENCH_DOCKER_INTEGRATION=1`;
+- full suite: `345 passed, 2 skipped`;
+- two opt-in real-Docker protocol tests cover file-bundle and fresh-repository git-patch replay;
+  the file-bundle case passed previously, while the local Docker daemon returned HTTP 500 before
+  the new git-patch case could run in this review;
 - built-in robustness audit: 5 passed, 0 failed, 0 warnings;
 - generated JSON Schemas matched the checked-in files;
 - a wheel built successfully and imported outside the repository;
@@ -158,7 +163,7 @@ uv run --no-sync --with pytest python -m pytest -q
 .venv/bin/python -m tools.generate_schemas
 .venv/bin/python -m securebench.cli audit-self --output-dir /tmp/securebench-audit
 SECUREBENCH_DOCKER_INTEGRATION=1 uv run --no-sync --with pytest python -m pytest -q \
-  tests/test_v2_protocol_verification.py::test_protocol_check_runs_in_real_fresh_docker_evaluation
+  tests/test_v2_protocol_verification.py -k 'real_fresh_docker'
 ```
 
 ## Branch and workspace state

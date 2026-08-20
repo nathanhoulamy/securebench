@@ -14,6 +14,7 @@ from securebench.candidates import (
     HostWorkspaceFilesystem,
     capture_file_bundle,
     capture_git_patch,
+    capture_git_patch_workspace,
     replay_file_bundle,
     replay_git_patch,
 )
@@ -283,6 +284,166 @@ def test_git_patch_capture_validates_then_replays(tmp_path):
     )
     assert (replay / "src" / "app.py").read_text() == "value = 2\n"
     assert (replay / "src" / "new.py").read_text() == "new = True\n"
+
+
+def test_git_patch_capture_requires_exact_clean_baseline(tmp_path):
+    repository = make_repository(tmp_path / "repository")
+    base_commit = git(repository, "rev-parse", "HEAD").strip()
+
+    with pytest.raises(CandidateCaptureError, match="commit mismatch"):
+        capture_git_patch(
+            b"",
+            repository,
+            git_patch_spec(),
+            CandidateStore(tmp_path / "wrong-store"),
+            baseline_digest=BASELINE,
+            base_commit="f" * 40,
+        )
+
+    (repository / "untracked.txt").write_text("dirty")
+    with pytest.raises(CandidateCaptureError, match="must be clean"):
+        capture_git_patch(
+            b"",
+            repository,
+            git_patch_spec(),
+            CandidateStore(tmp_path / "dirty-store"),
+            baseline_digest=BASELINE,
+            base_commit=base_commit,
+        )
+
+
+def test_stopped_workspace_capture_handles_binary_rename_delete_and_symlink(tmp_path):
+    baseline = make_repository(tmp_path / "baseline")
+    (baseline / "src" / "delete.py").write_text("remove = True\n")
+    (baseline / "src" / "rename.py").write_text("old_name = True\n")
+    git(baseline, "add", ".")
+    git(baseline, "commit", "--quiet", "-m", "more baseline")
+    base_commit = git(baseline, "rev-parse", "HEAD").strip()
+    workspace = tmp_path / "workspace"
+    git(tmp_path, "clone", "--quiet", str(baseline), str(workspace))
+    (workspace / "src" / "binary.dat").write_bytes(b"\x00\xffcandidate\x00")
+    (workspace / "src" / "delete.py").unlink()
+    (workspace / "src" / "rename.py").rename(workspace / "src" / "renamed.py")
+    (workspace / "src" / "current.py").symlink_to("app.py")
+    store = CandidateStore(tmp_path / "store")
+
+    candidate = capture_git_patch_workspace(
+        workspace,
+        baseline,
+        git_patch_spec(max_changed_files=8),
+        store,
+        baseline_digest=BASELINE,
+        base_commit=base_commit,
+    )
+    manifest = store.load_candidate(candidate.digest)
+    assert manifest.payload["base_commit"] == base_commit
+    assert manifest.payload["changed_files"] == [
+        "src/binary.dat",
+        "src/current.py",
+        "src/delete.py",
+        "src/rename.py",
+        "src/renamed.py",
+    ]
+    patch = store.read_blob(
+        manifest.payload["patch_blob"],
+        expected_size=manifest.payload["patch_bytes"],
+    )
+    assert b"GIT binary patch" in patch
+
+    replay = tmp_path / "replay"
+    git(tmp_path, "clone", "--quiet", str(baseline), str(replay))
+    replay_git_patch(
+        candidate,
+        store,
+        replay,
+        expected_baseline_digest=BASELINE,
+        expected_base_commit=base_commit,
+    )
+    assert (replay / "src" / "binary.dat").read_bytes() == b"\x00\xffcandidate\x00"
+    assert not (replay / "src" / "delete.py").exists()
+    assert not (replay / "src" / "rename.py").exists()
+    assert (replay / "src" / "renamed.py").read_text() == "old_name = True\n"
+    assert (replay / "src" / "current.py").is_symlink()
+
+
+def test_stopped_workspace_capture_rejects_excluded_and_escaping_changes(tmp_path):
+    baseline = make_repository(tmp_path / "baseline")
+    (baseline / "tests").mkdir()
+    (baseline / "tests" / "test_app.py").write_text("assert True\n")
+    git(baseline, "add", ".")
+    git(baseline, "commit", "--quiet", "-m", "tests baseline")
+    base_commit = git(baseline, "rev-parse", "HEAD").strip()
+    workspace = tmp_path / "workspace"
+    git(tmp_path, "clone", "--quiet", str(baseline), str(workspace))
+    (workspace / "tests" / "test_app.py").write_text("assert False\n")
+
+    with pytest.raises(CandidateCaptureError, match="protected or excluded"):
+        capture_git_patch_workspace(
+            workspace,
+            baseline,
+            git_patch_spec(allow_paths=[], exclude_paths=["tests/**"]),
+            CandidateStore(tmp_path / "excluded-store"),
+            baseline_digest=BASELINE,
+            base_commit=base_commit,
+        )
+
+    git(workspace, "reset", "--hard", "--quiet", "HEAD")
+    (workspace / "src" / "escape").symlink_to("../../outside")
+    with pytest.raises(CandidateCaptureError, match="escapes tree"):
+        capture_git_patch_workspace(
+            workspace,
+            baseline,
+            git_patch_spec(),
+            CandidateStore(tmp_path / "escape-store"),
+            baseline_digest=BASELINE,
+            base_commit=base_commit,
+        )
+
+
+def test_stopped_workspace_capture_enforces_materialized_byte_bound(tmp_path):
+    baseline = make_repository(tmp_path / "baseline")
+    base_commit = git(baseline, "rev-parse", "HEAD").strip()
+    workspace = tmp_path / "workspace"
+    git(tmp_path, "clone", "--quiet", str(baseline), str(workspace))
+    (workspace / "src" / "large.bin").write_bytes(b"x" * 32)
+
+    with pytest.raises(CandidateCaptureError, match="max_changed_bytes"):
+        capture_git_patch_workspace(
+            workspace,
+            baseline,
+            git_patch_spec(max_changed_bytes=16),
+            CandidateStore(tmp_path / "store"),
+            baseline_digest=BASELINE,
+            base_commit=base_commit,
+        )
+
+
+def test_git_patch_replay_rejects_manifest_mismatch(tmp_path):
+    repository = make_repository(tmp_path / "repository")
+    base_commit = git(repository, "rev-parse", "HEAD").strip()
+    store = CandidateStore(tmp_path / "store")
+    valid = capture_git_patch(
+        b"",
+        repository,
+        git_patch_spec(),
+        store,
+        baseline_digest=BASELINE,
+        base_commit=base_commit,
+    )
+    payload = dict(store.load_candidate(valid.digest).payload)
+    payload["changed_bytes"] = 1
+    mismatched = store.put_candidate("git_patch", BASELINE, payload)
+    replay = tmp_path / "replay"
+    git(tmp_path, "clone", "--quiet", str(repository), str(replay))
+
+    with pytest.raises(CandidateReplayError, match="byte count"):
+        replay_git_patch(
+            mismatched,
+            store,
+            replay,
+            expected_baseline_digest=BASELINE,
+            expected_base_commit=base_commit,
+        )
 
 
 def test_git_patch_rejects_framework_protected_paths(tmp_path):

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -13,6 +15,7 @@ from securebench.candidates import (
     CandidateStore,
     HostWorkspaceFilesystem,
     capture_file_bundle,
+    capture_git_patch_workspace,
 )
 from securebench.verification import (
     VerificationEngine,
@@ -139,6 +142,135 @@ def capture_result(tmp_path: Path, task, content: bytes):
         baseline_digest=task.baseline_digest,
     )
     return store, candidate
+
+
+def write_repo_artifact_pack(root: Path, *, base_commit: str):
+    (root / "assets").mkdir(parents=True)
+    (root / "evaluation_inputs").mkdir()
+    (root / "hidden" / "task" / "oracle").mkdir(parents=True)
+    (root / "manifest.yaml").write_text(
+        f"""
+schema_version: "2.0"
+id: repo-artifact-pack
+defaults:
+  family: repo_patch
+  environment:
+    image: {DIGEST}
+    workdir: /app
+    timeout_seconds: 30
+    agent_network: none
+resource_roots:
+  public: assets/
+  runtime: evaluation_inputs/
+  host: hidden/
+""".lstrip()
+    )
+    row = {
+        "id": "repo-artifact/task",
+        "input": {
+            "repo": "example/repository",
+            "base_commit": base_commit,
+            "instructions": "Write result.json.",
+        },
+        "verification": {
+            "execution_profile": "strict-split/v1",
+            "candidate": {
+                "type": "git_patch",
+                "max_patch_bytes": 4096,
+                "max_changed_files": 2,
+                "max_changed_bytes": 1024,
+                "allow_paths": ["result.json"],
+            },
+            "resources": {"host": {"oracle": {"path": "task/oracle"}}},
+            "checks": [
+                {
+                    "id": "result_artifact",
+                    "type": "artifact",
+                    "artifacts": [
+                        {
+                            "id": "result",
+                            "source": {"path": "result.json"},
+                            "parser": "securebench.strict-json/v1",
+                            "limits": {"max_bytes": 1024},
+                        }
+                    ],
+                }
+            ],
+            "oracle": "host.oracle",
+        },
+    }
+    (root / "tasks.jsonl").write_text(json.dumps(row) + "\n")
+    return next(
+        compile_benchmark_pack(
+            load_benchmark_pack(root / "manifest.yaml", root / "tasks.jsonl")
+        )
+    )
+
+
+def make_repository(root: Path) -> tuple[Path, str]:
+    root.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "securebench@example.invalid"],
+        cwd=root,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "SecureBench"], cwd=root, check=True
+    )
+    (root / "README.md").write_text("baseline\n")
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "baseline"], cwd=root, check=True)
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return root, commit
+
+
+def test_git_patch_artifact_path_is_passively_observed(tmp_path, monkeypatch):
+    baseline, base_commit = make_repository(tmp_path / "baseline")
+    task = write_repo_artifact_pack(tmp_path / "pack", base_commit=base_commit)
+    workspace = tmp_path / "workspace"
+    subprocess.run(["git", "clone", "--quiet", str(baseline), str(workspace)], check=True)
+    (workspace / "result.json").write_text('{"answer":42}\n')
+    store = CandidateStore(tmp_path / "candidate-store")
+    candidate = capture_git_patch_workspace(
+        workspace,
+        baseline,
+        task.verification.candidate,
+        store,
+        baseline_digest=task.baseline_digest,
+        base_commit=base_commit,
+    )
+
+    def materialize(_task, destination):
+        subprocess.run(
+            ["git", "clone", "--quiet", str(baseline), str(destination)],
+            check=True,
+        )
+
+    monkeypatch.setattr("securebench.harnesses.shared.materialize_image_workdir", materialize)
+    monkeypatch.setattr(
+        "securebench.verification.artifacts.remove_untrusted_tree",
+        lambda path, *, image: shutil.rmtree(path),
+    )
+    oracle = RecordingOracle()
+
+    result = VerificationEngine().verify(
+        task,
+        candidate,
+        store,
+        run_seed="repo-artifact-seed",
+        oracle=oracle,
+    )
+
+    assert result.status == "passed"
+    assert oracle.evidence[0].source_kind == "regular_file"
+    assert oracle.evidence[0].parsed_value == {"answer": 42}
 
 
 def test_artifact_evidence_is_internal_and_result_is_sanitized(tmp_path):

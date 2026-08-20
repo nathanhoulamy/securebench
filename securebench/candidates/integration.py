@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 from securebench.candidates.base import CandidateProduction
-from securebench.candidates.capture import HostWorkspaceFilesystem, capture_file_bundle
+from securebench.candidates.capture import (
+    HostWorkspaceFilesystem,
+    capture_file_bundle,
+    capture_git_patch_workspace,
+)
 from securebench.candidates.models import CandidateCaptureError, StoredCandidate
 from securebench.candidates.store import CandidateStore
-from securebench.schemas.benchmark import FileBundleCandidate
+from securebench.schemas.benchmark import FileBundleCandidate, GitPatchCandidate
 from securebench.tasks import BenchmarkTask
 
 
@@ -23,9 +28,29 @@ def capture_production(
         root = _workspace_root(production)
         filesystem = HostWorkspaceFilesystem(root, guest_root=task.environment.workdir)
         return capture_file_bundle(filesystem, spec, store, baseline_digest=task.baseline_digest)
-    raise CandidateCaptureError(
-        f"candidate capture is not implemented for {spec.type!r}"
-    )
+    if isinstance(spec, GitPatchCandidate):
+        root = _workspace_root(production)
+        task_file = production.metadata.get("task_file")
+        protected_paths = (task_file,) if isinstance(task_file, str) else ()
+        base_commit = task.input.get("base_commit")
+        if not isinstance(base_commit, str):
+            raise CandidateCaptureError("repo_patch task has no canonical base_commit")
+        # Import lazily: harness modules import candidate integration.
+        from securebench.harnesses.shared import materialize_image_workdir
+
+        with tempfile.TemporaryDirectory(prefix="securebench-patch-baseline-") as temporary_name:
+            baseline = Path(temporary_name) / "repository"
+            materialize_image_workdir(task, baseline)
+            return capture_git_patch_workspace(
+                root,
+                baseline,
+                spec,
+                store,
+                baseline_digest=task.baseline_digest,
+                base_commit=base_commit,
+                protected_paths=protected_paths,
+            )
+    raise CandidateCaptureError(f"candidate capture is not implemented for {spec.type!r}")
 
 
 def _workspace_root(production: CandidateProduction) -> Path:

@@ -36,10 +36,18 @@ whose targets resolve within that same captured tree. Agent command output
 is drained without buffering it unboundedly and is capped per stream. Row
 workspaces are removed after execution; if the Agent made their permissions
 host-inaccessible, cleanup restores only the permissions needed for removal in
-a networkless, capability-limited container. `git_patch` capture and replay are
-implemented as primitives, but repo-patch artifact
-materialization/evaluation is deliberately blocked by execution preflight
-until its full engine is available.
+a networkless, capability-limited container.
+
+For `git_patch`, the digest-pinned image workdir must contain a real, clean Git
+repository whose `HEAD` is exactly the row's full lowercase `input.base_commit`.
+This is checked before Agent execution and again for each fresh reconstruction.
+After the Agent stops, trusted capture mirrors its worktree into a trusted clone,
+ignores Agent-controlled Git metadata and framework-owned inputs, enforces row
+allow/exclude and materialized bounds, stages all changes, and derives a
+canonical full-index, binary-capable patch. An Agent-authored patch file,
+stdout, local Git configuration, hooks, and diff drivers are not trusted as the
+candidate. Replay requires the same clean commit and verifies that the applied
+patch, changed-path manifest, symlinks, and final logical byte count agree.
 
 ## Verification and results
 
@@ -79,7 +87,10 @@ and execution provenance. Raw Agent
 stdout, stderr, metadata, parsed evidence, runtime resources, and host paths are
 not serialized. The result component has no live resource view. Resume validates
 the complete result envelope, declared checks, stored candidate content, and all
-current provenance digests before reusing a row. One process holds an exclusive
+current provenance digests before reusing a row. For a patch candidate, resume
+also requires its manifest's `base_commit`, changed-path metadata, and patch blob
+to remain valid; the candidate digest binds that manifest while the row and
+baseline provenance bind the expected commit and image. One process holds an exclusive
 lock on an output directory for the full run. Execution provenance binds the
 normalized harness configuration, effective Agent-visible environment values,
 and Docker limit overrides; provider credentials filtered from the Agent are
@@ -109,7 +120,6 @@ tester-owned upper bound on actual connectivity.
   but not executable.
 - Protocol trusted services and returned protocol artifacts are schema-valid
   but not executable yet.
-- `git_patch` end-to-end evaluation is not yet executable.
 - Pack-local Oracle code is trusted and requires review/admission controls.
 - The reference Oracle runs as a sanitized host subprocess; stronger OS-level
   Oracle confinement remains future hardening.

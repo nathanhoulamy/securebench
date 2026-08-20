@@ -480,6 +480,18 @@ def _resume_candidate_available(
                 else:
                     return False
         elif manifest.type == "git_patch":
+            changed_files = manifest.payload.get("changed_files")
+            changed_bytes = manifest.payload.get("changed_bytes")
+            if (
+                manifest.payload.get("base_commit") != expected["base_commit"]
+                or not isinstance(changed_files, list)
+                or not all(isinstance(path, str) for path in changed_files)
+                or len(changed_files) != len(set(changed_files))
+                or not isinstance(changed_bytes, int)
+                or isinstance(changed_bytes, bool)
+                or changed_bytes < 0
+            ):
+                return False
             if not _resume_blob_available(
                 {
                     "blob": manifest.payload.get("patch_blob"),
@@ -554,6 +566,7 @@ def _valid_resume_record(record: dict[str, Any], expected: dict[str, Any]) -> bo
                 "benchmark_id",
                 "execution_profile",
                 "candidate_type",
+                "base_commit",
                 "checks",
             }
         }
@@ -648,6 +661,11 @@ def _expected_resume_identity(
         "benchmark_id": task.benchmark_id,
         "execution_profile": task.verification.execution_profile,
         "candidate_type": task.verification.candidate.type,
+        "base_commit": (
+            task.input.get("base_commit")
+            if task.verification.candidate.type == "git_patch"
+            else None
+        ),
         "checks": tuple((check.id, check.type) for check in task.verification.checks),
         "manifest_digest": task.manifest_digest,
         "row_digest": task.row_digest,

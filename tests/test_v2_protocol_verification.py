@@ -3,15 +3,22 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
-from securebench.candidates import CandidateStore, HostWorkspaceFilesystem, capture_file_bundle
+from securebench.candidates import (
+    CandidateStore,
+    HostWorkspaceFilesystem,
+    capture_file_bundle,
+    capture_git_patch_workspace,
+)
 from securebench.errors import ConfigError
 from securebench.execution_profiles import validate_executable_task
+from securebench.harnesses.shared import materialize_image_workdir
 from securebench.sandboxes import CommandResult
 from securebench.schemas.benchmark import ArtifactCheck, ProtocolCheck, VerificationSpec
 from securebench.verification import OracleSession, OracleVerdict, VerificationEngine
@@ -69,6 +76,7 @@ def write_protocol_pack(
     *,
     image: str = DIGEST,
     adapter_mount: str = "/opt/securebench/adapter",
+    base_commit: str | None = None,
 ):
     (root / "assets" / "task").mkdir(parents=True)
     adapter = root / "evaluation_inputs" / "task" / "adapter"
@@ -107,7 +115,7 @@ print(json.dumps({
 schema_version: "2.0"
 id: protocol-pack
 defaults:
-  family: terminal_task
+  family: {"repo_patch" if base_commit is not None else "terminal_task"}
   environment:
     image: {image}
     workdir: /app
@@ -119,27 +127,47 @@ resource_roots:
   host: hidden/
 """.lstrip()
     )
+    candidate = (
+        {
+            "type": "git_patch",
+            "max_patch_bytes": 4096,
+            "max_changed_files": 2,
+            "max_changed_bytes": 1024,
+            "allow_paths": ["answer.txt"],
+        }
+        if base_commit is not None
+        else {
+            "type": "file_bundle",
+            "max_total_files": 1,
+            "max_total_bytes": 1024,
+            "files": [
+                {
+                    "id": "answer",
+                    "path": "/app/answer.txt",
+                    "kind": "regular_file",
+                    "max_bytes": 1024,
+                }
+            ],
+        }
+    )
+    task_input = (
+        {
+            "repo": "example/repository",
+            "base_commit": base_commit,
+            "instructions": "Write /app/answer.txt.",
+        }
+        if base_commit is not None
+        else {"instructions": "Write /app/answer.txt."}
+    )
     row = {
         "id": "protocol/task",
-        "input": {"instructions": "Write /app/answer.txt."},
+        "input": task_input,
         "assets": [
             {"path": "task/public.txt", "mount": "/opt/securebench/public.txt", "read_only": True}
         ],
         "verification": {
             "execution_profile": "strict-split/v1",
-            "candidate": {
-                "type": "file_bundle",
-                "max_total_files": 1,
-                "max_total_bytes": 1024,
-                "files": [
-                    {
-                        "id": "answer",
-                        "path": "/app/answer.txt",
-                        "kind": "regular_file",
-                        "max_bytes": 1024,
-                    }
-                ],
-            },
+            "candidate": candidate,
             "resources": {
                 "runtime": {
                     "adapter": {"path": "task/adapter", "mount": adapter_mount}
@@ -186,6 +214,94 @@ def capture_answer(root: Path, task):
         baseline_digest=task.baseline_digest,
     )
     return store, candidate
+
+
+def make_git_baseline(root: Path) -> tuple[Path, str]:
+    root.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "securebench@example.invalid"],
+        cwd=root,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "SecureBench"], cwd=root, check=True
+    )
+    (root / "README.md").write_text("baseline\n")
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "baseline"], cwd=root, check=True)
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return root, commit
+
+
+def test_git_patch_protocol_case_replays_into_fresh_repository(tmp_path, monkeypatch):
+    baseline, base_commit = make_git_baseline(tmp_path / "baseline")
+    task = write_protocol_pack(tmp_path / "pack", base_commit=base_commit)
+    validate_executable_task(task)
+    workspace = tmp_path / "agent-workspace"
+    subprocess.run(["git", "clone", "--quiet", str(baseline), str(workspace)], check=True)
+    (workspace / "answer.txt").write_text("candidate-state")
+    store = CandidateStore(tmp_path / "candidate-store")
+    candidate = capture_git_patch_workspace(
+        workspace,
+        baseline,
+        task.verification.candidate,
+        store,
+        baseline_digest=task.baseline_digest,
+        base_commit=base_commit,
+    )
+    roots: list[Path] = []
+
+    def materialize(_task, destination):
+        subprocess.run(
+            ["git", "clone", "--quiet", str(baseline), str(destination)],
+            check=True,
+        )
+
+    class FakeDockerSandbox:
+        def __init__(self, **kwargs):
+            self.root = Path(kwargs["root"])
+            roots.append(self.root)
+
+        def run(self, command, *, workdir, timeout, stdin):
+            assert (self.root / "answer.txt").read_text() == "candidate-state"
+            assert subprocess.run(
+                ["git", "diff", "--quiet", base_commit], cwd=self.root
+            ).returncode == 1
+            return CommandResult(
+                command=tuple(command),
+                exit_code=0,
+                stdout=json.dumps({"answer": json.loads(stdin)["value"] * 2}),
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("securebench.harnesses.shared.materialize_image_workdir", materialize)
+    monkeypatch.setattr("securebench.verification.protocol.DockerSandbox", FakeDockerSandbox)
+    monkeypatch.setattr(
+        "securebench.verification.protocol.remove_untrusted_tree",
+        lambda path, *, image: shutil.rmtree(path),
+    )
+    oracle = ProtocolOracle([OracleCase({"value": 5}, {"expected": 10})])
+
+    result = VerificationEngine().verify(
+        task,
+        candidate,
+        store,
+        run_seed="repo-protocol-seed",
+        oracle=oracle,
+    )
+
+    assert result.status == "passed"
+    assert oracle.evidence[0].observation == {"answer": 10}
+    assert len(roots) == 1 and not roots[0].exists()
 
 
 def test_protocol_cases_use_fresh_evaluation_roots_and_sanitized_results(tmp_path, monkeypatch):
@@ -294,6 +410,90 @@ def test_protocol_check_runs_in_real_fresh_docker_evaluation(tmp_path):
         "candidate": "candidate-state",
         "answer": 10,
     }
+
+
+@pytest.mark.skipif(
+    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
+    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 to exercise Docker",
+)
+def test_git_patch_protocol_runs_from_real_fresh_docker_repositories(tmp_path):
+    parent_image = (
+        "alexgshaw/constraints-scheduling@sha256:"
+        "567ce5a189f8d11ac461790876e934cc7af38391baf89a78f95f4dafc1fec3b0"
+    )
+    context = tmp_path / "docker-context"
+    context.mkdir()
+    (context / "Dockerfile").write_text(
+        f"""
+FROM {parent_image}
+USER root
+RUN rm -rf /app && mkdir -p /app && cd /app \\
+    && git init --quiet \\
+    && git config user.email securebench@example.invalid \\
+    && git config user.name SecureBench \\
+    && printf 'baseline\\n' > README.md \\
+    && git add . && git commit --quiet -m baseline
+WORKDIR /app
+""".lstrip()
+    )
+    built = subprocess.run(
+        ["docker", "build", "--quiet", str(context)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    image = built.stdout.strip().splitlines()[-1]
+    try:
+        base_commit = subprocess.run(
+            ["docker", "run", "--rm", "--network", "none", image, "git", "-C", "/app", "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        task = write_protocol_pack(
+            tmp_path / "pack",
+            image=image,
+            base_commit=base_commit,
+        )
+        validate_executable_task(task)
+        baseline = tmp_path / "baseline"
+        materialize_image_workdir(task, baseline)
+        workspace = tmp_path / "agent-workspace"
+        subprocess.run(
+            ["git", "clone", "--quiet", str(baseline), str(workspace)], check=True
+        )
+        (workspace / "answer.txt").write_text("candidate-state")
+        store = CandidateStore(tmp_path / "candidate-store")
+        candidate = capture_git_patch_workspace(
+            workspace,
+            baseline,
+            task.verification.candidate,
+            store,
+            baseline_digest=task.baseline_digest,
+            base_commit=base_commit,
+        )
+        oracle = ProtocolOracle([OracleCase({"value": 5}, {"expected": 10})])
+
+        result = VerificationEngine().verify(
+            task,
+            candidate,
+            store,
+            run_seed="live-repo-protocol-seed",
+            oracle=oracle,
+        )
+
+        assert result.status == "passed"
+        assert oracle.evidence[0].observation == {
+            "candidate": "candidate-state",
+            "answer": 10,
+        }
+    finally:
+        subprocess.run(
+            ["docker", "image", "rm", "--force", image],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
 
 def test_protocol_candidate_error_is_scored_without_starting_evaluation(tmp_path, monkeypatch):

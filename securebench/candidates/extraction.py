@@ -84,29 +84,31 @@ def extract_candidate(
     if run_result.timed_out:
         raise CandidateProductionTimeout(run_result)
     if spec.mode == "git_patch":
-        raise ConfigError(
-            "git_patch stopped-state extraction is not implemented; "
-            "execution preflight should reject this row before Agent launch"
-        )
-    if spec.mode == "workspace":
+        if run_result.exit_code != 0:
+            raise CandidateProductionError(
+                "harness command failed before producing a git_patch workspace "
+                f"(exit code {run_result.exit_code})"
+            )
+    elif spec.mode == "workspace":
         if run_result.exit_code != 0:
             raise CandidateProductionError(
                 "harness command failed before producing a workspace candidate "
                 f"(exit code {run_result.exit_code})"
             )
-        workspace = str(getattr(sandbox, "root", ""))
-        if not workspace:
-            raise ConfigError("workspace candidate extraction requires sandbox.root")
-        return CandidateProduction(
-            workspace=workspace,
-            stdout=run_result.stdout,
-            stderr=run_result.stderr,
-            metadata={
-                **_metadata(spec),
-                "candidate_workspace": workspace,
-            },
-        )
-    raise ConfigError(f"Unsupported candidate extraction mode: {spec.mode!r}")
+    else:
+        raise ConfigError(f"Unsupported candidate extraction mode: {spec.mode!r}")
+    workspace = str(getattr(sandbox, "root", ""))
+    if not workspace:
+        raise ConfigError("stopped-state candidate extraction requires sandbox.root")
+    return CandidateProduction(
+        workspace=workspace,
+        stdout=run_result.stdout,
+        stderr=run_result.stderr,
+        metadata={
+            **_metadata(spec),
+            "candidate_workspace": workspace,
+        },
+    )
 
 
 def _metadata(spec: CandidateExtractionSpec) -> dict[str, object]:
