@@ -6,12 +6,18 @@ import json
 from pathlib import Path
 
 from securebench.schemas.benchmark import BenchmarkPackManifestV2, BenchmarkRowDocumentV2
+from securebench.verification.component_contracts import (
+    AdapterManifestV2,
+    TrustedHelperContract,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUTS = {
     ROOT / "schemas" / "benchmark-pack-v2.schema.json": BenchmarkPackManifestV2,
     ROOT / "schemas" / "benchmark-row-v2.schema.json": BenchmarkRowDocumentV2,
+    ROOT / "schemas" / "adapter-v2.schema.json": AdapterManifestV2,
+    ROOT / "schemas" / "trusted-helper-contract-v1.schema.json": TrustedHelperContract,
 }
 
 

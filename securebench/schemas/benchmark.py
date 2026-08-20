@@ -326,15 +326,15 @@ class ChallengeSpec(StrictModel):
     max_case_bytes: Annotated[int, Field(gt=0)]
 
 
-class ServiceSpec(StrictModel):
-    id: ComponentId
-    component: Annotated[str, StringConstraints(min_length=1, max_length=256)]
-    configuration: ComponentReference | None = None
+class TrustedHelperSpec(StrictModel):
+    name: ComponentId
+    type: Annotated[str, StringConstraints(min_length=1, max_length=256)]
+    settings: ComponentReference | None = None
     limits: dict[str, Any]
 
 
-class ProtocolArtifactSpec(StrictModel):
-    id: ComponentId
+class OutputArtifactSpec(StrictModel):
+    name: ComponentId
     parser: Annotated[str, StringConstraints(min_length=1, max_length=256)]
     limits: ArtifactLimits
 
@@ -350,14 +350,14 @@ class ProtocolCheck(StrictModel):
     adapter: ComponentReference
     protocol: Annotated[str, StringConstraints(min_length=1, max_length=256)]
     challenge: ChallengeSpec
-    services: tuple[ServiceSpec, ...] = ()
-    artifacts: tuple[ProtocolArtifactSpec, ...] = ()
+    trusted_helpers: tuple[TrustedHelperSpec, ...] = ()
+    output_artifacts: tuple[OutputArtifactSpec, ...] = ()
     limits: ProtocolLimits
 
     @model_validator(mode="after")
     def local_ids_are_unique(self) -> "ProtocolCheck":
-        _unique((service.id for service in self.services), "service id")
-        _unique((artifact.id for artifact in self.artifacts), "protocol artifact id")
+        _unique((helper.name for helper in self.trusted_helpers), "trusted helper name")
+        _unique((artifact.name for artifact in self.output_artifacts), "output artifact name")
         return self
 
 
@@ -395,13 +395,13 @@ class VerificationSpec(StrictModel):
                 host_ids,
                 f"check {check.id}.challenge.source",
             )
-            for service in check.services:
-                if service.configuration is not None:
+            for helper in check.trusted_helpers:
+                if helper.settings is not None:
                     _require_reference(
-                        service.configuration,
+                        helper.settings,
                         "host",
                         host_ids,
-                        f"check {check.id}.service {service.id}.configuration",
+                        f"check {check.id}.trusted helper {helper.name}.settings",
                     )
         return self
 

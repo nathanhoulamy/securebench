@@ -1,0 +1,343 @@
+{
+  "$defs": {
+    "AdapterMaximums": {
+      "additionalProperties": false,
+      "properties": {
+        "challenge_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Challenge Bytes",
+          "type": "integer"
+        },
+        "observation_bytes": {
+          "exclusiveMinimum": 0,
+          "title": "Observation Bytes",
+          "type": "integer"
+        },
+        "seconds_per_challenge": {
+          "exclusiveMinimum": 0,
+          "title": "Seconds Per Challenge",
+          "type": "number"
+        }
+      },
+      "required": [
+        "seconds_per_challenge",
+        "challenge_bytes",
+        "observation_bytes"
+      ],
+      "title": "AdapterMaximums",
+      "type": "object"
+    },
+    "ArtifactLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_bytes": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Bytes"
+        },
+        "max_files": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Files"
+        },
+        "max_total_bytes": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Total Bytes"
+        }
+      },
+      "title": "ArtifactLimits",
+      "type": "object"
+    },
+    "EvaluationParticipant": {
+      "additionalProperties": false,
+      "properties": {
+        "instances": {
+          "exclusiveMinimum": 0,
+          "maximum": 16,
+          "title": "Instances",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "candidate",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "instances"
+      ],
+      "title": "EvaluationParticipant",
+      "type": "object"
+    },
+    "JsonValueSchema": {
+      "additionalProperties": false,
+      "description": "Small closed schema language for finite adapter and helper JSON values.",
+      "properties": {
+        "allow_extra_fields": {
+          "default": false,
+          "title": "Allow Extra Fields",
+          "type": "boolean"
+        },
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JsonValueSchema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_fields": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Fields"
+        },
+        "max_items": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Items"
+        },
+        "max_utf8_bytes": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Utf8 Bytes"
+        },
+        "properties": {
+          "patternProperties": {
+            "^[A-Za-z][A-Za-z0-9_.-]*$": {
+              "$ref": "#/$defs/JsonValueSchema"
+            }
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "minLength": 1
+          },
+          "title": "Properties",
+          "type": "object"
+        },
+        "required": {
+          "default": [],
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+            "type": "string"
+          },
+          "title": "Required",
+          "type": "array"
+        },
+        "type": {
+          "enum": [
+            "object",
+            "array",
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "null"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "JsonValueSchema",
+      "type": "object"
+    },
+    "OutputArtifactContract": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "regular_file",
+            "directory_tree"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "maximum_limits": {
+          "$ref": "#/$defs/ArtifactLimits"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "kind",
+        "maximum_limits"
+      ],
+      "title": "OutputArtifactContract",
+      "type": "object"
+    },
+    "TrustedHelperUse": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "TrustedHelperUse",
+      "type": "object"
+    }
+  },
+  "$id": "https://securebench.dev/schemas/adapter-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "challenge_schema": {
+      "$ref": "#/$defs/JsonValueSchema"
+    },
+    "command": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "title": "Command",
+      "type": "array"
+    },
+    "evaluation_participants": {
+      "items": {
+        "$ref": "#/$defs/EvaluationParticipant"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "title": "Evaluation Participants",
+      "type": "array"
+    },
+    "format": {
+      "const": "securebench.adapter/v2",
+      "title": "Format",
+      "type": "string"
+    },
+    "maximums": {
+      "$ref": "#/$defs/AdapterMaximums"
+    },
+    "observation_schema": {
+      "$ref": "#/$defs/JsonValueSchema"
+    },
+    "output_artifacts": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/OutputArtifactContract"
+      },
+      "maxItems": 64,
+      "title": "Output Artifacts",
+      "type": "array"
+    },
+    "protocol": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Protocol",
+      "type": "string"
+    },
+    "uses_trusted_helpers": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/TrustedHelperUse"
+      },
+      "maxItems": 32,
+      "title": "Uses Trusted Helpers",
+      "type": "array"
+    }
+  },
+  "required": [
+    "format",
+    "protocol",
+    "command",
+    "challenge_schema",
+    "observation_schema",
+    "evaluation_participants",
+    "maximums"
+  ],
+  "title": "AdapterManifestV2",
+  "type": "object"
+}

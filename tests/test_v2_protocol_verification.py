@@ -29,7 +29,12 @@ from securebench.verification.models import (
     VerificationInfrastructureError,
 )
 from securebench.verification.oracle import OracleProcessSession
-from securebench.verification.protocol import _adapter_evidence
+from securebench.verification.protocol import (
+    _adapter_evidence,
+    _adapter_evidence_v2,
+    _validated_challenge,
+    load_adapter_manifest,
+)
 
 
 DIGEST = "sha256:" + "d" * 64
@@ -77,6 +82,7 @@ def write_protocol_pack(
     image: str = DIGEST,
     adapter_mount: str = "/opt/securebench/adapter",
     base_commit: str | None = None,
+    adapter_v2: bool = False,
 ):
     (root / "assets" / "task").mkdir(parents=True)
     adapter = root / "evaluation_inputs" / "task" / "adapter"
@@ -89,15 +95,55 @@ def write_protocol_pack(
         "command: ['{python}', 'oracle.py']\n"
         "timeout_seconds: 30\n"
     )
-    (adapter / "adapter.yaml").write_text(
-        """
+    if adapter_v2:
+        (adapter / "adapter.yaml").write_text(
+            """
+format: securebench.adapter/v2
+protocol: securebench.example/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    value: {type: integer}
+  required: [value]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    answer: {type: integer}
+  required: [answer]
+  max_fields: 1
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 2
+  challenge_bytes: 1024
+  observation_bytes: 1024
+""".lstrip()
+        )
+    else:
+        (adapter / "adapter.yaml").write_text(
+            """
 abi: securebench.protocol-adapter/v1
 protocol: securebench.example/v1
 command: ["python3", "./adapter.py"]
 """.lstrip()
-    )
+        )
     (adapter / "adapter.py").write_text(
-        """
+        (
+            """
+import json
+import sys
+
+request = json.load(sys.stdin)
+print(json.dumps({
+    "format": "securebench.adapter-response/v2",
+    "status": "observed",
+    "observation": {"answer": request["challenge"]["value"] * 2},
+}))
+""".lstrip()
+            if adapter_v2
+            else """
 import json
 import sys
 from pathlib import Path
@@ -108,6 +154,7 @@ print(json.dumps({
     "answer": challenge["value"] * 2,
 }))
 """.lstrip()
+        )
     )
     manifest = root / "manifest.yaml"
     manifest.write_text(
@@ -383,6 +430,143 @@ def test_protocol_cases_use_fresh_evaluation_roots_and_sanitized_results(tmp_pat
     assert '"answer": 4' not in encoded
 
 
+def test_adapter_v2_uses_typed_envelopes_and_host_owned_evaluation_ids(
+    tmp_path,
+    monkeypatch,
+):
+    task = write_protocol_pack(tmp_path / "pack", adapter_v2=True)
+    validate_executable_task(task)
+    store, candidate = capture_answer(tmp_path, task)
+    requests = []
+
+    def materialize_baseline(_task, destination):
+        destination.mkdir(parents=True, exist_ok=True)
+
+    class FakeDockerSandbox:
+        def __init__(self, **kwargs):
+            self.root = Path(kwargs["root"])
+
+        def run(self, command, *, workdir, timeout, stdin):
+            request = json.loads(stdin)
+            requests.append(request)
+            return CommandResult(
+                command=tuple(command),
+                exit_code=0,
+                stdout=json.dumps(
+                    {
+                        "format": "securebench.adapter-response/v2",
+                        "status": "observed",
+                        "observation": {"answer": request["challenge"]["value"] * 2},
+                    }
+                ),
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        "securebench.harnesses.shared.materialize_image_workdir", materialize_baseline
+    )
+    monkeypatch.setattr("securebench.verification.protocol.DockerSandbox", FakeDockerSandbox)
+    monkeypatch.setattr(
+        "securebench.verification.protocol.remove_untrusted_tree",
+        lambda path, *, image: shutil.rmtree(path),
+    )
+    oracle = ProtocolOracle(
+        [
+            OracleCase({"value": 2}, {"expected": 4}),
+            OracleCase({"value": 3}, {"expected": 6}),
+        ]
+    )
+
+    result = VerificationEngine().verify(
+        task,
+        candidate,
+        store,
+        run_seed="adapter-v2-seed",
+        oracle=oracle,
+    )
+
+    assert result.status == "passed"
+    assert all(request["format"] == "securebench.adapter-request/v2" for request in requests)
+    assert all(request["trusted_helpers"] == {} for request in requests)
+    assert len({request["challenge_id"] for request in requests}) == 2
+    assert len({request["evaluation_id"] for request in requests}) == 2
+    assert [item.challenge_id for item in oracle.evidence] == [
+        request["challenge_id"] for request in requests
+    ]
+    assert [item.evaluation_id for item in oracle.evidence] == [
+        request["evaluation_id"] for request in requests
+    ]
+    encoded = json.dumps(result.to_record(run_id="run", execution_digest=DIGEST))
+    assert requests[0]["challenge_id"] not in encoded
+    assert requests[0]["evaluation_id"] not in encoded
+
+
+def test_adapter_v2_failure_is_infrastructure_not_candidate_evidence(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack", adapter_v2=True)
+    check = task.verification.checks[0]
+    contract = load_adapter_manifest(task, check).contract
+    assert contract is not None
+
+    with pytest.raises(VerificationInfrastructureError, match="exited unsuccessfully") as error:
+        _adapter_evidence_v2(
+            check,
+            contract,
+            0,
+            "challenge-test",
+            "evaluation-test",
+            OracleCase({"value": 1}, None),
+            CommandResult(command=("adapter",), exit_code=1),
+            1,
+        )
+
+    assert error.value.code == "adapter_failed"
+    assert error.value.source == "adapter"
+
+
+def test_adapter_manifest_read_stops_at_the_framework_bound(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack", adapter_v2=True)
+    check = task.verification.checks[0]
+    adapter_manifest = (
+        tmp_path / "pack" / "evaluation_inputs" / "task" / "adapter" / "adapter.yaml"
+    )
+    adapter_manifest.write_bytes(b"x" * (256 * 1024 + 1))
+
+    with pytest.raises(VerificationInfrastructureError) as error:
+        load_adapter_manifest(task, check)
+
+    assert error.value.code == "adapter_manifest_too_large"
+    assert error.value.source == "adapter"
+
+
+def test_adapter_v2_contract_mismatches_fail_preflight(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack", adapter_v2=True)
+    adapter_manifest = (
+        tmp_path / "pack" / "evaluation_inputs" / "task" / "adapter" / "adapter.yaml"
+    )
+    adapter_manifest.write_text(
+        adapter_manifest.read_text().replace(
+            "instances: 1",
+            "instances: 2",
+        )
+    )
+
+    with pytest.raises(ConfigError, match="exactly one Candidate participant"):
+        validate_executable_task(task)
+
+
+def test_adapter_v2_rejects_oracle_challenge_outside_declared_schema(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack", adapter_v2=True)
+    check = task.verification.checks[0]
+    manifest = load_adapter_manifest(task, check)
+
+    with pytest.raises(VerificationInfrastructureError) as error:
+        _validated_challenge(OracleCase({"value": "wrong-type"}, None), check, manifest)
+
+    assert error.value.code == "oracle_challenge_schema_mismatch"
+
+
 @pytest.mark.skipif(
     os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
     reason="set SECUREBENCH_DOCKER_INTEGRATION=1 to exercise Docker",
@@ -602,8 +786,8 @@ def test_oracle_cannot_exceed_protocol_case_limit(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         "securebench.verification.protocol.ProtocolCheckRunner._evaluate_case",
-        lambda self, task, candidate, store, check, manifest, case, case_index: _observed(
-            check.id, case, case_index
+        lambda self, task, candidate, store, check, manifest, case, challenge_index, challenge_id: _observed(
+            check.id, case, challenge_index
         ),
     )
 
@@ -702,7 +886,9 @@ def test_protocol_adapter_rejects_invalid_utf8_before_parsing(tmp_path):
 def _observed(check_id, case, case_index):
     return ProtocolCaseEvidence(
         check_id=check_id,
-        case_index=case_index,
+        challenge_id=f"challenge-{case_index}",
+        evaluation_id=f"evaluation-{case_index}",
+        challenge_index=case_index,
         challenge_digest=json_digest(case.challenge),
         status="observed",
         exit_status=0,
@@ -715,20 +901,20 @@ def _observed(check_id, case, case_index):
     ("field", "value", "message"),
     [
         (
-            "services",
-            [{"id": "server", "component": "example", "limits": {}}],
-            "trusted services",
+            "trusted_helpers",
+            [{"name": "server", "type": "example", "limits": {}}],
+            "Trusted Helpers",
         ),
         (
-            "artifacts",
+            "output_artifacts",
             [
                 {
-                    "id": "transcript",
+                    "name": "transcript",
                     "parser": "securebench.strict-json/v1",
                     "limits": {"max_bytes": 1024},
                 }
             ],
-            "returned artifacts",
+            "output artifacts",
         ),
     ],
 )
@@ -870,7 +1056,9 @@ for line in sys.stdin:
             case.context,
             ProtocolCaseEvidence(
                 check_id="behavior",
-                case_index=0,
+                challenge_id="challenge-test",
+                evaluation_id="evaluation-test",
+                challenge_index=0,
                 challenge_digest=json_digest(case.challenge),
                 status="observed",
                 exit_status=0,

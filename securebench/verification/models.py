@@ -12,10 +12,11 @@ from securebench.verification.json_data import canonical_json_bytes, json_digest
 VerificationStatus = Literal["passed", "failed", "infrastructure_error"]
 CheckStatus = Literal["passed", "failed", "infrastructure_error"]
 RESULT_SCHEMA_VERSION = "3"
+CHALLENGE_EVIDENCE_FORMAT_V1 = "securebench.challenge-evidence/v1"
 
 
 @dataclass(frozen=True)
-class OracleCase:
+class OracleChallenge:
     """One host-generated challenge and its host-only scoring context."""
 
     challenge: Any
@@ -23,34 +24,134 @@ class OracleCase:
 
     def __post_init__(self) -> None:
         _json_bytes(self.challenge, "Oracle challenge")
-        _json_bytes(self.context, "Oracle case context")
+        _json_bytes(self.context, "Oracle Challenge context")
+
+
+# Compatibility import for the v1 Oracle wire vocabulary.
+OracleCase = OracleChallenge
 
 
 @dataclass(frozen=True)
-class ProtocolCaseEvidence:
-    """Host-internal observation from one fresh Evaluation sandbox."""
+class TrustedHelperEvidence:
+    """Host-authenticated evidence returned by one Trusted Helper."""
+
+    name: str
+    type: str
+    challenge_id: str
+    evaluation_id: str
+    value: Any
+    truncated: bool = False
+
+    def __post_init__(self) -> None:
+        if not _bounded_identifier(self.name) or not _bounded_identifier(self.type):
+            raise ValueError("trusted helper evidence name and type must be bounded")
+        if not _bounded_identifier(self.challenge_id) or not _bounded_identifier(self.evaluation_id):
+            raise ValueError("trusted helper evidence identities must be bounded")
+        if not isinstance(self.truncated, bool):
+            raise ValueError("trusted helper evidence truncated must be a boolean")
+        _json_bytes(self.value, "trusted helper evidence")
+
+    def internal_record(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "challenge_id": self.challenge_id,
+            "evaluation_id": self.evaluation_id,
+            "value": self.value,
+            "truncated": self.truncated,
+        }
+
+
+@dataclass(frozen=True)
+class OutputArtifactEvidence:
+    """Passively parsed output artifact bound to one Evaluation."""
+
+    name: str
+    challenge_id: str
+    evaluation_id: str
+    status: Literal["observed", "candidate_error"]
+    digest: str | None = None
+    size: int | None = None
+    parser: str | None = None
+    parsed_value: Any = None
+    failure_code: str | None = None
+    failure_message: str | None = None
+
+    def __post_init__(self) -> None:
+        if not _bounded_identifier(self.name):
+            raise ValueError("output artifact evidence name must be bounded")
+        if not _bounded_identifier(self.challenge_id) or not _bounded_identifier(self.evaluation_id):
+            raise ValueError("output artifact evidence identities must be bounded")
+        if self.status == "observed":
+            if not _is_sha256_digest(self.digest):
+                raise ValueError("observed output artifact requires a digest")
+            if isinstance(self.size, bool) or not isinstance(self.size, int) or self.size < 0:
+                raise ValueError("observed output artifact requires a non-negative size")
+            if not self.parser or self.failure_code is not None or self.failure_message is not None:
+                raise ValueError("observed output artifact metadata is invalid")
+            _json_bytes(self.parsed_value, "output artifact parsed value")
+        elif self.status == "candidate_error":
+            if not self.failure_code or not self.failure_message:
+                raise ValueError("failed output artifact requires a failure")
+            if self.parsed_value is not None:
+                raise ValueError("failed output artifact may not contain parsed output")
+        else:
+            raise ValueError("output artifact evidence status is invalid")
+
+    def internal_record(self) -> dict[str, Any]:
+        return {
+            "challenge_id": self.challenge_id,
+            "evaluation_id": self.evaluation_id,
+            "status": self.status,
+            "digest": self.digest,
+            "size": self.size,
+            "parser": self.parser,
+            "parsed_value": self.parsed_value,
+            "failure": (
+                None
+                if self.failure_code is None
+                else {"code": self.failure_code, "message": self.failure_message}
+            ),
+        }
+
+
+@dataclass(frozen=True)
+class ChallengeEvidence:
+    """Host-internal evidence from one attempt to evaluate one Challenge."""
 
     check_id: str
-    case_index: int
+    challenge_id: str
+    evaluation_id: str | None
+    challenge_index: int
     challenge_digest: str
-    status: Literal["observed", "candidate_error"]
+    status: Literal["observed", "candidate_error", "infrastructure_error"]
     exit_status: int | None = None
     timed_out: bool = False
     duration_ms: int = 0
     observation: Any = None
     observation_bytes: int = 0
-    error_code: str | None = None
-    error_message: str | None = None
+    failure_source: Literal["candidate", "adapter", "trusted_helper", "framework"] | None = None
+    failure_code: str | None = None
+    failure_message: str | None = None
+    trusted_helper_evidence: tuple[TrustedHelperEvidence, ...] = ()
+    output_artifacts: tuple[OutputArtifactEvidence, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.check_id:
-            raise ValueError("protocol evidence check_id must be non-empty")
-        if isinstance(self.case_index, bool) or not isinstance(self.case_index, int) or self.case_index < 0:
-            raise ValueError("protocol evidence case_index must be a non-negative integer")
+            raise ValueError("challenge evidence check_id must be non-empty")
+        if not _bounded_identifier(self.challenge_id):
+            raise ValueError("challenge evidence challenge_id must be a bounded identifier")
+        if self.evaluation_id is not None and not _bounded_identifier(self.evaluation_id):
+            raise ValueError("challenge evidence evaluation_id must be a bounded identifier or null")
+        if (
+            isinstance(self.challenge_index, bool)
+            or not isinstance(self.challenge_index, int)
+            or self.challenge_index < 0
+        ):
+            raise ValueError("challenge evidence challenge_index must be a non-negative integer")
         if not _is_sha256_digest(self.challenge_digest):
-            raise ValueError("protocol evidence challenge_digest must be a sha256 digest")
-        if self.status not in {"observed", "candidate_error"}:
-            raise ValueError("protocol evidence status is invalid")
+            raise ValueError("challenge evidence challenge_digest must be a sha256 digest")
+        if self.status not in {"observed", "candidate_error", "infrastructure_error"}:
+            raise ValueError("challenge evidence status is invalid")
         if self.exit_status is not None and (
             isinstance(self.exit_status, bool) or not isinstance(self.exit_status, int)
         ):
@@ -66,20 +167,42 @@ class ProtocolCaseEvidence:
         ):
             raise ValueError("protocol evidence observation_bytes must be a non-negative integer")
         if self.status == "observed":
-            if self.error_code is not None or self.error_message is not None:
-                raise ValueError("observed protocol evidence may not contain an error")
+            if self.evaluation_id is None:
+                raise ValueError("observed challenge evidence requires an evaluation_id")
+            if self.timed_out or self.exit_status not in {None, 0}:
+                raise ValueError("observed challenge evidence requires successful execution")
+            if any(
+                value is not None
+                for value in (self.failure_source, self.failure_code, self.failure_message)
+            ):
+                raise ValueError("observed challenge evidence may not contain a failure")
             _json_bytes(self.observation, "protocol observation")
         else:
-            if not self.error_code or not self.error_message:
-                raise ValueError("candidate-error protocol evidence requires an error")
+            if not self.failure_source or not self.failure_code or not self.failure_message:
+                raise ValueError("failed challenge evidence requires a failure source, code, and message")
             if self.observation is not None:
-                raise ValueError("candidate-error protocol evidence may not contain an observation")
+                raise ValueError("failed challenge evidence may not contain an observation")
+            if self.status == "candidate_error" and self.failure_source != "candidate":
+                raise ValueError("candidate-error challenge evidence requires candidate failure source")
+            if self.status == "infrastructure_error" and self.failure_source == "candidate":
+                raise ValueError("infrastructure-error evidence requires a trusted failure source")
+        _require_correlated_evidence(
+            self.challenge_id,
+            self.evaluation_id,
+            self.trusted_helper_evidence,
+            self.output_artifacts,
+        )
 
     def internal_record(self) -> dict[str, Any]:
         return {
+            "format": CHALLENGE_EVIDENCE_FORMAT_V1,
             "check_id": self.check_id,
-            "case_index": self.case_index,
-            "challenge_digest": self.challenge_digest,
+            "challenge": {
+                "id": self.challenge_id,
+                "index": self.challenge_index,
+                "digest": self.challenge_digest,
+            },
+            "evaluation_id": self.evaluation_id,
             "status": self.status,
             "process": {
                 "exit_status": self.exit_status,
@@ -88,16 +211,48 @@ class ProtocolCaseEvidence:
             },
             "observation": self.observation,
             "observation_bytes": self.observation_bytes,
-            "error": (
+            "trusted_helper_evidence": {
+                evidence.name: evidence.internal_record()
+                for evidence in self.trusted_helper_evidence
+            },
+            "output_artifacts": {
+                artifact.name: artifact.internal_record()
+                for artifact in self.output_artifacts
+            },
+            "failure": (
                 None
-                if self.error_code is None
-                else {"code": self.error_code, "message": self.error_message}
+                if self.failure_code is None
+                else {
+                    "source": self.failure_source,
+                    "code": self.failure_code,
+                    "message": self.failure_message,
+                }
             ),
         }
 
     @property
     def digest(self) -> str:
         return json_digest(self.internal_record())
+
+    @property
+    def case_index(self) -> int:
+        """Compatibility view; new code should use challenge_index."""
+        return self.challenge_index
+
+    @property
+    def error_code(self) -> str | None:
+        """Compatibility view; new code should use failure_code."""
+        return self.failure_code
+
+    @property
+    def error_message(self) -> str | None:
+        """Compatibility view; new code should use failure_message."""
+        return self.failure_message
+
+
+# Compatibility import for existing integrations while the internal contract moves
+# from case-oriented to Challenge-oriented naming.
+ProtocolCaseEvidence = ChallengeEvidence
 
 
 @dataclass(frozen=True)
@@ -295,9 +450,16 @@ class VerificationResultV2:
 class VerificationInfrastructureError(RuntimeError):
     """Trusted verification machinery failed independently of the candidate."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        source: Literal["adapter", "trusted_helper", "framework"] = "framework",
+    ) -> None:
         self.code = code
         self.public_message = message
+        self.source = source
         super().__init__(message)
 
 
@@ -324,6 +486,30 @@ def _is_sha256_digest(value: object) -> bool:
         return False
     hexadecimal = value.removeprefix("sha256:")
     return len(hexadecimal) == 64 and all(character in "0123456789abcdef" for character in hexadecimal)
+
+
+def _bounded_identifier(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and len(value.encode("utf-8")) <= 128
+        and "\x00" not in value
+    )
+
+
+def _require_correlated_evidence(
+    challenge_id: str,
+    evaluation_id: str | None,
+    helpers: tuple[TrustedHelperEvidence, ...],
+    artifacts: tuple[OutputArtifactEvidence, ...],
+) -> None:
+    if len({item.name for item in helpers}) != len(helpers):
+        raise ValueError("trusted helper evidence names must be unique")
+    if len({item.name for item in artifacts}) != len(artifacts):
+        raise ValueError("output artifact evidence names must be unique")
+    for item in (*helpers, *artifacts):
+        if item.challenge_id != challenge_id or item.evaluation_id != evaluation_id:
+            raise ValueError("Challenge Evidence contains evidence from another Evaluation")
 
 
 def _json_bytes(value: Any, field_name: str) -> bytes:

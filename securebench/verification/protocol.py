@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Literal
 
 from yaml import YAMLError
+from pydantic import ValidationError
 
 from securebench.candidates import CandidateReplayError, CandidateStore, StoredCandidate
 from securebench.candidates.replay import replay_candidate
@@ -22,9 +24,17 @@ from securebench.verification.json_data import (
     json_digest,
     strict_json_loads,
 )
+from securebench.verification.component_contracts import (
+    ADAPTER_FORMAT_V2,
+    AdapterManifestV2,
+    TrustedHelperCatalog,
+    adapter_request_v2,
+    parse_adapter_response_v2,
+    validate_json_value,
+)
 from securebench.verification.models import (
-    OracleCase,
-    ProtocolCaseEvidence,
+    ChallengeEvidence,
+    OracleChallenge,
     VerificationInfrastructureError,
 )
 from securebench.verification.oracle import OracleSession
@@ -36,6 +46,8 @@ from securebench.workspaces.materialization import (
 
 
 ADAPTER_ABI = "securebench.protocol-adapter/v1"
+MAX_ADAPTER_MANIFEST_BYTES = 256 * 1024
+MAX_TRUSTED_HELPER_SETTINGS_BYTES = 256 * 1024
 MAX_ADAPTER_COMMAND_PARTS = 32
 MAX_ADAPTER_COMMAND_PART_BYTES = 4096
 MAX_PROTOCOL_CHALLENGE_BYTES = 1024 * 1024
@@ -45,13 +57,20 @@ MAX_PROTOCOL_OBSERVATION_BYTES = MAX_COMMAND_OUTPUT_BYTES
 @dataclass(frozen=True)
 class AdapterManifest:
     command: tuple[str, ...]
+    format: str = ADAPTER_ABI
+    contract: AdapterManifestV2 | None = None
 
 
 class ProtocolCheckRunner:
     """Run protocol adapters in a fresh, offline Evaluation container per case."""
 
-    def __init__(self, materializer: VisibilityAwareMaterializer | None = None) -> None:
+    def __init__(
+        self,
+        materializer: VisibilityAwareMaterializer | None = None,
+        trusted_helpers: TrustedHelperCatalog | None = None,
+    ) -> None:
         self.materializer = materializer or VisibilityAwareMaterializer()
+        self.trusted_helpers = trusted_helpers or TrustedHelperCatalog()
 
     def evaluate(
         self,
@@ -60,23 +79,40 @@ class ProtocolCheckRunner:
         store: CandidateStore,
         check: ProtocolCheck,
         oracle: OracleSession,
-    ) -> tuple[ProtocolCaseEvidence, ...]:
-        require_supported_protocol_features(check)
+    ) -> tuple[ChallengeEvidence, ...]:
         manifest = load_adapter_manifest(task, check)
-        evidence: list[ProtocolCaseEvidence] = []
-        for case_index in range(check.challenge.max_cases):
-            case = oracle.next_case(
+        require_supported_protocol_features(
+            check,
+            manifest,
+            self.trusted_helpers,
+            task=task,
+        )
+        evidence: list[ChallengeEvidence] = []
+        for challenge_index in range(check.challenge.max_cases):
+            case = oracle.next_challenge(
                 check.id,
                 check.challenge.source,
                 _case_bounds(check),
             )
             if case is None:
                 break
-            item = self._evaluate_case(task, candidate, store, check, manifest, case, case_index)
-            oracle.evaluate_case(check.id, case.context, item)
+            challenge_id = _new_identifier("challenge")
+            item = self._evaluate_case(
+                task,
+                candidate,
+                store,
+                check,
+                manifest,
+                case,
+                challenge_index,
+                challenge_id,
+            )
+            oracle.evaluate_challenge(check.id, case.context, item)
             evidence.append(item)
         else:
-            overflow = oracle.next_case(check.id, check.challenge.source, _case_bounds(check))
+            overflow = oracle.next_challenge(
+                check.id, check.challenge.source, _case_bounds(check)
+            )
             if overflow is not None:
                 raise VerificationInfrastructureError(
                     "oracle_case_limit_exceeded",
@@ -95,12 +131,12 @@ class ProtocolCheckRunner:
         *,
         code: str,
         message: str,
-    ) -> tuple[ProtocolCaseEvidence, ...]:
+    ) -> tuple[ChallengeEvidence, ...]:
         """Report the same candidate-production failure for every hidden case."""
         require_supported_protocol_features(check)
-        evidence: list[ProtocolCaseEvidence] = []
-        for case_index in range(check.challenge.max_cases):
-            case = oracle.next_case(
+        evidence: list[ChallengeEvidence] = []
+        for challenge_index in range(check.challenge.max_cases):
+            case = oracle.next_challenge(
                 check.id,
                 check.challenge.source,
                 _case_bounds(check),
@@ -108,18 +144,23 @@ class ProtocolCheckRunner:
             if case is None:
                 break
             _validated_challenge(case, check)
-            item = ProtocolCaseEvidence(
+            item = ChallengeEvidence(
                 check_id=check.id,
-                case_index=case_index,
+                challenge_id=_new_identifier("challenge"),
+                evaluation_id=None,
+                challenge_index=challenge_index,
                 challenge_digest=json_digest(case.challenge),
                 status="candidate_error",
-                error_code=code,
-                error_message=message,
+                failure_source="candidate",
+                failure_code=code,
+                failure_message=message,
             )
-            oracle.evaluate_case(check.id, case.context, item)
+            oracle.evaluate_challenge(check.id, case.context, item)
             evidence.append(item)
         else:
-            overflow = oracle.next_case(check.id, check.challenge.source, _case_bounds(check))
+            overflow = oracle.next_challenge(
+                check.id, check.challenge.source, _case_bounds(check)
+            )
             if overflow is not None:
                 raise VerificationInfrastructureError(
                     "oracle_case_limit_exceeded",
@@ -138,10 +179,12 @@ class ProtocolCheckRunner:
         store: CandidateStore,
         check: ProtocolCheck,
         manifest: AdapterManifest,
-        case: OracleCase,
-        case_index: int,
-    ) -> ProtocolCaseEvidence:
-        challenge = _validated_challenge(case, check)
+        case: OracleChallenge,
+        challenge_index: int,
+        challenge_id: str,
+    ) -> ChallengeEvidence:
+        challenge = _validated_challenge(case, check, manifest)
+        evaluation_id = _new_identifier("evaluation")
         evaluation_root = Path(tempfile.mkdtemp(prefix="securebench-evaluation-"))
         sandbox: DockerSandbox | None = None
         try:
@@ -170,14 +213,45 @@ class ProtocolCheckRunner:
                 workspace_mount_target=task.environment.workdir,
             )
             started = time.monotonic()
+            adapter_input = (
+                challenge
+                if manifest.contract is None
+                else canonical_json_bytes(
+                    adapter_request_v2(
+                        challenge_id=challenge_id,
+                        evaluation_id=evaluation_id,
+                        challenge=case.challenge,
+                        trusted_helpers={},
+                    )
+                )
+            )
             result = sandbox.run(
                 manifest.command,
                 workdir=task.environment.workdir,
                 timeout=float(check.limits.seconds_per_case),
-                stdin=challenge + b"\n",
+                stdin=adapter_input + b"\n",
             )
             duration_ms = max(0, round((time.monotonic() - started) * 1000))
-            return _adapter_evidence(check, case_index, case, result, duration_ms)
+            if manifest.contract is not None:
+                return _adapter_evidence_v2(
+                    check,
+                    manifest.contract,
+                    challenge_index,
+                    challenge_id,
+                    evaluation_id,
+                    case,
+                    result,
+                    duration_ms,
+                )
+            return _adapter_evidence(
+                check,
+                challenge_index,
+                case,
+                result,
+                duration_ms,
+                challenge_id=challenge_id,
+                evaluation_id=evaluation_id,
+            )
         finally:
             cleanup_error: Exception | None = None
             if sandbox is not None:
@@ -218,60 +292,100 @@ def load_adapter_manifest(task: BenchmarkTask, check: ProtocolCheck) -> AdapterM
         raise VerificationInfrastructureError(
             "adapter_resource_invalid", "Protocol adapter mount is invalid"
         )
+    manifest_bytes = _read_bounded_file(
+        source / "adapter.yaml",
+        MAX_ADAPTER_MANIFEST_BYTES,
+        unavailable_code="adapter_manifest_missing",
+        unavailable_message="Protocol adapter manifest is unavailable",
+        too_large_code="adapter_manifest_too_large",
+        too_large_message="Protocol adapter manifest exceeded its bound",
+        source="adapter",
+    )
     try:
-        manifest_text = (source / "adapter.yaml").read_text(encoding="utf-8")
-    except OSError as exc:
-        raise VerificationInfrastructureError(
-            "adapter_manifest_missing", "Protocol adapter manifest is unavailable"
-        ) from exc
+        manifest_text = manifest_bytes.decode("utf-8")
     except UnicodeError as exc:
         raise VerificationInfrastructureError(
-            "adapter_manifest_invalid", "Protocol adapter manifest is not valid UTF-8"
+            "adapter_manifest_invalid",
+            "Protocol adapter manifest is not valid UTF-8",
+            source="adapter",
         ) from exc
     try:
         value = strict_yaml_loads(manifest_text)
     except YAMLError as exc:
         raise VerificationInfrastructureError(
-            "adapter_manifest_invalid", "Protocol adapter manifest is not valid YAML"
+            "adapter_manifest_invalid",
+            "Protocol adapter manifest is not valid YAML",
+            source="adapter",
         ) from exc
-    if not isinstance(value, dict) or set(value) != {"abi", "protocol", "command"}:
+    if not isinstance(value, dict):
         raise VerificationInfrastructureError(
-            "adapter_manifest_invalid", "Protocol adapter manifest has an invalid shape"
+            "adapter_manifest_invalid",
+            "Protocol adapter manifest has an invalid shape",
+            source="adapter",
+        )
+    if value.get("format") == ADAPTER_FORMAT_V2:
+        try:
+            contract = AdapterManifestV2.model_validate(value, strict=False)
+        except (TypeError, ValueError, ValidationError) as exc:
+            raise VerificationInfrastructureError(
+                "adapter_manifest_invalid",
+                "Protocol adapter v2 manifest is invalid",
+                source="adapter",
+            ) from exc
+        if contract.protocol != check.protocol:
+            raise VerificationInfrastructureError(
+                "adapter_protocol_mismatch",
+                "Protocol adapter does not implement the declared protocol",
+                source="adapter",
+            )
+        command = contract.command
+        _validate_adapter_command(command)
+        return AdapterManifest(
+            command=tuple(_resolve_adapter_part(part, mount) for part in command),
+            format=contract.format,
+            contract=contract,
+        )
+    if set(value) != {"abi", "protocol", "command"}:
+        raise VerificationInfrastructureError(
+            "adapter_manifest_invalid",
+            "Protocol adapter manifest has an invalid shape",
+            source="adapter",
         )
     if value["abi"] != ADAPTER_ABI:
         raise VerificationInfrastructureError(
-            "adapter_abi_unsupported", "Protocol adapter ABI is unsupported"
+            "adapter_abi_unsupported",
+            "Protocol adapter ABI is unsupported",
+            source="adapter",
         )
     if value["protocol"] != check.protocol:
         raise VerificationInfrastructureError(
-            "adapter_protocol_mismatch", "Protocol adapter does not implement the declared protocol"
+            "adapter_protocol_mismatch",
+            "Protocol adapter does not implement the declared protocol",
+            source="adapter",
         )
     command = value["command"]
-    if (
-        not isinstance(command, list)
-        or not command
-        or len(command) > MAX_ADAPTER_COMMAND_PARTS
-        or not all(_valid_command_part(part) for part in command)
-        or not command[0].strip()
-    ):
-        raise VerificationInfrastructureError(
-            "adapter_manifest_invalid", "Protocol adapter command is invalid"
-        )
+    _validate_adapter_command(command)
     return AdapterManifest(
         command=tuple(_resolve_adapter_part(part, mount) for part in command),
     )
 
 
-def require_supported_protocol_features(check: ProtocolCheck) -> None:
-    if check.services:
+def require_supported_protocol_features(
+    check: ProtocolCheck,
+    manifest: AdapterManifest | None = None,
+    trusted_helpers: TrustedHelperCatalog | None = None,
+    *,
+    task: BenchmarkTask | None = None,
+) -> None:
+    if check.trusted_helpers and manifest is None:
         raise VerificationInfrastructureError(
-            "protocol_services_unavailable",
-            "Protocol check declares trusted services, which are not executable yet",
+            "trusted_helpers_unavailable",
+            "Protocol check declares Trusted Helpers without an adapter v2 contract",
         )
-    if check.artifacts:
+    if check.output_artifacts and manifest is None:
         raise VerificationInfrastructureError(
-            "protocol_artifacts_unavailable",
-            "Protocol check declares returned artifacts, which are not executable yet",
+            "output_artifacts_unavailable",
+            "Protocol check declares output artifacts without an adapter v2 contract",
         )
     if check.limits.observation_bytes_per_case > MAX_PROTOCOL_OBSERVATION_BYTES:
         raise VerificationInfrastructureError(
@@ -283,6 +397,171 @@ def require_supported_protocol_features(check: ProtocolCheck) -> None:
             "protocol_challenge_bound_unsupported",
             "Protocol challenge bound exceeds the Oracle transport capacity",
         )
+    if manifest is None:
+        return
+    contract = manifest.contract
+    if contract is None:
+        if check.trusted_helpers:
+            raise VerificationInfrastructureError(
+                "trusted_helpers_require_adapter_v2",
+                "Trusted Helpers require a securebench.adapter/v2 manifest",
+            )
+        if check.output_artifacts:
+            raise VerificationInfrastructureError(
+                "output_artifacts_require_adapter_v2",
+                "output artifacts require a securebench.adapter/v2 manifest",
+            )
+        return
+    _validate_adapter_maximums(check, contract)
+    _validate_evaluation_participants(contract)
+    _validate_trusted_helper_contracts(
+        check,
+        contract,
+        trusted_helpers or TrustedHelperCatalog(),
+        task=task,
+    )
+    _validate_output_artifact_contracts(check, contract)
+
+
+def _validate_adapter_command(command: Any) -> None:
+    if (
+        not isinstance(command, (list, tuple))
+        or not command
+        or len(command) > MAX_ADAPTER_COMMAND_PARTS
+        or not all(_valid_command_part(part) for part in command)
+        or not command[0].strip()
+    ):
+        raise VerificationInfrastructureError(
+            "adapter_manifest_invalid",
+            "Protocol adapter command is invalid",
+            source="adapter",
+        )
+
+
+def _validate_adapter_maximums(check: ProtocolCheck, contract: AdapterManifestV2) -> None:
+    maximums = contract.maximums
+    if (
+        check.challenge.max_case_bytes > maximums.challenge_bytes
+        or check.limits.observation_bytes_per_case > maximums.observation_bytes
+        or check.limits.seconds_per_case > maximums.seconds_per_challenge
+    ):
+        raise VerificationInfrastructureError(
+            "adapter_maximum_exceeded",
+            "Protocol check exceeds the adapter's declared maximums",
+        )
+
+
+def _validate_evaluation_participants(contract: AdapterManifestV2) -> None:
+    participants = contract.evaluation_participants
+    if (
+        len(participants) != 1
+        or participants[0].name != "candidate"
+        or participants[0].type != "candidate"
+        or participants[0].instances != 1
+    ):
+        raise VerificationInfrastructureError(
+            "evaluation_participants_unsupported",
+            "This execution profile supports exactly one Candidate participant",
+        )
+
+
+def _validate_trusted_helper_contracts(
+    check: ProtocolCheck,
+    contract: AdapterManifestV2,
+    catalog: TrustedHelperCatalog,
+    *,
+    task: BenchmarkTask | None,
+) -> None:
+    declared = {helper.name: helper for helper in check.trusted_helpers}
+    required = {helper.name: helper for helper in contract.uses_trusted_helpers}
+    if set(declared) != set(required) or any(
+        declared[name].type != required[name].type for name in declared.keys() & required.keys()
+    ):
+        raise VerificationInfrastructureError(
+            "trusted_helper_contract_mismatch",
+            "Protocol check Trusted Helpers do not match the adapter contract",
+        )
+    for helper in check.trusted_helpers:
+        helper_contract = catalog.validate_declaration(helper)
+        if task is not None:
+            catalog.validate_settings(
+                helper_contract,
+                _trusted_helper_settings(task, helper.settings),
+            )
+    if check.trusted_helpers:
+        raise VerificationInfrastructureError(
+            "trusted_helper_runtime_unavailable",
+            "Trusted Helper contracts are defined but their runtime is not implemented yet",
+        )
+
+
+def _validate_output_artifact_contracts(
+    check: ProtocolCheck,
+    contract: AdapterManifestV2,
+) -> None:
+    requested = {artifact.name: artifact for artifact in check.output_artifacts}
+    declared = {artifact.name: artifact for artifact in contract.output_artifacts}
+    if not set(requested).issubset(declared):
+        raise VerificationInfrastructureError(
+            "output_artifact_contract_mismatch",
+            "Protocol check requests output artifacts not declared by the adapter",
+        )
+    for name, artifact in requested.items():
+        maximums = declared[name].maximum_limits
+        limits = artifact.limits
+        if any(
+            value is not None and (maximum is None or value > maximum)
+            for value, maximum in (
+                (limits.max_bytes, maximums.max_bytes),
+                (limits.max_files, maximums.max_files),
+                (limits.max_total_bytes, maximums.max_total_bytes),
+            )
+        ):
+            raise VerificationInfrastructureError(
+                "output_artifact_maximum_exceeded",
+                f"Output artifact {name!r} exceeds the adapter's declared maximums",
+            )
+    if check.output_artifacts:
+        raise VerificationInfrastructureError(
+            "output_artifact_collection_unavailable",
+            "Output Artifact contracts are defined but collection is not implemented yet",
+        )
+
+
+def _trusted_helper_settings(task: BenchmarkTask, reference: str | None) -> Any:
+    if reference is None:
+        return {}
+    resource = task.resources.resources.get(reference)
+    if resource is None or resource.kind != "file" or not isinstance(resource.value, dict):
+        raise VerificationInfrastructureError(
+            "trusted_helper_settings_invalid",
+            "Trusted Helper settings must reference one host-only file",
+            source="trusted_helper",
+        )
+    source = resource.value.get("source_path")
+    if not isinstance(source, str):
+        raise VerificationInfrastructureError(
+            "trusted_helper_settings_invalid",
+            "Trusted Helper settings are unavailable",
+            source="trusted_helper",
+        )
+    content = _read_bounded_file(
+        Path(source),
+        MAX_TRUSTED_HELPER_SETTINGS_BYTES,
+        unavailable_code="trusted_helper_settings_invalid",
+        unavailable_message="Trusted Helper settings are unavailable",
+        too_large_code="trusted_helper_settings_too_large",
+        too_large_message="Trusted Helper settings exceeded their bound",
+        source="trusted_helper",
+    )
+    try:
+        return strict_yaml_loads(content.decode("utf-8"))
+    except (UnicodeError, YAMLError) as exc:
+        raise VerificationInfrastructureError(
+            "trusted_helper_settings_invalid",
+            "Trusted Helper settings are not valid YAML",
+            source="trusted_helper",
+        ) from exc
 
 
 def _valid_command_part(value: Any) -> bool:
@@ -292,6 +571,34 @@ def _valid_command_part(value: Any) -> bool:
         and "\x00" not in value
         and len(value.encode("utf-8")) <= MAX_ADAPTER_COMMAND_PART_BYTES
     )
+
+
+def _read_bounded_file(
+    path: Path,
+    maximum_bytes: int,
+    *,
+    unavailable_code: str,
+    unavailable_message: str,
+    too_large_code: str,
+    too_large_message: str,
+    source: Literal["adapter", "trusted_helper", "framework"],
+) -> bytes:
+    try:
+        with path.open("rb") as stream:
+            content = stream.read(maximum_bytes + 1)
+    except OSError as exc:
+        raise VerificationInfrastructureError(
+            unavailable_code,
+            unavailable_message,
+            source=source,
+        ) from exc
+    if len(content) > maximum_bytes:
+        raise VerificationInfrastructureError(
+            too_large_code,
+            too_large_message,
+            source=source,
+        )
+    return content
 
 
 def _resolve_adapter_part(value: str, mount: PurePosixPath) -> str:
@@ -305,39 +612,48 @@ def _resolve_adapter_part(value: str, mount: PurePosixPath) -> str:
         or "\\" in value
     ):
         raise VerificationInfrastructureError(
-            "adapter_manifest_invalid", "Protocol adapter command contains an unsafe path"
+            "adapter_manifest_invalid",
+            "Protocol adapter command contains an unsafe path",
+            source="adapter",
         )
     return str(mount / relative)
 
 
 def _adapter_evidence(
     check: ProtocolCheck,
-    case_index: int,
-    case: OracleCase,
+    challenge_index: int,
+    case: OracleChallenge,
     result: CommandResult,
     duration_ms: int,
-) -> ProtocolCaseEvidence:
+    *,
+    challenge_id: str | None = None,
+    evaluation_id: str | None = None,
+) -> ChallengeEvidence:
     common = {
         "check_id": check.id,
-        "case_index": case_index,
+        "challenge_id": challenge_id or _new_identifier("challenge"),
+        "evaluation_id": evaluation_id or _new_identifier("evaluation"),
+        "challenge_index": challenge_index,
         "challenge_digest": json_digest(case.challenge),
         "exit_status": result.exit_code,
         "timed_out": result.timed_out,
         "duration_ms": duration_ms,
     }
     if result.timed_out:
-        return ProtocolCaseEvidence(
+        return ChallengeEvidence(
             **common,
             status="candidate_error",
-            error_code="adapter_timeout",
-            error_message="Protocol adapter exceeded its per-case timeout",
+            failure_source="candidate",
+            failure_code="adapter_timeout",
+            failure_message="Legacy protocol adapter exceeded its per-challenge timeout",
         )
     if result.exit_code != 0:
-        return ProtocolCaseEvidence(
+        return ChallengeEvidence(
             **common,
             status="candidate_error",
-            error_code="adapter_failed",
-            error_message="Protocol adapter exited unsuccessfully",
+            failure_source="candidate",
+            failure_code="adapter_failed",
+            failure_message="Legacy protocol adapter exited unsuccessfully",
         )
     observation_bytes = (
         result.stdout_bytes
@@ -345,36 +661,119 @@ def _adapter_evidence(
         else len(result.stdout.encode("utf-8"))
     )
     if result.stdout_truncated or observation_bytes > check.limits.observation_bytes_per_case:
-        return ProtocolCaseEvidence(
+        return ChallengeEvidence(
             **common,
             status="candidate_error",
             observation_bytes=observation_bytes,
-            error_code="observation_too_large",
-            error_message="Protocol observation exceeded its declared bound",
+            failure_source="candidate",
+            failure_code="observation_too_large",
+            failure_message="Protocol observation exceeded its declared bound",
         )
     if not result.stdout_valid_utf8:
-        return ProtocolCaseEvidence(
+        return ChallengeEvidence(
             **common,
             status="candidate_error",
             observation_bytes=observation_bytes,
-            error_code="invalid_observation",
-            error_message="Protocol adapter did not return valid UTF-8 JSON",
+            failure_source="candidate",
+            failure_code="invalid_observation",
+            failure_message="Legacy protocol adapter did not return valid UTF-8 JSON",
         )
     try:
         observation = strict_json_loads(result.stdout)
     except (UnicodeError, ValueError):
-        return ProtocolCaseEvidence(
+        return ChallengeEvidence(
             **common,
             status="candidate_error",
             observation_bytes=observation_bytes,
-            error_code="invalid_observation",
-            error_message="Protocol adapter did not return one finite JSON value",
+            failure_source="candidate",
+            failure_code="invalid_observation",
+            failure_message="Legacy protocol adapter did not return one finite JSON value",
         )
-    return ProtocolCaseEvidence(
+    return ChallengeEvidence(
         **common,
         status="observed",
         observation=observation,
         observation_bytes=observation_bytes,
+    )
+
+
+def _adapter_evidence_v2(
+    check: ProtocolCheck,
+    contract: AdapterManifestV2,
+    challenge_index: int,
+    challenge_id: str,
+    evaluation_id: str,
+    challenge: OracleChallenge,
+    result: CommandResult,
+    duration_ms: int,
+) -> ChallengeEvidence:
+    if result.timed_out:
+        raise VerificationInfrastructureError(
+            "adapter_timeout",
+            "Reviewed protocol Adapter exceeded its per-Challenge timeout",
+            source="adapter",
+        )
+    if result.exit_code != 0:
+        raise VerificationInfrastructureError(
+            "adapter_failed",
+            "Reviewed protocol Adapter exited unsuccessfully",
+            source="adapter",
+        )
+    response_bytes = (
+        result.stdout_bytes
+        if result.stdout_bytes is not None
+        else len(result.stdout.encode("utf-8"))
+    )
+    if result.stdout_truncated or response_bytes > check.limits.observation_bytes_per_case:
+        raise VerificationInfrastructureError(
+            "adapter_response_too_large",
+            "Reviewed protocol Adapter response exceeded its bound",
+            source="adapter",
+        )
+    if not result.stdout_valid_utf8:
+        raise VerificationInfrastructureError(
+            "adapter_response_invalid",
+            "Reviewed protocol Adapter returned invalid UTF-8",
+            source="adapter",
+        )
+    try:
+        response = parse_adapter_response_v2(strict_json_loads(result.stdout))
+    except (UnicodeError, ValueError) as exc:
+        raise VerificationInfrastructureError(
+            "adapter_response_invalid",
+            "Reviewed protocol Adapter returned an invalid response",
+            source="adapter",
+        ) from exc
+    common = {
+        "check_id": check.id,
+        "challenge_id": challenge_id,
+        "evaluation_id": evaluation_id,
+        "challenge_index": challenge_index,
+        "challenge_digest": json_digest(challenge.challenge),
+        "exit_status": result.exit_code,
+        "duration_ms": duration_ms,
+        "observation_bytes": response_bytes,
+    }
+    if response.status == "candidate_error":
+        return ChallengeEvidence(
+            **common,
+            status="candidate_error",
+            failure_source="candidate",
+            failure_code=response.failure_code,
+            failure_message=response.failure_message,
+        )
+    try:
+        validate_json_value(contract.observation_schema, response.observation)
+    except ValueError as exc:
+        raise VerificationInfrastructureError(
+            "adapter_observation_schema_mismatch",
+            "Reviewed protocol Adapter returned an Observation outside its contract",
+            source="adapter",
+        ) from exc
+    return ChallengeEvidence(
+        **common,
+        status="observed",
+        observation=response.observation,
     )
 
 
@@ -385,7 +784,11 @@ def _case_bounds(check: ProtocolCheck) -> dict[str, Any]:
     }
 
 
-def _validated_challenge(case: OracleCase, check: ProtocolCheck) -> bytes:
+def _validated_challenge(
+    case: OracleChallenge,
+    check: ProtocolCheck,
+    manifest: AdapterManifest | None = None,
+) -> bytes:
     try:
         challenge = canonical_json_bytes(case.challenge)
     except (TypeError, ValueError) as exc:
@@ -396,4 +799,16 @@ def _validated_challenge(case: OracleCase, check: ProtocolCheck) -> bytes:
         raise VerificationInfrastructureError(
             "oracle_case_too_large", "Oracle challenge exceeded its declared bound"
         )
+    if manifest is not None and manifest.contract is not None:
+        try:
+            validate_json_value(manifest.contract.challenge_schema, case.challenge)
+        except ValueError as exc:
+            raise VerificationInfrastructureError(
+                "oracle_challenge_schema_mismatch",
+                "Oracle Challenge does not match the Adapter contract",
+            ) from exc
     return challenge
+
+
+def _new_identifier(prefix: str) -> str:
+    return f"{prefix}-{uuid.uuid4().hex}"

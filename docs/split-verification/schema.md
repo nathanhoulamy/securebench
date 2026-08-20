@@ -20,7 +20,7 @@ types, and three centrally enforced visibility lanes.
   candidate code.
 - A `protocol` check runs the candidate through a public, assertion-free
   adapter against one current host-selected case.
-- Trusted evaluation services are declared inside the protocol check that
+- Trusted Helpers are declared inside the protocol check that
   uses them.
 - Public, Evaluation-runtime-only, and host-only resources are separated
   structurally and compiled into SecureBench visibility lanes.
@@ -54,8 +54,8 @@ The verification patterns used during review are derived from the checks:
 |---|---|
 | `artifact` check | passive artifact verification |
 | `protocol` check | black-box challenge/response |
-| protocol check with `services` | trusted external state |
-| protocol check with returned `artifacts` | black-box plus passive artifact inspection |
+| protocol check with `trusted_helpers` | trusted external state |
+| protocol check with `output_artifacts` | black-box plus passive artifact inspection |
 
 Pattern labels are therefore review and reporting data, not author-written
 runtime fields.
@@ -135,10 +135,10 @@ adapter protocols, not row-schema check types.
 
 ### Keep correlated evidence inside one check
 
-A protocol check may return bounded artifacts and use trusted evaluation
-services. All observations, artifacts, service records, and supervisor facts
-from one execution are bound by SecureBench to the same check ID, case ID,
-challenge digest, runtime, and host-generated correlation identifier.
+A protocol check may return bounded Output Artifacts and use Trusted Helpers.
+Every Observation, Output Artifact, helper record, and supervisor fact from one
+attempt is bound by SecureBench to the same check ID, Challenge ID, Challenge
+digest, and Evaluation ID.
 
 This represents black-box, passive, trusted-state, and hybrid verification
 without separate evidence modules.
@@ -172,25 +172,25 @@ duplicated under `resources.runtime`.
 The current challenge is derived from a host resource and released one case
 at a time. It is not a static fourth visibility class.
 
-### Treat external state as trusted evaluation infrastructure
+### Treat external state as Trusted Helpers
 
-Trusted services have a candidate-facing data plane and a host-only control
+Trusted Helpers have a candidate-facing data plane and a host-only control
 and evidence plane. Their registered component profiles fix those
 capabilities; row authors cannot add capabilities.
 
 The row supplies only:
 
-- a check-local service ID;
-- a registered component;
-- an optional host-only configuration resource;
+- a check-local name;
+- a registered helper type;
+- an optional host-only settings resource;
 - component-specific reduced bounds.
 
 Examples include HTTP request ledgers, controlled origins, SMTP sinks, probe
 models, byte relays, databases, clocks, and process supervisors.
 
-Service instances, credentials, and state are fresh for every case under the
-strict execution profile. Multi-phase persistence within a case is allowed
-when it is part of that case's declared protocol.
+Helper instances, credentials, and state are fresh for every Evaluation under
+the strict execution profile. Multi-phase persistence within one Evaluation is
+allowed when it is part of that Challenge's declared protocol.
 
 ### Keep scoring and admission validation outside the row
 
@@ -393,15 +393,15 @@ checks:
       source: host.challenge_cases
       max_cases: 64
       max_case_bytes: 1048576
-    services:
-      - id: request_ledger
-        component: securebench.http-request-ledger/v1
-        configuration: host.request_ledger_config
+    trusted_helpers:
+      - name: request_recorder
+        type: securebench.http-request-recorder/v1
+        settings: host.request_recorder_settings
         limits:
-          requests: 128
-          request_body_bytes: 65536
-    artifacts:
-      - id: generated_result
+          max_requests: 128
+          max_body_bytes: 65536
+    output_artifacts:
+      - name: generated_result
         parser: securebench.strict-json/v1
         limits:
           max_bytes: 1048576
@@ -410,14 +410,16 @@ checks:
       observation_bytes_per_case: 1048576
 ~~~
 
-`services` and `artifacts` are optional. The referenced adapter resource
-contains a reviewed public manifest and implementation. The manifest defines
-the runtime command, typed request and observation schemas, topology,
-endpoint exposure, output artifact IDs, and service-handle injection.
+`trusted_helpers` and `output_artifacts` are optional. The referenced Adapter
+resource contains a reviewed public manifest and implementation. Its
+`securebench.adapter/v2` manifest defines the command, typed Challenge and
+Observation schemas, Evaluation Participants, required Trusted Helpers,
+Helper Access, Output Artifacts, and hard maximums that the row may only
+reduce.
 
-Under `strict-split/v1`, every protocol case receives a fresh runtime
-topology, service instances, credentials, and host correlation identifier. A
-bounded multi-step lifecycle is one case, not cross-case persistence.
+Under `strict-split/v1`, every Challenge receives a fresh Evaluation, helper
+instances, credentials, and Evaluation ID. A bounded multi-step lifecycle is
+one Challenge, not cross-Challenge persistence.
 
 ## Execution profiles
 
@@ -431,12 +433,12 @@ behavior.
 
 - host resources never enter candidate-controlled VMs;
 - one current challenge is delivered at a time;
-- a fresh Evaluation topology and fresh trusted services per case;
-- fresh credentials and correlation identifiers per case;
+- fresh Evaluation Participants and Trusted Helpers per Challenge;
+- fresh credentials and an Evaluation ID per Evaluation;
 - capability-restricted Evaluation networking;
 - read-only runtime resources;
 - candidate code executing only in Evaluation runtimes;
-- bounded challenge, observation, artifact, service, time, and resource
+- bounded Challenge, Observation, Output Artifact, helper, time, and resource
   channels;
 - only the host Oracle emitting a score or verdict.
 
@@ -452,7 +454,7 @@ this profile:
 
 A separately specified `batched-split/v1` profile may reuse one candidate
 runtime across several cases when strict isolation is operationally
-prohibitive. It must still reset trusted services and credentials and must
+prohibitive. It must still reset Trusted Helpers and credentials and must
 report runtime reuse explicitly. It is weaker because candidate state may
 cross case boundaries and must not be presented as equivalent to strict split
 verification.
@@ -462,16 +464,52 @@ verification.
 The row schema references four component classes. Their contracts are
 versioned separately from rows.
 
-### Adapter contract
+### Adapter format
 
-An adapter manifest defines:
+The versioned `securebench.adapter/v2` manifest defines:
 
-- public protocol identifier and typed request/observation schemas;
-- bounded command and runtime topology;
-- service slots and handle-injection mechanism;
-- declared output artifact IDs;
-- restart or multi-peer behavior;
-- protocol-specific limits.
+- the public protocol identifier and closed, typed Challenge and Observation schemas;
+- the bounded command and Evaluation Participants;
+- each required Trusted Helper and its type;
+- each Output Artifact's name, path, kind, and hard maximums;
+- hard Challenge, Observation, and time maximums.
+
+~~~yaml
+format: securebench.adapter/v2
+protocol: securebench.example/v1
+command: [python3, ./adapter.py]
+challenge_schema:
+  type: object
+  properties:
+    value: {type: integer}
+  required: [value]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    answer: {type: integer}
+  required: [answer]
+  max_fields: 1
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+uses_trusted_helpers:
+  - {name: request_recorder, type: securebench.http-request-recorder/v1}
+output_artifacts:
+  - name: generated_result
+    path: results/result.json
+    kind: regular_file
+    maximum_limits: {max_bytes: 1048576}
+maximums:
+  seconds_per_challenge: 30
+  challenge_bytes: 1048576
+  observation_bytes: 1048576
+~~~
+
+For each Evaluation, SecureBench sends a `securebench.adapter-request/v2`
+object containing the host-generated Challenge ID, Evaluation ID, current
+Challenge, and scoped Helper Access. The Adapter returns exactly one
+`securebench.adapter-response/v2`: either an Observation or a Candidate
+failure. It cannot return a pass/fail verdict.
 
 Adapters run only in Evaluation runtimes, contain no hidden expectations or
 scoring logic, and return observations rather than authoritative verdicts.
@@ -482,12 +520,13 @@ A parser profile defines accepted bytes, normalization, typed output,
 hardening, output bounds, and whether it runs in an isolated observer.
 Parsers never import or activate candidate content as a language object.
 
-### Trusted-service contract
+### Trusted Helper contract and catalog
 
-A service profile defines its fixed candidate-facing data plane, host-only
-control plane, evidence schema, reset behavior, credential handling, and
-component-specific limit schema. Rows may reduce limits but cannot add
-capabilities.
+A versioned `securebench.trusted-helper-contract/v1` catalog entry fixes the
+helper type, capabilities, candidate-facing Helper Access method, host-only
+control plane, settings and evidence schemas, reset behavior, credential
+lifetime, and component-specific maximums. Rows may select settings and reduce
+limits; they cannot add capabilities or raise maximums.
 
 ### Oracle contract
 
@@ -496,10 +535,10 @@ to the standard Oracle ABI:
 
 1. `initialize(row, run_seed)` starts a deterministic host-only session;
 2. `evaluate_artifact(check_id, evidence)` consumes passive-check evidence;
-3. `next_case(check_id, challenge_source, bounds)` returns one bounded current
-   challenge plus opaque host-only case context, or reports exhaustion;
-4. `evaluate_case(check_id, case_context, evidence)` consumes one correlated
-   case envelope; and
+3. `next_challenge(check_id, challenge_source, bounds)` returns one bounded
+   current Challenge plus opaque host-only context, or reports exhaustion;
+4. `evaluate_challenge(check_id, challenge_context, evidence)` consumes one
+   correlated Challenge Evidence record; and
 5. `finalize()` returns the final structured score, verdict, and bounded public
    diagnostics.
 
@@ -507,48 +546,55 @@ This lifecycle supports static corpora, generated and adaptive cases, private
 case context, and final aggregation. The Oracle never executes or dynamically
 loads candidate-controlled content.
 
-Central parsers and services with reviewed pack-local adapters and Oracles are
-the recommended initial registry policy.
+The `securebench.oracle/v1` JSON-lines wire format retains the method names
+`next_case` and `evaluate_case` for compatibility; the host API exposes the
+clearer Challenge-oriented names above.
 
-## Framework evidence envelope
+Central parsers and Trusted Helpers with reviewed pack-local Adapters and
+Oracles are the recommended initial registry policy.
 
-The evidence envelope is an internal SecureBench-to-Oracle interface, not an
+## Challenge Evidence
+
+Challenge Evidence is an internal SecureBench-to-Oracle interface, not an
 author-written row section. A representative record is:
 
 ~~~yaml
+format: securebench.challenge-evidence/v1
 check_id: public_behavior
-case:
-  id: case-0042
-  challenge_digest: sha256:...
-  challenge: <host-side authoritative copy>
-runtime:
+challenge:
+  id: challenge-0042
+  index: 41
+  digest: sha256:...
+evaluation_id: evaluation-9f1c...
+status: observed
+process:
   exit_status: 0
   timed_out: false
   duration_ms: 821
-  resource_usage:
-    peak_memory_bytes: 73400320
-observation:
-  schema: securebench.example-observation/v1
-  value: {}
-  truncated: false
-artifacts:
+observation: {}
+observation_bytes: 128
+output_artifacts:
   generated_result:
+    challenge_id: challenge-0042
+    evaluation_id: evaluation-9f1c...
     digest: sha256:...
     parser: securebench.strict-json/v1
     parsed_value: {}
-services:
-  request_ledger:
-    schema: securebench.http-request-ledger-evidence/v1
-    records: []
+trusted_helper_evidence:
+  request_recorder:
+    type: securebench.http-request-recorder/v1
+    challenge_id: challenge-0042
+    evaluation_id: evaluation-9f1c...
+    value: {requests: []}
     truncated: false
-infrastructure:
-  status: ok
+failure: null
 ~~~
 
-SecureBench, not the candidate, assigns check IDs, case IDs, digests,
-timestamps, truncation markers, and infrastructure status. The envelope must
-distinguish candidate failures from adapter, parser, service, and framework
-failures.
+SecureBench, not the Candidate, assigns Challenge IDs, Evaluation IDs, digests,
+timing, and truncation markers. Every nested helper and artifact item must
+repeat the same IDs or the record is rejected. A failure records its source as
+`candidate`, `adapter`, `trusted_helper`, or `framework`; Candidate errors are
+evidence, while the other sources are infrastructure failures.
 
 ## Field reference
 
@@ -593,15 +639,15 @@ failures.
 | `challenge.source` | yes | Host resource containing a case generator or corpus. |
 | `challenge.max_cases` | yes | Maximum cases selected for this check. |
 | `challenge.max_case_bytes` | yes | Maximum serialized current-case bytes. |
-| `protocol.services` | no | Check-local trusted evaluation-service instances. |
-| `service.id` | conditional | Check-local service ID visible to the adapter protocol. |
-| `service.component` | conditional | Registered service profile with fixed capabilities. |
-| `service.configuration` | no | Host-only, component-validated service configuration. |
-| `service.limits` | conditional | Component-specific reduced bounds. |
-| `protocol.artifacts` | no | Candidate-generated artifacts captured after a case. |
-| `protocol.artifacts[].id` | conditional | Artifact ID declared by the adapter protocol. |
-| `protocol.artifacts[].parser` | conditional | Registered parser profile. |
-| `protocol.artifacts[].limits` | conditional | Byte or tree input bounds for a returned artifact. |
+| `protocol.trusted_helpers` | no | Check-local Trusted Helpers required during Evaluation. |
+| `trusted_helpers[].name` | conditional | Clear check-local name used by the Adapter. |
+| `trusted_helpers[].type` | conditional | Registered Trusted Helper type with fixed capabilities. |
+| `trusted_helpers[].settings` | no | Host-only, contract-validated helper settings. |
+| `trusted_helpers[].limits` | conditional | Component-specific bounds that may only reduce catalog maximums. |
+| `protocol.output_artifacts` | no | Candidate-generated Output Artifacts captured after an Evaluation. |
+| `output_artifacts[].name` | conditional | Output Artifact name declared by the Adapter. |
+| `output_artifacts[].parser` | conditional | Registered passive parser profile. |
+| `output_artifacts[].limits` | conditional | Byte or tree input bounds for an Output Artifact. |
 | `protocol.limits` | Protocol check only | Universal per-case time and observation bounds. |
 | `verification.oracle` | yes | Host-resource reference implementing the standard Oracle ABI. |
 | `metadata` | no | Provenance and conversion-review information with no runtime authority. |
@@ -613,13 +659,13 @@ failures.
 | Passive-only output | `constraints-scheduling` | File bundle and one artifact check |
 | Hidden CLI cases | `circuit-fibsqrt` | File bundle and one protocol check |
 | System configuration and protocols | `configure-git-webserver` | Overlay and protocol check |
-| Timing, signals, independent ledger | `cancel-async-tasks` | Protocol check with ledger and supervisor services |
+| Timing, signals, independent records | `cancel-async-tasks` | Protocol check with recorder and supervisor Trusted Helpers |
 | Separate checks over one candidate | `overfull-hbox` | Artifact and protocol checks |
-| All three review patterns | `install-windows-3.11` | Overlay, artifact check, protocol check, launch service |
+| All three review patterns | `install-windows-3.11` | Overlay, artifact check, protocol check, launch Trusted Helper |
 | Two public interfaces | `boa-hierarchical-evaluation-cancellation` | Two protocol checks over one patch |
 | Runtime-generated structured artifact | `oxvg-structural-selector-preservation` | Protocol check with returned SVG artifact |
-| Multi-phase persistence and probe calls | `igel-persist-feature-schema` | One lifecycle case with probe service and artifacts |
-| Two candidate peers | `kcp-go-multiplexed-kcp-streams` | Adapter topology with two peers and byte relay |
+| Multi-phase persistence and probe calls | `igel-persist-feature-schema` | One lifecycle Challenge with probe Trusted Helper and Output Artifacts |
+| Two candidate peers | `kcp-go-multiplexed-kcp-streams` | Adapter with two Evaluation Participants and a byte-relay Trusted Helper |
 | Restartable mail system | `mailman` | Overlay, SMTP/API protocol, SMTP sink |
 | One-time Agent VM action only | Unsupported | Redesign to a replayable candidate or exclude |
 
@@ -642,18 +688,18 @@ failures.
     materialized bounds, and cannot modify protected paths.
 11. File bundles and overlays satisfy entry, aggregate, path, and file-type
     policies.
-12. Candidate capture, challenges, observations, artifacts, service channels,
+12. Candidate capture, Challenges, Observations, Output Artifacts, Helper Access,
     and runtime execution are bounded.
-13. Under strict split, every case receives fresh runtime and service state.
+13. Under strict split, every Challenge receives a fresh Evaluation and Trusted Helper state.
 14. Adapter protocols are public, versioned, typed, bounded, and
     assertion-free.
-15. Service profiles fix least-privilege interfaces; rows may reduce limits
+15. Trusted Helper contracts fix least-privilege interfaces; rows may reduce limits
     but cannot add capabilities.
 16. Candidate code executes only in Evaluation runtimes.
 17. The Oracle never imports, links, executes, unpickles, or dynamically loads
     candidate-controlled content.
 18. Registered parsers treat candidate bytes as hostile data.
-19. SecureBench binds every evidence item to host-owned check and case
+19. SecureBench binds every evidence item to host-owned Challenge and Evaluation
     metadata before Oracle correlation.
 20. Candidate-provided pass/fail values, scores, test reports, and guest-local
     counters have no authoritative meaning.
@@ -674,9 +720,9 @@ alone.
 
 ### Component registry governance
 
-Finalize adapter, parser, trusted-service, execution-profile, and Oracle
-manifest schemas. The recommended initial policy is central parsers and
-services with reviewed pack-local adapters and Oracles.
+Finalize governance for Adapter, parser, Trusted Helper, execution-profile,
+and Oracle publication. The recommended initial policy is central parsers and
+Trusted Helpers with reviewed pack-local Adapters and Oracles.
 
 ### Case-isolation optimization and fallback
 

@@ -20,6 +20,8 @@ from securebench.tasks import BenchmarkTask
 from securebench.verification.json_data import canonical_json_bytes, strict_json_loads
 from securebench.verification.models import (
     ArtifactEvidence,
+    ChallengeEvidence,
+    OracleChallenge,
     OracleCase,
     OracleVerdict,
     ProtocolCaseEvidence,
@@ -58,6 +60,15 @@ class OracleSession(ABC):
     ) -> OracleCase | None:
         raise NotImplementedError
 
+    def next_challenge(
+        self,
+        check_id: str,
+        challenge_source: str,
+        bounds: dict[str, Any],
+    ) -> OracleChallenge | None:
+        """Challenge-oriented name for the v1 Oracle case transport."""
+        return self.next_case(check_id, challenge_source, bounds)
+
     def evaluate_case(
         self,
         check_id: str,
@@ -65,6 +76,15 @@ class OracleSession(ABC):
         evidence: ProtocolCaseEvidence,
     ) -> None:
         raise NotImplementedError
+
+    def evaluate_challenge(
+        self,
+        check_id: str,
+        challenge_context: Any,
+        evidence: ChallengeEvidence,
+    ) -> None:
+        """Send Challenge Evidence while keeping opaque context host-only."""
+        self.evaluate_case(check_id, challenge_context, evidence)
 
     @abstractmethod
     def finalize(self) -> OracleVerdict:
@@ -173,7 +193,7 @@ class OracleProcessSession(OracleSession):
                 "oracle_protocol_error", "Oracle returned an invalid case response"
             )
         try:
-            case = OracleCase(
+            case = OracleChallenge(
                 challenge=response["challenge"],
                 context=response["case_context"],
             )

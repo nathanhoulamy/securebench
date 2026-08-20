@@ -429,18 +429,18 @@
       "title": "HostResource",
       "type": "object"
     },
-    "ProtocolArtifactSpec": {
+    "OutputArtifactSpec": {
       "additionalProperties": false,
       "properties": {
-        "id": {
+        "limits": {
+          "$ref": "#/$defs/ArtifactLimits"
+        },
+        "name": {
           "maxLength": 128,
           "minLength": 1,
           "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
-          "title": "Id",
+          "title": "Name",
           "type": "string"
-        },
-        "limits": {
-          "$ref": "#/$defs/ArtifactLimits"
         },
         "parser": {
           "maxLength": 256,
@@ -450,11 +450,11 @@
         }
       },
       "required": [
-        "id",
+        "name",
         "parser",
         "limits"
       ],
-      "title": "ProtocolArtifactSpec",
+      "title": "OutputArtifactSpec",
       "type": "object"
     },
     "ProtocolCheck": {
@@ -465,14 +465,6 @@
           "pattern": "^(runtime|host)\\.[A-Za-z][A-Za-z0-9_.-]*$",
           "title": "Adapter",
           "type": "string"
-        },
-        "artifacts": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/ProtocolArtifactSpec"
-          },
-          "title": "Artifacts",
-          "type": "array"
         },
         "challenge": {
           "$ref": "#/$defs/ChallengeSpec"
@@ -487,18 +479,26 @@
         "limits": {
           "$ref": "#/$defs/ProtocolLimits"
         },
+        "output_artifacts": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/OutputArtifactSpec"
+          },
+          "title": "Output Artifacts",
+          "type": "array"
+        },
         "protocol": {
           "maxLength": 256,
           "minLength": 1,
           "title": "Protocol",
           "type": "string"
         },
-        "services": {
+        "trusted_helpers": {
           "default": [],
           "items": {
-            "$ref": "#/$defs/ServiceSpec"
+            "$ref": "#/$defs/TrustedHelperSpec"
           },
-          "title": "Services",
+          "title": "Trusted Helpers",
           "type": "array"
         },
         "type": {
@@ -616,16 +616,22 @@
       "title": "RuntimeResource",
       "type": "object"
     },
-    "ServiceSpec": {
+    "TrustedHelperSpec": {
       "additionalProperties": false,
       "properties": {
-        "component": {
-          "maxLength": 256,
+        "limits": {
+          "additionalProperties": true,
+          "title": "Limits",
+          "type": "object"
+        },
+        "name": {
+          "maxLength": 128,
           "minLength": 1,
-          "title": "Component",
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Name",
           "type": "string"
         },
-        "configuration": {
+        "settings": {
           "anyOf": [
             {
               "maxLength": 256,
@@ -637,27 +643,21 @@
             }
           ],
           "default": null,
-          "title": "Configuration"
+          "title": "Settings"
         },
-        "id": {
-          "maxLength": 128,
+        "type": {
+          "maxLength": 256,
           "minLength": 1,
-          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
-          "title": "Id",
+          "title": "Type",
           "type": "string"
-        },
-        "limits": {
-          "additionalProperties": true,
-          "title": "Limits",
-          "type": "object"
         }
       },
       "required": [
-        "id",
-        "component",
+        "name",
+        "type",
         "limits"
       ],
-      "title": "ServiceSpec",
+      "title": "TrustedHelperSpec",
       "type": "object"
     },
     "VerificationResources": {

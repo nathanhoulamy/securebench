@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-08-20
 
-Implementation baseline reviewed: `aaeedbc` plus the `git_patch` vertical slice
+Implementation baseline reviewed: `9dbbbb5` plus the protocol component/evidence contract batch
 
 Active development branch: `split-verification-v2`
 
@@ -73,9 +73,11 @@ the runner does not invent a benchmark score.
 | Passive artifact check using `source.entry` | Implemented for `file_bundle` |
 | Artifact check using `source.path` | Implemented for bounded repository-relative `git_patch` paths; overlay paths remain blocked |
 | Registered passive parsers | JSON, UTF-8 text, ICS, and tree-manifest profiles exist |
-| Basic protocol check | Implemented with finite JSON, bounded I/O, and a fresh offline container per case |
-| Protocol trusted services | Schema-valid; explicitly rejected by preflight |
-| Protocol returned artifacts | Schema-valid; explicitly rejected by preflight |
+| Basic protocol check | Implemented with finite JSON, bounded I/O, and a fresh offline container per Challenge |
+| Adapter v2 contract | Implemented with typed Challenge/Observation schemas, Evaluation Participants, Trusted Helper requirements, Output Artifacts, and reduced maximums |
+| Challenge Evidence | Implemented with host Challenge/Evaluation IDs, correlation checks, and explicit failure source |
+| Trusted Helper Catalog | Typed contract and preflight validation implemented; Helper runtime and Helper Access still rejected |
+| Output Artifacts | Typed contract and preflight validation implemented; collection still rejected |
 | `strict-split/v1` | Implemented for file-bundle and git-patch artifact/basic-protocol paths |
 | `batched-split/v1` | Registered but explicitly not implemented |
 | Host Oracle JSON-lines ABI | Implemented for initialize, artifact evidence, cases, case evidence, and final verdict |
@@ -85,7 +87,7 @@ the runner does not invent a benchmark score.
 
 The reference executable pack currently contains one converted row:
 `terminal-bench/constraints-scheduling`. The three recommended example documents conform to the
-row schema, but the DeepSWE service example and filesystem-overlay example are intentionally not
+row schema, but the DeepSWE Trusted Helper example and filesystem-overlay example are intentionally not
 executable yet.
 
 ## What is already correct for the schema's purpose
@@ -97,8 +99,8 @@ executable yet.
 - Public assets use their declared read-only mounts in both Agent and relevant Evaluation
   runtimes. Runtime resources never enter the Agent container.
 - Candidate capture is stopped-state, bounded, content-addressed, and baseline-bound.
-- The basic strict protocol path releases one bounded current challenge at a time and constructs a
-  fresh Evaluation root/container for every case.
+- The basic strict protocol path releases one bounded current Challenge at a time and constructs a
+  fresh Evaluation root/container for every Challenge.
 - Adapter stdout is bounded by raw byte count. Truncation and invalid UTF-8 cannot be normalized
   into an acceptable JSON observation.
 - Benchmark, adapter, and Oracle authoring documents reject duplicate mapping keys rather than
@@ -111,7 +113,14 @@ executable yet.
 - Oracle and adapter manifests fail closed, and Oracle manifests are validated during preflight
   without starting the process.
 - Executable-capability matrix tests prove the registered batched profile, overlay candidate,
-  protocol services, and returned protocol artifacts fail preflight while unsupported.
+  Trusted Helper runtime, and Output Artifact collection fail preflight while unsupported.
+- Adapter v2 validates closed typed Challenge and Observation values, exact Evaluation
+  Participants, Trusted Helper requirements, Output Artifact declarations, and row limits against
+  Adapter hard maximums before Candidate execution.
+- SecureBench creates opaque Challenge and Evaluation IDs. Challenge Evidence rejects nested
+  Trusted Helper or Output Artifact evidence carrying either ID from another Evaluation.
+- Candidate-reported failures are distinct from Adapter, Trusted Helper, and framework
+  infrastructure failures. The public result format remains unchanged.
 - For `repo_patch`, the digest-pinned image workdir must be a clean Git repository at the row's
   full `base_commit` before the Agent starts. Capture derives a binary-capable canonical patch from
   the stopped workspace using trusted Git state; it never consumes an Agent-authored patch file.
@@ -126,20 +135,20 @@ executable yet.
 These do not invalidate the current supported slice, but they must not be described as complete
 schema support.
 
-1. The implemented protocol evidence has `check_id`, `case_index`, and `challenge_digest`, but not
-   the full future envelope's host-generated case ID, correlation ID, resource usage, service
-   evidence, or returned-artifact evidence.
-2. The adapter manifest is intentionally minimal (`abi`, `protocol`, `command`). Typed request and
-   observation schemas, topology, service slots, handle injection, and output artifact declarations
-   still need versioned component contracts.
-3. `restricted` and `internet` both currently permit only the tester's explicit domain allowlist;
+1. Trusted Helper execution is not implemented: no helper instance, network, credential, scoped
+   Helper Access, host control/evidence plane, or teardown path exists yet. Rows requiring a
+   Trusted Helper fail preflight after their declarations are checked against the catalog.
+2. Output Artifact collection is not implemented. Rows can be checked against Adapter declarations
+   and parser/limit contracts, but non-empty `output_artifacts` still fail preflight.
+3. Resource-usage evidence is not yet included in Challenge Evidence.
+4. `restricted` and `internet` both currently permit only the tester's explicit domain allowlist;
    only `none` changes the row-level ceiling. This is safe, but the intended semantic distinction
    should be documented or implemented before relying on it for benchmark requirements.
-4. The filesystem-overlay canonical format and protected-root policy remain intentionally
+5. The filesystem-overlay canonical format and protected-root policy remain intentionally
    unspecified and unimplemented.
-5. Pack-local Oracle code is trusted and hash-bound but runs as a sanitized host subprocess, not
+6. Pack-local Oracle code is trusted and hash-bound but runs as a sanitized host subprocess, not
    inside a stronger OS sandbox.
-6. Assertion-free adapters, component capability review, base/gold/mutant qualification, and
+7. Assertion-free Adapters, component capability review, base/gold/mutant qualification, and
    semantic-fidelity review remain admission/governance responsibilities rather than mechanically
    proven row-schema properties.
 
@@ -147,13 +156,13 @@ schema support.
 
 At the implementation baseline above:
 
-- full suite: `345 passed, 2 skipped`;
-- two opt-in real-Docker protocol tests cover file-bundle and fresh-repository git-patch replay;
-  the file-bundle case passed previously, while the local Docker daemon returned HTTP 500 before
-  the new git-patch case could run in this review;
+- full suite: `358 passed, 2 skipped`;
+- focused protocol-component, execution-profile, and schema suite: `58 passed, 2 skipped`;
+- the two skipped tests are opt-in real-Docker protocol tests; this contract-only batch does not
+  change container isolation and they were not enabled for this review;
 - built-in robustness audit: 5 passed, 0 failed, 0 warnings;
 - generated JSON Schemas matched the checked-in files;
-- a wheel built successfully and imported outside the repository;
+- a wheel containing the new contract module built successfully and imported outside the repository;
 - the live protocol test leaked no new SecureBench container.
 
 Useful commands:

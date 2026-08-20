@@ -1,0 +1,185 @@
+{
+  "$defs": {
+    "JsonValueSchema": {
+      "additionalProperties": false,
+      "description": "Small closed schema language for finite adapter and helper JSON values.",
+      "properties": {
+        "allow_extra_fields": {
+          "default": false,
+          "title": "Allow Extra Fields",
+          "type": "boolean"
+        },
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JsonValueSchema"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_fields": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Fields"
+        },
+        "max_items": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Items"
+        },
+        "max_utf8_bytes": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Utf8 Bytes"
+        },
+        "properties": {
+          "patternProperties": {
+            "^[A-Za-z][A-Za-z0-9_.-]*$": {
+              "$ref": "#/$defs/JsonValueSchema"
+            }
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "minLength": 1
+          },
+          "title": "Properties",
+          "type": "object"
+        },
+        "required": {
+          "default": [],
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+            "type": "string"
+          },
+          "title": "Required",
+          "type": "array"
+        },
+        "type": {
+          "enum": [
+            "object",
+            "array",
+            "string",
+            "integer",
+            "number",
+            "boolean",
+            "null"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "JsonValueSchema",
+      "type": "object"
+    }
+  },
+  "$id": "https://securebench.dev/schemas/trusted-helper-contract-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Fixed capabilities and evidence rules for one registered Trusted Helper.",
+  "properties": {
+    "capabilities": {
+      "items": {
+        "maxLength": 128,
+        "minLength": 1,
+        "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+        "type": "string"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "credentials": {
+      "const": "fresh_per_evaluation",
+      "title": "Credentials",
+      "type": "string"
+    },
+    "evidence_schema": {
+      "$ref": "#/$defs/JsonValueSchema"
+    },
+    "format": {
+      "const": "securebench.trusted-helper-contract/v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "helper_access": {
+      "const": "http",
+      "title": "Helper Access",
+      "type": "string"
+    },
+    "limits_schema": {
+      "$ref": "#/$defs/JsonValueSchema"
+    },
+    "maximum_limits": {
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9_.-]*$": {
+          "type": "integer"
+        }
+      },
+      "propertyNames": {
+        "maxLength": 128,
+        "minLength": 1
+      },
+      "title": "Maximum Limits",
+      "type": "object"
+    },
+    "reset": {
+      "const": "fresh_per_evaluation",
+      "title": "Reset",
+      "type": "string"
+    },
+    "settings_schema": {
+      "$ref": "#/$defs/JsonValueSchema"
+    },
+    "type": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "format",
+    "type",
+    "capabilities",
+    "helper_access",
+    "settings_schema",
+    "limits_schema",
+    "maximum_limits",
+    "evidence_schema",
+    "reset",
+    "credentials"
+  ],
+  "title": "TrustedHelperContract",
+  "type": "object"
+}

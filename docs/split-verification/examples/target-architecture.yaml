@@ -2,7 +2,7 @@
 # These rows conform to the v2 schema but require runtime capabilities that are
 # intentionally rejected by current executable-task preflight.
 
-# DeepSWE: git_patch plus a trusted protocol service.
+# DeepSWE: git_patch plus a Trusted Helper.
 id: deep-swe/updo-policy-alerting
 family: repo_patch
 input:
@@ -46,14 +46,14 @@ verification:
         source: host.challenge_cases
         max_cases: 128
         max_case_bytes: 1048576
-      services:
-        - id: webhook
-          component: securebench.http-request-ledger/v1
-          configuration: host.webhook_config
+      trusted_helpers:
+        - name: webhook
+          type: securebench.http-request-recorder/v1
+          settings: host.webhook_config
           limits:
-            requests: 128
-            request_body_bytes: 16384
-            header_bytes: 8192
+            max_requests: 128
+            max_body_bytes: 16384
+            max_header_bytes: 8192
       limits:
         seconds_per_case: 30
         observation_bytes_per_case: 1048576
@@ -67,7 +67,7 @@ metadata:
     dossier: docs/benchmark-conversions/DeepSWE/updo-policy-alerting.md
 
 ---
-# TerminalBench: filesystem_overlay, protocol service, and returned artifact.
+# TerminalBench: filesystem_overlay, Trusted Helper, and Output Artifact.
 id: terminal-bench/install-windows-3.11
 family: terminal_task
 input:
@@ -120,15 +120,15 @@ verification:
         source: host.challenge_cases
         max_cases: 12
         max_case_bytes: 1048576
-      services:
-        - id: qemu_launch
-          component: securebench.process-launch-broker/v1
-          configuration: host.launch_config
+      trusted_helpers:
+        - name: qemu_launch
+          type: securebench.process-launch-broker/v1
+          settings: host.launch_config
           limits:
-            launches: 1
-            processes: 8
-      artifacts:
-        - id: framebuffer
+            max_launches: 1
+            max_processes: 8
+      output_artifacts:
+        - name: framebuffer
           parser: securebench.framebuffer/v1
           limits:
             max_bytes: 8388608

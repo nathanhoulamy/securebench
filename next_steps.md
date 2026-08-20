@@ -6,8 +6,8 @@ and an Oracle-owned verdict. Do not restore the legacy family-specific verifier 
 
 ## Completed 2026-08-20: small schema/runtime alignment pass
 
-Keep the first follow-up intentionally small and finish it before starting another candidate or
-service engine.
+Keep the first follow-up intentionally small and finish it before starting another Candidate or
+Trusted Helper engine.
 
 1. [x] Add duplicate-key-rejecting loaders for benchmark YAML, row JSONL, adapter YAML, and Oracle
    YAML. Return sanitized `ConfigError` or `VerificationInfrastructureError` failures as
@@ -50,64 +50,66 @@ Tests must cover wrong base commits, dirty baselines, binary patches, rename/del
 protected-test modifications, path escapes, oversized materialized results, replay mismatch, and a
 real fresh-Docker protocol case.
 
-Definition of done: a minimal `repo_patch` row without trusted services runs end to end through
+Definition of done: a minimal `repo_patch` row without Trusted Helpers runs end to end through
 candidate production, stopped-state patch capture, fresh replay, protocol or artifact evidence,
 Oracle verdict, persistence, cleanup, and resume.
 
-## Priority 2: establish the full protocol component/evidence contracts
+## Completed 2026-08-20: establish the full protocol component/evidence contracts
 
-Do this before implementing several services independently; otherwise evidence and topology APIs
-will need repeated redesign.
+Do this before implementing several Trusted Helpers independently; otherwise evidence and participant
+APIs will need repeated redesign.
 
-1. Version an expanded adapter manifest defining request/observation schemas, runtime topology,
-   service slots, handle injection, output artifact IDs, and reduced bounds.
-2. Add host-owned case IDs and correlation IDs to the internal evidence envelope while keeping
-   opaque case context host-only.
-3. Define a service registry contract with fixed capabilities, configuration validation, limit
+1. [x] Version an expanded Adapter format defining Challenge/Observation schemas, Evaluation
+   Participants, required Trusted Helpers, Helper Access, Output Artifacts, and reduced bounds.
+2. [x] Add host-owned Challenge IDs and Evaluation IDs to Challenge Evidence while keeping opaque
+   Challenge context host-only.
+3. [x] Define a Trusted Helper Catalog contract with fixed capabilities, settings validation, limit
    reduction, reset behavior, credential handling, and evidence schemas.
-4. Separate candidate/adapter failure from service/framework infrastructure failure in evidence.
-5. Keep public result serialization unchanged unless a reviewed bounded summary is explicitly
+4. [x] Separate Candidate failures from Adapter, Trusted Helper, and framework infrastructure
+   failures in Challenge Evidence.
+5. [x] Keep public result serialization unchanged unless a reviewed bounded summary is explicitly
    required.
 
-Definition of done: component contracts are typed and versioned, evidence from one case cannot be
-mis-correlated, and unsupported component capabilities fail preflight.
+Definition of done: component contracts are typed and versioned, evidence from one Evaluation
+cannot be mis-correlated, and unsupported component capabilities fail preflight.
 
-## Priority 3: implement one trusted external-state service
+## Priority 3: implement one Trusted Helper
 
-Use `securebench.http-request-ledger/v1` as the first vertical slice because it exercises the
+Use `securebench.http-request-recorder/v1` as the first vertical slice because it exercises the
 external-state pattern without requiring a general-purpose database or process broker.
 
 Required properties:
 
-- a fresh service instance and fresh credential for every strict case;
+- a fresh Trusted Helper instance and fresh credential for every Evaluation;
 - candidate-facing data plane on an internal Evaluation network only;
 - host-only control/evidence plane;
-- adapter receives only a scoped service handle;
+- Adapter receives only scoped Helper Access;
 - bounded requests, headers, bodies, records, and time;
-- host correlation ID on every ledger record;
+- host Evaluation ID on every recorder record;
 - no route from Evaluation to the public internet;
 - teardown failures become infrastructure errors.
 
-Add adversarial tests for stale cross-case state, forged credentials, direct control-plane access,
-record truncation, oversized bodies, host-header/SNI confusion, service crashes, and evidence from
-the wrong correlation ID.
+Add adversarial tests for stale cross-Evaluation state, forged credentials, direct control-plane
+access, record truncation, oversized bodies, host-header/SNI confusion, helper crashes, and evidence
+from the wrong Evaluation ID.
 
-Definition of done: a file-bundle protocol row with `services` executes under
-`strict-split/v1`; the same service declaration no longer fails preflight; fresh-case isolation is
-demonstrated in real Docker.
+Definition of done: a file-bundle protocol row with `trusted_helpers` executes under
+`strict-split/v1`; the same Trusted Helper declaration no longer fails preflight; fresh-Evaluation
+isolation is demonstrated in real Docker.
 
-## Priority 4: returned protocol artifacts
+## Priority 4: Output Artifacts
 
-Once case correlation exists:
+Once Challenge/Evaluation correlation exists:
 
-1. Capture only adapter-declared artifact IDs from the same disposable case runtime.
+1. Capture only Adapter-declared Output Artifacts from the same disposable Evaluation.
 2. Apply byte/tree/path bounds before reading content into trusted memory.
 3. Parse with registered passive parsers; never import or execute the artifact.
-4. Bind parsed values, digests, truncation, and failures to the check/case/correlation envelope.
-5. Ensure artifacts never appear in public results except as approved digests/summaries.
+4. Bind parsed values, digests, truncation, and failures to the Challenge ID and Evaluation ID in
+   Challenge Evidence.
+5. Ensure Output Artifacts never appear in public results except as approved digests/summaries.
 
-Definition of done: a protocol check with `artifacts` composes observation, service, and artifact
-evidence into one Oracle evaluation and remains isolated across cases.
+Definition of done: a protocol check with `output_artifacts` composes Observation, Trusted Helper,
+and Output Artifact evidence into one Oracle evaluation and remains isolated across Evaluations.
 
 ## Priority 5: filesystem overlays
 
@@ -125,13 +127,13 @@ and adversarial tests. This remains the highest-risk candidate transport.
 ## Later work
 
 - Implement `batched-split/v1` only as a visibly weaker, separately reported fallback after strict
-  service isolation is mature.
+  Trusted Helper isolation is mature.
 - Build admission tooling for base failure, reference success, targeted-mutant rejection,
   malicious-candidate rejection, and semantic-fidelity records.
 - Define component registry governance and review/publication policy for pack-local adapters and
   Oracles.
 - Add stronger Oracle OS confinement and, if required, signed result records.
-- Convert more benchmark rows only when their required candidate/check/service features are
+- Convert more benchmark rows only when their required Candidate, check, and Trusted Helper features are
   executable; do not weaken preflight to admit them early.
 
 ## Working rules for a future agent

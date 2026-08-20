@@ -53,33 +53,52 @@ patch, changed-path manifest, symlinks, and final logical byte count agree.
 
 Artifact parsers are passive and bounded; candidate code is never imported or
 executed on that path. Protocol checks reconstruct the captured candidate from
-the immutable image baseline in a fresh writable root for every case. They
+the immutable image baseline in a fresh writable root for every Challenge. They
 mount public and evaluation inputs according to their visibility lanes, run one
 reviewed adapter in a networkless Docker container with a read-only container
 root filesystem, and pass it only the current bounded JSON challenge. Its
 reconstructed candidate workspace is writable but disposable; runtime and
-public file resources remain read-only mounts. Hidden case context remains in
+public file resources remain read-only mounts. Hidden Challenge context remains in
 the host Oracle. Adapter output must be one finite, duplicate-key-free JSON
-value within the row bound.
+value within the row and Adapter bounds.
 
 Parsed artifacts and protocol observations remain internal evidence. Only the
 host Oracle may return correctness, score, check outcomes, and bounded public
-diagnostics. Timeouts and rejected captures are also sent to the Oracle as
-candidate-error evidence rather than being scored by the runner.
+diagnostics. Candidate-production and capture failures are sent to the Oracle
+as Candidate evidence rather than being scored by the runner.
 
-The current protocol-adapter ABI is intentionally small. The referenced
-runtime directory must contain an exact `adapter.yaml` object with
-`abi: securebench.protocol-adapter/v1`, the row's public `protocol` ID, and a
-non-empty argument-vector `command`. Command items beginning with `./` resolve
-inside the adapter's declared read-only mount. The command receives canonical
-JSON plus a newline on stdin and returns its JSON observation on stdout; stderr
-never enters evidence. The Oracle JSON-lines ABI adds `next_case` responses of
-either `{type: exhausted}` or `{type: case, challenge, case_context}`, followed
-by `evaluate_case` requests that return the opaque context and framework-built
+The preferred Adapter format is `securebench.adapter/v2`. Its closed manifest
+declares the public protocol ID, command, typed Challenge and Observation
+schemas, Evaluation Participants, required Trusted Helpers, Output Artifacts,
+and hard maximums. SecureBench assigns a fresh Challenge ID and Evaluation ID
+and sends them in a `securebench.adapter-request/v2` envelope. The Adapter must
+return exactly one `securebench.adapter-response/v2` envelope containing either
+an Observation or an explicit Candidate failure. Adapter timeouts, crashes,
+malformed envelopes, and out-of-contract Observations are infrastructure
+failures whose source is `adapter`, never Candidate evidence. Adapter responses
+cannot contain a verdict.
+
+The earlier `securebench.protocol-adapter/v1` format remains executable for
+existing basic protocol packs. Its exact manifest contains only `abi`, the
+row's public `protocol` ID, and a non-empty argument-vector `command`. It cannot
+reliably distinguish Adapter failure from Candidate failure and cannot declare
+Trusted Helpers or Output Artifacts. Command items beginning with `./` resolve
+inside either Adapter's declared read-only mount. Stderr never enters evidence.
+
+Challenge Evidence is internal and binds the check ID, host-generated
+Challenge ID, Challenge digest, fresh Evaluation ID, process outcome,
+Observation, Trusted Helper evidence, Output Artifact evidence, and any failure
+source. Nested evidence is rejected unless its Challenge ID and Evaluation ID
+match the enclosing record. Opaque Challenge context remains host-only. Public
+results expose only bounded summaries and evidence digests.
+
+The Oracle JSON-lines ABI uses `next_case` responses of either
+`{type: exhausted}` or `{type: case, challenge, case_context}`, followed by
+`evaluate_case` requests that return the opaque context and framework-built
 evidence to the host process. Extra response fields, duplicate JSON keys,
 non-finite values, oversized responses, and excess cases fail closed.
 The current executable profile accepts declared challenge and observation
-bounds up to 1 MiB per case.
+bounds up to 1 MiB per Challenge.
 
 Public `results.jsonl` records contain candidate/evidence digests, check
 summaries, public diagnostics, and manifest, row, image, baseline, verification,
@@ -118,8 +137,10 @@ tester-owned upper bound on actual connectivity.
   execution preflight until composed stopped-filesystem capture is available.
 - `filesystem_overlay` and `batched-split/v1` are registered design surfaces
   but not executable.
-- Protocol trusted services and returned protocol artifacts are schema-valid
-  but not executable yet.
+- Adapter v2, Challenge Evidence, and Trusted Helper Catalog contracts are
+  implemented. Starting Trusted Helpers, issuing Helper Access, collecting
+  helper evidence, and collecting Output Artifacts are still rejected by
+  preflight until their runtimes are implemented.
 - Pack-local Oracle code is trusted and requires review/admission controls.
 - The reference Oracle runs as a sanitized host subprocess; stronger OS-level
   Oracle confinement remains future hardening.

@@ -85,8 +85,8 @@ def validate_executable_task(task: BenchmarkTask) -> None:
     _validate_public_assets(task)
     _validate_runtime_resources(task)
     _validate_oracle(task)
-    _validate_protocol_checks(task)
     _validate_parsers(task)
+    _validate_protocol_checks(task)
     _validate_evaluation_mount_plan(task)
     if task_baseline_digest(task) != task.baseline_digest:
         raise ConfigError("Candidate-visible baseline resources changed after row compilation")
@@ -125,6 +125,22 @@ def _validate_parsers(task: BenchmarkTask) -> None:
     )
     registry = default_parser_registry()
     for check in task.verification.checks:
+        if isinstance(check, ProtocolCheck):
+            for artifact in check.output_artifacts:
+                try:
+                    profile = registry.profile(artifact.parser)
+                except KeyError as exc:
+                    raise ConfigError(
+                        f"Output artifact {artifact.name!r} uses unknown parser profile "
+                        f"{artifact.parser!r}"
+                    ) from exc
+                expected = "bytes" if artifact.limits.max_bytes is not None else "tree"
+                if profile.input_kind != expected:
+                    raise ConfigError(
+                        f"Output artifact {artifact.name!r} parser {artifact.parser!r} "
+                        f"does not accept {expected!r} input"
+                    )
+            continue
         if not isinstance(check, ArtifactCheck):
             continue
         for artifact in check.artifacts:
@@ -188,8 +204,8 @@ def _validate_protocol_checks(task: BenchmarkTask) -> None:
         if not isinstance(check, ProtocolCheck):
             continue
         try:
-            require_supported_protocol_features(check)
-            load_adapter_manifest(task, check)
+            manifest = load_adapter_manifest(task, check)
+            require_supported_protocol_features(check, manifest, task=task)
         except VerificationInfrastructureError as exc:
             raise ConfigError(
                 f"Protocol check {check.id!r} is not executable: {exc.public_message}"
