@@ -1,0 +1,144 @@
+# TARGET ARCHITECTURE ONLY.
+# These rows conform to the v2 schema but require runtime capabilities that are
+# intentionally rejected by current executable-task preflight.
+
+# DeepSWE: git_patch plus a trusted protocol service.
+id: deep-swe/updo-policy-alerting
+family: repo_patch
+input:
+  repo: Owloops/updo
+  base_commit: 9ecd74f5bd56fa915501e5b77da044d97c450a74
+  instructions: "<unchanged DeepSWE updo-policy-alerting instruction>"
+environment:
+  image: public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  workdir: /app
+  timeout_seconds: 5400
+  agent_network: restricted
+verification:
+  execution_profile: strict-split/v1
+  candidate:
+    type: git_patch
+    max_patch_bytes: 16777216
+    max_changed_files: 2048
+    max_changed_bytes: 134217728
+    exclude_paths:
+      - tests/**
+      - securebench/**
+      - "**/test-results/**"
+  resources:
+    runtime:
+      policy_adapter:
+        path: updo-policy-alerting/adapter
+        mount: /opt/securebench/adapters/updo-policy
+    host:
+      challenge_cases:
+        path: updo-policy-alerting/oracle/cases
+      webhook_config:
+        path: updo-policy-alerting/oracle/webhook.yaml
+      task_oracle:
+        path: updo-policy-alerting/oracle
+  checks:
+    - id: policy_decisions_and_delivery
+      type: protocol
+      adapter: runtime.policy_adapter
+      protocol: securebench.updo-policy/v1
+      challenge:
+        source: host.challenge_cases
+        max_cases: 128
+        max_case_bytes: 1048576
+      services:
+        - id: webhook
+          component: securebench.http-request-ledger/v1
+          configuration: host.webhook_config
+          limits:
+            requests: 128
+            request_body_bytes: 16384
+            header_bytes: 8192
+      limits:
+        seconds_per_case: 30
+        observation_bytes_per_case: 1048576
+  oracle: host.task_oracle
+metadata:
+  source_dataset: deep-swe
+  source_revision: e016041a6ccf8da29906afc9a3f5a8df940a1f78
+  conversion:
+    verdict: clean
+    intelligence_impact: none
+    dossier: docs/benchmark-conversions/DeepSWE/updo-policy-alerting.md
+
+---
+# TerminalBench: filesystem_overlay, protocol service, and returned artifact.
+id: terminal-bench/install-windows-3.11
+family: terminal_task
+input:
+  instructions: "<unchanged Terminal-Bench install-windows-3.11 instruction>"
+assets:
+  - path: install-windows-3.11/isos/win311-install.img
+    mount: /app/isos/win311-install.img
+    read_only: true
+environment:
+  image: securebench-terminal-bench-install-windows-3.11@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  workdir: /app
+  timeout_seconds: 3600
+  agent_network: restricted
+verification:
+  execution_profile: strict-split/v1
+  candidate:
+    type: filesystem_overlay
+    include_roots:
+      - /app
+      - /etc/nginx
+    max_files: 20000
+    max_total_bytes: 1073741824
+  resources:
+    runtime:
+      vnc_http_adapter:
+        path: install-windows-3.11/adapter
+        mount: /opt/securebench/adapters/vnc-http
+    host:
+      challenge_cases:
+        path: install-windows-3.11/oracle/cases
+      launch_config:
+        path: install-windows-3.11/oracle/qemu-launch.yaml
+      task_oracle:
+        path: install-windows-3.11/oracle
+  checks:
+    - id: disk_and_core_files
+      type: artifact
+      artifacts:
+        - id: windows_disk
+          source:
+            path: /app/vm/windows311.img
+          parser: securebench.fat-disk-image/v1
+          limits:
+            max_bytes: 536870912
+    - id: desktop_keyboard_reachability_and_launch
+      type: protocol
+      adapter: runtime.vnc_http_adapter
+      protocol: securebench.vnc-keyboard-http/v1
+      challenge:
+        source: host.challenge_cases
+        max_cases: 12
+        max_case_bytes: 1048576
+      services:
+        - id: qemu_launch
+          component: securebench.process-launch-broker/v1
+          configuration: host.launch_config
+          limits:
+            launches: 1
+            processes: 8
+      artifacts:
+        - id: framebuffer
+          parser: securebench.framebuffer/v1
+          limits:
+            max_bytes: 8388608
+      limits:
+        seconds_per_case: 300
+        observation_bytes_per_case: 16777216
+  oracle: host.task_oracle
+metadata:
+  source_dataset: terminal-bench-2
+  source_revision: 2fd12b88aafdd04a52c298e3940bcb189f9766d6
+  conversion:
+    verdict: clean
+    dossier: docs/benchmark-conversions/TerminalBench/install-windows-3.11.md

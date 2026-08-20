@@ -1,0 +1,53 @@
+# Executable today: passive artifact verification with a file_bundle candidate.
+# This row shape is supported end to end by strict-split/v1.
+id: terminal-bench/constraints-scheduling
+family: terminal_task
+input:
+  instructions: "<unchanged Terminal-Bench constraints-scheduling instruction>"
+assets:
+  - path: constraints-scheduling/alice_calendar.ics
+    mount: /app/alice_calendar.ics
+    read_only: true
+  - path: constraints-scheduling/bob_calendar.ics
+    mount: /app/bob_calendar.ics
+    read_only: true
+  - path: constraints-scheduling/carol_calendar.ics
+    mount: /app/carol_calendar.ics
+    read_only: true
+environment:
+  image: alexgshaw/constraints-scheduling@sha256:567ce5a189f8d11ac461790876e934cc7af38391baf89a78f95f4dafc1fec3b0
+  workdir: /app
+  timeout_seconds: 1200
+  agent_network: internet
+verification:
+  execution_profile: strict-split/v1
+  candidate:
+    type: file_bundle
+    max_total_files: 1
+    max_total_bytes: 65536
+    files:
+      - id: schedule
+        path: /app/meeting_scheduled.ics
+        kind: regular_file
+        max_bytes: 65536
+  resources:
+    host:
+      task_oracle:
+        path: constraints-scheduling/oracle
+  checks:
+    - id: schedule_artifact
+      type: artifact
+      artifacts:
+        - id: schedule
+          source:
+            entry: schedule
+          parser: securebench.ics/v1
+          limits:
+            max_bytes: 65536
+  oracle: host.task_oracle
+metadata:
+  source_dataset: terminal-bench-2
+  source_revision: 2fd12b88aafdd04a52c298e3940bcb189f9766d6
+  conversion:
+    verdict: clean
+    dossier: docs/benchmark-conversions/TerminalBench/constraints-scheduling.md
