@@ -1,4 +1,4 @@
-"""Isolated, one-case-at-a-time protocol verification."""
+"""Isolated, one-Challenge-at-a-time protocol verification."""
 
 from __future__ import annotations
 
@@ -45,7 +45,6 @@ from securebench.workspaces.materialization import (
 )
 
 
-ADAPTER_ABI = "securebench.protocol-adapter/v1"
 MAX_ADAPTER_MANIFEST_BYTES = 256 * 1024
 MAX_TRUSTED_HELPER_SETTINGS_BYTES = 256 * 1024
 MAX_ADAPTER_COMMAND_PARTS = 32
@@ -55,14 +54,15 @@ MAX_PROTOCOL_OBSERVATION_BYTES = MAX_COMMAND_OUTPUT_BYTES
 
 
 @dataclass(frozen=True)
-class AdapterManifest:
+class LoadedAdapter:
+    """Validated Adapter v2 contract with its command resolved for Evaluation."""
+
     command: tuple[str, ...]
-    format: str = ADAPTER_ABI
-    contract: AdapterManifestV2 | None = None
+    contract: AdapterManifestV2
 
 
 class ProtocolCheckRunner:
-    """Run protocol adapters in a fresh, offline Evaluation container per case."""
+    """Run an Adapter in a fresh, offline Evaluation container per Challenge."""
 
     def __init__(
         self,
@@ -178,12 +178,12 @@ class ProtocolCheckRunner:
         candidate: StoredCandidate,
         store: CandidateStore,
         check: ProtocolCheck,
-        manifest: AdapterManifest,
+        manifest: LoadedAdapter,
         case: OracleChallenge,
         challenge_index: int,
         challenge_id: str,
     ) -> ChallengeEvidence:
-        challenge = _validated_challenge(case, check, manifest)
+        _validated_challenge(case, check, manifest)
         evaluation_id = _new_identifier("evaluation")
         evaluation_root = Path(tempfile.mkdtemp(prefix="securebench-evaluation-"))
         sandbox: DockerSandbox | None = None
@@ -213,16 +213,12 @@ class ProtocolCheckRunner:
                 workspace_mount_target=task.environment.workdir,
             )
             started = time.monotonic()
-            adapter_input = (
-                challenge
-                if manifest.contract is None
-                else canonical_json_bytes(
-                    adapter_request_v2(
-                        challenge_id=challenge_id,
-                        evaluation_id=evaluation_id,
-                        challenge=case.challenge,
-                        trusted_helpers={},
-                    )
+            adapter_input = canonical_json_bytes(
+                adapter_request_v2(
+                    challenge_id=challenge_id,
+                    evaluation_id=evaluation_id,
+                    challenge=case.challenge,
+                    trusted_helpers={},
                 )
             )
             result = sandbox.run(
@@ -232,25 +228,15 @@ class ProtocolCheckRunner:
                 stdin=adapter_input + b"\n",
             )
             duration_ms = max(0, round((time.monotonic() - started) * 1000))
-            if manifest.contract is not None:
-                return _adapter_evidence_v2(
-                    check,
-                    manifest.contract,
-                    challenge_index,
-                    challenge_id,
-                    evaluation_id,
-                    case,
-                    result,
-                    duration_ms,
-                )
             return _adapter_evidence(
                 check,
+                manifest.contract,
                 challenge_index,
+                challenge_id,
+                evaluation_id,
                 case,
                 result,
                 duration_ms,
-                challenge_id=challenge_id,
-                evaluation_id=evaluation_id,
             )
         finally:
             cleanup_error: Exception | None = None
@@ -269,7 +255,7 @@ class ProtocolCheckRunner:
                 ) from cleanup_error
 
 
-def load_adapter_manifest(task: BenchmarkTask, check: ProtocolCheck) -> AdapterManifest:
+def load_adapter_manifest(task: BenchmarkTask, check: ProtocolCheck) -> LoadedAdapter:
     """Load and validate the trusted runtime adapter selected by a protocol check."""
     resource = task.resources.resources.get(check.adapter)
     if resource is None or resource.kind != "directory" or not isinstance(resource.value, dict):
@@ -323,56 +309,37 @@ def load_adapter_manifest(task: BenchmarkTask, check: ProtocolCheck) -> AdapterM
             "Protocol adapter manifest has an invalid shape",
             source="adapter",
         )
-    if value.get("format") == ADAPTER_FORMAT_V2:
-        try:
-            contract = AdapterManifestV2.model_validate(value, strict=False)
-        except (TypeError, ValueError, ValidationError) as exc:
-            raise VerificationInfrastructureError(
-                "adapter_manifest_invalid",
-                "Protocol adapter v2 manifest is invalid",
-                source="adapter",
-            ) from exc
-        if contract.protocol != check.protocol:
-            raise VerificationInfrastructureError(
-                "adapter_protocol_mismatch",
-                "Protocol adapter does not implement the declared protocol",
-                source="adapter",
-            )
-        command = contract.command
-        _validate_adapter_command(command)
-        return AdapterManifest(
-            command=tuple(_resolve_adapter_part(part, mount) for part in command),
-            format=contract.format,
-            contract=contract,
+    if value.get("format") != ADAPTER_FORMAT_V2:
+        raise VerificationInfrastructureError(
+            "adapter_format_unsupported",
+            "Protocol Adapter must use the securebench.adapter/v2 format",
+            source="adapter",
         )
-    if set(value) != {"abi", "protocol", "command"}:
+    try:
+        contract = AdapterManifestV2.model_validate(value, strict=False)
+    except (TypeError, ValueError, ValidationError) as exc:
         raise VerificationInfrastructureError(
             "adapter_manifest_invalid",
-            "Protocol adapter manifest has an invalid shape",
+            "Protocol Adapter v2 manifest is invalid",
             source="adapter",
-        )
-    if value["abi"] != ADAPTER_ABI:
-        raise VerificationInfrastructureError(
-            "adapter_abi_unsupported",
-            "Protocol adapter ABI is unsupported",
-            source="adapter",
-        )
-    if value["protocol"] != check.protocol:
+        ) from exc
+    if contract.protocol != check.protocol:
         raise VerificationInfrastructureError(
             "adapter_protocol_mismatch",
-            "Protocol adapter does not implement the declared protocol",
+            "Protocol Adapter does not implement the declared protocol",
             source="adapter",
         )
-    command = value["command"]
+    command = contract.command
     _validate_adapter_command(command)
-    return AdapterManifest(
+    return LoadedAdapter(
         command=tuple(_resolve_adapter_part(part, mount) for part in command),
+        contract=contract,
     )
 
 
 def require_supported_protocol_features(
     check: ProtocolCheck,
-    manifest: AdapterManifest | None = None,
+    manifest: LoadedAdapter | None = None,
     trusted_helpers: TrustedHelperCatalog | None = None,
     *,
     task: BenchmarkTask | None = None,
@@ -400,18 +367,6 @@ def require_supported_protocol_features(
     if manifest is None:
         return
     contract = manifest.contract
-    if contract is None:
-        if check.trusted_helpers:
-            raise VerificationInfrastructureError(
-                "trusted_helpers_require_adapter_v2",
-                "Trusted Helpers require a securebench.adapter/v2 manifest",
-            )
-        if check.output_artifacts:
-            raise VerificationInfrastructureError(
-                "output_artifacts_require_adapter_v2",
-                "output artifacts require a securebench.adapter/v2 manifest",
-            )
-        return
     _validate_adapter_maximums(check, contract)
     _validate_evaluation_participants(contract)
     _validate_trusted_helper_contracts(
@@ -621,84 +576,6 @@ def _resolve_adapter_part(value: str, mount: PurePosixPath) -> str:
 
 def _adapter_evidence(
     check: ProtocolCheck,
-    challenge_index: int,
-    case: OracleChallenge,
-    result: CommandResult,
-    duration_ms: int,
-    *,
-    challenge_id: str | None = None,
-    evaluation_id: str | None = None,
-) -> ChallengeEvidence:
-    common = {
-        "check_id": check.id,
-        "challenge_id": challenge_id or _new_identifier("challenge"),
-        "evaluation_id": evaluation_id or _new_identifier("evaluation"),
-        "challenge_index": challenge_index,
-        "challenge_digest": json_digest(case.challenge),
-        "exit_status": result.exit_code,
-        "timed_out": result.timed_out,
-        "duration_ms": duration_ms,
-    }
-    if result.timed_out:
-        return ChallengeEvidence(
-            **common,
-            status="candidate_error",
-            failure_source="candidate",
-            failure_code="adapter_timeout",
-            failure_message="Legacy protocol adapter exceeded its per-challenge timeout",
-        )
-    if result.exit_code != 0:
-        return ChallengeEvidence(
-            **common,
-            status="candidate_error",
-            failure_source="candidate",
-            failure_code="adapter_failed",
-            failure_message="Legacy protocol adapter exited unsuccessfully",
-        )
-    observation_bytes = (
-        result.stdout_bytes
-        if result.stdout_bytes is not None
-        else len(result.stdout.encode("utf-8"))
-    )
-    if result.stdout_truncated or observation_bytes > check.limits.observation_bytes_per_case:
-        return ChallengeEvidence(
-            **common,
-            status="candidate_error",
-            observation_bytes=observation_bytes,
-            failure_source="candidate",
-            failure_code="observation_too_large",
-            failure_message="Protocol observation exceeded its declared bound",
-        )
-    if not result.stdout_valid_utf8:
-        return ChallengeEvidence(
-            **common,
-            status="candidate_error",
-            observation_bytes=observation_bytes,
-            failure_source="candidate",
-            failure_code="invalid_observation",
-            failure_message="Legacy protocol adapter did not return valid UTF-8 JSON",
-        )
-    try:
-        observation = strict_json_loads(result.stdout)
-    except (UnicodeError, ValueError):
-        return ChallengeEvidence(
-            **common,
-            status="candidate_error",
-            observation_bytes=observation_bytes,
-            failure_source="candidate",
-            failure_code="invalid_observation",
-            failure_message="Legacy protocol adapter did not return one finite JSON value",
-        )
-    return ChallengeEvidence(
-        **common,
-        status="observed",
-        observation=observation,
-        observation_bytes=observation_bytes,
-    )
-
-
-def _adapter_evidence_v2(
-    check: ProtocolCheck,
     contract: AdapterManifestV2,
     challenge_index: int,
     challenge_id: str,
@@ -787,7 +664,7 @@ def _case_bounds(check: ProtocolCheck) -> dict[str, Any]:
 def _validated_challenge(
     case: OracleChallenge,
     check: ProtocolCheck,
-    manifest: AdapterManifest | None = None,
+    manifest: LoadedAdapter | None = None,
 ) -> bytes:
     try:
         challenge = canonical_json_bytes(case.challenge)
@@ -799,7 +676,7 @@ def _validated_challenge(
         raise VerificationInfrastructureError(
             "oracle_case_too_large", "Oracle challenge exceeded its declared bound"
         )
-    if manifest is not None and manifest.contract is not None:
+    if manifest is not None:
         try:
             validate_json_value(manifest.contract.challenge_schema, case.challenge)
         except ValueError as exc:

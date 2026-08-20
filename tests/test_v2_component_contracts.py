@@ -18,7 +18,7 @@ from securebench.verification.models import (
     VerificationInfrastructureError,
 )
 from securebench.verification.protocol import (
-    AdapterManifest,
+    LoadedAdapter,
     require_supported_protocol_features,
 )
 
@@ -72,7 +72,7 @@ def adapter_contract(**updates):
     }
     value.update(updates)
     contract = AdapterManifestV2.model_validate(value, strict=False)
-    return AdapterManifest(command=contract.command, format=contract.format, contract=contract)
+    return LoadedAdapter(command=contract.command, contract=contract)
 
 
 def test_closed_value_schema_rejects_wrong_types_and_unknown_fields():

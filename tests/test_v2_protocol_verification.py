@@ -31,7 +31,6 @@ from securebench.verification.models import (
 from securebench.verification.oracle import OracleProcessSession
 from securebench.verification.protocol import (
     _adapter_evidence,
-    _adapter_evidence_v2,
     _validated_challenge,
     load_adapter_manifest,
 )
@@ -82,7 +81,6 @@ def write_protocol_pack(
     image: str = DIGEST,
     adapter_mount: str = "/opt/securebench/adapter",
     base_commit: str | None = None,
-    adapter_v2: bool = False,
 ):
     (root / "assets" / "task").mkdir(parents=True)
     adapter = root / "evaluation_inputs" / "task" / "adapter"
@@ -95,9 +93,8 @@ def write_protocol_pack(
         "command: ['{python}', 'oracle.py']\n"
         "timeout_seconds: 30\n"
     )
-    if adapter_v2:
-        (adapter / "adapter.yaml").write_text(
-            """
+    (adapter / "adapter.yaml").write_text(
+        """
 format: securebench.adapter/v2
 protocol: securebench.example/v1
 command: ["python3", "./adapter.py"]
@@ -111,8 +108,9 @@ observation_schema:
   type: object
   properties:
     answer: {type: integer}
-  required: [answer]
-  max_fields: 1
+    candidate: {type: string, max_utf8_bytes: 1024}
+  required: [answer, candidate]
+  max_fields: 2
 evaluation_participants:
   - {name: candidate, type: candidate, instances: 1}
 maximums:
@@ -120,41 +118,23 @@ maximums:
   challenge_bytes: 1024
   observation_bytes: 1024
 """.lstrip()
-        )
-    else:
-        (adapter / "adapter.yaml").write_text(
-            """
-abi: securebench.protocol-adapter/v1
-protocol: securebench.example/v1
-command: ["python3", "./adapter.py"]
-""".lstrip()
-        )
+    )
     (adapter / "adapter.py").write_text(
-        (
-            """
+        """
 import json
 import sys
+from pathlib import Path
 
 request = json.load(sys.stdin)
 print(json.dumps({
     "format": "securebench.adapter-response/v2",
     "status": "observed",
-    "observation": {"answer": request["challenge"]["value"] * 2},
+    "observation": {
+        "candidate": Path("/app/answer.txt").read_text(),
+        "answer": request["challenge"]["value"] * 2,
+    },
 }))
 """.lstrip()
-            if adapter_v2
-            else """
-import json
-import sys
-from pathlib import Path
-
-challenge = json.load(sys.stdin)
-print(json.dumps({
-    "candidate": Path("/app/answer.txt").read_text(),
-    "answer": challenge["value"] * 2,
-}))
-""".lstrip()
-        )
     )
     manifest = root / "manifest.yaml"
     manifest.write_text(
@@ -321,10 +301,20 @@ def test_git_patch_protocol_case_replays_into_fresh_repository(tmp_path, monkeyp
             assert subprocess.run(
                 ["git", "diff", "--quiet", base_commit], cwd=self.root
             ).returncode == 1
+            request = json.loads(stdin)
             return CommandResult(
                 command=tuple(command),
                 exit_code=0,
-                stdout=json.dumps({"answer": json.loads(stdin)["value"] * 2}),
+                stdout=json.dumps(
+                    {
+                        "format": "securebench.adapter-response/v2",
+                        "status": "observed",
+                        "observation": {
+                            "candidate": "candidate-state",
+                            "answer": request["challenge"]["value"] * 2,
+                        },
+                    }
+                ),
             )
 
         def close(self):
@@ -347,7 +337,10 @@ def test_git_patch_protocol_case_replays_into_fresh_repository(tmp_path, monkeyp
     )
 
     assert result.status == "passed"
-    assert oracle.evidence[0].observation == {"answer": 10}
+    assert oracle.evidence[0].observation == {
+        "candidate": "candidate-state",
+        "answer": 10,
+    }
     assert len(roots) == 1 and not roots[0].exists()
 
 
@@ -387,7 +380,16 @@ def test_protocol_cases_use_fresh_evaluation_roots_and_sanitized_results(tmp_pat
             return CommandResult(
                 command=tuple(command),
                 exit_code=0,
-                stdout=json.dumps({"answer": inputs[-1]["value"] * 2}),
+                stdout=json.dumps(
+                    {
+                        "format": "securebench.adapter-response/v2",
+                        "status": "observed",
+                        "observation": {
+                            "candidate": "candidate-state",
+                            "answer": inputs[-1]["challenge"]["value"] * 2,
+                        },
+                    }
+                ),
             )
 
         def close(self):
@@ -421,20 +423,24 @@ def test_protocol_cases_use_fresh_evaluation_roots_and_sanitized_results(tmp_pat
         ("python3", "/opt/securebench/adapter/adapter.py"),
         ("python3", "/opt/securebench/adapter/adapter.py"),
     ]
-    assert inputs == [{"value": 2}, {"value": 3}]
+    assert [request["challenge"] for request in inputs] == [{"value": 2}, {"value": 3}]
+    assert all(request["format"] == "securebench.adapter-request/v2" for request in inputs)
     assert oracle.contexts[0]["host_secret"] == "first-secret"
-    assert oracle.evidence[0].observation == {"answer": 4}
+    assert oracle.evidence[0].observation == {
+        "candidate": "candidate-state",
+        "answer": 4,
+    }
     assert result.checks[0].cases == 2
     encoded = json.dumps(result.to_record(run_id="run", execution_digest=DIGEST))
     assert "first-secret" not in encoded
     assert '"answer": 4' not in encoded
 
 
-def test_adapter_v2_uses_typed_envelopes_and_host_owned_evaluation_ids(
+def test_adapter_uses_typed_envelopes_and_host_owned_evaluation_ids(
     tmp_path,
     monkeypatch,
 ):
-    task = write_protocol_pack(tmp_path / "pack", adapter_v2=True)
+    task = write_protocol_pack(tmp_path / "pack")
     validate_executable_task(task)
     store, candidate = capture_answer(tmp_path, task)
     requests = []
@@ -456,7 +462,10 @@ def test_adapter_v2_uses_typed_envelopes_and_host_owned_evaluation_ids(
                     {
                         "format": "securebench.adapter-response/v2",
                         "status": "observed",
-                        "observation": {"answer": request["challenge"]["value"] * 2},
+                        "observation": {
+                            "candidate": "candidate-state",
+                            "answer": request["challenge"]["value"] * 2,
+                        },
                     }
                 ),
             )
@@ -503,14 +512,14 @@ def test_adapter_v2_uses_typed_envelopes_and_host_owned_evaluation_ids(
     assert requests[0]["evaluation_id"] not in encoded
 
 
-def test_adapter_v2_failure_is_infrastructure_not_candidate_evidence(tmp_path):
-    task = write_protocol_pack(tmp_path / "pack", adapter_v2=True)
+def test_adapter_failure_is_infrastructure_not_candidate_evidence(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack")
     check = task.verification.checks[0]
     contract = load_adapter_manifest(task, check).contract
     assert contract is not None
 
     with pytest.raises(VerificationInfrastructureError, match="exited unsuccessfully") as error:
-        _adapter_evidence_v2(
+        _adapter_evidence(
             check,
             contract,
             0,
@@ -526,7 +535,7 @@ def test_adapter_v2_failure_is_infrastructure_not_candidate_evidence(tmp_path):
 
 
 def test_adapter_manifest_read_stops_at_the_framework_bound(tmp_path):
-    task = write_protocol_pack(tmp_path / "pack", adapter_v2=True)
+    task = write_protocol_pack(tmp_path / "pack")
     check = task.verification.checks[0]
     adapter_manifest = (
         tmp_path / "pack" / "evaluation_inputs" / "task" / "adapter" / "adapter.yaml"
@@ -540,8 +549,8 @@ def test_adapter_manifest_read_stops_at_the_framework_bound(tmp_path):
     assert error.value.source == "adapter"
 
 
-def test_adapter_v2_contract_mismatches_fail_preflight(tmp_path):
-    task = write_protocol_pack(tmp_path / "pack", adapter_v2=True)
+def test_adapter_contract_mismatches_fail_preflight(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack")
     adapter_manifest = (
         tmp_path / "pack" / "evaluation_inputs" / "task" / "adapter" / "adapter.yaml"
     )
@@ -556,8 +565,8 @@ def test_adapter_v2_contract_mismatches_fail_preflight(tmp_path):
         validate_executable_task(task)
 
 
-def test_adapter_v2_rejects_oracle_challenge_outside_declared_schema(tmp_path):
-    task = write_protocol_pack(tmp_path / "pack", adapter_v2=True)
+def test_adapter_rejects_oracle_challenge_outside_declared_schema(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack")
     check = task.verification.checks[0]
     manifest = load_adapter_manifest(task, check)
 
@@ -804,83 +813,99 @@ def test_oracle_cannot_exceed_protocol_case_limit(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("stdout", ['{"answer":1,"answer":2}', '{"answer":NaN}', "not-json"])
-def test_protocol_adapter_rejects_ambiguous_or_non_finite_json(tmp_path, stdout):
+def test_adapter_rejects_ambiguous_or_non_finite_response_json(tmp_path, stdout):
     task = write_protocol_pack(tmp_path / "pack")
     check = task.verification.checks[0]
-    case = OracleCase({"value": 1}, None)
+    contract = load_adapter_manifest(task, check).contract
 
-    evidence = _adapter_evidence(
-        check,
-        0,
-        case,
-        CommandResult(command=("adapter",), exit_code=0, stdout=stdout),
-        1,
-    )
+    with pytest.raises(VerificationInfrastructureError) as error:
+        _adapter_evidence(
+            check,
+            contract,
+            0,
+            "challenge-test",
+            "evaluation-test",
+            OracleCase({"value": 1}, None),
+            CommandResult(command=("adapter",), exit_code=0, stdout=stdout),
+            1,
+        )
 
-    assert evidence.status == "candidate_error"
-    assert evidence.error_code == "invalid_observation"
+    assert error.value.code == "adapter_response_invalid"
+    assert error.value.source == "adapter"
 
 
-def test_protocol_adapter_enforces_observation_byte_bound(tmp_path):
+def test_adapter_enforces_response_byte_bound(tmp_path):
     task = write_protocol_pack(tmp_path / "pack")
     check = task.verification.checks[0]
     limits = check.limits.model_copy(update={"observation_bytes_per_case": 4})
     bounded = check.model_copy(update={"limits": limits})
 
-    evidence = _adapter_evidence(
-        bounded,
-        0,
-        OracleCase({"value": 1}, None),
-        CommandResult(command=("adapter",), exit_code=0, stdout='{"answer":2}'),
-        1,
-    )
+    contract = load_adapter_manifest(task, check).contract
+    with pytest.raises(VerificationInfrastructureError) as error:
+        _adapter_evidence(
+            bounded,
+            contract,
+            0,
+            "challenge-test",
+            "evaluation-test",
+            OracleCase({"value": 1}, None),
+            CommandResult(command=("adapter",), exit_code=0, stdout='{"answer":2}'),
+            1,
+        )
 
-    assert evidence.status == "candidate_error"
-    assert evidence.error_code == "observation_too_large"
+    assert error.value.code == "adapter_response_too_large"
 
 
-def test_protocol_adapter_rejects_truncated_output_before_parsing(tmp_path):
+def test_adapter_rejects_truncated_output_before_parsing(tmp_path):
     task = write_protocol_pack(tmp_path / "pack")
     check = task.verification.checks[0]
 
-    evidence = _adapter_evidence(
-        check,
-        0,
-        OracleCase({"value": 1}, None),
-        CommandResult(
-            command=("adapter",),
-            exit_code=0,
-            stdout='{"answer":2}',
-            stdout_bytes=2 * 1024 * 1024,
-            stdout_truncated=True,
-        ),
-        1,
-    )
+    contract = load_adapter_manifest(task, check).contract
+    with pytest.raises(VerificationInfrastructureError) as error:
+        _adapter_evidence(
+            check,
+            contract,
+            0,
+            "challenge-test",
+            "evaluation-test",
+            OracleCase({"value": 1}, None),
+            CommandResult(
+                command=("adapter",),
+                exit_code=0,
+                stdout='{"answer":2}',
+                stdout_bytes=2 * 1024 * 1024,
+                stdout_truncated=True,
+            ),
+            1,
+        )
 
-    assert evidence.status == "candidate_error"
-    assert evidence.error_code == "observation_too_large"
+    assert error.value.code == "adapter_response_too_large"
 
 
-def test_protocol_adapter_rejects_invalid_utf8_before_parsing(tmp_path):
+def test_adapter_rejects_invalid_utf8_before_parsing(tmp_path):
     task = write_protocol_pack(tmp_path / "pack")
     check = task.verification.checks[0]
 
-    evidence = _adapter_evidence(
-        check,
-        0,
-        OracleCase({"value": 1}, None),
-        CommandResult(
-            command=("adapter",),
-            exit_code=0,
-            stdout="�",
-            stdout_bytes=1,
-            stdout_valid_utf8=False,
-        ),
-        1,
-    )
+    contract = load_adapter_manifest(task, check).contract
+    with pytest.raises(VerificationInfrastructureError) as error:
+        _adapter_evidence(
+            check,
+            contract,
+            0,
+            "challenge-test",
+            "evaluation-test",
+            OracleCase({"value": 1}, None),
+            CommandResult(
+                command=("adapter",),
+                exit_code=0,
+                stdout="�",
+                stdout_bytes=1,
+                stdout_valid_utf8=False,
+            ),
+            1,
+        )
 
-    assert evidence.status == "candidate_error"
-    assert evidence.error_code == "invalid_observation"
+    assert error.value.code == "adapter_response_invalid"
 
 
 def _observed(check_id, case, case_index):
@@ -940,6 +965,21 @@ def test_malformed_adapter_manifest_fails_before_agent_execution(tmp_path):
     adapter_manifest.write_text("command: [unterminated\n")
 
     with pytest.raises(ConfigError, match="not valid YAML"):
+        validate_executable_task(task)
+
+
+def test_v1_adapter_format_fails_before_agent_execution(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack")
+    adapter_manifest = (
+        tmp_path / "pack" / "evaluation_inputs" / "task" / "adapter" / "adapter.yaml"
+    )
+    adapter_manifest.write_text(
+        "abi: securebench.protocol-adapter/v1\n"
+        "protocol: securebench.example/v1\n"
+        "command: ['python3', './adapter.py']\n"
+    )
+
+    with pytest.raises(ConfigError, match="must use the securebench.adapter/v2 format"):
         validate_executable_task(task)
 
 

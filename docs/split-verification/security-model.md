@@ -67,7 +67,7 @@ host Oracle may return correctness, score, check outcomes, and bounded public
 diagnostics. Candidate-production and capture failures are sent to the Oracle
 as Candidate evidence rather than being scored by the runner.
 
-The preferred Adapter format is `securebench.adapter/v2`. Its closed manifest
+The Adapter format is `securebench.adapter/v2`. Its closed manifest
 declares the public protocol ID, command, typed Challenge and Observation
 schemas, Evaluation Participants, required Trusted Helpers, Output Artifacts,
 and hard maximums. SecureBench assigns a fresh Challenge ID and Evaluation ID
@@ -78,12 +78,10 @@ malformed envelopes, and out-of-contract Observations are infrastructure
 failures whose source is `adapter`, never Candidate evidence. Adapter responses
 cannot contain a verdict.
 
-The earlier `securebench.protocol-adapter/v1` format remains executable for
-existing basic protocol packs. Its exact manifest contains only `abi`, the
-row's public `protocol` ID, and a non-empty argument-vector `command`. It cannot
-reliably distinguish Adapter failure from Candidate failure and cannot declare
-Trusted Helpers or Output Artifacts. Command items beginning with `./` resolve
-inside either Adapter's declared read-only mount. Stderr never enters evidence.
+`securebench.adapter/v2` is the only supported Adapter format. Missing,
+different, or malformed formats fail preflight before Candidate production.
+Command items beginning with `./` resolve inside the Adapter's declared
+read-only mount. Stderr never enters evidence.
 
 Challenge Evidence is internal and binds the check ID, host-generated
 Challenge ID, Challenge digest, fresh Evaluation ID, process outcome,

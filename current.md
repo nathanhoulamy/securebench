@@ -74,7 +74,7 @@ the runner does not invent a benchmark score.
 | Artifact check using `source.path` | Implemented for bounded repository-relative `git_patch` paths; overlay paths remain blocked |
 | Registered passive parsers | JSON, UTF-8 text, ICS, and tree-manifest profiles exist |
 | Basic protocol check | Implemented with finite JSON, bounded I/O, and a fresh offline container per Challenge |
-| Adapter v2 contract | Implemented with typed Challenge/Observation schemas, Evaluation Participants, Trusted Helper requirements, Output Artifacts, and reduced maximums |
+| Adapter v2 contract | The only supported Adapter format; implemented with typed Challenge/Observation schemas, Evaluation Participants, Trusted Helper requirements, Output Artifacts, and reduced maximums |
 | Challenge Evidence | Implemented with host Challenge/Evaluation IDs, correlation checks, and explicit failure source |
 | Trusted Helper Catalog | Typed contract and preflight validation implemented; Helper runtime and Helper Access still rejected |
 | Output Artifacts | Typed contract and preflight validation implemented; collection still rejected |
@@ -117,6 +117,8 @@ executable yet.
 - Adapter v2 validates closed typed Challenge and Observation values, exact Evaluation
   Participants, Trusted Helper requirements, Output Artifact declarations, and row limits against
   Adapter hard maximums before Candidate execution.
+- Adapter v2 is the sole execution path. Other Adapter formats fail preflight; there is no weaker
+  compatibility path with ambiguous Adapter/Candidate failure handling.
 - SecureBench creates opaque Challenge and Evaluation IDs. Challenge Evidence rejects nested
   Trusted Helper or Output Artifact evidence carrying either ID from another Evaluation.
 - Candidate-reported failures are distinct from Adapter, Trusted Helper, and framework
@@ -156,8 +158,8 @@ schema support.
 
 At the implementation baseline above:
 
-- full suite: `358 passed, 2 skipped`;
-- focused protocol-component, execution-profile, and schema suite: `58 passed, 2 skipped`;
+- full suite: `359 passed, 2 skipped`;
+- focused protocol-component, execution-profile, and schema suite: `59 passed, 2 skipped`;
 - the two skipped tests are opt-in real-Docker protocol tests; this contract-only batch does not
   change container isolation and they were not enabled for this review;
 - built-in robustness audit: 5 passed, 0 failed, 0 warnings;
