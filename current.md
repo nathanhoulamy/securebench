@@ -1,8 +1,8 @@
 # Current SecureBench v2 state
 
-Last reviewed: 2026-08-19
+Last reviewed: 2026-08-20
 
-Implementation baseline reviewed: `c672ac1` (`Harden verification process boundaries`)
+Implementation baseline reviewed: `e311c3a` plus the schema/runtime alignment pass
 
 Active development branch: `split-verification-v2`
 
@@ -101,8 +101,17 @@ executable yet.
   fresh Evaluation root/container for every case.
 - Adapter stdout is bounded by raw byte count. Truncation and invalid UTF-8 cannot be normalized
   into an acceptable JSON observation.
+- Benchmark, adapter, and Oracle authoring documents reject duplicate mapping keys rather than
+  accepting parser-dependent last-key-wins behavior. Row JSONL and protocol JSON additionally
+  share finite, duplicate-key-free decoding semantics.
+- `securebench.strict-json/v1` uses the same finite, duplicate-key-free decoder as protocol
+  transport, so passive artifact parsing cannot interpret ambiguous objects differently.
+- Directory-tree symlinks are an explicit row-level opt-in. Capture permits only bounded targets
+  that resolve inside the same captured tree.
 - Oracle and adapter manifests fail closed, and Oracle manifests are validated during preflight
   without starting the process.
+- Executable-capability matrix tests prove the registered batched profile, patch and overlay
+  candidates, protocol services, and returned protocol artifacts fail preflight while unsupported.
 - Only Oracle output controls score, pass/fail, and check outcomes.
 - Public result records exclude raw observations, hidden case context, Agent logs, and host paths.
 
@@ -111,38 +120,30 @@ executable yet.
 These do not invalidate the current supported slice, but they must not be described as complete
 schema support.
 
-1. `DirectoryTreeEntry.allow_internal_symlinks` exists in the executable schema but is not listed
-   in the design document's field reference. Document it explicitly or remove it after deciding
-   whether this is author policy or parser/component policy.
-2. `securebench.strict-json/v1` rejects non-finite values but currently uses ordinary
-   `json.loads`, so duplicate object keys are accepted. Protocol JSON correctly rejects them.
-3. Manifest YAML, row JSONL, adapter YAML, and Oracle YAML parsing do not currently reject
-   duplicate mapping keys before normal validation. Duplicate authoring keys can therefore be
-   silently overwritten by the parser.
-4. The implemented protocol evidence has `check_id`, `case_index`, and `challenge_digest`, but not
+1. The implemented protocol evidence has `check_id`, `case_index`, and `challenge_digest`, but not
    the full future envelope's host-generated case ID, correlation ID, resource usage, service
    evidence, or returned-artifact evidence.
-5. The adapter manifest is intentionally minimal (`abi`, `protocol`, `command`). Typed request and
+2. The adapter manifest is intentionally minimal (`abi`, `protocol`, `command`). Typed request and
    observation schemas, topology, service slots, handle injection, and output artifact declarations
    still need versioned component contracts.
-6. `restricted` and `internet` both currently permit only the tester's explicit domain allowlist;
+3. `restricted` and `internet` both currently permit only the tester's explicit domain allowlist;
    only `none` changes the row-level ceiling. This is safe, but the intended semantic distinction
    should be documented or implemented before relying on it for benchmark requirements.
-7. Git-patch primitives are not yet connected to the declared `base_commit`, stopped-workspace
+4. Git-patch primitives are not yet connected to the declared `base_commit`, stopped-workspace
    extraction, generic candidate replay, artifact paths, or protocol evaluation.
-8. The filesystem-overlay canonical format and protected-root policy remain intentionally
+5. The filesystem-overlay canonical format and protected-root policy remain intentionally
    unspecified and unimplemented.
-9. Pack-local Oracle code is trusted and hash-bound but runs as a sanitized host subprocess, not
+6. Pack-local Oracle code is trusted and hash-bound but runs as a sanitized host subprocess, not
    inside a stronger OS sandbox.
-10. Assertion-free adapters, component capability review, base/gold/mutant qualification, and
-    semantic-fidelity review remain admission/governance responsibilities rather than mechanically
-    proven row-schema properties.
+7. Assertion-free adapters, component capability review, base/gold/mutant qualification, and
+   semantic-fidelity review remain admission/governance responsibilities rather than mechanically
+   proven row-schema properties.
 
 ## Verification evidence
 
 At the implementation baseline above:
 
-- full suite: `324 passed, 1 skipped`;
+- full suite: `334 passed, 1 skipped`;
 - the skipped real-Docker protocol test passed separately with
   `SECUREBENCH_DOCKER_INTEGRATION=1`;
 - built-in robustness audit: 5 passed, 0 failed, 0 warnings;
@@ -153,10 +154,10 @@ At the implementation baseline above:
 Useful commands:
 
 ```bash
-.venv/bin/python -m pytest -q
+uv run --no-sync --with pytest python -m pytest -q
 .venv/bin/python -m tools.generate_schemas
 .venv/bin/python -m securebench.cli audit-self --output-dir /tmp/securebench-audit
-SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q \
+SECUREBENCH_DOCKER_INTEGRATION=1 uv run --no-sync --with pytest python -m pytest -q \
   tests/test_v2_protocol_verification.py::test_protocol_check_runs_in_real_fresh_docker_evaluation
 ```
 
@@ -165,9 +166,9 @@ SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q \
 - Original branch: `main` at `bf9a108` (`Complete isolated Terminal-Bench conversion`).
 - Development branch: `split-verification-v2`.
 - `main` is the merge-base and direct ancestor of the development branch.
-- Before this handoff documentation, the development branch was nine commits ahead and zero
+- Before this alignment pass, the development branch was twelve commits ahead and zero
   commits behind `main`.
-- `origin/split-verification-v2` contained all implementation commits through `c672ac1`.
+- `origin/split-verification-v2` contained all committed work through `e311c3a`.
 
 There is an unrelated malformed local ref named `refs/heads/main 2`; commands using `--all` may
 warn or fail on it. Do not alter it without the repository owner's approval.

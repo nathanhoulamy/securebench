@@ -30,7 +30,9 @@ identity.
 
 The implemented `file_bundle` path reads regular files with no-follow semantics
 and change detection. Directory enumeration stops at the row-declared entry
-bound rather than first walking an arbitrarily large tree. Agent command output
+bound rather than first walking an arbitrarily large tree. Directory-tree
+symlinks are rejected by default; a row may opt in only to bounded symlinks
+whose targets resolve within that same captured tree. Agent command output
 is drained without buffering it unboundedly and is capped per stream. Row
 workspaces are removed after execution; if the Agent made their permissions
 host-inaccessible, cleanup restores only the permissions needed for removal in

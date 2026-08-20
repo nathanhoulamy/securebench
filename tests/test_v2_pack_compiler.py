@@ -185,6 +185,42 @@ def test_v2_loader_rejects_legacy_manifest(tmp_path):
         load_benchmark_pack(manifest, tasks)
 
 
+def test_v2_loader_rejects_duplicate_manifest_keys(tmp_path):
+    manifest, tasks = write_pack(tmp_path)
+    manifest.write_text(
+        manifest.read_text().replace(
+            "    agent_network: none\n",
+            "    agent_network: none\n    agent_network: internet\n",
+        )
+    )
+
+    with pytest.raises(ConfigError, match="duplicate mapping key") as error:
+        load_benchmark_pack(manifest, tasks)
+
+    assert "internet" not in str(error.value)
+
+
+def test_v2_loader_rejects_duplicate_row_object_keys(tmp_path):
+    manifest, tasks = write_pack(tmp_path)
+    row = tasks.read_text().strip()
+    tasks.write_text(row[:-1] + ',"id":"shadow/task"}\n')
+
+    with pytest.raises(ConfigError, match="row line 1.*duplicate object key") as error:
+        list(load_benchmark_pack(manifest, tasks).iter_rows())
+
+    assert "shadow/task" not in str(error.value)
+
+
+def test_v2_loader_sanitizes_invalid_row_encoding(tmp_path):
+    manifest, tasks = write_pack(tmp_path)
+    tasks.write_bytes(b"\xff")
+
+    with pytest.raises(ConfigError, match="rows are not valid UTF-8") as error:
+        list(load_benchmark_pack(manifest, tasks).iter_rows())
+
+    assert "\\xff" not in str(error.value)
+
+
 def test_v2_pack_rejects_duplicate_row_ids(tmp_path):
     manifest, tasks = write_pack(tmp_path)
     original = tasks.read_text()

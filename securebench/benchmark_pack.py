@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
@@ -10,6 +9,12 @@ from typing import Any, Iterator
 import yaml
 from pydantic import ValidationError
 
+from securebench.data_formats import (
+    DuplicateJsonKeyError,
+    DuplicateYamlKeyError,
+    strict_json_loads,
+    strict_yaml_loads,
+)
 from securebench.errors import ConfigError
 from securebench.schemas.benchmark import (
     BenchmarkPackManifestV2,
@@ -41,7 +46,7 @@ class BenchmarkPack:
         for line_number, line in _iter_jsonl_lines(self.tasks_path):
             if limit is not None and yielded >= limit:
                 break
-            raw = _load_jsonl_object(self.tasks_path, line_number, line)
+            raw = _load_jsonl_object(line_number, line)
             row = parse_benchmark_row(raw, manifest=self.manifest, line_number=line_number)
             if row.id in seen_ids:
                 raise ConfigError(f"benchmark row line {line_number}: duplicate row id {row.id!r}")
@@ -63,7 +68,18 @@ def parse_benchmark_manifest(data: dict[str, Any]) -> BenchmarkPackManifestV2:
 
 def load_benchmark_manifest(path: str | Path) -> BenchmarkPackManifestV2:
     manifest_path = Path(path)
-    loaded = yaml.safe_load(manifest_path.read_text())
+    try:
+        manifest_text = manifest_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError("Unable to read benchmark manifest") from exc
+    except UnicodeError as exc:
+        raise ConfigError("Benchmark manifest is not valid UTF-8") from exc
+    try:
+        loaded = strict_yaml_loads(manifest_text)
+    except DuplicateYamlKeyError as exc:
+        raise ConfigError("Benchmark manifest contains a duplicate mapping key") from exc
+    except yaml.YAMLError as exc:
+        raise ConfigError("Benchmark manifest is not valid YAML") from exc
     if not isinstance(loaded, dict):
         raise ConfigError("Benchmark manifest root must be an object")
     return parse_benchmark_manifest(loaded)
@@ -100,22 +116,31 @@ def load_benchmark_pack(manifest_path: str | Path, tasks_path: str | Path) -> Be
 
 def _iter_jsonl_lines(path: Path) -> Iterator[tuple[int, str]]:
     try:
-        file = path.open()
+        file = path.open(encoding="utf-8")
     except OSError as exc:
-        raise ConfigError(f"Unable to read benchmark rows {path}: {exc}") from exc
-    with file:
-        for line_number, line in enumerate(file, start=1):
-            if line.strip():
-                yield line_number, line
-
-
-def _load_jsonl_object(path: Path, line_number: int, line: str) -> dict[str, Any]:
+        raise ConfigError("Unable to read benchmark rows") from exc
     try:
-        value = json.loads(line)
-    except json.JSONDecodeError as exc:
-        raise ConfigError(f"Invalid JSON in {path} line {line_number}: {exc.msg}") from exc
+        with file:
+            for line_number, line in enumerate(file, start=1):
+                if line.strip():
+                    yield line_number, line
+    except UnicodeError as exc:
+        raise ConfigError("Benchmark rows are not valid UTF-8") from exc
+    except OSError as exc:
+        raise ConfigError("Unable to read benchmark rows") from exc
+
+
+def _load_jsonl_object(line_number: int, line: str) -> dict[str, Any]:
+    try:
+        value = strict_json_loads(line)
+    except DuplicateJsonKeyError as exc:
+        raise ConfigError(
+            f"Benchmark row line {line_number} contains a duplicate object key"
+        ) from exc
+    except (UnicodeError, ValueError) as exc:
+        raise ConfigError(f"Benchmark row line {line_number} is not valid finite JSON") from exc
     if not isinstance(value, dict):
-        raise ConfigError(f"Benchmark row in {path} line {line_number} must be an object")
+        raise ConfigError(f"Benchmark row line {line_number} must be an object")
     return value
 
 

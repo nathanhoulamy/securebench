@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from securebench.benchmark_compiler import compile_benchmark_pack
@@ -5,6 +7,13 @@ from securebench.benchmark_pack import load_benchmark_pack
 from securebench.errors import ConfigError
 from securebench.execution_profiles import execution_profile, validate_executable_task
 from securebench.harnesses.shared import run_timeout_seconds, task_allowed_domains
+from securebench.schemas.benchmark import (
+    ArtifactSource,
+    BenchmarkRowV2,
+    FilesystemOverlayCandidate,
+    GitPatchCandidate,
+    VerificationSpec,
+)
 
 
 def task():
@@ -20,12 +29,101 @@ def test_strict_profile_is_registered_and_reference_row_is_executable():
     validate_executable_task(task())
 
 
-def test_registered_batched_fallback_is_explicitly_not_implemented():
-    compiled = task()
-    verification = compiled.verification.model_copy(update={"execution_profile": "batched-split/v1"})
+def _unsupported_profile(compiled):
+    return _validated_task_variant(compiled, execution_profile="batched-split/v1")
 
-    with pytest.raises(ConfigError, match="registered but not implemented"):
-        validate_executable_task(compiled.__class__(**{**compiled.__dict__, "verification": verification}))
+
+def _unsupported_git_patch(compiled):
+    candidate = GitPatchCandidate.model_validate(
+        {
+            "type": "git_patch",
+            "max_patch_bytes": 1024,
+            "max_changed_files": 4,
+            "max_changed_bytes": 4096,
+        }
+    )
+    return _validated_task_variant(
+        compiled,
+        candidate=candidate,
+        artifact_source=ArtifactSource(path="meeting_scheduled.ics"),
+        family="repo_patch",
+        input={
+            "repo": "example/repository",
+            "base_commit": "a" * 40,
+            "instructions": "Update the repository.",
+        },
+    )
+
+
+def _unsupported_filesystem_overlay(compiled):
+    candidate = FilesystemOverlayCandidate.model_validate(
+        {
+            "type": "filesystem_overlay",
+            "include_roots": ["/app"],
+            "max_files": 4,
+            "max_total_bytes": 4096,
+        }
+    )
+    return _validated_task_variant(
+        compiled,
+        candidate=candidate,
+        artifact_source=ArtifactSource(path="/app/meeting_scheduled.ics"),
+    )
+
+
+def _validated_task_variant(
+    compiled,
+    *,
+    execution_profile=None,
+    candidate=None,
+    artifact_source=None,
+    family=None,
+    input=None,
+):
+    check = compiled.verification.checks[0]
+    if artifact_source is not None:
+        artifact = check.artifacts[0].model_copy(update={"source": artifact_source})
+        check = check.model_copy(update={"artifacts": (artifact,)})
+    verification_data = compiled.verification.model_dump()
+    verification_data["checks"] = [check.model_dump()]
+    if execution_profile is not None:
+        verification_data["execution_profile"] = execution_profile
+    if candidate is not None:
+        verification_data["candidate"] = candidate.model_dump()
+    verification = VerificationSpec.model_validate(verification_data)
+    row = BenchmarkRowV2.model_validate(
+        {
+            "id": compiled.id,
+            "family": family or compiled.family,
+            "input": compiled.input if input is None else input,
+            "assets": [asset.model_dump() for asset in compiled.assets],
+            "environment": compiled.environment.model_dump(),
+            "verification": verification.model_dump(),
+            "metadata": compiled.metadata,
+        }
+    )
+    return replace(
+        compiled,
+        family=row.family,
+        input=dict(row.input),
+        verification=row.verification,
+    )
+
+
+@pytest.mark.parametrize(
+    ("variant", "message"),
+    [
+        (_unsupported_profile, "registered but not implemented"),
+        (_unsupported_git_patch, "git_patch.*schema-valid but not executable"),
+        (_unsupported_filesystem_overlay, "filesystem_overlay.*schema-valid but not executable"),
+    ],
+    ids=["batched-profile", "git-patch", "filesystem-overlay"],
+)
+def test_executable_capability_matrix_rejects_unsupported_schema_branches(variant, message):
+    compiled = variant(task())
+
+    with pytest.raises(ConfigError, match=message):
+        validate_executable_task(compiled)
 
 
 def test_unknown_profile_does_not_fall_back_to_another_policy():

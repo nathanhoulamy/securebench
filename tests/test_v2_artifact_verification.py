@@ -181,6 +181,25 @@ def test_parser_rejection_is_candidate_evidence_for_oracle(tmp_path):
     assert oracle.evidence[0].error_code == "invalid_json"
 
 
+@pytest.mark.parametrize("content", [b'{"answer":1,"answer":2}', b'{"answer":NaN}'])
+def test_strict_json_parser_rejects_ambiguous_or_non_finite_artifacts(tmp_path, content):
+    task = write_artifact_pack(tmp_path / "pack")
+    store, candidate = capture_result(tmp_path, task, content)
+    oracle = RecordingOracle()
+
+    result = VerificationEngine().verify(
+        task,
+        candidate,
+        store,
+        run_seed="seed-strict-json",
+        oracle=oracle,
+    )
+
+    assert result.status == "failed"
+    assert oracle.evidence[0].status == "candidate_error"
+    assert oracle.evidence[0].error_code == "invalid_json"
+
+
 @pytest.mark.parametrize(
     "verdict",
     [
@@ -319,6 +338,10 @@ timeout_seconds: 0.1
     "manifest",
     [
         "command: [unterminated\n",
+        (
+            "abi: securebench.oracle/v1\ncommand: ['{python}', 'oracle.py']\n"
+            "timeout_seconds: 1\ntimeout_seconds: 2\n"
+        ),
         "abi: securebench.oracle/v1\ncommand: ['{python}', 'oracle.py']\ntimeout_seconds: .inf\n",
         (
             "abi: securebench.oracle/v1\ncommand: ['{python}', 'oracle.py']\n"

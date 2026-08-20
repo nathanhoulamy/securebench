@@ -563,6 +563,7 @@ failures.
 | `candidate.max_total_files` | File bundle only | Aggregate number of exported filesystem entries, including directories and permitted symlinks. |
 | `candidate.max_total_bytes` | File bundle only | Aggregate logical bytes across entries. |
 | `candidate.files` | File bundle only | Exact exported regular files or bounded directory trees. |
+| `candidate.files[].allow_internal_symlinks` | no, directory tree only | Row-level opt-in, defaulting to `false`, for symlinks whose targets resolve inside the same captured tree. Symlink entries and target bytes count toward candidate bounds; absolute, escaping, and oversized targets remain rejected. |
 | `candidate.include_roots` | Overlay only | Absolute roots whose durable changes may be captured. |
 | `candidate.max_files` | Overlay only | Maximum overlay entries. |
 | `candidate.max_total_bytes` | Overlay only | Maximum logical overlay bytes. |

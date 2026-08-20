@@ -8,10 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-import yaml
+from yaml import YAMLError
 
 from securebench.candidates import CandidateReplayError, CandidateStore, StoredCandidate
 from securebench.candidates.replay import replay_file_bundle
+from securebench.data_formats import strict_yaml_loads
 from securebench.sandboxes import CommandResult, DockerSandbox, HostSandbox
 from securebench.sandboxes.base import MAX_COMMAND_OUTPUT_BYTES
 from securebench.schemas.benchmark import ProtocolCheck
@@ -234,8 +235,8 @@ def load_adapter_manifest(task: BenchmarkTask, check: ProtocolCheck) -> AdapterM
             "adapter_manifest_invalid", "Protocol adapter manifest is not valid UTF-8"
         ) from exc
     try:
-        value = yaml.safe_load(manifest_text)
-    except yaml.YAMLError as exc:
+        value = strict_yaml_loads(manifest_text)
+    except YAMLError as exc:
         raise VerificationInfrastructureError(
             "adapter_manifest_invalid", "Protocol adapter manifest is not valid YAML"
         ) from exc

@@ -4,29 +4,29 @@ This plan starts from [`current.md`](current.md). Preserve the core architecture
 visibility lanes, one durable candidate, check-centric verification, preflight capability gating,
 and an Oracle-owned verdict. Do not restore the legacy family-specific verifier path.
 
-## Recommended next batch: small schema/runtime alignment pass
+## Completed 2026-08-20: small schema/runtime alignment pass
 
 Keep the first follow-up intentionally small and finish it before starting another candidate or
 service engine.
 
-1. Add duplicate-key-rejecting loaders for benchmark YAML, row JSONL, adapter YAML, and Oracle
+1. [x] Add duplicate-key-rejecting loaders for benchmark YAML, row JSONL, adapter YAML, and Oracle
    YAML. Return sanitized `ConfigError` or `VerificationInfrastructureError` failures as
    appropriate.
-2. Make `securebench.strict-json/v1` use the same finite, duplicate-key-free JSON semantics as the
+2. [x] Make `securebench.strict-json/v1` use the same finite, duplicate-key-free JSON semantics as the
    protocol transport.
-3. Resolve the `allow_internal_symlinks` ownership question:
+3. [x] Resolve the `allow_internal_symlinks` ownership question:
    - document it in the row-schema field reference if row-level opt-in is intended; or
    - remove it from the author-facing schema and place the policy in a reviewed candidate/parser
      contract.
-4. Add a compact executable-capability matrix test so every intentionally unsupported schema
+4. [x] Add a compact executable-capability matrix test so every intentionally unsupported schema
    branch is proven to fail preflight before Agent execution.
-5. Re-run the full suite, robustness audit, schema generation check, wheel build, and live Docker
+5. [x] Re-run the full suite, robustness audit, schema generation check, wheel build, and live Docker
    protocol test.
 
 Definition of done: authoring ambiguity is rejected consistently, the documentation and executable
 schema agree, and no new schema feature is falsely presented as executable.
 
-## Priority 1: complete the `git_patch` vertical slice
+## Recommended next batch: complete the `git_patch` vertical slice
 
 This is the most direct way to make the `repo_patch` family and DeepSWE-style rows executable.
 Reuse the existing capture and replay primitives rather than designing a second candidate format.

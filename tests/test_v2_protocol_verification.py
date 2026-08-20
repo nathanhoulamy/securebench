@@ -13,7 +13,7 @@ from securebench.candidates import CandidateStore, HostWorkspaceFilesystem, capt
 from securebench.errors import ConfigError
 from securebench.execution_profiles import validate_executable_task
 from securebench.sandboxes import CommandResult
-from securebench.schemas.benchmark import ArtifactCheck
+from securebench.schemas.benchmark import ArtifactCheck, ProtocolCheck, VerificationSpec
 from securebench.verification import OracleSession, OracleVerdict, VerificationEngine
 from securebench.verification.json_data import json_digest
 from securebench.verification.models import (
@@ -532,10 +532,16 @@ def _observed(check_id, case, case_index):
         ),
     ],
 )
-def test_unsupported_protocol_features_fail_preflight(tmp_path, field, value, message):
+def test_executable_capability_matrix_rejects_unsupported_protocol_branches(
+    tmp_path, field, value, message
+):
     task = write_protocol_pack(tmp_path / "pack")
-    check = task.verification.checks[0].model_copy(update={field: tuple(value)})
-    verification = task.verification.model_copy(update={"checks": (check,)})
+    check_data = task.verification.checks[0].model_dump()
+    check_data[field] = value
+    check = ProtocolCheck.model_validate(check_data)
+    verification_data = task.verification.model_dump()
+    verification_data["checks"] = [check.model_dump()]
+    verification = VerificationSpec.model_validate(verification_data)
     changed = task.__class__(**{**task.__dict__, "verification": verification})
 
     with pytest.raises(ConfigError, match=message):
@@ -549,6 +555,23 @@ def test_malformed_adapter_manifest_fails_before_agent_execution(tmp_path):
 
     with pytest.raises(ConfigError, match="not valid YAML"):
         validate_executable_task(task)
+
+
+def test_duplicate_adapter_manifest_keys_fail_before_agent_execution(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack")
+    adapter_manifest = (
+        tmp_path / "pack" / "evaluation_inputs" / "task" / "adapter" / "adapter.yaml"
+    )
+    adapter_manifest.write_text(adapter_manifest.read_text() + "command: ['shadow']\n")
+
+    with pytest.raises(
+        ConfigError, match="Protocol adapter manifest is not valid YAML"
+    ) as error:
+        validate_executable_task(task)
+
+    assert isinstance(error.value.__cause__, VerificationInfrastructureError)
+    assert error.value.__cause__.code == "adapter_manifest_invalid"
+    assert "shadow" not in str(error.value)
 
 
 def test_non_utf8_adapter_manifest_fails_before_agent_execution(tmp_path):
@@ -571,6 +594,20 @@ def test_malformed_oracle_manifest_fails_before_agent_execution(tmp_path):
 
     with pytest.raises(ConfigError, match="Oracle is not executable.*not valid YAML"):
         validate_executable_task(task)
+
+
+def test_duplicate_oracle_manifest_keys_fail_before_agent_execution(tmp_path):
+    task = write_protocol_pack(tmp_path / "pack")
+    oracle_manifest = tmp_path / "pack" / "hidden" / "task" / "oracle" / "oracle.yaml"
+    oracle_manifest.write_text(oracle_manifest.read_text() + "timeout_seconds: 1\n")
+
+    with pytest.raises(
+        ConfigError, match="Oracle is not executable.*not valid YAML"
+    ) as error:
+        validate_executable_task(task)
+
+    assert isinstance(error.value.__cause__, VerificationInfrastructureError)
+    assert error.value.__cause__.code == "oracle_manifest_invalid"
 
 
 def test_backend_incompatible_evaluation_mount_fails_preflight(tmp_path):

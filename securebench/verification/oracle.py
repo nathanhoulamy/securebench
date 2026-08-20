@@ -13,8 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
+from yaml import YAMLError
 
+from securebench.data_formats import strict_yaml_loads
 from securebench.tasks import BenchmarkTask
 from securebench.verification.json_data import canonical_json_bytes, strict_json_loads
 from securebench.verification.models import (
@@ -411,8 +412,8 @@ def load_oracle_manifest(resource_root: str | Path) -> OracleManifest:
             "oracle_manifest_invalid", "Oracle manifest is not valid UTF-8"
         ) from exc
     try:
-        manifest = yaml.safe_load(manifest_text)
-    except yaml.YAMLError as exc:
+        manifest = strict_yaml_loads(manifest_text)
+    except YAMLError as exc:
         raise VerificationInfrastructureError(
             "oracle_manifest_invalid", "Oracle manifest is not valid YAML"
         ) from exc

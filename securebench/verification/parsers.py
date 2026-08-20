@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
+from securebench.data_formats import strict_json_loads
 from securebench.verification.models import ParserRejected
 
 
@@ -68,11 +68,9 @@ def _strict_json(content: bytes) -> Any:
     except UnicodeDecodeError as exc:
         raise ParserRejected("invalid_utf8", "artifact is not valid UTF-8") from exc
     try:
-        value = json.loads(text)
-    except json.JSONDecodeError as exc:
+        return strict_json_loads(text)
+    except ValueError as exc:
         raise ParserRejected("invalid_json", "artifact is not valid JSON") from exc
-    _reject_non_finite(value)
-    return value
 
 
 def _utf8_text(content: bytes) -> str:
@@ -160,14 +158,3 @@ def _tree_manifest(tree: dict[str, Any]) -> dict[str, Any]:
             if isinstance(node, dict)
         ]
     }
-
-
-def _reject_non_finite(value: Any) -> None:
-    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
-        raise ParserRejected("non_finite_json", "JSON numbers must be finite")
-    if isinstance(value, list):
-        for item in value:
-            _reject_non_finite(item)
-    elif isinstance(value, dict):
-        for item in value.values():
-            _reject_non_finite(item)
