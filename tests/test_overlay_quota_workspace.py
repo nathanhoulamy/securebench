@@ -66,8 +66,15 @@ def test_quota_workspace_uses_one_sparse_ext4_volume_with_root_subpaths(
     assert [mount.target for mount in mounts] == ["/app", "/etc/nginx"]
     assert [mount.subpath for mount in mounts] == ["roots/0000", "roots/0001"]
     assert all((workspace.mountpoint / mount.subpath).is_dir() for mount in mounts)
+    assert workspace.host_roots() == {
+        "/app": workspace.mountpoint / "roots/0000",
+        "/etc/nginx": workspace.mountpoint / "roots/0001",
+    }
 
     workspace.close()
+
+    with pytest.raises(OverlayWorkspaceError, match="not active"):
+        workspace.host_roots()
 
     command_names = [command[0][0] for command in commands.commands]
     assert command_names[:4] == ["losetup", "mkfs.ext4", "mount", "docker"]

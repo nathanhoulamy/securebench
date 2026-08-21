@@ -107,6 +107,39 @@ def test_docker_sandbox_can_use_disposable_container_per_command(monkeypatch, tm
     assert seen["command"][-2:] == ["python", "--version"]
 
 
+def test_docker_sandbox_can_lock_read_only_workspace_and_resource_limits(
+    monkeypatch, tmp_path
+):
+    seen = {}
+    monkeypatch.setenv("SECUREBENCH_DOCKER_MEM_LIMIT", "unlimited")
+    monkeypatch.setenv("SECUREBENCH_DOCKER_PIDS_LIMIT", "unlimited")
+    monkeypatch.setenv("SECUREBENCH_DOCKER_TMPFS", "none")
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path,
+        persistent=False,
+        workspace_mount_target="/opt/securebench/agent-inputs",
+        workspace_read_only=True,
+        tmpfs=("/tmp:size=67108864",),
+        allow_resource_overrides=False,
+    )
+
+    sandbox.run(["true"], workdir="/app")
+
+    assert f"{tmp_path}:/opt/securebench/agent-inputs:ro" in seen["command"]
+    assert ["--tmpfs", "/tmp:size=67108864"] == seen["command"][
+        seen["command"].index("--tmpfs") : seen["command"].index("--tmpfs") + 2
+    ]
+    assert "--memory" in seen["command"]
+    assert "--pids-limit" in seen["command"]
+
+
 def test_docker_sandbox_removes_container_after_start_failure(monkeypatch, tmp_path):
     seen = []
 

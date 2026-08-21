@@ -193,6 +193,18 @@ class OverlayQuotaWorkspace:
             for root, subpath in zip(self.include_roots, self.root_subpaths, strict=True)
         )
 
+    def host_roots(self) -> dict[str, Path]:
+        """Return trusted host paths for baseline staging and stopped-state scans."""
+        if not self._mounted or not self._volume_created:
+            raise OverlayWorkspaceError("overlay quota workspace is not active")
+        roots: dict[str, Path] = {}
+        for root, subpath in zip(self.include_roots, self.root_subpaths, strict=True):
+            host_path = self.mountpoint / subpath
+            if host_path.is_symlink() or not host_path.is_dir():
+                raise OverlayWorkspaceError("overlay root subdirectory is unsafe")
+            roots[root] = host_path
+        return roots
+
     def close(self) -> None:
         """Remove the volume before unmounting, detaching, and deleting its backing file."""
         if self._volume_created:

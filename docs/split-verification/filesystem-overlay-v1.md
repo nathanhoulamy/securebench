@@ -1,13 +1,13 @@
 # Filesystem overlay v1
 
-Status: Phases 1 and 2 accepted; the Phase 3 quota backend and Phase 4
-canonical scanner/store are review candidates. `filesystem_overlay` remains
-non-executable.
+Status: Phases 1 and 2 accepted; the Phase 3 quota backend, Phase 4 canonical
+scanner/store, and Phase 5 stopped-Agent capture path are review candidates.
+`filesystem_overlay` remains non-executable.
 
 This document specifies the first reviewable filesystem-overlay Candidate
-format and its threat model. It does not enable capture or replay. The
-author-facing schema migration, quota backend, implementation, and activation
-are separate security gates.
+format and its threat model. The contract does not by itself enable overlay
+rows: schema migration, quota, capture, replay, and final activation remain
+separate security gates.
 
 ## Purpose and trust boundary
 
@@ -374,4 +374,21 @@ contract while retaining the unconditional non-executable overlay gate.
 Phase 4 implements the no-follow bounded tree scanner, canonical diff and
 chunk representation, strict stored-manifest validation, and crash-recoverable
 Candidate-store transactions. It is deliberately not connected to Agent
-capture or Evaluation replay; those remain separate Phase 5 and 6 gates.
+capture at that gate. Phase 5 connects stopped-Agent capture; Evaluation replay
+remains the separate Phase 6 gate.
+
+Phase 5 adds a Linux-only Agent-capture orchestrator without activating overlay
+rows. It copies each declared root from the digest-pinned image directly into
+the quota filesystem under an aggregate timeout, rejects an unsupported
+baseline before Agent startup, and records the trusted baseline manifests.
+Task inputs are mounted read-only at `/opt/securebench/agent-inputs`, outside
+every captured root. The Agent container uses a read-only root filesystem,
+dropped capabilities, `no-new-privileges`, a bounded `/tmp`, and only the
+declared quota-volume roots as durable writable mounts.
+
+The orchestrator removes the Agent container before asking the trusted scanner
+for final root paths. It then stores exactly one Candidate and destroys the
+volume, loop mount, and backing file on success, Agent failure, capture
+rejection, timeout, or interruption. Candidate-store and cleanup faults remain
+infrastructure errors. The normal execution-profile gate is still unconditional
+until replay and adversarial qualification are complete.

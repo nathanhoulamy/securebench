@@ -21,7 +21,6 @@ from securebench.candidates.models import (
 )
 from securebench.candidates.store import (
     CandidateStore,
-    CandidateStoreCapacityError,
     CandidateStoreTransaction,
 )
 from securebench.path_safety import portable_path_text, portable_paths_overlap
@@ -246,8 +245,40 @@ def capture_filesystem_overlay(
     expected = tuple(spec.include_roots)
     if set(baseline_roots) != set(expected) or set(final_roots) != set(expected):
         raise CandidateCaptureError("overlay root mapping does not match include_roots")
-    baseline = _scan_root_set(expected, baseline_roots, scan_limits, "baseline")
-    final = _scan_root_set(expected, final_roots, scan_limits, "final")
+    baseline = scan_overlay_roots(
+        expected, baseline_roots, limits=scan_limits, label="baseline"
+    )
+    return capture_filesystem_overlay_from_baseline(
+        baseline,
+        final_roots,
+        spec,
+        store,
+        baseline_digest=baseline_digest,
+        scan_limits=scan_limits,
+    )
+
+
+def capture_filesystem_overlay_from_baseline(
+    baseline: dict[str, ScannedOverlayRoot],
+    final_roots: dict[str, str | Path],
+    spec: FilesystemOverlayCandidate,
+    store: CandidateStore,
+    *,
+    baseline_digest: str,
+    scan_limits: OverlayScanLimits = OverlayScanLimits(),
+) -> StoredCandidate:
+    """Capture from a trusted manifest recorded before the Agent was started."""
+    expected = tuple(spec.include_roots)
+    if set(baseline) != set(expected) or set(final_roots) != set(expected):
+        raise CandidateCaptureError("overlay root mapping does not match include_roots")
+    for root in expected:
+        if baseline[root].path != root:
+            raise CandidateCaptureError(
+                "overlay baseline manifest root does not match include_roots"
+            )
+    final = scan_overlay_roots(
+        expected, final_roots, limits=scan_limits, label="final"
+    )
     for root in expected:
         if baseline[root].root_identity[5:] != final[root].root_identity[5:]:
             raise CandidateCaptureError("overlay include-root ownership or mode changed")
@@ -285,50 +316,49 @@ def capture_filesystem_overlay(
             changed_bytes += increment
             change_nodes.append((root, path, after))
 
-    try:
-        with store.transaction() as transaction:
-            changes = [
-                _stored_change(root, path, node, transaction)
-                for root, path, node in change_nodes
-            ]
-            roots = [
-                {
-                    "path": root,
-                    "baseline_tree_digest": baseline[root].digest,
-                    "baseline_entries": baseline[root].entries,
-                    "baseline_bytes": baseline[root].bytes,
-                    "final_tree_digest": final[root].digest,
-                    "final_entries": final[root].entries,
-                    "final_bytes": final[root].bytes,
-                }
-                for root in sorted(expected, key=lambda value: value.encode("utf-8"))
-            ]
-            payload = {
-                "format": FILESYSTEM_OVERLAY_FORMAT,
-                "roots": roots,
-                "changes": changes,
-                "changed_paths": len(changes),
-                "changed_bytes": changed_bytes,
+    with store.transaction() as transaction:
+        changes = [
+            _stored_change(root, path, node, transaction)
+            for root, path, node in change_nodes
+        ]
+        roots = [
+            {
+                "path": root,
+                "baseline_tree_digest": baseline[root].digest,
+                "baseline_entries": baseline[root].entries,
+                "baseline_bytes": baseline[root].bytes,
+                "final_tree_digest": final[root].digest,
+                "final_entries": final[root].entries,
+                "final_bytes": final[root].bytes,
             }
-            validate_filesystem_overlay_payload(payload)
-            return transaction.put_candidate(
-                "filesystem_overlay",
-                baseline_digest,
-                payload,
-            )
-    except (CandidateStoreCapacityError, CandidateStoreError) as exc:
-        raise CandidateCaptureError(
-            "filesystem overlay exceeds or corrupts durable storage"
-        ) from exc
+            for root in sorted(expected, key=lambda value: value.encode("utf-8"))
+        ]
+        payload = {
+            "format": FILESYSTEM_OVERLAY_FORMAT,
+            "roots": roots,
+            "changes": changes,
+            "changed_paths": len(changes),
+            "changed_bytes": changed_bytes,
+        }
+        validate_filesystem_overlay_payload(payload)
+        return transaction.put_candidate(
+            "filesystem_overlay",
+            baseline_digest,
+            payload,
+        )
 
 
-def _scan_root_set(
+def scan_overlay_roots(
     roots: tuple[str, ...],
     sources: dict[str, str | Path],
-    limits: OverlayScanLimits,
-    label: str,
+    *,
+    limits: OverlayScanLimits = OverlayScanLimits(),
+    label: str = "tree",
 ) -> dict[str, ScannedOverlayRoot]:
     """Apply tree capacities to the whole root set, not once per root."""
+    if not roots or set(sources) != set(roots):
+        raise CandidateCaptureError("overlay scan sources do not match declared roots")
+    _validate_scan_limits(limits)
     started = time.monotonic()
     result: dict[str, ScannedOverlayRoot] = {}
     entries = 0

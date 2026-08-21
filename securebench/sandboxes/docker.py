@@ -81,6 +81,8 @@ class DockerSandbox(Sandbox):
         mounts: tuple[DockerBindMount, ...] = (),
         volume_mounts: tuple[DockerVolumeMount, ...] = (),
         workspace_mount_target: str = "/workspace",
+        workspace_read_only: bool = False,
+        allow_resource_overrides: bool = True,
     ) -> None:
         self.image = image
         self.env_names = tuple(env_names)
@@ -90,12 +92,21 @@ class DockerSandbox(Sandbox):
         self.cap_drop = tuple(cap_drop)
         self.cap_add = tuple(cap_add)
         self.read_only = read_only
-        self.tmpfs = _docker_tmpfs_override(tmpfs)
-        self.mem_limit = _docker_mem_limit_override(mem_limit)
-        self.pids_limit = _docker_pids_limit_override(pids_limit)
+        if not isinstance(allow_resource_overrides, bool):
+            raise ValueError("Docker allow_resource_overrides must be a boolean")
+        self.tmpfs = _docker_tmpfs_override(tmpfs) if allow_resource_overrides else tuple(tmpfs)
+        self.mem_limit = (
+            _docker_mem_limit_override(mem_limit) if allow_resource_overrides else mem_limit
+        )
+        self.pids_limit = (
+            _docker_pids_limit_override(pids_limit) if allow_resource_overrides else pids_limit
+        )
         self.security_opt = tuple(security_opt)
         self.mounts = tuple(mounts)
         self.volume_mounts = tuple(volume_mounts)
+        if not isinstance(workspace_read_only, bool):
+            raise ValueError("Docker workspace_read_only must be a boolean")
+        self.workspace_read_only = workspace_read_only
         self.workspace_mount_target = _docker_bind_mount_target(workspace_mount_target, allow_workspace_root=True)
         self._container_name: str | None = None
         self._owns_root = root is None
@@ -154,8 +165,11 @@ class DockerSandbox(Sandbox):
                 "--entrypoint",
                 "",
                 *(("-i",) if stdin is not None else ()),
-                "-v",
-                f"{self.root}:{self.workspace_mount_target}",
+                *_docker_workspace_mount_args(
+                    self.root,
+                    self.workspace_mount_target,
+                    read_only=self.workspace_read_only,
+                ),
                 *_docker_bind_mount_args(self.mounts, workspace_mount_target=self.workspace_mount_target),
                 *_docker_volume_mount_args(self.volume_mounts),
                 "-w",
@@ -310,8 +324,11 @@ class DockerSandbox(Sandbox):
                     self._container_name,
                     "--entrypoint",
                     "",
-                    "-v",
-                    f"{self.root}:{self.workspace_mount_target}",
+                    *_docker_workspace_mount_args(
+                        self.root,
+                        self.workspace_mount_target,
+                        read_only=self.workspace_read_only,
+                    ),
                     *_docker_bind_mount_args(
                         self.mounts,
                         workspace_mount_target=self.workspace_mount_target,
@@ -414,6 +431,18 @@ def _docker_path(path: str, *, workspace_mount_target: str = "/workspace") -> st
     return str(PurePosixPath(workspace_mount_target) / relative)
 
 
+def _docker_workspace_mount_args(
+    root: Path,
+    target: str,
+    *,
+    read_only: bool,
+) -> tuple[str, str]:
+    option = f"{root}:{target}"
+    if read_only:
+        option += ":ro"
+    return "-v", option
+
+
 def _docker_env_args(env_names: tuple[str, ...]) -> tuple[str, ...]:
     args: list[str] = []
     for name in env_names:
@@ -489,6 +518,7 @@ def _docker_bind_mount_target(
         allowed_workspace_roots = (
             workspace_root,
             PurePosixPath("/app"),
+            PurePosixPath("/opt/securebench"),
             PurePosixPath("/securebench-workspace"),
             PurePosixPath("/testbed"),
         )
