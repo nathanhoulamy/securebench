@@ -349,6 +349,13 @@ internal symlinks according to the canonical overlay specification. Devices,
 sockets, FIFOs, mounts, processes, credentials, and in-memory state are
 rejected. The overlay may be applied only to the same pinned baseline.
 
+The proposed format, replay order, protected-path policy, and threat model are
+the Phase 1 review candidate in
+[`filesystem-overlay-v1.md`](filesystem-overlay-v1.md). The currently
+registered row shape above remains non-executable until that design and its
+schema migration, quota backend, capture, replay, and adversarial
+qualification gates are accepted.
+
 ## Check branches
 
 ### Artifact check
@@ -752,10 +759,12 @@ fresh-case execution proves prohibitively expensive.
 
 ### Filesystem overlay format
 
-Specify the canonical diff representation, baseline identity, deletions,
-ownership and mode normalization, safe symlinks, path length and depth,
-hardlinks, extended attributes, package-manager state, and protected
-filesystem regions. This remains the highest-risk candidate transport.
+Review the proposed canonical diff representation, baseline identity,
+deletions, normalized metadata, symlink rules, bounds, excluded filesystem
+semantics, and protected regions in
+[`filesystem-overlay-v1.md`](filesystem-overlay-v1.md). Schema and runtime
+implementation remain deferred until the Phase 1 design is accepted. This is
+the highest-risk candidate transport.
 
 ### Oracle publication policy
 

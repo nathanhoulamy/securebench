@@ -171,6 +171,12 @@ Do not implement capture until the canonical representation is reviewed. Specify
 - protected system regions and credential/package-manager state;
 - deterministic capture, content addressing, replay, and cleanup.
 
+The Phase 1 review candidate is documented in
+[`docs/split-verification/filesystem-overlay-v1.md`](docs/split-verification/filesystem-overlay-v1.md).
+It fixes the proposed v1 payload, trust boundary, protected paths, normalized semantics, bounds,
+capture/replay order, failure ownership, and security checklist. This documentation does not make
+the feature executable. Review and accept it before beginning the schema/preflight gate.
+
 Then implement stopped-state capture, clean-baseline replay, passive `source.path`, protocol replay,
 and adversarial tests. This remains the highest-risk candidate transport.
 

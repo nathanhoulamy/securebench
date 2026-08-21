@@ -149,7 +149,10 @@ tester-owned upper bound on actual connectivity.
 - Writable public asset mounts are schema-valid but blocked by current
   execution preflight until composed stopped-filesystem capture is available.
 - `filesystem_overlay` and `batched-split/v1` are registered design surfaces
-  but not executable.
+  but not executable. The proposed overlay format and threat model are the
+  Phase 1 review candidate in
+  [`filesystem-overlay-v1.md`](filesystem-overlay-v1.md); documenting the
+  contract does not enable its schema or runtime.
 - Adapter v2, Challenge Evidence, the Trusted Helper Catalog, and bounded
   Output Artifact collection are implemented. `securebench.http-request-recorder/v1`
   is the only executable helper type; unregistered helpers still fail preflight.
