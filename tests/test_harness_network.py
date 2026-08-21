@@ -1,3 +1,4 @@
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -147,6 +148,24 @@ def test_docker_egress_policy_cleans_up_after_start_failure(monkeypatch):
     assert commands[-3][:3] == ["docker", "rm", "-f"]
     assert commands[-2][:3] == ["docker", "network", "rm"]
     assert commands[-1][:3] == ["docker", "network", "rm"]
+
+
+def test_docker_egress_policy_bounds_docker_operations(monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        if len(calls) == 1:
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(ConfigError, match="create egress network"):
+        with DockerEgressPolicy(("api.openai.com",)):
+            pass
+
+    assert all(kwargs["timeout"] == 30.0 for _, kwargs in calls)
 
 
 def test_docker_egress_policy_surfaces_cleanup_failure(monkeypatch):

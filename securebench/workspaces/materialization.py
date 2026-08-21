@@ -272,6 +272,12 @@ def _reject_existing_non_public_target(item: MaterializedResource, target: Mater
 def _safe_resource_name(name: str) -> str:
     if not isinstance(name, str) or not name:
         raise MaterializationError("resource name must be a non-empty string")
+    if "\x00" in name:
+        raise MaterializationError("resource name may not contain a NUL byte")
+    try:
+        name.encode("utf-8", errors="strict")
+    except UnicodeError as exc:
+        raise MaterializationError("resource name must be valid UTF-8") from exc
     if name.startswith(("/", "\\")) or PurePosixPath(name).is_absolute():
         raise MaterializationError(f"resource name may not be absolute: {name!r}")
     if "/" in name or "\\" in name:

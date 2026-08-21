@@ -38,6 +38,20 @@ workspaces are removed after execution; if the Agent made their permissions
 host-inaccessible, cleanup restores only the permissions needed for removal in
 a networkless, capability-limited container.
 
+The executable backend also applies framework capacities before Agent launch:
+file bundles are limited to 10,000 entries and 256 MiB, while Git patches are
+limited to 2,048 changed paths, 128 MiB of changed content, and a 16 MiB
+canonical patch. A passive artifact check is limited to 10,000 observed entries
+and 256 MiB in aggregate. These ceilings are implementation capacities in
+addition to the lower, row-authored bounds.
+
+Paths that cross a host/container boundary are compared conservatively using
+Unicode-normalized, case-folded components. This prevents names that alias on a
+case-insensitive or normalizing host filesystem from bypassing visibility,
+protected-path, mount-collision, or author allow/exclude policies. Structural
+containment inside the Linux container workdir remains exact, so a path such as
+`/App/result` is not silently treated as being inside `/app`.
+
 For `git_patch`, the digest-pinned image workdir must contain a real, clean Git
 repository whose `HEAD` is exactly the row's full lowercase `input.base_commit`.
 This is checked before Agent execution and again for each fresh reconstruction.
@@ -141,3 +155,7 @@ tester-owned upper bound on actual connectivity.
 - Pack-local Oracle code is trusted and requires review/admission controls.
 - The reference Oracle runs as a sanitized host subprocess; stronger OS-level
   Oracle confinement remains future hardening.
+- Agent workspaces do not yet have a framework-owned disk quota. Candidate
+  capture and observation are bounded, but an Agent can still consume host
+  workspace capacity while it is running; deployment-level storage isolation
+  is required until a backend quota is implemented.

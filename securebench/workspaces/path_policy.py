@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
+from securebench.path_safety import portable_path_is_relative_to
 from securebench.resources import Component
 
 
@@ -158,7 +159,7 @@ def _safe_relative_path(path: str | PurePosixPath) -> PurePosixPath:
         raw = str(path)
     else:
         raw = path
-    if not isinstance(raw, str) or not raw:
+    if not isinstance(raw, str) or not raw or "\x00" in raw:
         raise PathPolicyError("path must be a non-empty relative path")
     if "\\" in raw:
         raise PathPolicyError(f"path may not contain backslashes: {raw!r}")
@@ -181,4 +182,4 @@ def _policy_path(path: str | PurePosixPath) -> PurePosixPath:
 
 
 def _same_or_parent(parent: PurePosixPath, child: PurePosixPath) -> bool:
-    return child == parent or child.is_relative_to(parent)
+    return portable_path_is_relative_to(child, parent)

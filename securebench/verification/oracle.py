@@ -22,9 +22,7 @@ from securebench.verification.models import (
     ArtifactEvidence,
     ChallengeEvidence,
     OracleChallenge,
-    OracleCase,
     OracleVerdict,
-    ProtocolCaseEvidence,
     VerificationInfrastructureError,
 )
 
@@ -52,29 +50,12 @@ class OracleSession(ABC):
     def evaluate_artifact(self, evidence: ArtifactEvidence) -> None:
         ...
 
-    def next_case(
-        self,
-        check_id: str,
-        challenge_source: str,
-        bounds: dict[str, Any],
-    ) -> OracleCase | None:
-        raise NotImplementedError
-
     def next_challenge(
         self,
         check_id: str,
         challenge_source: str,
         bounds: dict[str, Any],
     ) -> OracleChallenge | None:
-        """Challenge-oriented name for the v1 Oracle case transport."""
-        return self.next_case(check_id, challenge_source, bounds)
-
-    def evaluate_case(
-        self,
-        check_id: str,
-        case_context: Any,
-        evidence: ProtocolCaseEvidence,
-    ) -> None:
         raise NotImplementedError
 
     def evaluate_challenge(
@@ -83,8 +64,7 @@ class OracleSession(ABC):
         challenge_context: Any,
         evidence: ChallengeEvidence,
     ) -> None:
-        """Send Challenge Evidence while keeping opaque context host-only."""
-        self.evaluate_case(check_id, challenge_context, evidence)
+        raise NotImplementedError
 
     @abstractmethod
     def finalize(self) -> OracleVerdict:
@@ -167,12 +147,12 @@ class OracleProcessSession(OracleSession):
         )
         _require_ack(response)
 
-    def next_case(
+    def next_challenge(
         self,
         check_id: str,
         challenge_source: str,
         bounds: dict[str, Any],
-    ) -> OracleCase | None:
+    ) -> OracleChallenge | None:
         response = self._request(
             {
                 "op": "next_case",
@@ -211,17 +191,17 @@ class OracleProcessSession(OracleSession):
             )
         return case
 
-    def evaluate_case(
+    def evaluate_challenge(
         self,
         check_id: str,
-        case_context: Any,
-        evidence: ProtocolCaseEvidence,
+        challenge_context: Any,
+        evidence: ChallengeEvidence,
     ) -> None:
         response = self._request(
             {
                 "op": "evaluate_case",
                 "check_id": check_id,
-                "case_context": case_context,
+                "case_context": challenge_context,
                 "evidence": evidence.internal_record(),
             },
             expected="ack",
@@ -258,17 +238,22 @@ class OracleProcessSession(OracleSession):
             ) from exc
 
     def close(self) -> None:
+        cleanup_error: BaseException | None = None
         try:
             if self.process.poll() is None:
                 try:
                     self.process.terminate()
+                except OSError as exc:
+                    cleanup_error = exc
+                try:
                     self.process.wait(timeout=1)
-                except (OSError, subprocess.TimeoutExpired):
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    cleanup_error = exc
                     try:
                         self.process.kill()
                         self.process.wait(timeout=1)
-                    except (OSError, subprocess.TimeoutExpired):
-                        pass
+                    except (OSError, subprocess.TimeoutExpired) as exc:
+                        cleanup_error = exc
         finally:
             for stream in (self.process.stdin, self.process.stdout):
                 if stream is not None:
@@ -276,6 +261,15 @@ class OracleProcessSession(OracleSession):
                         stream.close()
                     except OSError:
                         pass
+        if self.process.poll() is None:
+            cleanup_error = cleanup_error or RuntimeError("Oracle process remained alive")
+        else:
+            cleanup_error = None
+        if cleanup_error is not None:
+            raise VerificationInfrastructureError(
+                "oracle_cleanup_failed",
+                "Oracle process cleanup failed",
+            ) from cleanup_error
 
     def _request(
         self,

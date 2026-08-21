@@ -13,11 +13,16 @@ from typing import Any
 
 from securebench.errors import ConfigError
 from securebench.candidates.git_repository import GitRepositoryError, validate_clean_repository
+from securebench.path_safety import portable_paths_equal, portable_paths_overlap
 from securebench.schemas.benchmark import GitPatchCandidate
 from securebench.workspaces.materialization import MaterializationPlan
 from securebench.workspaces.path_policy import PathPolicyError, validate_workspace_mount_for_component
 from securebench.sandboxes import Sandbox
 from securebench.tasks import BenchmarkTask
+
+
+MATERIALIZATION_OPERATION_TIMEOUT_SECONDS = 120.0
+MATERIALIZATION_CLEANUP_TIMEOUT_SECONDS = 30.0
 
 
 def container_image_for_task(task: BenchmarkTask) -> str:
@@ -55,12 +60,22 @@ def materialize_image_workdir(task: BenchmarkTask, destination: Path) -> None:
     source = task.environment.workdir
     destination.mkdir(parents=True, exist_ok=True)
     container = f"securebench-copy-{uuid.uuid4().hex}"
-    created = subprocess.run(
-        ["docker", "create", "--name", container, image],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        created = subprocess.run(
+            ["docker", "create", "--name", container, image],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=MATERIALIZATION_OPERATION_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        try:
+            _remove_materialization_container(container)
+        except ConfigError as cleanup_error:
+            raise ConfigError(
+                "failed to create and remove image materialization container"
+            ) from cleanup_error
+        raise ConfigError("failed to create image materialization container") from exc
     if created.returncode != 0:
         _remove_materialization_container(container)
         raise ConfigError(
@@ -68,12 +83,16 @@ def materialize_image_workdir(task: BenchmarkTask, destination: Path) -> None:
             f"for {image!r}: {created.stderr.strip()}"
         )
     try:
-        copied = subprocess.run(
-            ["docker", "cp", f"{container}:{source}/.", str(destination)],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            copied = subprocess.run(
+                ["docker", "cp", f"{container}:{source}/.", str(destination)],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=MATERIALIZATION_OPERATION_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ConfigError("failed to materialize benchmark image workdir") from exc
         if copied.returncode != 0:
             raise ConfigError(
                 "failed to materialize benchmark image workdir "
@@ -92,13 +111,17 @@ def materialize_image_workdir(task: BenchmarkTask, destination: Path) -> None:
 
 
 def _remove_materialization_container(container: str) -> None:
-    removed = subprocess.run(
-        ["docker", "rm", "-f", container],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if removed.returncode != 0 and "No such container" not in removed.stderr:
+    try:
+        removed = subprocess.run(
+            ["docker", "rm", "-f", container],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=MATERIALIZATION_CLEANUP_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ConfigError("failed to remove image materialization container") from exc
+    if removed.returncode != 0 and "no such container" not in removed.stderr.lower():
         raise ConfigError("failed to remove image materialization container")
 
 
@@ -203,8 +226,7 @@ def reject_git_patch_framework_collisions(
     if not isinstance(task.verification.candidate, GitPatchCandidate):
         return
     for relative in (task_file, "securebench"):
-        path = workspace.joinpath(*PurePosixPath(relative).parts)
-        if path.exists() or path.is_symlink():
+        if _portable_workspace_path_exists(workspace, PurePosixPath(relative)):
             raise ConfigError(
                 "git_patch repository baseline collides with framework-owned path: "
                 f"{relative}"
@@ -212,7 +234,31 @@ def reject_git_patch_framework_collisions(
 
 
 def paths_overlap(left: PurePosixPath, right: PurePosixPath) -> bool:
-    return left == right or left.is_relative_to(right) or right.is_relative_to(left)
+    return portable_paths_overlap(left, right)
+
+
+def _portable_workspace_path_exists(root: Path, relative: PurePosixPath) -> bool:
+    current = root
+    for part in relative.parts:
+        try:
+            match = next(
+                (
+                    entry
+                    for entry in current.iterdir()
+                    if portable_paths_equal(entry.name, part)
+                ),
+                None,
+            )
+        except (NotADirectoryError, FileNotFoundError):
+            return False
+        except OSError as exc:
+            raise ConfigError("failed to inspect git_patch repository baseline") from exc
+        if match is None:
+            return False
+        if match.is_symlink():
+            return True
+        current = match
+    return True
 
 
 def close_sandbox(sandbox: Sandbox) -> None:

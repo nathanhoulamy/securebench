@@ -117,6 +117,24 @@ The host and live-Docker tests cover the combined Observation, HTTP recorder, an
 path across two fresh Evaluations. The current backend enforces an aggregate 16 MiB / 4,096-entry
 collector capacity per Evaluation in addition to Adapter maxima and row-reduced limits.
 
+## Completed 2026-08-21: portability and lifecycle hardening
+
+1. [x] Treat case and Unicode-normalization aliases conservatively at host/container path
+   boundaries, while retaining exact containment where Linux workdir semantics require it.
+2. [x] Bound hostile directory enumeration before sorting for Git stopped-worktree capture and
+   passive file-tree observation.
+3. [x] Add executable backend capacities above row-authored candidate and passive-artifact bounds.
+4. [x] Bound Docker and Oracle startup/cleanup operations and surface unreaped resources as
+   infrastructure failures.
+5. [x] Remove the obsolete Python-side Oracle case/evidence compatibility aliases while retaining
+   the documented Oracle wire ABI.
+6. [x] Add defense-in-depth validation at Output Artifact collection and reject noncanonical,
+   NUL-containing, reserved, or mount-overlapping paths before collection.
+
+The remaining resource-control gap is the host-backed Agent workspace itself: it needs a
+framework-owned disk quota or deployment-enforced isolated storage before SecureBench can claim
+that a running Agent cannot exhaust host disk capacity.
+
 ## Priority 5: filesystem overlays
 
 Do not implement capture until the canonical representation is reviewed. Specify:

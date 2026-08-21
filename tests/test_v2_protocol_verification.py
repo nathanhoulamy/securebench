@@ -24,8 +24,8 @@ from securebench.schemas.benchmark import ArtifactCheck, ProtocolCheck, Verifica
 from securebench.verification import OracleSession, OracleVerdict, VerificationEngine
 from securebench.verification.json_data import json_digest
 from securebench.verification.models import (
-    OracleCase,
-    ProtocolCaseEvidence,
+    ChallengeEvidence,
+    OracleChallenge,
     TrustedHelperEvidence,
     VerificationInfrastructureError,
 )
@@ -41,7 +41,7 @@ DIGEST = "sha256:" + "d" * 64
 
 
 class ProtocolOracle(OracleSession):
-    def __init__(self, cases: list[OracleCase]) -> None:
+    def __init__(self, cases: list[OracleChallenge]) -> None:
         self.pending = list(cases)
         self.evidence = []
         self.contexts = []
@@ -53,14 +53,14 @@ class ProtocolOracle(OracleSession):
     def evaluate_artifact(self, evidence):
         raise AssertionError("artifact evidence was not expected")
 
-    def next_case(self, check_id, challenge_source, bounds):
+    def next_challenge(self, check_id, challenge_source, bounds):
         assert check_id == "behavior"
         assert challenge_source == "host.cases"
         assert bounds == {"max_cases": 2, "max_case_bytes": 1024}
         self.next_calls += 1
         return self.pending.pop(0) if self.pending else None
 
-    def evaluate_case(self, check_id, case_context, evidence):
+    def evaluate_challenge(self, check_id, case_context, evidence):
         self.contexts.append(case_context)
         self.evidence.append(evidence)
 
@@ -410,7 +410,7 @@ def test_git_patch_protocol_case_replays_into_fresh_repository(tmp_path, monkeyp
         "securebench.verification.protocol.remove_untrusted_tree",
         lambda path, *, image: shutil.rmtree(path),
     )
-    oracle = ProtocolOracle([OracleCase({"value": 5}, {"expected": 10})])
+    oracle = ProtocolOracle([OracleChallenge({"value": 5}, {"expected": 10})])
 
     result = VerificationEngine().verify(
         task,
@@ -487,8 +487,8 @@ def test_protocol_cases_use_fresh_evaluation_roots_and_sanitized_results(tmp_pat
     )
     oracle = ProtocolOracle(
         [
-            OracleCase({"value": 2}, {"expected": 4, "host_secret": "first-secret"}),
-            OracleCase({"value": 3}, {"expected": 6, "host_secret": "second-secret"}),
+            OracleChallenge({"value": 2}, {"expected": 4, "host_secret": "first-secret"}),
+            OracleChallenge({"value": 3}, {"expected": 6, "host_secret": "second-secret"}),
         ]
     )
 
@@ -567,8 +567,8 @@ def test_adapter_uses_typed_envelopes_and_host_owned_evaluation_ids(
     )
     oracle = ProtocolOracle(
         [
-            OracleCase({"value": 2}, {"expected": 4}),
-            OracleCase({"value": 3}, {"expected": 6}),
+            OracleChallenge({"value": 2}, {"expected": 4}),
+            OracleChallenge({"value": 3}, {"expected": 6}),
         ]
     )
 
@@ -656,8 +656,8 @@ def test_output_artifacts_are_collected_from_each_fresh_evaluation(
     )
     oracle = ProtocolOracle(
         [
-            OracleCase({"value": 2}, {"expected": 4}),
-            OracleCase({"value": 3}, {"expected": 6}),
+            OracleChallenge({"value": 2}, {"expected": 4}),
+            OracleChallenge({"value": 3}, {"expected": 6}),
         ]
     )
 
@@ -799,7 +799,7 @@ def test_protocol_wires_scoped_helper_access_and_correlated_evidence(
         "securebench.verification.protocol.remove_untrusted_tree",
         lambda path, *, image: shutil.rmtree(path),
     )
-    oracle = ProtocolOracle([OracleCase({"value": 2}, {"expected": 4})])
+    oracle = ProtocolOracle([OracleChallenge({"value": 2}, {"expected": 4})])
 
     result = VerificationEngine().verify(
         task,
@@ -833,7 +833,7 @@ def test_adapter_failure_is_infrastructure_not_candidate_evidence(tmp_path):
             0,
             "challenge-test",
             "evaluation-test",
-            OracleCase({"value": 1}, None),
+            OracleChallenge({"value": 1}, None),
             CommandResult(command=("adapter",), exit_code=1),
             1,
         )
@@ -879,7 +879,7 @@ def test_adapter_rejects_oracle_challenge_outside_declared_schema(tmp_path):
     manifest = load_adapter_manifest(task, check)
 
     with pytest.raises(VerificationInfrastructureError) as error:
-        _validated_challenge(OracleCase({"value": "wrong-type"}, None), check, manifest)
+        _validated_challenge(OracleChallenge({"value": "wrong-type"}, None), check, manifest)
 
     assert error.value.code == "oracle_challenge_schema_mismatch"
 
@@ -896,7 +896,7 @@ def test_protocol_check_runs_in_real_fresh_docker_evaluation(tmp_path):
     task = write_protocol_pack(tmp_path / "pack", image=image)
     validate_executable_task(task)
     store, candidate = capture_answer(tmp_path, task)
-    oracle = ProtocolOracle([OracleCase({"value": 5}, {"expected": 10})])
+    oracle = ProtocolOracle([OracleChallenge({"value": 5}, {"expected": 10})])
 
     result = VerificationEngine().verify(
         task,
@@ -932,8 +932,8 @@ def test_http_recorder_runs_on_a_fresh_internal_docker_evaluation_network(tmp_pa
     store, candidate = capture_answer(tmp_path, task)
     oracle = ProtocolOracle(
         [
-            OracleCase({"value": 5}, {"expected": 10}),
-            OracleCase({"value": 7}, {"expected": 14}),
+            OracleChallenge({"value": 5}, {"expected": 10}),
+            OracleChallenge({"value": 7}, {"expected": 14}),
         ]
     )
 
@@ -1022,7 +1022,7 @@ WORKDIR /app
             baseline_digest=task.baseline_digest,
             base_commit=base_commit,
         )
-        oracle = ProtocolOracle([OracleCase({"value": 5}, {"expected": 10})])
+        oracle = ProtocolOracle([OracleChallenge({"value": 5}, {"expected": 10})])
 
         result = VerificationEngine().verify(
             task,
@@ -1048,7 +1048,7 @@ WORKDIR /app
 
 def test_protocol_candidate_error_is_scored_without_starting_evaluation(tmp_path, monkeypatch):
     task = write_protocol_pack(tmp_path / "pack", recorder=True)
-    oracle = ProtocolOracle([OracleCase({"value": 2}, {"expected": 4})])
+    oracle = ProtocolOracle([OracleChallenge({"value": 2}, {"expected": 4})])
 
     def unexpected_sandbox(**kwargs):
         raise AssertionError("candidate-error verification must not start Evaluation")
@@ -1068,14 +1068,14 @@ def test_protocol_candidate_error_is_scored_without_starting_evaluation(tmp_path
 
     assert result.status == "failed"
     assert oracle.evidence[0].status == "candidate_error"
-    assert oracle.evidence[0].error_code == "agent_timeout"
+    assert oracle.evidence[0].failure_code == "agent_timeout"
     assert result.checks[0].cases == 1
 
 
 def test_protocol_candidate_error_still_validates_oracle_challenge_bounds(tmp_path):
     task = write_protocol_pack(tmp_path / "pack")
     oracle = ProtocolOracle(
-        [OracleCase({"payload": "x" * 1024}, {"expected": "irrelevant"})]
+        [OracleChallenge({"payload": "x" * 1024}, {"expected": "irrelevant"})]
     )
 
     result = VerificationEngine().verify_candidate_error(
@@ -1113,7 +1113,7 @@ def test_artifact_and_protocol_checks_compose_in_one_oracle_session(tmp_path):
 
     class MixedOracle(ProtocolOracle):
         def __init__(self):
-            super().__init__([OracleCase({"value": 2}, {"expected": 4})])
+            super().__init__([OracleChallenge({"value": 2}, {"expected": 4})])
             self.artifacts = []
 
         def evaluate_artifact(self, evidence):
@@ -1128,9 +1128,9 @@ def test_artifact_and_protocol_checks_compose_in_one_oracle_session(tmp_path):
 
     class FixedProtocolRunner:
         def evaluate(self, task, candidate, store, check, oracle):
-            case = oracle.next_case(check.id, check.challenge.source, {"max_cases": 2, "max_case_bytes": 1024})
+            case = oracle.next_challenge(check.id, check.challenge.source, {"max_cases": 2, "max_case_bytes": 1024})
             evidence = _observed(check.id, case, 0)
-            oracle.evaluate_case(check.id, case.context, evidence)
+            oracle.evaluate_challenge(check.id, case.context, evidence)
             return (evidence,)
 
     oracle = MixedOracle()
@@ -1152,7 +1152,7 @@ def test_oracle_cannot_exceed_protocol_case_limit(tmp_path, monkeypatch):
     task = write_protocol_pack(tmp_path / "pack")
     store, candidate = capture_answer(tmp_path, task)
     oracle = ProtocolOracle(
-        [OracleCase({"value": index}, {"expected": index}) for index in range(3)]
+        [OracleChallenge({"value": index}, {"expected": index}) for index in range(3)]
     )
     monkeypatch.setattr(
         "securebench.verification.protocol.ProtocolCheckRunner._evaluate_case",
@@ -1186,7 +1186,7 @@ def test_adapter_rejects_ambiguous_or_non_finite_response_json(tmp_path, stdout)
             0,
             "challenge-test",
             "evaluation-test",
-            OracleCase({"value": 1}, None),
+            OracleChallenge({"value": 1}, None),
             CommandResult(command=("adapter",), exit_code=0, stdout=stdout),
             1,
         )
@@ -1209,7 +1209,7 @@ def test_adapter_enforces_response_byte_bound(tmp_path):
             0,
             "challenge-test",
             "evaluation-test",
-            OracleCase({"value": 1}, None),
+            OracleChallenge({"value": 1}, None),
             CommandResult(command=("adapter",), exit_code=0, stdout='{"answer":2}'),
             1,
         )
@@ -1229,7 +1229,7 @@ def test_adapter_rejects_truncated_output_before_parsing(tmp_path):
             0,
             "challenge-test",
             "evaluation-test",
-            OracleCase({"value": 1}, None),
+            OracleChallenge({"value": 1}, None),
             CommandResult(
                 command=("adapter",),
                 exit_code=0,
@@ -1255,7 +1255,7 @@ def test_adapter_rejects_invalid_utf8_before_parsing(tmp_path):
             0,
             "challenge-test",
             "evaluation-test",
-            OracleCase({"value": 1}, None),
+            OracleChallenge({"value": 1}, None),
             CommandResult(
                 command=("adapter",),
                 exit_code=0,
@@ -1270,7 +1270,7 @@ def test_adapter_rejects_invalid_utf8_before_parsing(tmp_path):
 
 
 def _observed(check_id, case, case_index):
-    return ProtocolCaseEvidence(
+    return ChallengeEvidence(
         check_id=check_id,
         challenge_id=f"challenge-{case_index}",
         evaluation_id=f"evaluation-{case_index}",
@@ -1425,16 +1425,16 @@ for line in sys.stdin:
     )
     session = OracleProcessSession(oracle_root)
     try:
-        case = session.next_case(
+        case = session.next_challenge(
             "behavior",
             "host.cases",
             {"max_cases": 1, "max_case_bytes": 64},
         )
-        assert case == OracleCase({"value": 7}, {"expected": 14})
-        session.evaluate_case(
+        assert case == OracleChallenge({"value": 7}, {"expected": 14})
+        session.evaluate_challenge(
             "behavior",
             case.context,
-            ProtocolCaseEvidence(
+            ChallengeEvidence(
                 check_id="behavior",
                 challenge_id="challenge-test",
                 evaluation_id="evaluation-test",
@@ -1470,7 +1470,7 @@ timeout_seconds: 1
     session = OracleProcessSession(oracle_root)
     try:
         with pytest.raises(VerificationInfrastructureError) as error:
-            session.next_case(
+            session.next_challenge(
                 "behavior",
                 "host.cases",
                 {"max_cases": 1, "max_case_bytes": 16},

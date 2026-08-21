@@ -106,6 +106,25 @@ def test_manifest_requires_v2_and_non_overlapping_roots():
             )
         )
 
+    with pytest.raises(ValidationError, match="may not overlap"):
+        BenchmarkPackManifestV2.model_validate(
+            manifest_data(
+                resource_roots={
+                    "public": "Assets/",
+                    "runtime": "assets/runtime/",
+                    "host": "hidden/",
+                }
+            )
+        )
+
+
+def test_author_paths_reject_embedded_nul_bytes():
+    row = passive_row_data()
+    row["assets"][0]["mount"] = "/app/input\x00shadow.json"
+
+    with pytest.raises(ValidationError, match="absolute path"):
+        BenchmarkRowDocumentV2.model_validate(row)
+
 
 def test_row_defaults_and_family_contract_are_applied():
     manifest = BenchmarkPackManifestV2.model_validate(manifest_data())

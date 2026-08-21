@@ -56,6 +56,7 @@ class VerificationEngine:
     ) -> VerificationResultV2:
         session = oracle
         owns_session = session is None
+        result: VerificationResultV2 | None = None
         try:
             _validate_candidate_binding(task, candidate, store)
             if session is None:
@@ -91,11 +92,11 @@ class VerificationEngine:
                 )
             verdict = session.finalize()
             summaries = _apply_oracle_outcomes(summaries, verdict)
-            return _result(task, candidate, verdict, tuple(summaries))
+            result = _result(task, candidate, verdict, tuple(summaries))
         except VerificationInfrastructureError as exc:
-            return _infrastructure_result(task, candidate, exc)
+            result = _infrastructure_result(task, candidate, exc)
         except Exception as exc:
-            return _infrastructure_result(
+            result = _infrastructure_result(
                 task,
                 candidate,
                 VerificationInfrastructureError(
@@ -105,7 +106,10 @@ class VerificationEngine:
             )
         finally:
             if owns_session and session is not None:
-                session.close()
+                result = _result_after_oracle_close(task, candidate, session, result)
+        if result is None:
+            raise RuntimeError("verification ended without a result")
+        return result
 
     def infrastructure_error(
         self,
@@ -134,6 +138,7 @@ class VerificationEngine:
         """Let the Oracle score a missing, timed-out, or uncapturable candidate."""
         session = oracle
         owns_session = session is None
+        result: VerificationResultV2 | None = None
         try:
             _validate_task_inputs(task)
             if session is None:
@@ -183,11 +188,11 @@ class VerificationEngine:
                 )
             verdict = session.finalize()
             summaries = _apply_oracle_outcomes(summaries, verdict)
-            return _result(task, None, verdict, tuple(summaries))
+            result = _result(task, None, verdict, tuple(summaries))
         except VerificationInfrastructureError as exc:
-            return _infrastructure_result(task, None, exc)
+            result = _infrastructure_result(task, None, exc)
         except Exception as exc:
-            return _infrastructure_result(
+            result = _infrastructure_result(
                 task,
                 None,
                 VerificationInfrastructureError(
@@ -197,7 +202,10 @@ class VerificationEngine:
             )
         finally:
             if owns_session and session is not None:
-                session.close()
+                result = _result_after_oracle_close(task, None, session, result)
+        if result is None:
+            raise RuntimeError("verification ended without a result")
+        return result
 
     def _observe(
         self,
@@ -248,6 +256,28 @@ class VerificationEngine:
                 error_code=exc.code,
                 error_message=exc.public_message,
             )
+
+
+def _result_after_oracle_close(
+    task: BenchmarkTask,
+    candidate: StoredCandidate | None,
+    session: OracleSession,
+    result: VerificationResultV2 | None,
+) -> VerificationResultV2 | None:
+    try:
+        session.close()
+    except VerificationInfrastructureError as exc:
+        return _infrastructure_result(task, candidate, exc)
+    except Exception:
+        return _infrastructure_result(
+            task,
+            candidate,
+            VerificationInfrastructureError(
+                "oracle_cleanup_failed",
+                "Oracle process cleanup failed",
+            ),
+        )
+    return result
 
 
 def _candidate_artifact(

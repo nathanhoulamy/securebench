@@ -42,6 +42,7 @@ def observe_bounded_path(
         or ".." in relative.parts
         or not relative.parts
         or "\\" in source_path
+        or "\x00" in source_path
     ):
         raise CandidateObservationError(
             "artifact_path_escape", f"{subject} path is not safely contained"
@@ -164,19 +165,25 @@ def _bounded_tree(
         directories: list[Path] = []
         try:
             with os.scandir(current) as entries:
-                children = sorted(
-                    entries,
-                    key=lambda item: item.name.encode("utf-8", errors="surrogateescape"),
+                children = []
+                remaining = maximum_files - len(nodes)
+                for entry in entries:
+                    if len(children) >= remaining:
+                        raise CandidateObservationError(
+                            "artifact_too_large",
+                            f"{subject} tree exceeds its entry bound",
+                        )
+                    children.append(entry)
+                children.sort(
+                    key=lambda item: item.name.encode("utf-8", errors="surrogateescape")
                 )
+        except CandidateObservationError:
+            raise
         except OSError as exc:
             raise CandidateObservationError(
                 "artifact_unreadable", f"{subject} tree is inaccessible"
             ) from exc
         for child in children:
-            if len(nodes) >= maximum_files:
-                raise CandidateObservationError(
-                    "artifact_too_large", f"{subject} tree exceeds its entry bound"
-                )
             path = Path(child.path)
             relative = PurePosixPath(path.relative_to(root).as_posix())
             _validate_relative_path(relative, subject=subject)

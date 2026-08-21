@@ -23,6 +23,7 @@ PROVIDER_RELAY_ALIAS = "securebench-provider-relay"
 PROVIDER_RELAY_PORT = 8090
 PROVIDER_RELAY_IMAGE = "python:3.11-slim"
 PROVIDER_RELAY_CODEX_AUTH_TARGET = "/var/lib/securebench/codex-auth"
+DOCKER_OPERATION_TIMEOUT_SECONDS = 30.0
 _LABEL_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
 
@@ -638,11 +639,29 @@ def _proxy_env() -> dict[str, str]:
 
 
 def _run_docker(command: list[str], action: str) -> None:
-    completed = subprocess.run(command, check=False, capture_output=True, text=True)
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=DOCKER_OPERATION_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ConfigError(f"Failed to {action}: Docker operation did not complete") from exc
     if completed.returncode != 0:
         raise ConfigError(f"Failed to {action}: {completed.stderr.strip()}")
 
 
 def _docker_cleanup_succeeded(command: list[str], *, missing_marker: str) -> bool:
-    completed = subprocess.run(command, check=False, capture_output=True, text=True)
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=DOCKER_OPERATION_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
     return completed.returncode == 0 or missing_marker.lower() in completed.stderr.lower()

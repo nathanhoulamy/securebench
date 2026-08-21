@@ -5,7 +5,13 @@ import pytest
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.errors import ConfigError
-from securebench.execution_profiles import execution_profile, validate_executable_task
+from securebench.execution_profiles import (
+    MAX_FILE_BUNDLE_BYTES,
+    MAX_GIT_CHANGED_BYTES,
+    MAX_PASSIVE_ARTIFACT_BYTES_PER_CHECK,
+    execution_profile,
+    validate_executable_task,
+)
 from securebench.harnesses.shared import run_timeout_seconds, task_allowed_domains
 from securebench.schemas.benchmark import (
     ArtifactSource,
@@ -153,6 +159,20 @@ def test_current_capture_backend_rejects_bundle_entries_outside_workdir():
     with pytest.raises(ConfigError, match="requires file_bundle entries under"):
         validate_executable_task(changed)
 
+    case_aliased_entry = candidate.files[0].model_copy(
+        update={"path": "/App/result.ics"}
+    )
+    case_aliased_candidate = candidate.model_copy(update={"files": (case_aliased_entry,)})
+    case_aliased_verification = compiled.verification.model_copy(
+        update={"candidate": case_aliased_candidate}
+    )
+    case_aliased = compiled.__class__(
+        **{**compiled.__dict__, "verification": case_aliased_verification}
+    )
+
+    with pytest.raises(ConfigError, match="requires file_bundle entries under"):
+        validate_executable_task(case_aliased)
+
 
 def test_harness_timeout_is_an_upper_bound_on_row_timeout():
     compiled = task()
@@ -180,6 +200,32 @@ def test_current_backend_rejects_writable_or_candidate_overlapping_assets():
         validate_executable_task(overlapping)
 
 
+def test_current_backend_rejects_portable_aliases_of_framework_paths():
+    compiled = task()
+    candidate = compiled.verification.candidate
+    aliased_entry = candidate.files[0].model_copy(
+        update={"path": "/app/SecureBench/public/result.ics"}
+    )
+    aliased_candidate = candidate.model_copy(update={"files": (aliased_entry,)})
+    aliased_verification = compiled.verification.model_copy(
+        update={"candidate": aliased_candidate}
+    )
+    aliased = compiled.__class__(
+        **{**compiled.__dict__, "verification": aliased_verification}
+    )
+
+    with pytest.raises(ConfigError, match="framework materialization root"):
+        validate_executable_task(aliased)
+
+    aliased_asset = compiled.assets[0].model_copy(
+        update={"mount": "/app/SECUREBENCH/evaluation_inputs/public.ics"}
+    )
+    mounted = compiled.__class__(**{**compiled.__dict__, "assets": (aliased_asset,)})
+
+    with pytest.raises(ConfigError, match="framework materialization root"):
+        validate_executable_task(mounted)
+
+
 def test_current_backend_rejects_unknown_parser_before_agent_launch():
     compiled = task()
     check = compiled.verification.checks[0]
@@ -189,4 +235,46 @@ def test_current_backend_rejects_unknown_parser_before_agent_launch():
     changed = compiled.__class__(**{**compiled.__dict__, "verification": verification})
 
     with pytest.raises(ConfigError, match="unknown parser profile"):
+        validate_executable_task(changed)
+
+
+def test_current_backend_rejects_candidate_bounds_above_its_capacity():
+    compiled = task()
+    bundle = compiled.verification.candidate.model_copy(
+        update={"max_total_bytes": MAX_FILE_BUNDLE_BYTES + 1}
+    )
+    bundle_verification = compiled.verification.model_copy(update={"candidate": bundle})
+    oversized_bundle = compiled.__class__(
+        **{**compiled.__dict__, "verification": bundle_verification}
+    )
+
+    with pytest.raises(ConfigError, match="file_bundle candidate bounds"):
+        validate_executable_task(oversized_bundle)
+
+    git_task = _unsupported_git_patch(compiled)
+    git_candidate = git_task.verification.candidate.model_copy(
+        update={"max_changed_bytes": MAX_GIT_CHANGED_BYTES + 1}
+    )
+    git_verification = git_task.verification.model_copy(update={"candidate": git_candidate})
+    oversized_git = git_task.__class__(
+        **{**git_task.__dict__, "verification": git_verification}
+    )
+
+    with pytest.raises(ConfigError, match="git_patch candidate bounds"):
+        validate_executable_task(oversized_git)
+
+
+def test_current_backend_rejects_passive_artifact_bounds_above_its_capacity():
+    compiled = task()
+    check = compiled.verification.checks[0]
+    artifact = check.artifacts[0]
+    limits = artifact.limits.model_copy(
+        update={"max_bytes": MAX_PASSIVE_ARTIFACT_BYTES_PER_CHECK + 1}
+    )
+    changed_artifact = artifact.model_copy(update={"limits": limits})
+    changed_check = check.model_copy(update={"artifacts": (changed_artifact,)})
+    verification = compiled.verification.model_copy(update={"checks": (changed_check,)})
+    changed = compiled.__class__(**{**compiled.__dict__, "verification": verification})
+
+    with pytest.raises(ConfigError, match="passive backend capacity"):
         validate_executable_task(changed)

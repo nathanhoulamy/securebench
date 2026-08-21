@@ -21,6 +21,7 @@ from securebench.candidates.git_repository import (
     run_git_bytes as trusted_run_git_bytes,
     validate_clean_repository,
 )
+from securebench.path_safety import portable_path_is_relative_to, portable_path_text
 from securebench.schemas.benchmark import (
     DirectoryTreeEntry,
     FileBundleCandidate,
@@ -533,12 +534,13 @@ def _validate_patch_path(
     spec: GitPatchCandidate,
     protected_paths: tuple[str, ...] = (),
 ) -> None:
-    patterns = (*FRAMEWORK_PROTECTED_PATTERNS, *spec.exclude_paths)
-    if any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns):
+    if _matches_framework_pattern(path) or _matches_patterns_portably(
+        path, spec.exclude_paths
+    ):
         raise CandidateCaptureError(f"candidate patch modifies protected or excluded path: {path}")
-    if any(path == value or path.startswith(value + "/") for value in protected_paths):
+    if any(portable_path_is_relative_to(path, value) for value in protected_paths):
         raise CandidateCaptureError(f"candidate patch modifies framework-owned path: {path}")
-    if spec.allow_paths and not any(fnmatch.fnmatchcase(path, pattern) for pattern in spec.allow_paths):
+    if spec.allow_paths and not _matches_patterns_portably(path, spec.allow_paths):
         raise CandidateCaptureError(f"candidate patch path is outside allow_paths: {path}")
 
 
@@ -548,9 +550,24 @@ def _protected_relative_path(value: str) -> str:
 
 
 def _is_framework_protected(path: str, protected_paths: tuple[str, ...]) -> bool:
-    if any(fnmatch.fnmatchcase(path, pattern) for pattern in FRAMEWORK_PROTECTED_PATTERNS):
+    if _matches_framework_pattern(path):
         return True
-    return any(path == value or path.startswith(value + "/") for value in protected_paths)
+    return any(portable_path_is_relative_to(path, value) for value in protected_paths)
+
+
+def _matches_framework_pattern(path: str) -> bool:
+    return _matches_patterns_portably(path, FRAMEWORK_PROTECTED_PATTERNS)
+
+
+def _matches_patterns_portably(path: str, patterns: tuple[str, ...]) -> bool:
+    folded = portable_path_text(path)
+    return any(
+        fnmatch.fnmatchcase(folded, portable_path_text(pattern)) for pattern in patterns
+    )
+
+
+def _is_git_metadata_path(path: str) -> bool:
+    return portable_path_is_relative_to(path, ".git")
 
 
 def _synchronize_stopped_worktree(
@@ -571,18 +588,36 @@ def _synchronize_stopped_worktree(
     while pending:
         current, relative_root = pending.pop()
         try:
-            children = sorted(
-                os.scandir(current),
-                key=lambda item: item.name.encode("utf-8", errors="surrogateescape"),
-                reverse=True,
-            )
+            with os.scandir(current) as entries:
+                children = []
+                remaining = maximum_entries - visited
+                for entry in entries:
+                    entry_path = (relative_root / entry.name).as_posix()
+                    _validate_candidate_relative_path(entry_path)
+                    if _is_git_metadata_path(entry_path) or _is_framework_protected(
+                        entry_path, protected_paths
+                    ):
+                        continue
+                    if len(children) >= remaining:
+                        raise CandidateCaptureError(
+                            "stopped git_patch workspace exceeds its traversal bound"
+                        )
+                    children.append(entry)
+                children.sort(
+                    key=lambda item: item.name.encode(
+                        "utf-8", errors="surrogateescape"
+                    ),
+                    reverse=True,
+                )
+        except CandidateCaptureError:
+            raise
         except OSError as exc:
             raise CandidateCaptureError("stopped git_patch workspace is inaccessible") from exc
         for child in children:
             relative = relative_root / child.name
             path = relative.as_posix()
             _validate_candidate_relative_path(path)
-            if path == ".git" or path.startswith(".git/"):
+            if _is_git_metadata_path(path):
                 continue
             if _is_framework_protected(path, protected_paths):
                 continue
@@ -660,7 +695,7 @@ def _tree_entry_count(root: Path, *, protected_paths: tuple[str, ...]) -> int:
         for child in children:
             relative = relative_root / child.name
             path = relative.as_posix()
-            if path == ".git" or path.startswith(".git/"):
+            if _is_git_metadata_path(path):
                 continue
             if _is_framework_protected(path, protected_paths):
                 continue

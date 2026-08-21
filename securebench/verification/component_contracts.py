@@ -13,6 +13,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    field_validator,
     model_validator,
 )
 from typing_extensions import Annotated
@@ -118,6 +119,20 @@ class OutputArtifactContract(ContractModel):
     path: ContractPath
     kind: Literal["regular_file", "directory_tree"]
     maximum_limits: ArtifactLimits
+
+    @field_validator("path")
+    @classmethod
+    def path_is_canonical(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("output artifact path may not contain a NUL byte")
+        try:
+            value.encode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise ValueError("output artifact path must be valid UTF-8") from exc
+        path = PurePosixPath(value)
+        if value != str(path):
+            raise ValueError("output artifact path must use canonical POSIX spelling")
+        return value
 
     @model_validator(mode="after")
     def path_and_limits_match(self) -> "OutputArtifactContract":

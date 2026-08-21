@@ -329,6 +329,20 @@ def test_preflight_rejects_output_artifact_kind_reserved_path_and_backend_bound(
         require_supported_protocol_features(regular_check, reserved)
     assert path_error.value.code == "output_artifact_path_reserved"
 
+    case_aliased = adapter_contract(
+        output_artifacts=[
+            {
+                "name": "generated_result",
+                "path": "SecureBench/evaluation_inputs/private.json",
+                "kind": "regular_file",
+                "maximum_limits": {"max_bytes": 2048},
+            }
+        ]
+    )
+    with pytest.raises(VerificationInfrastructureError) as alias_error:
+        require_supported_protocol_features(regular_check, case_aliased)
+    assert alias_error.value.code == "output_artifact_path_reserved"
+
     excessive = 16 * 1024 * 1024 + 1
     excessive_manifest = adapter_contract(
         output_artifacts=[
@@ -352,6 +366,21 @@ def test_preflight_rejects_output_artifact_kind_reserved_path_and_backend_bound(
     with pytest.raises(VerificationInfrastructureError) as bound_error:
         require_supported_protocol_features(excessive_check, excessive_manifest)
     assert bound_error.value.code == "output_artifact_bound_unsupported"
+
+
+@pytest.mark.parametrize("path", ["result.json\x00suffix", "results//result.json"])
+def test_adapter_contract_rejects_unsafe_or_noncanonical_output_paths(path):
+    with pytest.raises(ValueError, match="output artifact path"):
+        adapter_contract(
+            output_artifacts=[
+                {
+                    "name": "generated_result",
+                    "path": path,
+                    "kind": "regular_file",
+                    "maximum_limits": {"max_bytes": 2048},
+                }
+            ]
+        )
 
 
 def test_challenge_evidence_requires_host_identities_and_explicit_failure_source():

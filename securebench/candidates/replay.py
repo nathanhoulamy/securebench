@@ -290,7 +290,7 @@ def _guest_to_host(root: Path, guest_root: PurePosixPath, path: str) -> Path:
 
 
 def _safe_relative_path(value: Any) -> PurePosixPath:
-    if not isinstance(value, str) or not value or "\\" in value:
+    if not isinstance(value, str) or not value or "\\" in value or "\x00" in value:
         raise CandidateReplayError("candidate tree path is invalid")
     path = PurePosixPath(value)
     if path.is_absolute() or ".." in path.parts or str(path) in ("", "."):

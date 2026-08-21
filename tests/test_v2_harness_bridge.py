@@ -96,7 +96,8 @@ def test_workspace_directory_names_are_bounded_and_collision_resistant():
     assert first_name.endswith("-" + sha256(long_id.encode()).hexdigest())
 
 
-def test_task_file_collision_uses_file_resource_container_mount_path():
+@pytest.mark.parametrize("container_path", ["/app/task.json", "/app/Task.JSON"])
+def test_task_file_collision_uses_file_resource_container_mount_path(container_path):
     plan = MaterializationPlan(
         component="agent",
         resources=(
@@ -108,7 +109,7 @@ def test_task_file_collision_uses_file_resource_container_mount_path():
                 relative_path="securebench/public/files/asset.0",
                 serialization="mount",
                 source_path="/pack/input.json",
-                container_path="/app/task.json",
+                container_path=container_path,
                 read_only=True,
             ),
         ),
@@ -136,6 +137,30 @@ def test_image_materialization_surfaces_container_cleanup_failure(monkeypatch, t
 
     with pytest.raises(ConfigError, match="remove image materialization"):
         materialize_image_workdir(compiled_task(), tmp_path / "workspace")
+
+
+def test_image_materialization_bounds_docker_create_and_cleanup(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        if command[:2] == ["docker", "create"]:
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        if command[:3] == ["docker", "rm", "-f"]:
+            return SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr="No such container",
+            )
+        raise AssertionError(command)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(ConfigError, match="create image materialization"):
+        materialize_image_workdir(compiled_task(), tmp_path / "workspace")
+
+    assert calls[0][1]["timeout"] == 120.0
+    assert calls[1][1]["timeout"] == 30.0
 
 
 def test_git_patch_image_materialization_requires_exact_clean_commit(monkeypatch, tmp_path):
@@ -215,6 +240,12 @@ def test_git_patch_harness_rejects_framework_paths_in_baseline(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "task.json").write_text("baseline")
+
+    with pytest.raises(ConfigError, match="framework-owned path: task.json"):
+        reject_git_patch_framework_collisions(task, workspace, task_file="task.json")
+
+    (workspace / "task.json").unlink()
+    (workspace / "Task.JSON").write_text("baseline")
 
     with pytest.raises(ConfigError, match="framework-owned path: task.json"):
         reject_git_patch_framework_collisions(task, workspace, task_file="task.json")

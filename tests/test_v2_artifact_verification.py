@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import shutil
 import subprocess
@@ -293,6 +294,89 @@ def test_artifact_evidence_is_internal_and_result_is_sanitized(tmp_path):
     assert "secret-value" not in encoded
     assert "parsed_value" not in encoded
     assert record["checks"][0]["evidence_digests"][0].startswith("sha256:")
+
+
+def test_owned_oracle_cleanup_failure_becomes_an_infrastructure_result(
+    tmp_path,
+    monkeypatch,
+):
+    task = write_artifact_pack(tmp_path / "pack")
+    store, candidate = capture_result(tmp_path, task, b"{}")
+
+    class CleanupFailingOracle(RecordingOracle):
+        def close(self):
+            raise VerificationInfrastructureError(
+                "oracle_cleanup_failed",
+                "Oracle process cleanup failed",
+            )
+
+    monkeypatch.setattr(
+        "securebench.verification.artifacts.OracleProcessSession",
+        lambda resource_root: CleanupFailingOracle(),
+    )
+
+    result = VerificationEngine().verify(
+        task,
+        candidate,
+        store,
+        run_seed="cleanup-failure",
+    )
+
+    assert result.status == "infrastructure_error"
+    assert result.infrastructure_error["code"] == "oracle_cleanup_failed"
+
+
+def test_oracle_process_close_reports_a_process_that_cannot_be_reaped():
+    class StuckProcess:
+        stdin = io.BytesIO()
+        stdout = io.BytesIO()
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+        def kill(self):
+            pass
+
+        def wait(self, timeout):
+            raise subprocess.TimeoutExpired(["oracle"], timeout)
+
+    session = OracleProcessSession.__new__(OracleProcessSession)
+    session.process = StuckProcess()
+
+    with pytest.raises(VerificationInfrastructureError) as error:
+        session.close()
+
+    assert error.value.code == "oracle_cleanup_failed"
+
+
+def test_oracle_process_close_tolerates_a_terminate_exit_race():
+    class ExitedProcess:
+        stdin = io.BytesIO()
+        stdout = io.BytesIO()
+
+        def __init__(self):
+            self.exited = False
+
+        def poll(self):
+            return 0 if self.exited else None
+
+        def terminate(self):
+            self.exited = True
+            raise ProcessLookupError
+
+        def wait(self, timeout):
+            return 0
+
+        def kill(self):
+            raise AssertionError("an exited Oracle must not be killed")
+
+    session = OracleProcessSession.__new__(OracleProcessSession)
+    session.process = ExitedProcess()
+
+    session.close()
 
 
 def test_parser_rejection_is_candidate_evidence_for_oracle(tmp_path):

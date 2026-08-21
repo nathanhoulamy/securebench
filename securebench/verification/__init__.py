@@ -14,11 +14,9 @@ from securebench.verification.component_contracts import (
 from securebench.verification.models import (
     ChallengeEvidence,
     CheckResultSummary,
-    OracleCase,
     OracleChallenge,
     OracleVerdict,
     OutputArtifactEvidence,
-    ProtocolCaseEvidence,
     TrustedHelperEvidence,
     VerificationResultV2,
 )
@@ -39,7 +37,6 @@ __all__ = [
     "EvaluationParticipant",
     "HTTP_REQUEST_RECORDER_TYPE",
     "JsonValueSchema",
-    "OracleCase",
     "OracleChallenge",
     "OracleProcessSession",
     "OracleSession",
@@ -47,7 +44,6 @@ __all__ = [
     "OutputArtifactContract",
     "OutputArtifactEvidence",
     "ParserRegistry",
-    "ProtocolCaseEvidence",
     "ProtocolCheckRunner",
     "TrustedHelperCatalog",
     "TrustedHelperContract",

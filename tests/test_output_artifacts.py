@@ -7,6 +7,7 @@ import pytest
 
 from securebench.schemas.benchmark import ProtocolCheck
 from securebench.verification.component_contracts import AdapterManifestV2
+from securebench.verification.models import VerificationInfrastructureError
 from securebench.verification.output_artifacts import OutputArtifactCollector
 
 
@@ -168,6 +169,36 @@ def test_missing_oversized_and_parser_rejected_outputs_are_candidate_evidence(
         assert evidence.digest is None
 
 
+def test_collector_rejects_contract_kind_or_maximum_mismatch_defensively(tmp_path):
+    check = _check(
+        {
+            "name": "result",
+            "parser": "securebench.strict-json/v1",
+            "limits": {"max_bytes": 1024},
+        }
+    )
+    wrong_kind = _contract(
+        {
+            "name": "result",
+            "path": "result",
+            "kind": "directory_tree",
+            "maximum_limits": {"max_files": 4, "max_total_bytes": 2048},
+        }
+    )
+
+    with pytest.raises(VerificationInfrastructureError) as error:
+        OutputArtifactCollector().collect(
+            tmp_path,
+            check,
+            wrong_kind,
+            challenge_id="challenge-test",
+            evaluation_id="evaluation-test",
+        )
+
+    assert error.value.code == "output_artifact_contract_mismatch"
+    assert error.value.source == "adapter"
+
+
 def test_collector_rejects_parent_symlink_escape_without_reading_outside_evaluation(tmp_path):
     evaluation = tmp_path / "evaluation"
     evaluation.mkdir()
@@ -238,15 +269,24 @@ def test_collector_rejects_parent_symlink_alias_even_when_it_stays_inside_evalua
 
 
 @pytest.mark.parametrize(
-    ("create_entry", "failure_code"),
+    ("create_entry", "maximum_files", "failure_code"),
     [
-        (lambda root: (root / "escape").symlink_to("../../outside"), "artifact_path_escape"),
-        (lambda root: (root / "extra.txt").write_text("too many"), "artifact_too_large"),
+        (
+            lambda root: (root / "escape").symlink_to("../../outside"),
+            2,
+            "artifact_path_escape",
+        ),
+        (
+            lambda root: (root / "extra.txt").write_text("too many"),
+            1,
+            "artifact_too_large",
+        ),
     ],
 )
 def test_tree_outputs_reject_escaping_symlinks_and_entry_overflow(
     tmp_path,
     create_entry,
+    maximum_files,
     failure_code,
 ):
     reports = tmp_path / "reports"
@@ -257,7 +297,7 @@ def test_tree_outputs_reject_escaping_symlinks_and_entry_overflow(
         {
             "name": "reports",
             "parser": "securebench.tree-manifest/v1",
-            "limits": {"max_files": 1, "max_total_bytes": 1024},
+            "limits": {"max_files": maximum_files, "max_total_bytes": 1024},
         }
     )
     contract = _contract(
@@ -279,3 +319,57 @@ def test_tree_outputs_reject_escaping_symlinks_and_entry_overflow(
 
     assert evidence.status == "candidate_error"
     assert evidence.failure_code == failure_code
+
+
+def test_tree_entry_bound_stops_directory_enumeration_before_sorting_all_children(
+    tmp_path,
+    monkeypatch,
+):
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    yielded = []
+
+    class Entry:
+        def __init__(self, index):
+            self.name = f"entry-{index}"
+
+    class Scan:
+        def __enter__(self):
+            def entries():
+                for index in range(1000):
+                    yielded.append(index)
+                    yield Entry(index)
+
+            return entries()
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    monkeypatch.setattr("securebench.verification.passive_files.os.scandir", lambda path: Scan())
+    check = _check(
+        {
+            "name": "reports",
+            "parser": "securebench.tree-manifest/v1",
+            "limits": {"max_files": 2, "max_total_bytes": 1024},
+        }
+    )
+    contract = _contract(
+        {
+            "name": "reports",
+            "path": "reports",
+            "kind": "directory_tree",
+            "maximum_limits": {"max_files": 4, "max_total_bytes": 2048},
+        }
+    )
+
+    evidence = OutputArtifactCollector().collect(
+        tmp_path,
+        check,
+        contract,
+        challenge_id="challenge-test",
+        evaluation_id="evaluation-test",
+    )[0]
+
+    assert evidence.status == "candidate_error"
+    assert evidence.failure_code == "artifact_too_large"
+    assert yielded == [0, 1, 2]

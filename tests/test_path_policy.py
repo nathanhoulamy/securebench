@@ -93,6 +93,44 @@ def test_materialization_plan_validation_rejects_duplicate_paths():
         validate_materialization_plan(plan)
 
 
+@pytest.mark.parametrize(
+    ("first_path", "second_path"),
+    [
+        (
+            "securebench/public/Question.json",
+            "securebench/public/question.json",
+        ),
+        (
+            "securebench/public/caf\N{LATIN SMALL LETTER E WITH ACUTE}.json",
+            "securebench/public/cafe\N{COMBINING ACUTE ACCENT}.json",
+        ),
+    ],
+)
+def test_materialization_plan_rejects_portable_path_aliases(first_path, second_path):
+    plan = MaterializationPlan(
+        component="agent",
+        resources=(
+            MaterializedResource(
+                name="question",
+                visibility="public",
+                kind="json",
+                component="agent",
+                relative_path=first_path,
+            ),
+            MaterializedResource(
+                name="prompt",
+                visibility="public",
+                kind="json",
+                component="agent",
+                relative_path=second_path,
+            ),
+        ),
+    )
+
+    with pytest.raises(PathPolicyError, match="duplicate materialized path"):
+        validate_materialization_plan(plan)
+
+
 def test_materialization_plan_validation_rejects_resource_component_mismatch():
     plan = MaterializationPlan(
         component="agent",
@@ -127,6 +165,8 @@ def test_workspace_mount_policy_accepts_public_workspace_paths(path):
         "ground_truth/answer.json",
         "securebench/evaluation_inputs/check.py",
         "securebench/oracle/answer.json",
+        "SecureBench/Evaluation_Inputs/check.py",
+        "SECUREBENCH/ORACLE/answer.json",
     ],
 )
 def test_workspace_mount_policy_rejects_unsafe_or_reserved_paths(path):

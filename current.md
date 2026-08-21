@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-08-21
 
-Implementation baseline reviewed: this branch through the HTTP request recorder Trusted Helper slice
+Implementation baseline reviewed: this branch through Output Artifacts and the subsequent hardening pass
 
 Active development branch: `split-verification-v2`
 
@@ -113,6 +113,13 @@ filesystem-overlay example remains intentionally non-executable.
   transport, so passive artifact parsing cannot interpret ambiguous objects differently.
 - Directory-tree symlinks are an explicit row-level opt-in. Capture permits only bounded targets
   that resolve inside the same captured tree.
+- Host/container path boundaries use conservative Unicode-normalized, case-folded comparisons for
+  visibility roots, protected paths, generated materialization paths, mount collisions, and Git
+  allow/exclude policies. Exact Linux workdir containment is still required where Docker mapping
+  semantics depend on it.
+- Executable preflight enforces framework capacities above row-authored bounds: 10,000 files and
+  256 MiB for file bundles, 2,048 changed files / 128 MiB changed content / 16 MiB canonical patch
+  for Git patches, and 10,000 entries / 256 MiB per passive artifact check.
 - Oracle and adapter manifests fail closed, and Oracle manifests are validated during preflight
   without starting the process.
 - Executable-capability matrix tests prove the registered batched profile, overlay candidate, and
@@ -138,6 +145,10 @@ filesystem-overlay example remains intentionally non-executable.
   Evaluation correlation before evidence reaches the Oracle.
 - Helper containers have no published port or upstream network. Cleanup and helper-crash failures
   are classified as Trusted Helper infrastructure errors rather than Candidate evidence.
+- Docker lifecycle calls used to create and remove persistent sandboxes, materialization
+  containers, egress infrastructure, and provider relays have finite framework timeouts. Oracle
+  teardown uses bounded terminate/kill/reap steps, and an unreaped Oracle becomes a sanitized
+  infrastructure result.
 - Candidate-reported failures are distinct from Adapter, Trusted Helper, and framework
   infrastructure failures. The public result format remains unchanged.
 - For `repo_patch`, the digest-pinned image workdir must be a clean Git repository at the row's
@@ -167,21 +178,23 @@ schema support.
 6. Assertion-free Adapters, component capability review, base/gold/mutant qualification, and
    semantic-fidelity review remain admission/governance responsibilities rather than mechanically
    proven row-schema properties.
+7. Candidate capture and observation have strict output capacities, but the host-backed Agent
+   workspace itself has no framework-owned disk quota yet. Deployment storage isolation is still
+   needed to prevent a running Agent from filling the host filesystem.
 
 ## Verification evidence
 
 At this implementation batch:
 
-- full default suite: `380 passed, 3 skipped`;
-- full warning-strict suite: `380 passed, 3 skipped`;
+- full warning-strict suite: `403 passed, 3 skipped`;
 - complete protocol suite with Docker integration enabled: `34 passed`, including two fresh
   combined recorder/Output Artifact Evaluations, the ordinary fresh Evaluation, and
   clean-repository git-patch replay;
 - the Docker pass left no Trusted Helper containers, materialization containers, or Evaluation
   networks behind;
 - built-in robustness audit: 5 passed, 0 failed, 0 warnings;
-- no author-facing Pydantic schema changed in this batch, so checked-in JSON Schemas did not require
-  regeneration;
+- no author-facing Pydantic field changed in this batch, and schema regeneration produced no
+  checked-in JSON Schema diff;
 - a wheel containing the helper lifecycle, standalone recorder server, Output Artifact collector,
   and shared passive filesystem observer built successfully;
 - compile checks and `git diff --check` passed.

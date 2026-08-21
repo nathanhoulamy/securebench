@@ -462,6 +462,58 @@ def test_git_patch_rejects_framework_protected_paths(tmp_path):
         )
 
 
+def test_git_patch_rejects_case_aliases_of_framework_protected_paths(tmp_path):
+    repository = make_repository(tmp_path / "repository")
+    protected = repository / ".SecureBench"
+    protected.mkdir()
+    (protected / "config.json").write_text("{}\n")
+    git(repository, "add", ".")
+    git(repository, "commit", "--quiet", "-m", "protected baseline")
+    (protected / "config.json").write_text('{"changed":true}\n')
+    patch = git(repository, "diff", "--binary", "--full-index", "HEAD")
+    git(repository, "reset", "--hard", "--quiet", "HEAD")
+
+    with pytest.raises(CandidateCaptureError, match="protected or excluded"):
+        capture_git_patch(
+            patch,
+            repository,
+            git_patch_spec(allow_paths=[]),
+            CandidateStore(tmp_path / "store"),
+            baseline_digest=BASELINE,
+        )
+
+
+def test_git_patch_author_path_policies_are_portable(tmp_path):
+    repository = make_repository(tmp_path / "repository")
+    excluded = repository / "Tests"
+    excluded.mkdir()
+    (excluded / "test_app.py").write_text("assert True\n")
+    git(repository, "add", ".")
+    git(repository, "commit", "--quiet", "-m", "test baseline")
+    (excluded / "test_app.py").write_text("assert False\n")
+    patch = git(repository, "diff", "--binary", "--full-index", "HEAD")
+    git(repository, "reset", "--hard", "--quiet", "HEAD")
+
+    with pytest.raises(CandidateCaptureError, match="protected or excluded"):
+        capture_git_patch(
+            patch,
+            repository,
+            git_patch_spec(allow_paths=[], exclude_paths=["tests/**"]),
+            CandidateStore(tmp_path / "excluded-store"),
+            baseline_digest=BASELINE,
+        )
+
+    candidate = capture_git_patch(
+        patch,
+        repository,
+        git_patch_spec(allow_paths=["tests/**"]),
+        CandidateStore(tmp_path / "allowed-store"),
+        baseline_digest=BASELINE,
+    )
+
+    assert candidate.type == "git_patch"
+
+
 def test_empty_git_patch_is_a_replayable_candidate(tmp_path):
     repository = make_repository(tmp_path / "repository")
     store = CandidateStore(tmp_path / "store")

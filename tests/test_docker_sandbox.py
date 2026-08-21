@@ -128,6 +128,47 @@ def test_docker_sandbox_removes_container_after_start_failure(monkeypatch, tmp_p
     assert sandbox._container_name is None
 
 
+def test_docker_sandbox_bounds_persistent_start_and_attempts_cleanup(
+    monkeypatch,
+    tmp_path,
+):
+    seen = []
+
+    def fake_run(command, **kwargs):
+        seen.append((command, kwargs))
+        if command[:3] == ["docker", "run", "-d"]:
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        if command[:3] == ["docker", "rm", "-f"]:
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(command)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    sandbox = DockerSandbox(image="agent-image", root=tmp_path)
+
+    with pytest.raises(DockerSandboxError, match="failed to start"):
+        sandbox.run(["python", "--version"])
+
+    assert seen[0][1]["timeout"] == 30.0
+    assert seen[1][0][:3] == ["docker", "rm", "-f"]
+    assert seen[1][1]["timeout"] == 30.0
+
+
+def test_docker_sandbox_bounds_container_cleanup(monkeypatch, tmp_path):
+    def fake_run(command, **kwargs):
+        if command[:3] == ["docker", "rm", "-f"]:
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        raise AssertionError(command)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    sandbox = DockerSandbox(image="agent-image", root=tmp_path)
+    sandbox._container_name = "securebench-stuck"
+
+    with pytest.raises(DockerSandboxError, match="failed to remove"):
+        sandbox.close()
+
+    assert sandbox._container_name == "securebench-stuck"
+
+
 def test_docker_sandbox_surfaces_cleanup_failure(monkeypatch, tmp_path):
     def fake_run(command, **kwargs):
         if command[:3] == ["docker", "run", "-d"]:
@@ -408,6 +449,26 @@ def test_docker_sandbox_rejects_overlapping_extra_mounts_before_start(tmp_path):
             DockerBindMount(parent, "/opt/securebench"),
             DockerBindMount(child, "/opt/securebench/codex"),
         ),
+    )
+
+    with pytest.raises(ValueError, match="mount targets overlap"):
+        sandbox.run(["true"])
+
+
+def test_docker_sandbox_rejects_case_aliased_extra_mounts(tmp_path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path / "workspace",
+        persistent=False,
+        mounts=(
+            DockerBindMount(first, "/app/results"),
+            DockerBindMount(second, "/app/Results/config"),
+        ),
+        workspace_mount_target="/app",
     )
 
     with pytest.raises(ValueError, match="mount targets overlap"):

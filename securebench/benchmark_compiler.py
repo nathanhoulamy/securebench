@@ -10,6 +10,7 @@ from typing import Iterator
 from securebench.benchmark_pack import BenchmarkPack
 from securebench.baselines import baseline_digest, verification_digest
 from securebench.errors import ConfigError
+from securebench.path_safety import portable_paths_overlap
 from securebench.resources import Resource, ResourceBundle
 from securebench.schemas.benchmark import BenchmarkPackManifestV2, BenchmarkRowV2
 from securebench.tasks import BenchmarkTask
@@ -158,6 +159,16 @@ def _resolved_resource_roots(
         if not resolved.is_dir():
             raise ConfigError(f"resource_roots.{name} directory does not exist: {value}")
         roots[name] = resolved
+    names = tuple(roots)
+    for index, left_name in enumerate(names):
+        for right_name in names[index + 1 :]:
+            if portable_paths_overlap(
+                PurePosixPath(roots[left_name]),
+                PurePosixPath(roots[right_name]),
+            ):
+                raise ConfigError(
+                    f"resource roots {left_name!r} and {right_name!r} may not overlap"
+                )
     return roots
 
 

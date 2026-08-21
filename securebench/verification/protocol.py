@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from securebench.candidates import CandidateReplayError, CandidateStore, StoredCandidate
 from securebench.candidates.replay import replay_candidate
 from securebench.data_formats import strict_yaml_loads
+from securebench.path_safety import portable_paths_overlap
 from securebench.sandboxes import CommandResult, DockerSandbox, HostSandbox
 from securebench.sandboxes.base import MAX_COMMAND_OUTPUT_BYTES
 from securebench.schemas.benchmark import ProtocolCheck
@@ -538,7 +539,7 @@ def _validate_output_artifact_contracts(
                 f"Output artifact {name!r} exceeds the adapter's declared maximums",
             )
         path = PurePosixPath(declaration.path)
-        if path.parts[0] in {".git", "securebench"}:
+        if path.parts[0].casefold() in {".git", "securebench"}:
             raise VerificationInfrastructureError(
                 "output_artifact_path_reserved",
                 f"Output artifact {name!r} uses a framework-reserved path",
@@ -585,7 +586,7 @@ def _evaluation_mount_targets(task: BenchmarkTask) -> tuple[PurePosixPath, ...]:
 
 
 def _paths_overlap(left: PurePosixPath, right: PurePosixPath) -> bool:
-    return left == right or left.is_relative_to(right) or right.is_relative_to(left)
+    return portable_paths_overlap(left, right)
 
 
 def _valid_command_part(value: Any) -> bool:

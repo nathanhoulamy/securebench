@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from securebench.path_safety import portable_paths_overlap
 from securebench.progress import emit_progress, wants_agent_output
 from securebench.sandboxes.base import (
     CommandResult,
@@ -22,6 +23,7 @@ from securebench.sandboxes.base import (
 DOCKER_MEM_LIMIT_ENV = "SECUREBENCH_DOCKER_MEM_LIMIT"
 DOCKER_PIDS_LIMIT_ENV = "SECUREBENCH_DOCKER_PIDS_LIMIT"
 DOCKER_TMPFS_ENV = "SECUREBENCH_DOCKER_TMPFS"
+DOCKER_OPERATION_TIMEOUT_SECONDS = 30.0
 
 
 @dataclass(frozen=True)
@@ -276,40 +278,53 @@ class DockerSandbox(Sandbox):
             image=self.image,
             container=self._container_name,
         )
-        completed = subprocess.run(
-            [
-                "docker",
-                "run",
-                "-d",
-                "--name",
-                self._container_name,
-                "--entrypoint",
-                "",
-                "-v",
-                f"{self.root}:{self.workspace_mount_target}",
-                *_docker_bind_mount_args(self.mounts, workspace_mount_target=self.workspace_mount_target),
-                "-w",
-                self.workspace_mount_target,
-                *_docker_hardening_args(
-                    network=self.network,
-                    cap_drop=self.cap_drop,
-                    cap_add=self.cap_add,
-                    read_only=self.read_only,
-                    tmpfs=self.tmpfs,
-                    mem_limit=self.mem_limit,
-                    pids_limit=self.pids_limit,
-                    security_opt=self.security_opt,
-                ),
-                *_docker_env_args(self.env_names),
-                *_docker_explicit_env_args(self.env),
-                self.image,
-                "sleep",
-                "infinity",
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            completed = subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "-d",
+                    "--name",
+                    self._container_name,
+                    "--entrypoint",
+                    "",
+                    "-v",
+                    f"{self.root}:{self.workspace_mount_target}",
+                    *_docker_bind_mount_args(
+                        self.mounts,
+                        workspace_mount_target=self.workspace_mount_target,
+                    ),
+                    "-w",
+                    self.workspace_mount_target,
+                    *_docker_hardening_args(
+                        network=self.network,
+                        cap_drop=self.cap_drop,
+                        cap_add=self.cap_add,
+                        read_only=self.read_only,
+                        tmpfs=self.tmpfs,
+                        mem_limit=self.mem_limit,
+                        pids_limit=self.pids_limit,
+                        security_opt=self.security_opt,
+                    ),
+                    *_docker_env_args(self.env_names),
+                    *_docker_explicit_env_args(self.env),
+                    self.image,
+                    "sleep",
+                    "infinity",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=DOCKER_OPERATION_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            try:
+                self.close()
+            except DockerSandboxError as cleanup_error:
+                raise DockerSandboxError(
+                    "failed to start and remove Docker sandbox container"
+                ) from cleanup_error
+            raise DockerSandboxError("failed to start Docker sandbox container") from exc
         if completed.returncode != 0:
             try:
                 self.close()
@@ -351,13 +366,19 @@ class _AgentOutputEmitter:
 
 
 def _remove_named_container(name: str) -> None:
-    completed = subprocess.run(
-        ["docker", "rm", "-f", name],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0 and "No such container" not in completed.stderr:
+    try:
+        completed = subprocess.run(
+            ["docker", "rm", "-f", name],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=DOCKER_OPERATION_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise DockerSandboxError(
+            f"failed to remove Docker sandbox container {name!r}"
+        ) from exc
+    if completed.returncode != 0 and "no such container" not in completed.stderr.lower():
         raise DockerSandboxError(f"failed to remove Docker sandbox container {name!r}")
 
 
@@ -373,7 +394,7 @@ def _docker_path(path: str, *, workspace_mount_target: str = "/workspace") -> st
 def _docker_env_args(env_names: tuple[str, ...]) -> tuple[str, ...]:
     args: list[str] = []
     for name in env_names:
-        if not name or "=" in name:
+        if not isinstance(name, str) or not name or "=" in name or "\x00" in name:
             raise ValueError(f"Docker environment variable name is invalid: {name!r}")
         args.extend(["-e", name])
     return tuple(args)
@@ -382,8 +403,15 @@ def _docker_env_args(env_names: tuple[str, ...]) -> tuple[str, ...]:
 def _docker_explicit_env_args(env: dict[str, str]) -> tuple[str, ...]:
     args: list[str] = []
     for name, value in env.items():
-        if not name or "=" in name:
+        if (
+            not isinstance(name, str)
+            or not name
+            or "=" in name
+            or "\x00" in name
+        ):
             raise ValueError(f"Docker environment variable name is invalid: {name!r}")
+        if not isinstance(value, str) or "\x00" in value:
+            raise ValueError(f"Docker environment variable value is invalid for {name!r}")
         args.extend(["-e", f"{name}={value}"])
     return tuple(args)
 
@@ -412,12 +440,7 @@ def _docker_bind_mount_args(
         source = str(source_path)
         target = _docker_bind_mount_target(mount.target, workspace_mount_target=workspace_mount_target)
         target_path = PurePosixPath(target)
-        if any(
-            target_path == existing
-            or target_path.is_relative_to(existing)
-            or existing.is_relative_to(target_path)
-            for existing in targets
-        ):
+        if any(portable_paths_overlap(target_path, existing) for existing in targets):
             raise ValueError(f"Docker bind mount targets overlap at: {target}")
         targets.append(target_path)
         option = f"type=bind,source={source},target={target}"
@@ -433,7 +456,7 @@ def _docker_bind_mount_target(
     allow_workspace_root: bool = False,
     workspace_mount_target: str = "/workspace",
 ) -> str:
-    if not isinstance(path, str) or not path:
+    if not isinstance(path, str) or not path or "\x00" in path:
         raise ValueError("Docker bind mount target must be a non-empty workspace path")
     if "\\" in path:
         raise ValueError(f"Docker bind mount target may not contain backslashes: {path!r}")

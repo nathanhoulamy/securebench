@@ -13,6 +13,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
+from securebench.path_safety import portable_path_is_relative_to, portable_paths_overlap
+
 
 SCHEMA_VERSION = "2.0"
 EXECUTION_PROFILE_STRICT = "strict-split/v1"
@@ -60,7 +62,7 @@ class ResourceRoots(StrictModel):
             for right_name, right in roots.items():
                 if left_name >= right_name:
                     continue
-                if left == right or left.is_relative_to(right) or right.is_relative_to(left):
+                if portable_paths_overlap(left, right):
                     raise ValueError(
                         f"resource roots {left_name!r} and {right_name!r} may not overlap"
                     )
@@ -178,7 +180,7 @@ class GitPatchCandidate(StrictModel):
     @field_validator("allow_paths", "exclude_paths")
     @classmethod
     def validate_patterns(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        if any(not value or "\\" in value for value in values):
+        if any(not value or "\\" in value or "\x00" in value for value in values):
             raise ValueError("candidate path patterns must be non-empty POSIX patterns")
         return values
 
@@ -270,7 +272,7 @@ class ArtifactSource(StrictModel):
     def validate_path(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        if not value or "\\" in value:
+        if not value or "\\" in value or "\x00" in value:
             raise ValueError("artifact source path must be a non-empty POSIX path")
         path = PurePosixPath(value)
         if ".." in path.parts or str(path) in ("", "."):
@@ -435,7 +437,10 @@ class VerificationSpec(StrictModel):
         if isinstance(self.candidate, FilesystemOverlayCandidate):
             if not path.is_absolute():
                 raise ValueError("filesystem_overlay artifact source.path must be absolute")
-            if not any(path.is_relative_to(PurePosixPath(root)) for root in self.candidate.include_roots):
+            if not any(
+                portable_path_is_relative_to(path, PurePosixPath(root))
+                for root in self.candidate.include_roots
+            ):
                 raise ValueError("filesystem_overlay artifact source.path is outside candidate include_roots")
 
 
@@ -538,7 +543,7 @@ def normalize_benchmark_row(
 
 
 def _relative_pack_path(value: str, field: str) -> str:
-    if not isinstance(value, str) or not value or "\\" in value:
+    if not isinstance(value, str) or not value or "\\" in value or "\x00" in value:
         raise ValueError(f"{field} must be a non-empty POSIX relative path")
     path = PurePosixPath(value)
     if path.is_absolute() or ".." in path.parts or str(path) in ("", "."):
@@ -547,7 +552,7 @@ def _relative_pack_path(value: str, field: str) -> str:
 
 
 def _absolute_runtime_path(value: str, field: str) -> str:
-    if not isinstance(value, str) or not value or "\\" in value:
+    if not isinstance(value, str) or not value or "\\" in value or "\x00" in value:
         raise ValueError(f"{field} must be a non-empty POSIX absolute path")
     path = PurePosixPath(value)
     if not path.is_absolute() or ".." in path.parts or str(path) == "/":
@@ -556,7 +561,7 @@ def _absolute_runtime_path(value: str, field: str) -> str:
 
 
 def _immutable_image_reference(value: str) -> str:
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str) or not value.strip() or "\x00" in value:
         raise ValueError("environment.image must be a non-empty immutable image reference")
     value = value.strip()
     digest = re.search(r"(?:@sha256:|^sha256:)([0-9a-fA-F]{64})$", value)
@@ -583,7 +588,7 @@ def _non_overlapping_paths(values: Any, field: str) -> None:
     paths = tuple(PurePosixPath(value) for value in values)
     for index, left in enumerate(paths):
         for right in paths[index + 1 :]:
-            if left == right or left.is_relative_to(right) or right.is_relative_to(left):
+            if portable_paths_overlap(left, right):
                 raise ValueError(f"{field} may not overlap: {left} and {right}")
 
 
@@ -631,11 +636,7 @@ def _cross_namespace_mounts_do_not_overlap(
         asset_path = PurePosixPath(asset.mount)
         for identifier, resource in runtime.items():
             runtime_path = PurePosixPath(resource.mount)
-            if (
-                asset_path == runtime_path
-                or asset_path.is_relative_to(runtime_path)
-                or runtime_path.is_relative_to(asset_path)
-            ):
+            if portable_paths_overlap(asset_path, runtime_path):
                 raise ValueError(
                     f"public asset mount {asset.mount!r} overlaps runtime resource "
                     f"{identifier!r} at {resource.mount!r}"

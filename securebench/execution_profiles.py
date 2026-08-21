@@ -7,6 +7,11 @@ from pathlib import PurePosixPath
 
 from securebench.baselines import task_baseline_digest, task_verification_digest
 from securebench.errors import ConfigError
+from securebench.path_safety import (
+    portable_path_is_relative_to,
+    portable_paths_equal,
+    portable_paths_overlap,
+)
 from securebench.schemas.benchmark import (
     ArtifactCheck,
     FileBundleCandidate,
@@ -45,6 +50,14 @@ PROFILES = {
     ),
 }
 
+MAX_FILE_BUNDLE_BYTES = 256 * 1024 * 1024
+MAX_FILE_BUNDLE_FILES = 10_000
+MAX_GIT_PATCH_BYTES = 16 * 1024 * 1024
+MAX_GIT_CHANGED_BYTES = 128 * 1024 * 1024
+MAX_GIT_CHANGED_FILES = 2048
+MAX_PASSIVE_ARTIFACT_BYTES_PER_CHECK = 256 * 1024 * 1024
+MAX_PASSIVE_ARTIFACT_FILES_PER_CHECK = 10_000
+
 
 def execution_profile(profile_id: str) -> ExecutionProfile:
     try:
@@ -64,6 +77,7 @@ def validate_executable_task(task: BenchmarkTask) -> None:
             "This implementation batch executes file_bundle and git_patch candidates; "
             f"{task.verification.candidate.type!r} is schema-valid but not executable yet"
         )
+    _validate_candidate_bounds(candidate)
     if isinstance(candidate, FileBundleCandidate):
         workdir = PurePosixPath(task.environment.workdir)
         outside = [
@@ -87,6 +101,7 @@ def validate_executable_task(task: BenchmarkTask) -> None:
     _validate_runtime_resources(task)
     _validate_oracle(task)
     _validate_parsers(task)
+    _validate_artifact_bounds(task)
     _validate_protocol_checks(task)
     _validate_evaluation_mount_plan(task)
     if task_baseline_digest(task) != task.baseline_digest:
@@ -105,8 +120,12 @@ def _validate_public_assets(task: BenchmarkTask) -> None:
                 f"assets[{index}] is writable"
             )
         mount = PurePosixPath(asset.mount)
-        if mount == workdir:
+        if portable_paths_equal(mount, workdir):
             raise ConfigError(f"assets[{index}].mount may not replace environment.workdir")
+        if portable_paths_overlap(mount, workdir / "securebench"):
+            raise ConfigError(
+                f"assets[{index}].mount overlaps the framework materialization root"
+            )
         if isinstance(candidate, FileBundleCandidate):
             for entry in candidate.files:
                 candidate_path = PurePosixPath(entry.path)
@@ -115,6 +134,44 @@ def _validate_public_assets(task: BenchmarkTask) -> None:
                         f"assets[{index}].mount overlaps candidate entry {entry.id!r}; "
                         "mounted asset state is not part of stopped-workspace capture"
                     )
+
+
+def _validate_candidate_bounds(candidate: FileBundleCandidate | GitPatchCandidate) -> None:
+    if isinstance(candidate, FileBundleCandidate):
+        if (
+            candidate.max_total_files > MAX_FILE_BUNDLE_FILES
+            or candidate.max_total_bytes > MAX_FILE_BUNDLE_BYTES
+        ):
+            raise ConfigError(
+                "file_bundle candidate bounds exceed the capture backend capacity"
+            )
+        return
+    if (
+        candidate.max_patch_bytes > MAX_GIT_PATCH_BYTES
+        or candidate.max_changed_files > MAX_GIT_CHANGED_FILES
+        or candidate.max_changed_bytes > MAX_GIT_CHANGED_BYTES
+    ):
+        raise ConfigError("git_patch candidate bounds exceed the capture backend capacity")
+
+
+def _validate_artifact_bounds(task: BenchmarkTask) -> None:
+    for check in task.verification.checks:
+        if not isinstance(check, ArtifactCheck):
+            continue
+        total_bytes = sum(
+            artifact.limits.max_bytes or artifact.limits.max_total_bytes or 0
+            for artifact in check.artifacts
+        )
+        total_files = sum(
+            artifact.limits.max_files or 1 for artifact in check.artifacts
+        )
+        if (
+            total_bytes > MAX_PASSIVE_ARTIFACT_BYTES_PER_CHECK
+            or total_files > MAX_PASSIVE_ARTIFACT_FILES_PER_CHECK
+        ):
+            raise ConfigError(
+                f"Artifact check {check.id!r} bounds exceed the passive backend capacity"
+            )
 
 
 def _validate_parsers(task: BenchmarkTask) -> None:
@@ -161,7 +218,7 @@ def _validate_parsers(task: BenchmarkTask) -> None:
             else:
                 assert artifact.source.path is not None
                 path = PurePosixPath(artifact.source.path)
-                if path.parts and path.parts[0] == ".git":
+                if path.parts and path.parts[0].casefold() == ".git":
                     raise ConfigError(
                         f"Artifact {artifact.id!r} may not observe repository metadata"
                     )
@@ -185,9 +242,15 @@ def _validate_runtime_resources(task: BenchmarkTask) -> None:
         if not isinstance(mount_value, str):
             raise ConfigError(f"Runtime resource {identifier!r} has an invalid mount")
         mount = PurePosixPath(mount_value)
-        if mount == workdir:
+        if portable_paths_equal(mount, workdir):
             raise ConfigError(f"Runtime resource {identifier!r} may not replace environment.workdir")
-        if isinstance(candidate, GitPatchCandidate) and mount.is_relative_to(workdir):
+        if portable_paths_overlap(mount, workdir / "securebench"):
+            raise ConfigError(
+                f"Runtime resource {identifier!r} overlaps the framework materialization root"
+            )
+        if isinstance(candidate, GitPatchCandidate) and portable_path_is_relative_to(
+            mount, workdir
+        ):
             raise ConfigError(
                 f"Runtime resource {identifier!r} may not mount inside a git_patch repository"
             )
@@ -227,7 +290,7 @@ def _validate_oracle(task: BenchmarkTask) -> None:
 
 
 def _paths_overlap(left: PurePosixPath, right: PurePosixPath) -> bool:
-    return left == right or left.is_relative_to(right) or right.is_relative_to(left)
+    return portable_paths_overlap(left, right)
 
 
 def _validate_evaluation_mount_plan(task: BenchmarkTask) -> None:

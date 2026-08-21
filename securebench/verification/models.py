@@ -27,10 +27,6 @@ class OracleChallenge:
         _json_bytes(self.context, "Oracle Challenge context")
 
 
-# Compatibility import for the v1 Oracle wire vocabulary.
-OracleCase = OracleChallenge
-
-
 @dataclass(frozen=True)
 class TrustedHelperEvidence:
     """Host-authenticated evidence returned by one Trusted Helper."""
@@ -243,27 +239,6 @@ class ChallengeEvidence:
     @property
     def digest(self) -> str:
         return json_digest(self.internal_record())
-
-    @property
-    def case_index(self) -> int:
-        """Compatibility view; new code should use challenge_index."""
-        return self.challenge_index
-
-    @property
-    def error_code(self) -> str | None:
-        """Compatibility view; new code should use failure_code."""
-        return self.failure_code
-
-    @property
-    def error_message(self) -> str | None:
-        """Compatibility view; new code should use failure_message."""
-        return self.failure_message
-
-
-# Compatibility import for existing integrations while the internal contract moves
-# from case-oriented to Challenge-oriented naming.
-ProtocolCaseEvidence = ChallengeEvidence
-
 
 @dataclass(frozen=True)
 class ArtifactEvidence:

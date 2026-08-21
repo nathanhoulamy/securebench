@@ -32,7 +32,11 @@ class OutputArtifactCollector:
         evaluation_id: str,
     ) -> tuple[OutputArtifactEvidence, ...]:
         declarations = {artifact.name: artifact for artifact in contract.output_artifacts}
-        if any(artifact.name not in declarations for artifact in check.output_artifacts):
+        if any(
+            artifact.name not in declarations
+            or not _declaration_supports(artifact, declarations[artifact.name])
+            for artifact in check.output_artifacts
+        ):
             raise VerificationInfrastructureError(
                 "output_artifact_contract_mismatch",
                 "Output Artifact collection does not match the Adapter contract",
@@ -139,4 +143,26 @@ def _candidate_error(
         parser=artifact.parser,
         failure_code=error.code,
         failure_message=error.public_message,
+    )
+
+
+def _declaration_supports(
+    artifact: OutputArtifactSpec,
+    declaration: OutputArtifactContract,
+) -> bool:
+    expected_kind = (
+        "regular_file" if artifact.limits.max_bytes is not None else "directory_tree"
+    )
+    if declaration.kind != expected_kind:
+        return False
+    return all(
+        value is None or (maximum is not None and value <= maximum)
+        for value, maximum in (
+            (artifact.limits.max_bytes, declaration.maximum_limits.max_bytes),
+            (artifact.limits.max_files, declaration.maximum_limits.max_files),
+            (
+                artifact.limits.max_total_bytes,
+                declaration.maximum_limits.max_total_bytes,
+            ),
+        )
     )
