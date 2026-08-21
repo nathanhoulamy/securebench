@@ -14,11 +14,16 @@ from pydantic import ValidationError
 
 from securebench.candidates import CandidateReplayError, CandidateStore, StoredCandidate
 from securebench.candidates.replay import replay_candidate
+from securebench.candidates.overlay_replay import (
+    OverlayReplayBackend,
+    ReconstructedOverlay,
+    overlay_host_path,
+)
 from securebench.data_formats import strict_yaml_loads
 from securebench.path_safety import portable_paths_overlap
 from securebench.sandboxes import CommandResult, DockerSandbox, HostSandbox
 from securebench.sandboxes.base import MAX_COMMAND_OUTPUT_BYTES
-from securebench.schemas.benchmark import ProtocolCheck
+from securebench.schemas.benchmark import FilesystemOverlayCandidate, ProtocolCheck
 from securebench.tasks import BenchmarkTask
 from securebench.verification.json_data import (
     canonical_json_bytes,
@@ -64,6 +69,7 @@ MAX_PROTOCOL_CHALLENGE_BYTES = 1024 * 1024
 MAX_PROTOCOL_OBSERVATION_BYTES = MAX_COMMAND_OUTPUT_BYTES
 MAX_OUTPUT_ARTIFACT_BYTES_PER_EVALUATION = 16 * 1024 * 1024
 MAX_OUTPUT_ARTIFACT_FILES_PER_EVALUATION = 4096
+OVERLAY_EVALUATION_RUNTIME_TARGET = "/opt/securebench/evaluation-runtime"
 
 
 @dataclass(frozen=True)
@@ -82,10 +88,12 @@ class ProtocolCheckRunner:
         materializer: VisibilityAwareMaterializer | None = None,
         trusted_helpers: TrustedHelperCatalog | None = None,
         parsers: ParserRegistry | None = None,
+        overlay_backend: OverlayReplayBackend | None = None,
     ) -> None:
         self.materializer = materializer or VisibilityAwareMaterializer()
         self.trusted_helpers = trusted_helpers or default_trusted_helper_catalog()
         self.output_artifacts = OutputArtifactCollector(parsers)
+        self.overlay_backend = overlay_backend
 
     def evaluate(
         self,
@@ -210,22 +218,43 @@ class ProtocolCheckRunner:
         evaluation_root = Path(tempfile.mkdtemp(prefix="securebench-evaluation-"))
         sandbox: DockerSandbox | None = None
         helper_evaluation: TrustedHelperEvaluation | None = None
+        reconstruction: ReconstructedOverlay | None = None
         try:
             # Import lazily: the harness package imports execution-profile validation.
             from securebench.harnesses.shared import materialize_image_workdir
 
-            materialize_image_workdir(task, evaluation_root)
-            try:
-                replay_candidate(task, candidate, store, evaluation_root)
-            except CandidateReplayError as exc:
-                raise VerificationInfrastructureError(
-                    "candidate_replay_failed", "Stored candidate could not be reconstructed"
-                ) from exc
+            overlay = isinstance(task.verification.candidate, FilesystemOverlayCandidate)
+            if overlay:
+                if self.overlay_backend is None:
+                    raise VerificationInfrastructureError(
+                        "overlay_backend_unavailable",
+                        "Filesystem-overlay replay requires the reviewed quota backend",
+                    )
+                try:
+                    reconstruction = self.overlay_backend.reconstruct(task, candidate, store)
+                except CandidateReplayError as exc:
+                    raise VerificationInfrastructureError(
+                        "candidate_replay_failed",
+                        "Stored filesystem_overlay Candidate could not be reconstructed",
+                    ) from exc
+            else:
+                materialize_image_workdir(task, evaluation_root)
+                try:
+                    replay_candidate(task, candidate, store, evaluation_root)
+                except CandidateReplayError as exc:
+                    raise VerificationInfrastructureError(
+                        "candidate_replay_failed", "Stored candidate could not be reconstructed"
+                    ) from exc
             staging = HostSandbox(root=evaluation_root)
             try:
                 plan = self.materializer.materialize(task, staging, "evaluation_runtime")
             finally:
                 staging.close()
+            if reconstruction is not None:
+                _validate_overlay_evaluation_mounts(
+                    task,
+                    docker_resource_mounts(plan),
+                )
             helper_evaluation = TrustedHelperEvaluation(
                 task=task,
                 check=check,
@@ -242,7 +271,18 @@ class ProtocolCheckRunner:
                 env=helper_evaluation.evaluation_environment(),
                 read_only=True,
                 mounts=docker_resource_mounts(plan),
-                workspace_mount_target=task.environment.workdir,
+                volume_mounts=(
+                    ()
+                    if reconstruction is None
+                    else reconstruction.workspace.docker_mounts(read_only=False)
+                ),
+                workspace_mount_target=(
+                    task.environment.workdir
+                    if reconstruction is None
+                    else OVERLAY_EVALUATION_RUNTIME_TARGET
+                ),
+                workspace_read_only=reconstruction is not None,
+                allow_resource_overrides=reconstruction is None,
             )
             started = time.monotonic()
             adapter_input = canonical_json_bytes(
@@ -277,6 +317,14 @@ class ProtocolCheckRunner:
                 manifest.contract,
                 challenge_id=challenge_id,
                 evaluation_id=evaluation_id,
+                path_resolver=(
+                    None
+                    if reconstruction is None
+                    else lambda path: overlay_host_path(
+                        reconstruction.roots,
+                        str(PurePosixPath(task.environment.workdir) / path),
+                    )
+                ),
             )
             return replace(
                 adapter_evidence,
@@ -293,6 +341,11 @@ class ProtocolCheckRunner:
             if helper_evaluation is not None:
                 try:
                     helper_evaluation.close()
+                except Exception as exc:
+                    cleanup_error = cleanup_error or exc
+            if reconstruction is not None:
+                try:
+                    reconstruction.close()
                 except Exception as exc:
                     cleanup_error = cleanup_error or exc
             try:
@@ -583,6 +636,35 @@ def _evaluation_mount_targets(task: BenchmarkTask) -> tuple[PurePosixPath, ...]:
         if isinstance(mount, str):
             mounts.append(PurePosixPath(mount))
     return tuple(mounts)
+
+
+def _validate_overlay_evaluation_mounts(task: BenchmarkTask, mounts: tuple[Any, ...]) -> None:
+    candidate = task.verification.candidate
+    if not isinstance(candidate, FilesystemOverlayCandidate):
+        return
+    roots = tuple(PurePosixPath(root) for root in candidate.include_roots)
+    runtime_target = PurePosixPath(OVERLAY_EVALUATION_RUNTIME_TARGET)
+    public_mounts = {PurePosixPath(asset.mount) for asset in task.assets}
+    if any(portable_paths_overlap(runtime_target, root) for root in roots):
+        raise VerificationInfrastructureError(
+            "overlay_mount_overlap",
+            "Filesystem-overlay roots overlap framework Evaluation runtime state",
+        )
+    for mount in mounts:
+        target = getattr(mount, "target", None)
+        if not isinstance(target, str):
+            raise VerificationInfrastructureError(
+                "overlay_mount_invalid",
+                "Evaluation resource mount is invalid for filesystem-overlay replay",
+            )
+        path = PurePosixPath(target)
+        if any(portable_paths_overlap(path, root) for root in roots):
+            if path in public_mounts and getattr(mount, "read_only", False):
+                continue
+            raise VerificationInfrastructureError(
+                "overlay_mount_overlap",
+                "Filesystem-overlay roots overlap an Adapter or runtime resource",
+            )
 
 
 def _paths_overlap(left: PurePosixPath, right: PurePosixPath) -> bool:

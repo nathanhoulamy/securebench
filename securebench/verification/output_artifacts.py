@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from securebench.schemas.benchmark import OutputArtifactSpec, ProtocolCheck
 from securebench.verification.component_contracts import AdapterManifestV2, OutputArtifactContract
@@ -30,6 +31,7 @@ class OutputArtifactCollector:
         *,
         challenge_id: str,
         evaluation_id: str,
+        path_resolver: Callable[[str], tuple[Path, str]] | None = None,
     ) -> tuple[OutputArtifactEvidence, ...]:
         declarations = {artifact.name: artifact for artifact in contract.output_artifacts}
         if any(
@@ -49,6 +51,7 @@ class OutputArtifactCollector:
                 declarations[artifact.name],
                 challenge_id=challenge_id,
                 evaluation_id=evaluation_id,
+                path_resolver=path_resolver,
             )
             for artifact in check.output_artifacts
         )
@@ -61,12 +64,18 @@ class OutputArtifactCollector:
         *,
         challenge_id: str,
         evaluation_id: str,
+        path_resolver: Callable[[str], tuple[Path, str]] | None,
     ) -> OutputArtifactEvidence:
         observed: PassiveFileObservation | None = None
         try:
+            observation_root, observation_path = (
+                (evaluation_root, declaration.path)
+                if path_resolver is None
+                else path_resolver(declaration.path)
+            )
             observed = observe_bounded_path(
-                evaluation_root,
-                declaration.path,
+                observation_root,
+                observation_path,
                 artifact.limits,
                 subject=f"Output artifact {artifact.name!r}",
             )

@@ -21,6 +21,7 @@ from securebench.candidates import (
     CandidateProductionError,
     CandidateProductionTimeout,
     CandidateStore,
+    OverlayReplayBackend,
     capture_production,
 )
 from securebench.data_formats import strict_json_loads
@@ -294,7 +295,18 @@ def _execute_task(
 ) -> _CompletedTask:
     with progress_context(progress):
         emit_progress("task_start", index=index, total=total, task_id=task.id, family=task.family)
-        engine = VerificationEngine()
+        overlay_backend = None
+        if isinstance(task.verification.candidate, FilesystemOverlayCandidate):
+            capacity = config.docker.overlay_workspace_bytes
+            if capacity is None:
+                raise ConfigError(
+                    "docker.overlay_workspace_bytes is required for filesystem_overlay replay"
+                )
+            overlay_backend = OverlayReplayBackend(
+                storage_root=(workspace_root / "overlay-evaluations").resolve(),
+                capacity_bytes=capacity,
+            )
+        engine = VerificationEngine(overlay_backend=overlay_backend)
         run_seed = f"{config.run.id}:{task.id}"
         try:
             emit_progress("producer_start", task_id=task.id)

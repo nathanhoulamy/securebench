@@ -13,13 +13,17 @@ from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import (
     CandidateStore,
     HostWorkspaceFilesystem,
+    OverlayReplayBackend,
+    OverlayScanLimits,
     capture_file_bundle,
+    capture_filesystem_overlay,
     capture_git_patch_workspace,
+    scan_overlay_roots,
 )
 from securebench.errors import ConfigError
 from securebench.execution_profiles import validate_executable_task
 from securebench.harnesses.shared import materialize_image_workdir
-from securebench.sandboxes import CommandResult
+from securebench.sandboxes import CommandResult, DockerVolumeMount
 from securebench.schemas.benchmark import ArtifactCheck, ProtocolCheck, VerificationSpec
 from securebench.verification import OracleSession, OracleVerdict, VerificationEngine
 from securebench.verification.json_data import json_digest
@@ -34,6 +38,11 @@ from securebench.verification.protocol import (
     _adapter_evidence,
     _validated_challenge,
     load_adapter_manifest,
+)
+from securebench.tester_config import MIN_OVERLAY_WORKSPACE_BYTES
+from securebench.workspaces.overlay_quota import (
+    OverlayQuotaWorkspace,
+    probe_overlay_workspace_backend,
 )
 
 
@@ -85,6 +94,7 @@ def write_protocol_pack(
     base_commit: str | None = None,
     recorder: bool = False,
     output_artifact: bool = False,
+    overlay: bool = False,
 ):
     (root / "assets" / "task").mkdir(parents=True)
     adapter = root / "evaluation_inputs" / "task" / "adapter"
@@ -180,6 +190,16 @@ Path("/app/results/result.json").write_text(json.dumps({
         if output_artifact
         else ""
     )
+    overlay_isolation_adapter = (
+        """
+marker = Path("/app/.securebench-case-marker")
+if marker.exists():
+    raise RuntimeError("stale overlay state reached a fresh Evaluation")
+marker.write_text(str(request["challenge"]["value"]))
+"""
+        if overlay
+        else ""
+    )
     (adapter / "adapter.py").write_text(
         f"""
 import json
@@ -187,7 +207,7 @@ import sys
 from pathlib import Path
 
 request = json.load(sys.stdin)
-{helper_adapter}{output_artifact_adapter}print(json.dumps({{
+{helper_adapter}{output_artifact_adapter}{overlay_isolation_adapter}print(json.dumps({{
     "format": "securebench.adapter-response/v2",
     "status": "observed",
     "observation": {{
@@ -224,6 +244,14 @@ resource_roots:
             "allow_paths": ["answer.txt"],
         }
         if base_commit is not None
+        else {
+            "type": "filesystem_overlay",
+            "include_roots": ["/app"],
+            "max_changed_paths": 20,
+            "max_changed_bytes": 4096,
+            "allow_internal_symlinks": False,
+        }
+        if overlay
         else {
             "type": "file_bundle",
             "max_total_files": 1,
@@ -325,6 +353,270 @@ def capture_answer(root: Path, task):
         baseline_digest=task.baseline_digest,
     )
     return store, candidate
+
+
+class FakeProtocolOverlayWorkspace:
+    def __init__(self, root: Path, include_roots: tuple[str, ...], index: int):
+        self.root = root
+        self.include_roots = include_roots
+        self.volume_name = f"securebench-test-overlay-{index}"
+        self.roots = {
+            guest: root / f"root-{root_index}"
+            for root_index, guest in enumerate(include_roots)
+        }
+        for path in self.roots.values():
+            path.mkdir(parents=True)
+
+    def host_roots(self):
+        return self.roots
+
+    def docker_mounts(self, *, read_only=False):
+        return tuple(
+            DockerVolumeMount(
+                source=self.volume_name,
+                target=guest,
+                subpath=f"roots/{index:04d}",
+                read_only=read_only,
+            )
+            for index, guest in enumerate(self.include_roots)
+        )
+
+    def close(self):
+        shutil.rmtree(self.root)
+
+
+def test_overlay_protocol_uses_fresh_replay_per_case_and_collects_output(
+    tmp_path, monkeypatch
+):
+    import securebench.candidates.overlay as overlay_module
+
+    monkeypatch.setattr(overlay_module, "_has_extended_metadata", lambda _path: False)
+    task = write_protocol_pack(tmp_path / "pack", overlay=True, output_artifact=True)
+    baseline = tmp_path / "baseline"
+    final = tmp_path / "final"
+    baseline.mkdir()
+    final.mkdir()
+    (baseline / "answer.txt").write_text("baseline-state")
+    (final / "answer.txt").write_text("candidate-state")
+    limits = OverlayScanLimits(required_uid=os.getuid(), required_gid=os.getgid())
+    store = CandidateStore(tmp_path / "store")
+    candidate = capture_filesystem_overlay(
+        {"/app": baseline},
+        {"/app": final},
+        task.verification.candidate,
+        store,
+        baseline_digest=task.baseline_digest,
+        scan_limits=limits,
+    )
+    workspaces: list[FakeProtocolOverlayWorkspace] = []
+
+    def workspace_factory(*, include_roots, **_kwargs):
+        workspace = FakeProtocolOverlayWorkspace(
+            tmp_path / f"overlay-evaluation-{len(workspaces)}",
+            include_roots,
+            len(workspaces),
+        )
+        workspaces.append(workspace)
+        return workspace
+
+    def materializer(_image, workspace, *, scan_limits):
+        shutil.copy2(baseline / "answer.txt", workspace.roots["/app"] / "answer.txt")
+        return scan_overlay_roots(
+            workspace.include_roots,
+            workspace.host_roots(),
+            limits=scan_limits,
+            label="baseline",
+        )
+
+    class FakeDockerSandbox:
+        def __init__(self, **options):
+            self.options = options
+            assert options["workspace_read_only"] is True
+            assert options["allow_resource_overrides"] is False
+            assert options["workspace_mount_target"] == "/opt/securebench/evaluation-runtime"
+            assert [mount.target for mount in options["volume_mounts"]] == ["/app"]
+
+        def run(self, command, *, workdir, timeout, stdin):
+            workspace = workspaces[-1]
+            candidate_root = workspace.roots["/app"]
+            assert workdir == "/app"
+            assert (candidate_root / "answer.txt").read_text() == "candidate-state"
+            assert not (candidate_root / "stale-from-previous-case").exists()
+            request = json.loads(stdin)
+            (candidate_root / "results").mkdir()
+            (candidate_root / "results" / "result.json").write_text(
+                json.dumps({"challenge": request["challenge"]["value"]})
+            )
+            (candidate_root / "stale-from-previous-case").write_text("discard me")
+            return CommandResult(
+                command=tuple(command),
+                exit_code=0,
+                stdout=json.dumps(
+                    {
+                        "format": "securebench.adapter-response/v2",
+                        "status": "observed",
+                        "observation": {
+                            "candidate": "candidate-state",
+                            "answer": request["challenge"]["value"] * 2,
+                        },
+                    }
+                ),
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("securebench.verification.protocol.DockerSandbox", FakeDockerSandbox)
+    backend = OverlayReplayBackend(
+        storage_root=tmp_path / "storage",
+        capacity_bytes=2 * 1024 * 1024 * 1024,
+        scan_limits=limits,
+        workspace_factory=workspace_factory,
+        materializer=materializer,
+    )
+    oracle = ProtocolOracle(
+        [
+            OracleChallenge({"value": 2}, {"expected": 4}),
+            OracleChallenge({"value": 3}, {"expected": 6}),
+        ]
+    )
+
+    result = VerificationEngine(overlay_backend=backend).verify(
+        task, candidate, store, run_seed="overlay-protocol", oracle=oracle
+    )
+
+    assert result.status == "passed"
+    assert len(workspaces) == 2
+    assert workspaces[0].volume_name != workspaces[1].volume_name
+    assert not any(workspace.root.exists() for workspace in workspaces)
+    assert [
+        evidence.output_artifacts[0].parsed_value for evidence in oracle.evidence
+    ] == [{"challenge": 2}, {"challenge": 3}]
+
+
+@pytest.mark.skipif(
+    os.environ.get("SECUREBENCH_RUN_REAL_DOCKER_OVERLAY_TESTS") != "1",
+    reason="requires an explicitly provisioned root Linux Docker host",
+)
+def test_real_docker_overlay_protocol_uses_two_clean_volumes_and_leaks_nothing(
+    tmp_path
+):
+    if os.uname().sysname != "Linux" or os.geteuid() != 0:
+        pytest.skip("requires a root Linux host")
+    base = os.environ.get("SECUREBENCH_OVERLAY_PROBE_IMAGE")
+    if base is None:
+        pytest.skip("SECUREBENCH_OVERLAY_PROBE_IMAGE must name a local pinned image")
+    storage = tmp_path / "overlay-storage"
+    probe_overlay_workspace_backend(storage_root=storage, image=base)
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(
+        f"FROM {base}\n"
+        "RUN mkdir -p /app && printf baseline-state > /app/answer.txt\n"
+    )
+    built = subprocess.run(
+        ["docker", "build", "--quiet", str(tmp_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    image = built.stdout.strip()
+    if not image.startswith("sha256:"):
+        pytest.fail("Docker build did not return a pinned image ID")
+    before_volumes = subprocess.run(
+        [
+            "docker",
+            "volume",
+            "ls",
+            "--quiet",
+            "--filter",
+            "label=securebench.overlay-workspace=true",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    instances: list[str] = []
+
+    def workspace_factory(**options):
+        workspace = OverlayQuotaWorkspace.create(**options)
+        instances.append(workspace.instance_id)
+        return workspace
+
+    try:
+        task = write_protocol_pack(tmp_path / "pack", image=image, overlay=True)
+        baseline = tmp_path / "baseline"
+        final = tmp_path / "final"
+        baseline.mkdir()
+        final.mkdir()
+        (baseline / "answer.txt").write_text("baseline-state")
+        (final / "answer.txt").write_text("candidate-state")
+        store = CandidateStore(tmp_path / "store")
+        candidate = capture_filesystem_overlay(
+            {"/app": baseline},
+            {"/app": final},
+            task.verification.candidate,
+            store,
+            baseline_digest=task.baseline_digest,
+        )
+        backend = OverlayReplayBackend(
+            storage_root=storage,
+            capacity_bytes=MIN_OVERLAY_WORKSPACE_BYTES,
+            workspace_factory=workspace_factory,
+        )
+        oracle = ProtocolOracle(
+            [
+                OracleChallenge({"value": 2}, {"expected": 4}),
+                OracleChallenge({"value": 3}, {"expected": 6}),
+            ]
+        )
+
+        result = VerificationEngine(overlay_backend=backend).verify(
+            task, candidate, store, run_seed="real-overlay", oracle=oracle
+        )
+
+        assert result.status == "passed"
+        assert len(instances) == 2 and len(set(instances)) == 2
+        assert [item.observation["candidate"] for item in oracle.evidence] == [
+            "candidate-state",
+            "candidate-state",
+        ]
+    finally:
+        containers = subprocess.run(
+            [
+                "docker",
+                "container",
+                "ls",
+                "--all",
+                "--quiet",
+                "--filter",
+                f"ancestor={image}",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        subprocess.run(
+            ["docker", "image", "rm", "--force", image],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    after_volumes = subprocess.run(
+        [
+            "docker",
+            "volume",
+            "ls",
+            "--quiet",
+            "--filter",
+            "label=securebench.overlay-workspace=true",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    assert containers == []
+    assert sorted(after_volumes) == sorted(before_volumes)
+    assert not list(storage.glob("securebench-overlay-*"))
 
 
 def make_git_baseline(root: Path) -> tuple[Path, str]:

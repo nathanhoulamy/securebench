@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -17,6 +18,10 @@ from securebench.candidates import (
     HostWorkspaceFilesystem,
     capture_file_bundle,
     capture_git_patch_workspace,
+    capture_filesystem_overlay,
+    OverlayReplayBackend,
+    OverlayScanLimits,
+    scan_overlay_roots,
 )
 from securebench.schemas.benchmark import ArtifactSpec, FileBundleCandidate
 from securebench.verification import (
@@ -68,7 +73,12 @@ class FixedVerdictOracle(RecordingOracle):
         return self.verdict
 
 
-def write_artifact_pack(root: Path, *, parser="securebench.strict-json/v1"):
+def write_artifact_pack(
+    root: Path,
+    *,
+    parser="securebench.strict-json/v1",
+    overlay: bool = False,
+):
     (root / "assets").mkdir(parents=True)
     (root / "evaluation_inputs").mkdir()
     (root / "hidden" / "task" / "oracle").mkdir(parents=True)
@@ -95,7 +105,13 @@ resource_roots:
         "input": {"instructions": "Write /app/result.json."},
         "verification": {
             "execution_profile": "strict-split/v1",
-            "candidate": {
+            "candidate": ({
+                "type": "filesystem_overlay",
+                "include_roots": ["/app"],
+                "max_changed_paths": 10,
+                "max_changed_bytes": 1024,
+                "allow_internal_symlinks": False,
+            } if overlay else {
                 "type": "file_bundle",
                 "max_total_files": 1,
                 "max_total_bytes": 1024,
@@ -107,7 +123,7 @@ resource_roots:
                         "max_bytes": 1024,
                     }
                 ],
-            },
+            }),
             "resources": {
                 "host": {"oracle": {"path": "task/oracle"}},
             },
@@ -118,7 +134,7 @@ resource_roots:
                     "artifacts": [
                         {
                             "id": "result",
-                            "source": {"entry": "result"},
+                            "source": ({"path": "/app/result.json"} if overlay else {"entry": "result"}),
                             "parser": parser,
                             "limits": {"max_bytes": 1024},
                         }
@@ -132,6 +148,88 @@ resource_roots:
     tasks.write_text(json.dumps(row) + "\n")
     pack = load_benchmark_pack(manifest, tasks)
     return next(compile_benchmark_pack(pack))
+
+
+class FakeOverlayWorkspace:
+    def __init__(self, root: Path, include_roots: tuple[str, ...], events: list[str]):
+        self.include_roots = include_roots
+        self.root = root
+        self.roots = {
+            guest: root / f"root-{index}"
+            for index, guest in enumerate(include_roots)
+        }
+        for path in self.roots.values():
+            path.mkdir(parents=True)
+        self.events = events
+
+    def host_roots(self):
+        return self.roots
+
+    def close(self):
+        self.events.append("closed")
+        shutil.rmtree(self.root)
+
+
+def test_overlay_artifact_uses_fresh_absolute_path_mapping_and_cleanup(
+    tmp_path, monkeypatch
+):
+    import securebench.candidates.overlay as overlay_module
+
+    monkeypatch.setattr(overlay_module, "_has_extended_metadata", lambda _path: False)
+    task = write_artifact_pack(tmp_path / "pack", overlay=True)
+    baseline = tmp_path / "baseline"
+    final = tmp_path / "final"
+    baseline.mkdir()
+    final.mkdir()
+    (baseline / "result.json").write_text('{"answer": 0}')
+    (final / "result.json").write_text('{"answer": 42}')
+    limits = OverlayScanLimits(required_uid=os.getuid(), required_gid=os.getgid())
+    store = CandidateStore(tmp_path / "store")
+    candidate = capture_filesystem_overlay(
+        {"/app": baseline},
+        {"/app": final},
+        task.verification.candidate,
+        store,
+        baseline_digest=task.baseline_digest,
+        scan_limits=limits,
+    )
+    events: list[str] = []
+    created: list[FakeOverlayWorkspace] = []
+
+    def workspace_factory(*, include_roots, **_kwargs):
+        workspace = FakeOverlayWorkspace(
+            tmp_path / f"evaluation-{len(created)}", include_roots, events
+        )
+        created.append(workspace)
+        return workspace
+
+    def materializer(_image, workspace, *, scan_limits):
+        shutil.copy2(baseline / "result.json", workspace.roots["/app"] / "result.json")
+        return scan_overlay_roots(
+            workspace.include_roots,
+            workspace.host_roots(),
+            limits=scan_limits,
+            label="baseline",
+        )
+
+    backend = OverlayReplayBackend(
+        storage_root=tmp_path / "storage",
+        capacity_bytes=2 * 1024 * 1024 * 1024,
+        scan_limits=limits,
+        workspace_factory=workspace_factory,
+        materializer=materializer,
+    )
+    oracle = RecordingOracle()
+
+    result = VerificationEngine(overlay_backend=backend).verify(
+        task, candidate, store, run_seed="overlay-artifact", oracle=oracle
+    )
+
+    assert result.status == "passed"
+    assert oracle.evidence[0].parsed_value == {"answer": 42}
+    assert len(created) == 1
+    assert events == ["closed"]
+    assert not created[0].root.exists()
 
 
 def capture_result(tmp_path: Path, task, content: bytes):

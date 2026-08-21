@@ -8,6 +8,7 @@ from typing import Any
 
 from securebench.baselines import task_baseline_digest, task_verification_digest
 from securebench.candidates.models import CandidateReplayError, CandidateStoreError, StoredCandidate
+from securebench.candidates.overlay_replay import OverlayReplayBackend, overlay_host_path
 from securebench.candidates.replay import replay_candidate
 from securebench.candidates.store import CandidateStore
 from securebench.errors import ConfigError
@@ -41,9 +42,14 @@ class VerificationEngine:
         self,
         parsers: ParserRegistry | None = None,
         protocols: ProtocolCheckRunner | None = None,
+        overlay_backend: OverlayReplayBackend | None = None,
     ) -> None:
         self.parsers = parsers or default_parser_registry()
-        self.protocols = protocols or ProtocolCheckRunner(parsers=self.parsers)
+        self.overlay_backend = overlay_backend
+        self.protocols = protocols or ProtocolCheckRunner(
+            parsers=self.parsers,
+            overlay_backend=overlay_backend,
+        )
 
     def verify(
         self,
@@ -217,7 +223,7 @@ class VerificationEngine:
     ) -> ArtifactEvidence:
         try:
             kind, digest, size, value = _candidate_artifact(
-                task, candidate, store, artifact
+                task, candidate, store, artifact, overlay_backend=self.overlay_backend
             )
             profile = self.parsers.profile(artifact.parser)
             if kind == "regular_file":
@@ -285,10 +291,20 @@ def _candidate_artifact(
     candidate: StoredCandidate,
     store: CandidateStore,
     artifact: ArtifactSpec,
+    *,
+    overlay_backend: OverlayReplayBackend | None = None,
 ) -> tuple[str, str | None, int, bytes | dict[str, Any]]:
     manifest = store.load_candidate(candidate.digest)
     if manifest.type == "git_patch":
         return _git_patch_artifact(task, candidate, store, artifact)
+    if manifest.type == "filesystem_overlay":
+        return _filesystem_overlay_artifact(
+            task,
+            candidate,
+            store,
+            artifact,
+            overlay_backend=overlay_backend,
+        )
     if manifest.type != "file_bundle":
         raise VerificationInfrastructureError(
             "artifact_materializer_unavailable",
@@ -353,6 +369,52 @@ def _candidate_artifact(
     raise VerificationInfrastructureError(
         "candidate_manifest_invalid", "Stored candidate entry kind is invalid"
     )
+
+
+def _filesystem_overlay_artifact(
+    task: BenchmarkTask,
+    candidate: StoredCandidate,
+    store: CandidateStore,
+    artifact: ArtifactSpec,
+    *,
+    overlay_backend: OverlayReplayBackend | None,
+) -> tuple[str, str | None, int, bytes | dict[str, Any]]:
+    if overlay_backend is None:
+        raise VerificationInfrastructureError(
+            "overlay_backend_unavailable",
+            "Filesystem-overlay replay requires the reviewed quota backend",
+        )
+    source_path = artifact.source.path
+    if source_path is None:
+        raise VerificationInfrastructureError(
+            "artifact_source_invalid",
+            "filesystem_overlay artifact source must reference an absolute path",
+        )
+    reconstruction = None
+    try:
+        reconstruction = overlay_backend.reconstruct(task, candidate, store)
+        host_root, relative = overlay_host_path(reconstruction.roots, source_path)
+        observed = observe_bounded_path(
+            host_root,
+            relative,
+            artifact.limits,
+            subject=f"Candidate artifact {artifact.id!r}",
+        )
+        return observed.kind, observed.digest, observed.size, observed.value
+    except CandidateReplayError as exc:
+        raise VerificationInfrastructureError(
+            "candidate_replay_failed",
+            "Stored filesystem_overlay Candidate could not be reconstructed",
+        ) from exc
+    finally:
+        if reconstruction is not None:
+            try:
+                reconstruction.close()
+            except Exception as exc:
+                raise VerificationInfrastructureError(
+                    "artifact_cleanup_failed",
+                    "Passive overlay artifact workspace cleanup failed",
+                ) from exc
 
 
 def _validate_stored_tree(

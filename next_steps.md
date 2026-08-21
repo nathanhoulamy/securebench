@@ -161,15 +161,7 @@ should remain configurable below those framework capacities.
 - Full warning-strict, real-Docker protocol, self-audit, schema regeneration, packaging, and leak
   checks passed. The unresolved resource budgets above remain explicit future work.
 
-## Priority 5: filesystem overlays
-
-Do not implement capture until the canonical representation is reviewed. Specify:
-
-- baseline identity and allowed include roots;
-- additions, modifications, deletions, modes, ownership normalization, and directories;
-- safe internal symlinks, hardlinks, path length/depth, and special-file rejection;
-- protected system regions and credential/package-manager state;
-- deterministic capture, content addressing, replay, and cleanup.
+## Priority 5: filesystem overlays — Phase 7 remains
 
 The accepted Phase 1 contract is documented in
 [`docs/split-verification/filesystem-overlay-v1.md`](docs/split-verification/filesystem-overlay-v1.md).
@@ -185,8 +177,43 @@ subpaths. Its capability probe requires reviewed Docker storage, proves enforced
 stale interrupted state, and checks complete cleanup. Overlay execution remains disabled pending
 review.
 
-Then implement stopped-state capture, clean-baseline replay, passive `source.path`, protocol replay,
-and adversarial tests. This remains the highest-risk candidate transport.
+Phases 4 and 5 add canonical transactional capture and a standalone stopped-Agent capture
+orchestrator. Phase 6 now adds fresh Evaluation reconstruction: it materializes and verifies the
+pinned baseline, applies deletions/directories/files/links in the reviewed order, rescans the final
+state before Candidate code runs, resolves absolute passive artifact paths, mounts reconstructed
+roots into protocol Evaluations, collects overlay Output Artifacts, and destroys the fresh quota
+workspace after every observation or Challenge.
+
+The warning-strict local suite passes with `478 passed, 6 skipped`; the robustness audit, schema
+generation, compilation, package build, and `git diff --check` also pass. Host-side tests cover
+exact replay, forged baselines, corrupt chunks, traversal and symlink attacks, row-limit
+revalidation, absolute artifact observation, Output Artifacts, cleanup, and fresh two-Challenge
+isolation. A real two-volume Docker Evaluation test is present but intentionally skipped outside
+the explicit root-Linux qualification environment.
+
+### Next: finish Phase 7 and activate
+
+Overlay rows remain deliberately non-executable. Complete these gates in order:
+
+1. Connect the Phase 5 quota-backed Agent capture orchestrator to the normal tester/harness path.
+   Command, Codex, and Claude Code overlay runs must keep task instructions, credentials, Adapter
+   state, and tool state outside captured roots while ensuring every writable location is bounded.
+   Add direct runner tests proving the normal path returns exactly one stored overlay Candidate and
+   cleans Agent state on success, failure, rejection, timeout, and interruption.
+2. Run the qualification on a real root Linux host, not Docker Desktop on macOS. The host must
+   provide loop-backed ext4, mount/umount, Docker `overlay2`, volume subpaths, and a locally available
+   digest-pinned probe image. Run the quota-exhaustion test, real stopped-Agent capture, and the real
+   two-Evaluation replay test; prove distinct volumes, identical baseline reconstruction, no stale
+   state, and no leaked containers, volumes, loop mounts, backing files, or networks.
+3. Re-run the warning-strict full suite, robustness audit, schema-generation check, package build,
+   and leak inspection on that Linux host.
+4. Only after every gate passes, replace the unconditional overlay preflight rejection with the
+   reviewed Linux capability probe. Unsupported hosts and storage drivers must still fail before
+   Agent execution. Then update `current.md`, this roadmap, the overlay documentation, and the
+   capability matrix to mark the feature executable.
+
+The macOS workspace can be used to finish harness integration and mocked/adversarial tests. Final
+qualification and activation require the native Linux host.
 
 ## Later work
 

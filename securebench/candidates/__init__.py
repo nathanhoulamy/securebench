@@ -34,6 +34,12 @@ from securebench.candidates.overlay_agent import (
     materialize_overlay_image_roots,
     run_filesystem_overlay_agent_capture,
 )
+from securebench.candidates.overlay_replay import (
+    OverlayReplayBackend,
+    ReconstructedOverlay,
+    overlay_host_path,
+    replay_filesystem_overlay,
+)
 from securebench.candidates.replay import replay_candidate, replay_file_bundle, replay_git_patch
 from securebench.candidates.store import CandidateStore
 
@@ -51,7 +57,9 @@ __all__ = [
     "OverlayScanLimits",
     "OverlayAgentCaptureResult",
     "OverlayAgentInfrastructureError",
+    "OverlayReplayBackend",
     "StoredCandidate",
+    "ReconstructedOverlay",
     "capture_file_bundle",
     "capture_filesystem_overlay",
     "capture_filesystem_overlay_from_baseline",
@@ -62,9 +70,11 @@ __all__ = [
     "extract_candidate",
     "materialize_overlay_image_roots",
     "replay_file_bundle",
+    "replay_filesystem_overlay",
     "replay_git_patch",
     "replay_candidate",
     "scan_overlay_root",
     "scan_overlay_roots",
     "run_filesystem_overlay_agent_capture",
+    "overlay_host_path",
 ]

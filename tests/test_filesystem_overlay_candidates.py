@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 from pathlib import Path
 
 import pytest
@@ -12,11 +13,14 @@ import pytest
 import securebench.candidates.overlay as overlay_module
 from securebench.candidates import (
     CandidateCaptureError,
+    CandidateReplayError,
     CandidateStore,
     CandidateStoreError,
     OverlayScanLimits,
     capture_filesystem_overlay,
     scan_overlay_root,
+    replay_filesystem_overlay,
+    scan_overlay_roots,
 )
 from securebench.candidates.overlay import OVERLAY_CHUNK_BYTES
 from securebench.candidates.store import CandidateStoreTransaction
@@ -379,3 +383,131 @@ def test_overlay_load_rejects_escaping_stored_path(tmp_path: Path):
 
     with pytest.raises(CandidateStoreError, match="change path is invalid"):
         store.load_candidate(malformed.digest)
+
+
+def test_overlay_replay_reconstructs_exact_final_state(tmp_path: Path):
+    baseline, final = root_pair(tmp_path)
+    (baseline / "current").symlink_to("unchanged.txt")
+    shutil.rmtree(final / "removed")
+    (final / "changed.txt").write_text("after\n")
+    (final / "new-dir").mkdir()
+    executable = final / "new-dir" / "tool"
+    executable.write_text("run\n")
+    executable.chmod(0o700)
+    (final / "current").symlink_to("changed.txt")
+    spec = overlay_spec(allow_internal_symlinks=True)
+    store = CandidateStore(tmp_path / "store")
+    candidate = capture(baseline, final, store, spec=spec)
+    replay = tmp_path / "replay"
+    shutil.copytree(baseline, replay, symlinks=True)
+    limits = local_limits()
+    baseline_scan = scan_overlay_roots(
+        ("/app",), {"/app": replay}, limits=limits, label="baseline"
+    )
+
+    replay_filesystem_overlay(
+        candidate,
+        store,
+        {"/app": replay},
+        spec=spec,
+        expected_baseline_digest=BASELINE,
+        baseline=baseline_scan,
+        scan_limits=limits,
+    )
+
+    expected = scan_overlay_root("/app", final, limits=limits)
+    actual = scan_overlay_root("/app", replay, limits=limits)
+    assert actual.digest == expected.digest
+    assert (replay / "current").readlink() == Path("changed.txt")
+    assert stat.S_IMODE((replay / "new-dir" / "tool").stat().st_mode) == 0o755
+
+
+def test_overlay_replay_rejects_forged_baseline_digest(tmp_path: Path):
+    baseline, final = root_pair(tmp_path)
+    (final / "changed.txt").write_text("after\n")
+    store = CandidateStore(tmp_path / "store")
+    valid = capture(baseline, final, store)
+    payload = copy.deepcopy(store.load_candidate(valid.digest).payload)
+    payload["roots"][0]["baseline_tree_digest"] = "sha256:" + "f" * 64
+    forged = store.put_candidate("filesystem_overlay", BASELINE, payload)
+    replay = tmp_path / "replay"
+    shutil.copytree(baseline, replay)
+
+    with pytest.raises(CandidateReplayError, match="baseline root mismatch"):
+        replay_filesystem_overlay(
+            forged,
+            store,
+            {"/app": replay},
+            spec=overlay_spec(),
+            expected_baseline_digest=BASELINE,
+            scan_limits=local_limits(),
+        )
+
+
+def test_overlay_replay_never_follows_parent_symlink(tmp_path: Path):
+    baseline = tmp_path / "baseline"
+    final = tmp_path / "final"
+    (baseline / "nested").mkdir(parents=True)
+    (baseline / "nested" / "value").write_text("old")
+    shutil.copytree(baseline, final)
+    (final / "nested" / "value").write_text("new")
+    store = CandidateStore(tmp_path / "store")
+    candidate = capture(baseline, final, store)
+    replay = tmp_path / "replay"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "value").write_text("outside")
+    shutil.copytree(baseline, replay)
+    limits = local_limits()
+    baseline_scan = scan_overlay_roots(
+        ("/app",), {"/app": replay}, limits=limits, label="baseline"
+    )
+    shutil.rmtree(replay / "nested")
+    (replay / "nested").symlink_to(outside)
+
+    with pytest.raises(CandidateReplayError, match="parent is not a real directory"):
+        replay_filesystem_overlay(
+            candidate,
+            store,
+            {"/app": replay},
+            spec=overlay_spec(),
+            expected_baseline_digest=BASELINE,
+            baseline=baseline_scan,
+            scan_limits=limits,
+        )
+    assert (outside / "value").read_text() == "outside"
+
+
+def test_overlay_replay_rechecks_row_bounds_and_symlink_opt_in(tmp_path: Path):
+    baseline = tmp_path / "baseline"
+    final = tmp_path / "final"
+    baseline.mkdir()
+    final.mkdir()
+    (final / "target").write_text("content")
+    (final / "current").symlink_to("target")
+    store = CandidateStore(tmp_path / "store")
+    candidate = capture(
+        baseline,
+        final,
+        store,
+        spec=overlay_spec(allow_internal_symlinks=True),
+    )
+
+    with pytest.raises(CandidateReplayError, match="row bounds"):
+        replay_filesystem_overlay(
+            candidate,
+            store,
+            {"/app": baseline},
+            spec=overlay_spec(max_changed_paths=1, allow_internal_symlinks=True),
+            expected_baseline_digest=BASELINE,
+            scan_limits=local_limits(),
+        )
+    with pytest.raises(CandidateReplayError, match="disabled symlinks"):
+        replay_filesystem_overlay(
+            candidate,
+            store,
+            {"/app": baseline},
+            spec=overlay_spec(allow_internal_symlinks=False),
+            expected_baseline_digest=BASELINE,
+            scan_limits=local_limits(),
+        )
