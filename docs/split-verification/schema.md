@@ -417,6 +417,16 @@ Observation schemas, Evaluation Participants, required Trusted Helpers,
 Helper Access, Output Artifacts, and hard maximums that the row may only
 reduce.
 
+Under the current `strict-split/v1` backend, requested Output Artifact limits
+must total at most 16 MiB and 4,096 filesystem entries per Evaluation. Paths
+are relative to `environment.workdir`, may not use `.git` or the framework's
+`securebench/` materialization area, overlap an Evaluation resource mount, or
+traverse symlinked parents.
+Collection happens only after the one-shot Evaluation process exits. Missing,
+wrong-type, oversized, unsafe, or parser-rejected artifacts become Candidate
+evidence; collector or registered-parser contract failures are framework
+infrastructure errors.
+
 Under `strict-split/v1`, every Challenge receives a fresh Evaluation, helper
 instances, credentials, and Evaluation ID. A bounded multi-step lifecycle is
 one Challenge, not cross-Challenge persistence.

@@ -38,6 +38,12 @@ from securebench.verification.models import (
     VerificationInfrastructureError,
 )
 from securebench.verification.oracle import OracleSession
+from securebench.verification.output_artifacts import OutputArtifactCollector
+from securebench.verification.passive_files import (
+    MAX_OBSERVED_PATH_BYTES,
+    MAX_OBSERVED_PATH_DEPTH,
+)
+from securebench.verification.parsers import ParserRegistry
 from securebench.verification.trusted_helpers import (
     TrustedHelperEvaluation,
     default_trusted_helper_catalog,
@@ -55,6 +61,8 @@ MAX_ADAPTER_COMMAND_PARTS = 32
 MAX_ADAPTER_COMMAND_PART_BYTES = 4096
 MAX_PROTOCOL_CHALLENGE_BYTES = 1024 * 1024
 MAX_PROTOCOL_OBSERVATION_BYTES = MAX_COMMAND_OUTPUT_BYTES
+MAX_OUTPUT_ARTIFACT_BYTES_PER_EVALUATION = 16 * 1024 * 1024
+MAX_OUTPUT_ARTIFACT_FILES_PER_EVALUATION = 4096
 
 
 @dataclass(frozen=True)
@@ -72,9 +80,11 @@ class ProtocolCheckRunner:
         self,
         materializer: VisibilityAwareMaterializer | None = None,
         trusted_helpers: TrustedHelperCatalog | None = None,
+        parsers: ParserRegistry | None = None,
     ) -> None:
         self.materializer = materializer or VisibilityAwareMaterializer()
         self.trusted_helpers = trusted_helpers or default_trusted_helper_catalog()
+        self.output_artifacts = OutputArtifactCollector(parsers)
 
     def evaluate(
         self,
@@ -249,19 +259,28 @@ class ProtocolCheckRunner:
                 stdin=adapter_input + b"\n",
             )
             duration_ms = max(0, round((time.monotonic() - started) * 1000))
+            adapter_evidence = _adapter_evidence(
+                check,
+                manifest.contract,
+                challenge_index,
+                challenge_id,
+                evaluation_id,
+                case,
+                result,
+                duration_ms,
+            )
             helper_evidence = helper_evaluation.collect()
+            output_artifacts = self.output_artifacts.collect(
+                evaluation_root,
+                check,
+                manifest.contract,
+                challenge_id=challenge_id,
+                evaluation_id=evaluation_id,
+            )
             return replace(
-                _adapter_evidence(
-                    check,
-                    manifest.contract,
-                    challenge_index,
-                    challenge_id,
-                    evaluation_id,
-                    case,
-                    result,
-                    duration_ms,
-                ),
+                adapter_evidence,
                 trusted_helper_evidence=helper_evidence,
+                output_artifacts=output_artifacts,
             )
         finally:
             cleanup_error: Exception | None = None
@@ -407,7 +426,7 @@ def require_supported_protocol_features(
         trusted_helpers or TrustedHelperCatalog(),
         task=task,
     )
-    _validate_output_artifact_contracts(check, contract)
+    _validate_output_artifact_contracts(check, contract, task=task)
 
 
 def _validate_adapter_command(command: Any) -> None:
@@ -483,6 +502,8 @@ def _validate_trusted_helper_contracts(
 def _validate_output_artifact_contracts(
     check: ProtocolCheck,
     contract: AdapterManifestV2,
+    *,
+    task: BenchmarkTask | None = None,
 ) -> None:
     requested = {artifact.name: artifact for artifact in check.output_artifacts}
     declared = {artifact.name: artifact for artifact in contract.output_artifacts}
@@ -491,9 +512,19 @@ def _validate_output_artifact_contracts(
             "output_artifact_contract_mismatch",
             "Protocol check requests output artifacts not declared by the adapter",
         )
+    total_bytes = 0
+    total_files = 0
+    mount_targets = () if task is None else _evaluation_mount_targets(task)
     for name, artifact in requested.items():
-        maximums = declared[name].maximum_limits
+        declaration = declared[name]
+        maximums = declaration.maximum_limits
         limits = artifact.limits
+        expected_kind = "regular_file" if limits.max_bytes is not None else "directory_tree"
+        if declaration.kind != expected_kind:
+            raise VerificationInfrastructureError(
+                "output_artifact_kind_mismatch",
+                f"Output artifact {name!r} kind does not match its row limits",
+            )
         if any(
             value is not None and (maximum is None or value > maximum)
             for value, maximum in (
@@ -506,11 +537,55 @@ def _validate_output_artifact_contracts(
                 "output_artifact_maximum_exceeded",
                 f"Output artifact {name!r} exceeds the adapter's declared maximums",
             )
-    if check.output_artifacts:
+        path = PurePosixPath(declaration.path)
+        if path.parts[0] in {".git", "securebench"}:
+            raise VerificationInfrastructureError(
+                "output_artifact_path_reserved",
+                f"Output artifact {name!r} uses a framework-reserved path",
+            )
+        if (
+            len(declaration.path.encode("utf-8")) > MAX_OBSERVED_PATH_BYTES
+            or len(path.parts) > MAX_OBSERVED_PATH_DEPTH
+        ):
+            raise VerificationInfrastructureError(
+                "output_artifact_path_unsupported",
+                f"Output artifact {name!r} path exceeds the collector capacity",
+            )
+        if task is not None and mount_targets:
+            output_path = PurePosixPath(task.environment.workdir) / path
+            if any(_paths_overlap(output_path, mount) for mount in mount_targets):
+                raise VerificationInfrastructureError(
+                    "output_artifact_mount_overlap",
+                    f"Output artifact {name!r} overlaps a mounted Evaluation resource",
+                )
+        total_bytes += limits.max_bytes or limits.max_total_bytes or 0
+        total_files += limits.max_files or 1
+    if total_bytes > MAX_OUTPUT_ARTIFACT_BYTES_PER_EVALUATION:
         raise VerificationInfrastructureError(
-            "output_artifact_collection_unavailable",
-            "Output Artifact contracts are defined but collection is not implemented yet",
+            "output_artifact_bound_unsupported",
+            "Output Artifact byte bounds exceed the Evaluation collector capacity",
         )
+    if total_files > MAX_OUTPUT_ARTIFACT_FILES_PER_EVALUATION:
+        raise VerificationInfrastructureError(
+            "output_artifact_bound_unsupported",
+            "Output Artifact entry bounds exceed the Evaluation collector capacity",
+        )
+
+
+def _evaluation_mount_targets(task: BenchmarkTask) -> tuple[PurePosixPath, ...]:
+    mounts = [PurePosixPath(asset.mount) for asset in task.assets]
+    for identifier in task.verification.resources.runtime:
+        resource = task.resources.resources.get(f"runtime.{identifier}")
+        if resource is None or not isinstance(resource.value, dict):
+            continue
+        mount = resource.value.get("mount")
+        if isinstance(mount, str):
+            mounts.append(PurePosixPath(mount))
+    return tuple(mounts)
+
+
+def _paths_overlap(left: PurePosixPath, right: PurePosixPath) -> bool:
+    return left == right or left.is_relative_to(right) or right.is_relative_to(left)
 
 
 def _valid_command_part(value: Any) -> bool:

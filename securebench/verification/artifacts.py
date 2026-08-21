@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import os
-import stat
 import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -31,6 +28,7 @@ from securebench.verification.oracle import (
     OracleSession,
     oracle_resource_root,
 )
+from securebench.verification.passive_files import observe_bounded_path
 from securebench.verification.parsers import ParserRegistry, default_parser_registry
 from securebench.verification.protocol import ProtocolCheckRunner
 from securebench.workspaces.cleanup import remove_untrusted_tree
@@ -45,7 +43,7 @@ class VerificationEngine:
         protocols: ProtocolCheckRunner | None = None,
     ) -> None:
         self.parsers = parsers or default_parser_registry()
-        self.protocols = protocols or ProtocolCheckRunner()
+        self.protocols = protocols or ProtocolCheckRunner(parsers=self.parsers)
 
     def verify(
         self,
@@ -336,6 +334,11 @@ def _git_patch_artifact(
         raise VerificationInfrastructureError(
             "artifact_source_invalid", "git_patch artifact source must reference a path"
         )
+    relative = PurePosixPath(source_path)
+    if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+        raise VerificationInfrastructureError(
+            "artifact_source_invalid", "Repository artifact path is invalid"
+        )
     evaluation_root = Path(tempfile.mkdtemp(prefix="securebench-artifact-repository-"))
     try:
         # Import lazily: harness modules import execution-profile validation.
@@ -348,7 +351,13 @@ def _git_patch_artifact(
             raise VerificationInfrastructureError(
                 "candidate_replay_failed", "Stored patch candidate could not be reconstructed"
             ) from exc
-        return _observe_repository_path(evaluation_root, source_path, artifact)
+        observed = observe_bounded_path(
+            evaluation_root,
+            source_path,
+            artifact.limits,
+            subject=f"Candidate artifact {artifact.id!r}",
+        )
+        return observed.kind, observed.digest, observed.size, observed.value
     finally:
         try:
             remove_untrusted_tree(evaluation_root, image=task.environment.image)
@@ -356,188 +365,6 @@ def _git_patch_artifact(
             raise VerificationInfrastructureError(
                 "artifact_cleanup_failed", "Passive artifact workspace cleanup failed"
             ) from exc
-
-
-def _observe_repository_path(
-    repository: Path,
-    source_path: str,
-    artifact: ArtifactSpec,
-) -> tuple[str, str | None, int, bytes | dict[str, Any]]:
-    relative = PurePosixPath(source_path)
-    if relative.is_absolute() or ".." in relative.parts or not relative.parts:
-        raise VerificationInfrastructureError(
-            "artifact_source_invalid", "Repository artifact path is invalid"
-        )
-    target = repository.joinpath(*relative.parts)
-    if not target.parent.resolve().is_relative_to(repository.resolve()):
-        raise CandidateObservationError(
-            "artifact_path_escape", "Candidate artifact path escapes the repository"
-        )
-    try:
-        info = target.lstat()
-    except OSError as exc:
-        raise CandidateObservationError(
-            "artifact_missing", f"Candidate artifact {artifact.id!r} is missing"
-        ) from exc
-    if artifact.limits.max_bytes is not None:
-        if not stat.S_ISREG(info.st_mode):
-            raise CandidateObservationError(
-                "artifact_wrong_type", f"Candidate artifact {artifact.id!r} is not a regular file"
-            )
-        maximum = artifact.limits.max_bytes
-        if info.st_size > maximum:
-            raise CandidateObservationError(
-                "artifact_too_large", f"Candidate artifact {artifact.id!r} exceeds its parser bound"
-            )
-        content = _read_bounded_regular_file(target, info, maximum=maximum)
-        digest = "sha256:" + hashlib.sha256(content).hexdigest()
-        return "regular_file", digest, len(content), content
-    if not stat.S_ISDIR(info.st_mode):
-        raise CandidateObservationError(
-            "artifact_wrong_type", f"Candidate artifact {artifact.id!r} is not a directory tree"
-        )
-    maximum_files = artifact.limits.max_files
-    maximum_bytes = artifact.limits.max_total_bytes
-    assert maximum_files is not None and maximum_bytes is not None
-    nodes, total_bytes = _bounded_repository_tree(
-        target,
-        maximum_files=maximum_files,
-        maximum_bytes=maximum_bytes,
-    )
-    value = {"nodes": nodes}
-    digest = "sha256:" + hashlib.sha256(canonical_json_bytes(value)).hexdigest()
-    return "directory_tree", digest, total_bytes, value
-
-
-def _read_bounded_regular_file(path: Path, before: os.stat_result, *, maximum: int) -> bytes:
-    flags = os.O_RDONLY | (os.O_NOFOLLOW if hasattr(os, "O_NOFOLLOW") else 0)
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise CandidateObservationError(
-            "artifact_unreadable", "Candidate artifact could not be read safely"
-        ) from exc
-    try:
-        content = bytearray()
-        while len(content) <= maximum:
-            chunk = os.read(descriptor, min(1024 * 1024, maximum + 1 - len(content)))
-            if not chunk:
-                break
-            content.extend(chunk)
-    finally:
-        os.close(descriptor)
-    if len(content) > maximum:
-        raise CandidateObservationError(
-            "artifact_too_large", "Candidate artifact exceeds its parser bound"
-        )
-    after = path.lstat()
-    if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        after.st_mtime_ns,
-    ):
-        raise CandidateObservationError(
-            "artifact_changed", "Candidate artifact changed during passive observation"
-        )
-    return bytes(content)
-
-
-def _bounded_repository_tree(
-    root: Path,
-    *,
-    maximum_files: int,
-    maximum_bytes: int,
-) -> tuple[list[dict[str, Any]], int]:
-    nodes: list[dict[str, Any]] = []
-    total_bytes = 0
-    pending = [root]
-    while pending:
-        current = pending.pop()
-        directories: list[Path] = []
-        try:
-            children = sorted(
-                os.scandir(current),
-                key=lambda item: item.name.encode("utf-8", errors="surrogateescape"),
-            )
-        except OSError as exc:
-            raise CandidateObservationError(
-                "artifact_unreadable", "Candidate artifact tree is inaccessible"
-            ) from exc
-        for child in children:
-            if len(nodes) >= maximum_files:
-                raise CandidateObservationError(
-                    "artifact_too_large", "Candidate artifact tree exceeds its entry bound"
-                )
-            path = Path(child.path)
-            relative = path.relative_to(root).as_posix()
-            try:
-                info = child.stat(follow_symlinks=False)
-            except OSError as exc:
-                raise CandidateObservationError(
-                    "artifact_unreadable", "Candidate artifact tree is inaccessible"
-                ) from exc
-            node: dict[str, Any] = {"path": relative}
-            if stat.S_ISDIR(info.st_mode):
-                node.update({"kind": "directory", "mode": 0o755})
-                directories.append(path)
-            elif stat.S_ISREG(info.st_mode):
-                if total_bytes + info.st_size > maximum_bytes:
-                    raise CandidateObservationError(
-                        "artifact_too_large", "Candidate artifact tree exceeds its byte bound"
-                    )
-                content = _read_bounded_regular_file(
-                    path,
-                    info,
-                    maximum=maximum_bytes - total_bytes,
-                )
-                total_bytes += len(content)
-                node.update(
-                    {
-                        "kind": "regular_file",
-                        "mode": 0o755 if info.st_mode & 0o111 else 0o644,
-                        "size": len(content),
-                        "blob": "sha256:" + hashlib.sha256(content).hexdigest(),
-                    }
-                )
-            elif stat.S_ISLNK(info.st_mode):
-                target = os.readlink(path)
-                _validate_tree_symlink(relative, target)
-                target_bytes = target.encode("utf-8")
-                total_bytes += len(target_bytes)
-                if total_bytes > maximum_bytes:
-                    raise CandidateObservationError(
-                        "artifact_too_large", "Candidate artifact tree exceeds its byte bound"
-                    )
-                node.update({"kind": "symlink", "target": target})
-            else:
-                raise CandidateObservationError(
-                    "artifact_wrong_type", "Candidate artifact tree contains a special file"
-                )
-            nodes.append(node)
-        pending.extend(reversed(directories))
-    nodes.sort(key=lambda value: value["path"].encode("utf-8", errors="surrogateescape"))
-    return nodes, total_bytes
-
-
-def _validate_tree_symlink(path: str, target: str) -> None:
-    target_path = PurePosixPath(target)
-    if target_path.is_absolute() or "\\" in target or "\x00" in target:
-        raise CandidateObservationError(
-            "artifact_path_escape", f"Candidate artifact symlink escapes its tree: {path}"
-        )
-    stack = list(PurePosixPath(path).parent.parts)
-    for part in target_path.parts:
-        if part in ("", "."):
-            continue
-        if part == "..":
-            if not stack:
-                raise CandidateObservationError(
-                    "artifact_path_escape", f"Candidate artifact symlink escapes its tree: {path}"
-                )
-            stack.pop()
-        else:
-            stack.append(part)
 
 
 def _validate_candidate_binding(

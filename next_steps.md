@@ -98,19 +98,24 @@ adversarial host-side tests, and the two-Evaluation live-Docker isolation test a
 live pass demonstrated fresh request sequence/state and left no helper container or Evaluation
 network behind.
 
-## Priority 4: Output Artifacts
+## Implemented 2026-08-21: Output Artifacts
 
 Once Challenge/Evaluation correlation exists:
 
-1. Capture only Adapter-declared Output Artifacts from the same disposable Evaluation.
-2. Apply byte/tree/path bounds before reading content into trusted memory.
-3. Parse with registered passive parsers; never import or execute the artifact.
-4. Bind parsed values, digests, truncation, and failures to the Challenge ID and Evaluation ID in
+1. [x] Capture only Adapter-declared Output Artifacts from the same disposable Evaluation.
+2. [x] Apply byte/tree/path bounds before reading content into trusted memory.
+3. [x] Parse with registered passive parsers; never import or execute the artifact.
+4. [x] Bind parsed values, digests, and failures to the Challenge ID and Evaluation ID in
    Challenge Evidence.
-5. Ensure Output Artifacts never appear in public results except as approved digests/summaries.
+5. [x] Ensure Output Artifacts never appear in public results except through the existing internal
+   Challenge Evidence digest.
 
 Definition of done: a protocol check with `output_artifacts` composes Observation, Trusted Helper,
 and Output Artifact evidence into one Oracle evaluation and remains isolated across Evaluations.
+
+The host and live-Docker tests cover the combined Observation, HTTP recorder, and Output Artifact
+path across two fresh Evaluations. The current backend enforces an aggregate 16 MiB / 4,096-entry
+collector capacity per Evaluation in addition to Adapter maxima and row-reduced limits.
 
 ## Priority 5: filesystem overlays
 

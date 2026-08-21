@@ -80,7 +80,7 @@ the runner does not invent a benchmark score.
 | Challenge Evidence | Implemented with host Challenge/Evaluation IDs, correlation checks, and explicit failure source |
 | Trusted Helper Catalog | Typed contracts, semantic preflight, reviewed runtime registration, and fail-closed lookup implemented |
 | `securebench.http-request-recorder/v1` | Implemented end to end with fresh instances/credentials, internal-only networking, bounded request evidence, and correlated teardown |
-| Output Artifacts | Typed contract and preflight validation implemented; collection still rejected |
+| Output Artifacts | Implemented for bounded regular files and directory trees from the same disposable Evaluation |
 | `strict-split/v1` | Implemented for file-bundle and git-patch artifact/protocol paths, including the HTTP recorder Trusted Helper |
 | `batched-split/v1` | Registered but explicitly not implemented |
 | Host Oracle JSON-lines ABI | Implemented for initialize, artifact evidence, cases, case evidence, and final verdict |
@@ -115,8 +115,8 @@ filesystem-overlay example remains intentionally non-executable.
   that resolve inside the same captured tree.
 - Oracle and adapter manifests fail closed, and Oracle manifests are validated during preflight
   without starting the process.
-- Executable-capability matrix tests prove the registered batched profile, overlay candidate,
-  unknown Trusted Helper types, and Output Artifact collection fail preflight while unsupported.
+- Executable-capability matrix tests prove the registered batched profile, overlay candidate, and
+  unknown Trusted Helper types fail preflight while unsupported.
 - Adapter v2 validates closed typed Challenge and Observation values, exact Evaluation
   Participants, Trusted Helper requirements, Output Artifact declarations, and row limits against
   Adapter hard maximums before Candidate execution.
@@ -124,6 +124,11 @@ filesystem-overlay example remains intentionally non-executable.
   compatibility path with ambiguous Adapter/Candidate failure handling.
 - SecureBench creates opaque Challenge and Evaluation IDs. Challenge Evidence rejects nested
   Trusted Helper or Output Artifact evidence carrying either ID from another Evaluation.
+- Adapter-declared Output Artifacts are collected only after the one-shot Evaluation process exits.
+  Regular files and directory trees are bounded before parsing, cannot traverse parent symlinks or
+  reserved framework paths, and are correlated to the same Challenge and Evaluation. Candidate
+  artifact failures remain Oracle evidence; collector/parser contract failures fail as framework
+  infrastructure errors.
 - The built-in HTTP recorder is registered as one contract/runtime pair. Every Evaluation creates
   a fresh internal Docker network, helper container, host state directory, and credential. The
   Adapter receives only the helper type, internal URL, and scoped authorization value.
@@ -151,17 +156,15 @@ schema support.
 
 1. Only `securebench.http-request-recorder/v1` has an executable Trusted Helper runtime. Other
    helper types must be reviewed, registered with finite contracts, and implemented explicitly.
-2. Output Artifact collection is not implemented. Rows can be checked against Adapter declarations
-   and parser/limit contracts, but non-empty `output_artifacts` still fail preflight.
-3. Resource-usage evidence is not yet included in Challenge Evidence.
-4. `restricted` and `internet` both currently permit only the tester's explicit domain allowlist;
+2. Resource-usage evidence is not yet included in Challenge Evidence.
+3. `restricted` and `internet` both currently permit only the tester's explicit domain allowlist;
    only `none` changes the row-level ceiling. This is safe, but the intended semantic distinction
    should be documented or implemented before relying on it for benchmark requirements.
-5. The filesystem-overlay canonical format and protected-root policy remain intentionally
+4. The filesystem-overlay canonical format and protected-root policy remain intentionally
    unspecified and unimplemented.
-6. Pack-local Oracle code is trusted and hash-bound but runs as a sanitized host subprocess, not
+5. Pack-local Oracle code is trusted and hash-bound but runs as a sanitized host subprocess, not
    inside a stronger OS sandbox.
-7. Assertion-free Adapters, component capability review, base/gold/mutant qualification, and
+6. Assertion-free Adapters, component capability review, base/gold/mutant qualification, and
    semantic-fidelity review remain admission/governance responsibilities rather than mechanically
    proven row-schema properties.
 
@@ -169,18 +172,19 @@ schema support.
 
 At this implementation batch:
 
-- full default suite: `369 passed, 3 skipped`;
-- warning-strict recorder, protocol-component, protocol-execution, and audit suite:
-  `44 passed, 3 skipped`;
-- complete protocol suite with Docker integration enabled: `33 passed`, including two fresh
-  recorder Evaluations, the ordinary fresh Evaluation, and clean-repository git-patch replay;
+- full default suite: `380 passed, 3 skipped`;
+- full warning-strict suite: `380 passed, 3 skipped`;
+- complete protocol suite with Docker integration enabled: `34 passed`, including two fresh
+  combined recorder/Output Artifact Evaluations, the ordinary fresh Evaluation, and
+  clean-repository git-patch replay;
 - the Docker pass left no Trusted Helper containers, materialization containers, or Evaluation
   networks behind;
 - built-in robustness audit: 5 passed, 0 failed, 0 warnings;
 - no author-facing Pydantic schema changed in this batch, so checked-in JSON Schemas did not require
   regeneration;
-- a wheel containing both the helper lifecycle and standalone recorder server built successfully;
-- warning-strict focused tests, compile checks, and `git diff --check` passed.
+- a wheel containing the helper lifecycle, standalone recorder server, Output Artifact collector,
+  and shared passive filesystem observer built successfully;
+- compile checks and `git diff --check` passed.
 
 Useful commands:
 
@@ -197,9 +201,9 @@ SECUREBENCH_DOCKER_INTEGRATION=1 uv run --no-sync --with pytest python -m pytest
 - Original branch: `main` at `bf9a108` (`Complete isolated Terminal-Bench conversion`).
 - Development branch: `split-verification-v2`.
 - `main` is the merge-base and direct ancestor of the development branch.
-- Before this implementation batch, the development branch was sixteen commits ahead and zero
+- Before this implementation batch, the development branch was eighteen commits ahead and zero
   commits behind `main`.
-- After publication, `origin/split-verification-v2` contains this Trusted Helper implementation batch.
+- After publication, `origin/split-verification-v2` contains this Output Artifact implementation batch.
 
 There is an unrelated malformed local ref named `refs/heads/main 2`; commands using `--all` may
 warn or fail on it. Do not alter it without the repository owner's approval.

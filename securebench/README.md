@@ -7,8 +7,8 @@
 - `harnesses/`: Agent-only Codex, Claude Code, and command adapters.
 - `candidates/`: ephemeral production output, bounded stopped-state capture,
   content-addressed storage, and replay.
-- `verification/`: passive parsers, host Oracle ABI, artifact engine, and
-  sanitized result models.
+- `verification/`: passive parsers, artifact and protocol engines, Trusted
+  Helpers, Output Artifact collection, host Oracle ABI, and sanitized results.
 - `execution_profiles.py`: registered framework isolation/orchestration
   profiles and executable-capability preflight.
 - `tester_config.py`, `tester_run.py`, `cli.py`: end-to-end orchestration.

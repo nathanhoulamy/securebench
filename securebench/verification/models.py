@@ -81,12 +81,22 @@ class OutputArtifactEvidence:
             raise ValueError("output artifact evidence name must be bounded")
         if not _bounded_identifier(self.challenge_id) or not _bounded_identifier(self.evaluation_id):
             raise ValueError("output artifact evidence identities must be bounded")
+        if not _bounded_text(self.parser, maximum_bytes=256):
+            raise ValueError("output artifact evidence parser must be bounded")
+        if self.digest is not None and not _is_sha256_digest(self.digest):
+            raise ValueError("output artifact evidence digest must be a sha256 digest or null")
+        if self.size is not None and (
+            isinstance(self.size, bool) or not isinstance(self.size, int) or self.size < 0
+        ):
+            raise ValueError("output artifact evidence size must be non-negative or null")
+        if (self.digest is None) != (self.size is None):
+            raise ValueError("output artifact evidence digest and size must be present together")
         if self.status == "observed":
             if not _is_sha256_digest(self.digest):
                 raise ValueError("observed output artifact requires a digest")
             if isinstance(self.size, bool) or not isinstance(self.size, int) or self.size < 0:
                 raise ValueError("observed output artifact requires a non-negative size")
-            if not self.parser or self.failure_code is not None or self.failure_message is not None:
+            if self.failure_code is not None or self.failure_message is not None:
                 raise ValueError("observed output artifact metadata is invalid")
             _json_bytes(self.parsed_value, "output artifact parsed value")
         elif self.status == "candidate_error":
@@ -489,12 +499,16 @@ def _is_sha256_digest(value: object) -> bool:
 
 
 def _bounded_identifier(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and bool(value)
-        and len(value.encode("utf-8")) <= 128
-        and "\x00" not in value
-    )
+    return _bounded_text(value, maximum_bytes=128)
+
+
+def _bounded_text(value: object, *, maximum_bytes: int) -> bool:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        return False
+    try:
+        return len(value.encode("utf-8")) <= maximum_bytes
+    except UnicodeError:
+        return False
 
 
 def _require_correlated_evidence(

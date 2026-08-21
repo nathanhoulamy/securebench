@@ -252,8 +252,10 @@ def test_docker_provider_relay_policy_starts_generic_proxy_when_domains_allowed(
 
 
 def test_docker_provider_relay_policy_surfaces_cleanup_failure(monkeypatch):
+    fail_container_cleanup = True
+
     def fake_run(command, **kwargs):
-        if command[:3] == ["docker", "rm", "-f"]:
+        if fail_container_cleanup and command[:3] == ["docker", "rm", "-f"]:
             return SimpleNamespace(returncode=1, stdout="", stderr="daemon failure")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -266,6 +268,9 @@ def test_docker_provider_relay_policy_surfaces_cleanup_failure(monkeypatch):
             pass
 
     assert policy.relay_container is not None
+    fail_container_cleanup = False
+    policy._cleanup()
+    assert policy.relay_container is None
 
 
 def test_docker_provider_relay_policy_passes_claude_subscription_token_by_name(monkeypatch):

@@ -81,8 +81,10 @@ def write_protocol_pack(
     *,
     image: str = DIGEST,
     adapter_mount: str = "/opt/securebench/adapter",
+    public_mount: str = "/opt/securebench/public.txt",
     base_commit: str | None = None,
     recorder: bool = False,
+    output_artifact: bool = False,
 ):
     (root / "assets" / "task").mkdir(parents=True)
     adapter = root / "evaluation_inputs" / "task" / "adapter"
@@ -103,6 +105,15 @@ def write_protocol_pack(
         "uses_trusted_helpers:\n"
         "  - {name: webhook, type: securebench.http-request-recorder/v1}\n"
         if recorder
+        else ""
+    )
+    output_artifact_manifest = (
+        "output_artifacts:\n"
+        "  - name: generated_result\n"
+        "    path: results/result.json\n"
+        "    kind: regular_file\n"
+        "    maximum_limits: {max_bytes: 4096}\n"
+        if output_artifact
         else ""
     )
     (adapter / "adapter.yaml").write_text(
@@ -127,6 +138,7 @@ evaluation_participants:
   - {name: candidate, type: candidate, instances: 1}
 """.lstrip()
         + helper_manifest
+        + output_artifact_manifest
         + """maximums:
   seconds_per_challenge: 2
   challenge_bytes: 1024
@@ -157,6 +169,17 @@ with urllib.request.urlopen(callback, timeout=1) as response:
         if recorder
         else ""
     )
+    output_artifact_adapter = (
+        """
+Path("/app/results").mkdir(exist_ok=True)
+Path("/app/results/result.json").write_text(json.dumps({
+    "challenge": request["challenge"]["value"],
+    "candidate": Path("/app/answer.txt").read_text(),
+}))
+"""
+        if output_artifact
+        else ""
+    )
     (adapter / "adapter.py").write_text(
         f"""
 import json
@@ -164,7 +187,7 @@ import sys
 from pathlib import Path
 
 request = json.load(sys.stdin)
-{helper_adapter}print(json.dumps({{
+{helper_adapter}{output_artifact_adapter}print(json.dumps({{
     "format": "securebench.adapter-response/v2",
     "status": "observed",
     "observation": {{
@@ -258,11 +281,19 @@ resource_roots:
                 },
             }
         ]
+    if output_artifact:
+        check["output_artifacts"] = [
+            {
+                "name": "generated_result",
+                "parser": "securebench.strict-json/v1",
+                "limits": {"max_bytes": 2048},
+            }
+        ]
     row = {
         "id": "protocol/task",
         "input": task_input,
         "assets": [
-            {"path": "task/public.txt", "mount": "/opt/securebench/public.txt", "read_only": True}
+            {"path": "task/public.txt", "mount": public_mount, "read_only": True}
         ],
         "verification": {
             "execution_profile": "strict-split/v1",
@@ -565,6 +596,109 @@ def test_adapter_uses_typed_envelopes_and_host_owned_evaluation_ids(
     assert requests[0]["evaluation_id"] not in encoded
 
 
+def test_output_artifacts_are_collected_from_each_fresh_evaluation(
+    tmp_path,
+    monkeypatch,
+):
+    task = write_protocol_pack(tmp_path / "pack", output_artifact=True)
+    validate_executable_task(task)
+    store, candidate = capture_answer(tmp_path, task)
+    roots = []
+
+    def materialize_baseline(_task, destination):
+        destination.mkdir(parents=True, exist_ok=True)
+
+    class FakeDockerSandbox:
+        def __init__(self, **kwargs):
+            self.root = Path(kwargs["root"])
+            roots.append(self.root)
+
+        def run(self, command, *, workdir, timeout, stdin):
+            request = json.loads(stdin)
+            output = self.root / "results" / "result.json"
+            output.parent.mkdir()
+            if request["challenge"]["value"] == 3:
+                output.write_text("{invalid")
+            else:
+                output.write_text(
+                    json.dumps(
+                        {
+                            "challenge": request["challenge"]["value"],
+                            "candidate": "candidate-state",
+                        }
+                    )
+                )
+            return CommandResult(
+                command=tuple(command),
+                exit_code=0,
+                stdout=json.dumps(
+                    {
+                        "format": "securebench.adapter-response/v2",
+                        "status": "observed",
+                        "observation": {
+                            "candidate": "candidate-state",
+                            "answer": request["challenge"]["value"] * 2,
+                        },
+                    }
+                ),
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        "securebench.harnesses.shared.materialize_image_workdir", materialize_baseline
+    )
+    monkeypatch.setattr("securebench.verification.protocol.DockerSandbox", FakeDockerSandbox)
+    monkeypatch.setattr(
+        "securebench.verification.protocol.remove_untrusted_tree",
+        lambda path, *, image: shutil.rmtree(path),
+    )
+    oracle = ProtocolOracle(
+        [
+            OracleCase({"value": 2}, {"expected": 4}),
+            OracleCase({"value": 3}, {"expected": 6}),
+        ]
+    )
+
+    result = VerificationEngine().verify(
+        task,
+        candidate,
+        store,
+        run_seed="output-artifact-seed",
+        oracle=oracle,
+    )
+
+    assert result.status == "passed"
+    assert len(roots) == 2 and roots[0] != roots[1]
+    assert not any(root.exists() for root in roots)
+    assert oracle.evidence[0].output_artifacts[0].parsed_value == {
+        "challenge": 2,
+        "candidate": "candidate-state",
+    }
+    assert oracle.evidence[1].output_artifacts[0].status == "candidate_error"
+    assert oracle.evidence[1].output_artifacts[0].failure_code == "invalid_json"
+    for evidence in oracle.evidence:
+        artifact = evidence.output_artifacts[0]
+        assert artifact.challenge_id == evidence.challenge_id
+        assert artifact.evaluation_id == evidence.evaluation_id
+        assert artifact.digest.startswith("sha256:")
+    public_record = json.dumps(result.to_record(run_id="run", execution_digest=DIGEST))
+    assert "generated_result" not in public_record
+    assert "candidate-state" not in public_record
+
+
+def test_output_artifact_path_may_not_overlap_evaluation_resource_mount(tmp_path):
+    task = write_protocol_pack(
+        tmp_path / "pack",
+        output_artifact=True,
+        public_mount="/app/results",
+    )
+
+    with pytest.raises(ConfigError, match="overlaps a mounted Evaluation resource"):
+        validate_executable_task(task)
+
+
 def test_protocol_wires_scoped_helper_access_and_correlated_evidence(
     tmp_path,
     monkeypatch,
@@ -788,7 +922,12 @@ def test_http_recorder_runs_on_a_fresh_internal_docker_evaluation_network(tmp_pa
         "alexgshaw/constraints-scheduling@sha256:"
         "567ce5a189f8d11ac461790876e934cc7af38391baf89a78f95f4dafc1fec3b0"
     )
-    task = write_protocol_pack(tmp_path / "pack", image=image, recorder=True)
+    task = write_protocol_pack(
+        tmp_path / "pack",
+        image=image,
+        recorder=True,
+        output_artifact=True,
+    )
     validate_executable_task(task)
     store, candidate = capture_answer(tmp_path, task)
     oracle = ProtocolOracle(
@@ -822,6 +961,14 @@ def test_http_recorder_runs_on_a_fresh_internal_docker_evaluation_network(tmp_pa
         assert request["authenticated"] is True
         assert request["path_matched"] is True
         assert request["response_status"] == 202
+        artifact = evidence.output_artifacts[0]
+        assert artifact.challenge_id == evidence.challenge_id
+        assert artifact.evaluation_id == evidence.evaluation_id
+        assert artifact.status == "observed"
+        assert artifact.parsed_value == {
+            "challenge": evidence.observation["answer"] // 2,
+            "candidate": "candidate-state",
+        }
 
 
 @pytest.mark.skipif(
@@ -1136,40 +1283,19 @@ def _observed(check_id, case, case_index):
     )
 
 
-@pytest.mark.parametrize(
-    ("field", "value", "message"),
-    [
-        (
-            "trusted_helpers",
-            [{"name": "server", "type": "example", "limits": {}}],
-            "Trusted Helpers",
-        ),
-        (
-            "output_artifacts",
-            [
-                {
-                    "name": "transcript",
-                    "parser": "securebench.strict-json/v1",
-                    "limits": {"max_bytes": 1024},
-                }
-            ],
-            "output artifacts",
-        ),
-    ],
-)
-def test_executable_capability_matrix_rejects_unsupported_protocol_branches(
-    tmp_path, field, value, message
-):
+def test_executable_capability_matrix_rejects_unknown_trusted_helper(tmp_path):
     task = write_protocol_pack(tmp_path / "pack")
     check_data = task.verification.checks[0].model_dump()
-    check_data[field] = value
+    check_data["trusted_helpers"] = [
+        {"name": "server", "type": "example", "limits": {}}
+    ]
     check = ProtocolCheck.model_validate(check_data)
     verification_data = task.verification.model_dump()
     verification_data["checks"] = [check.model_dump()]
     verification = VerificationSpec.model_validate(verification_data)
     changed = task.__class__(**{**task.__dict__, "verification": verification})
 
-    with pytest.raises(ConfigError, match=message):
+    with pytest.raises(ConfigError, match="Trusted Helpers"):
         validate_executable_task(changed)
 
 

@@ -267,6 +267,93 @@ def test_preflight_rejects_output_artifact_limits_above_adapter_maximums():
     assert error.value.code == "output_artifact_maximum_exceeded"
 
 
+def test_preflight_accepts_declared_bounded_output_artifact():
+    manifest = adapter_contract(
+        output_artifacts=[
+            {
+                "name": "generated_result",
+                "path": "results/result.json",
+                "kind": "regular_file",
+                "maximum_limits": {"max_bytes": 2048},
+            }
+        ]
+    )
+    check = protocol_check(
+        output_artifacts=[
+            {
+                "name": "generated_result",
+                "parser": "securebench.strict-json/v1",
+                "limits": {"max_bytes": 1024},
+            }
+        ]
+    )
+
+    require_supported_protocol_features(check, manifest)
+
+
+def test_preflight_rejects_output_artifact_kind_reserved_path_and_backend_bound():
+    mismatched = adapter_contract(
+        output_artifacts=[
+            {
+                "name": "generated_result",
+                "path": "results",
+                "kind": "directory_tree",
+                "maximum_limits": {"max_files": 4, "max_total_bytes": 2048},
+            }
+        ]
+    )
+    regular_check = protocol_check(
+        output_artifacts=[
+            {
+                "name": "generated_result",
+                "parser": "securebench.strict-json/v1",
+                "limits": {"max_bytes": 1024},
+            }
+        ]
+    )
+    with pytest.raises(VerificationInfrastructureError) as kind_error:
+        require_supported_protocol_features(regular_check, mismatched)
+    assert kind_error.value.code == "output_artifact_kind_mismatch"
+
+    reserved = adapter_contract(
+        output_artifacts=[
+            {
+                "name": "generated_result",
+                "path": "securebench/evaluation_inputs/private.json",
+                "kind": "regular_file",
+                "maximum_limits": {"max_bytes": 2048},
+            }
+        ]
+    )
+    with pytest.raises(VerificationInfrastructureError) as path_error:
+        require_supported_protocol_features(regular_check, reserved)
+    assert path_error.value.code == "output_artifact_path_reserved"
+
+    excessive = 16 * 1024 * 1024 + 1
+    excessive_manifest = adapter_contract(
+        output_artifacts=[
+            {
+                "name": "generated_result",
+                "path": "result.bin",
+                "kind": "regular_file",
+                "maximum_limits": {"max_bytes": excessive},
+            }
+        ]
+    )
+    excessive_check = protocol_check(
+        output_artifacts=[
+            {
+                "name": "generated_result",
+                "parser": "securebench.utf8-text/v1",
+                "limits": {"max_bytes": excessive},
+            }
+        ]
+    )
+    with pytest.raises(VerificationInfrastructureError) as bound_error:
+        require_supported_protocol_features(excessive_check, excessive_manifest)
+    assert bound_error.value.code == "output_artifact_bound_unsupported"
+
+
 def test_challenge_evidence_requires_host_identities_and_explicit_failure_source():
     observed = ChallengeEvidence(
         check_id="behavior",
