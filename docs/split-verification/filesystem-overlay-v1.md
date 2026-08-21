@@ -1,7 +1,8 @@
 # Filesystem overlay v1
 
-Status: Phases 1 and 2 accepted; the Phase 3 quota backend is a review
-candidate and `filesystem_overlay` remains non-executable.
+Status: Phases 1 and 2 accepted; the Phase 3 quota backend and Phase 4
+canonical scanner/store are review candidates. `filesystem_overlay` remains
+non-executable.
 
 This document specifies the first reviewable filesystem-overlay Candidate
 format and its threat model. It does not enable capture or replay. The
@@ -369,3 +370,8 @@ exercise Candidate state only after replay verification succeeds.
 
 Phase 2 implements the row-schema and static-preflight portion of this
 contract while retaining the unconditional non-executable overlay gate.
+
+Phase 4 implements the no-follow bounded tree scanner, canonical diff and
+chunk representation, strict stored-manifest validation, and crash-recoverable
+Candidate-store transactions. It is deliberately not connected to Agent
+capture or Evaluation replay; those remain separate Phase 5 and 6 gates.

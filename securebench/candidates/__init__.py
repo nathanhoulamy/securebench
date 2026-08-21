@@ -21,6 +21,11 @@ from securebench.candidates.models import (
     CandidateStoreError,
     StoredCandidate,
 )
+from securebench.candidates.overlay import (
+    OverlayScanLimits,
+    capture_filesystem_overlay,
+    scan_overlay_root,
+)
 from securebench.candidates.replay import replay_candidate, replay_file_bundle, replay_git_patch
 from securebench.candidates.store import CandidateStore
 
@@ -35,8 +40,10 @@ __all__ = [
     "CandidateStore",
     "CandidateStoreError",
     "HostWorkspaceFilesystem",
+    "OverlayScanLimits",
     "StoredCandidate",
     "capture_file_bundle",
+    "capture_filesystem_overlay",
     "capture_git_patch",
     "capture_git_patch_workspace",
     "capture_production",
@@ -45,4 +52,5 @@ __all__ = [
     "replay_file_bundle",
     "replay_git_patch",
     "replay_candidate",
+    "scan_overlay_root",
 ]
