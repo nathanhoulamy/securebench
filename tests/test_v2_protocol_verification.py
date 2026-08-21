@@ -26,6 +26,7 @@ from securebench.verification.json_data import json_digest
 from securebench.verification.models import (
     OracleCase,
     ProtocolCaseEvidence,
+    TrustedHelperEvidence,
     VerificationInfrastructureError,
 )
 from securebench.verification.oracle import OracleProcessSession
@@ -81,17 +82,28 @@ def write_protocol_pack(
     image: str = DIGEST,
     adapter_mount: str = "/opt/securebench/adapter",
     base_commit: str | None = None,
+    recorder: bool = False,
 ):
     (root / "assets" / "task").mkdir(parents=True)
     adapter = root / "evaluation_inputs" / "task" / "adapter"
     adapter.mkdir(parents=True)
     (root / "hidden" / "task" / "oracle").mkdir(parents=True)
     (root / "hidden" / "task" / "cases").mkdir(parents=True)
+    if recorder:
+        (root / "hidden" / "task" / "recorder.yaml").write_text(
+            "path: /callback\nresponse_status: 202\nresponse_body: accepted\n"
+        )
     (root / "assets" / "task" / "public.txt").write_text("public")
     (root / "hidden" / "task" / "oracle" / "oracle.yaml").write_text(
         "abi: securebench.oracle/v1\n"
         "command: ['{python}', 'oracle.py']\n"
         "timeout_seconds: 30\n"
+    )
+    helper_manifest = (
+        "uses_trusted_helpers:\n"
+        "  - {name: webhook, type: securebench.http-request-recorder/v1}\n"
+        if recorder
+        else ""
     )
     (adapter / "adapter.yaml").write_text(
         """
@@ -113,27 +125,45 @@ observation_schema:
   max_fields: 2
 evaluation_participants:
   - {name: candidate, type: candidate, instances: 1}
-maximums:
+""".lstrip()
+        + helper_manifest
+        + """maximums:
   seconds_per_challenge: 2
   challenge_bytes: 1024
   observation_bytes: 1024
-""".lstrip()
+"""
+    )
+    helper_adapter = (
+        """
+helper = request["trusted_helpers"]["webhook"]
+import urllib.request
+callback = urllib.request.Request(
+    helper["url"],
+    data=json.dumps({"event": request["challenge"]["value"]}).encode(),
+    headers={"Authorization": helper["authorization"], "Content-Type": "application/json"},
+    method="POST",
+)
+with urllib.request.urlopen(callback, timeout=1) as response:
+    response.read()
+"""
+        if recorder
+        else ""
     )
     (adapter / "adapter.py").write_text(
-        """
+        f"""
 import json
 import sys
 from pathlib import Path
 
 request = json.load(sys.stdin)
-print(json.dumps({
+{helper_adapter}print(json.dumps({{
     "format": "securebench.adapter-response/v2",
     "status": "observed",
-    "observation": {
+    "observation": {{
         "candidate": Path("/app/answer.txt").read_text(),
         "answer": request["challenge"]["value"] * 2,
-    },
-}))
+    }},
+}}))
 """.lstrip()
     )
     manifest = root / "manifest.yaml"
@@ -186,6 +216,40 @@ resource_roots:
         if base_commit is not None
         else {"instructions": "Write /app/answer.txt."}
     )
+    host_resources = {
+        "cases": {"path": "task/cases"},
+        "oracle": {"path": "task/oracle"},
+    }
+    if recorder:
+        host_resources["recorder"] = {"path": "task/recorder.yaml"}
+    check = {
+        "id": "behavior",
+        "type": "protocol",
+        "adapter": "runtime.adapter",
+        "protocol": "securebench.example/v1",
+        "challenge": {
+            "source": "host.cases",
+            "max_cases": 2,
+            "max_case_bytes": 1024,
+        },
+        "limits": {
+            "seconds_per_case": 2,
+            "observation_bytes_per_case": 1024,
+        },
+    }
+    if recorder:
+        check["trusted_helpers"] = [
+            {
+                "name": "webhook",
+                "type": "securebench.http-request-recorder/v1",
+                "settings": "host.recorder",
+                "limits": {
+                    "max_requests": 4,
+                    "max_body_bytes": 1024,
+                    "max_header_bytes": 4096,
+                },
+            }
+        ]
     row = {
         "id": "protocol/task",
         "input": task_input,
@@ -199,28 +263,9 @@ resource_roots:
                 "runtime": {
                     "adapter": {"path": "task/adapter", "mount": adapter_mount}
                 },
-                "host": {
-                    "cases": {"path": "task/cases"},
-                    "oracle": {"path": "task/oracle"},
-                },
+                "host": host_resources,
             },
-            "checks": [
-                {
-                    "id": "behavior",
-                    "type": "protocol",
-                    "adapter": "runtime.adapter",
-                    "protocol": "securebench.example/v1",
-                    "challenge": {
-                        "source": "host.cases",
-                        "max_cases": 2,
-                        "max_case_bytes": 1024,
-                    },
-                    "limits": {
-                        "seconds_per_case": 2,
-                        "observation_bytes_per_case": 1024,
-                    },
-                }
-            ],
+            "checks": [check],
             "oracle": "host.oracle",
         },
     }
@@ -512,6 +557,127 @@ def test_adapter_uses_typed_envelopes_and_host_owned_evaluation_ids(
     assert requests[0]["evaluation_id"] not in encoded
 
 
+def test_protocol_wires_scoped_helper_access_and_correlated_evidence(
+    tmp_path,
+    monkeypatch,
+):
+    task = write_protocol_pack(tmp_path / "pack", recorder=True)
+    validate_executable_task(task)
+    store, candidate = capture_answer(tmp_path, task)
+    requests = []
+    lifecycle = []
+
+    def materialize_baseline(_task, destination):
+        destination.mkdir(parents=True, exist_ok=True)
+
+    class FakeTrustedHelperEvaluation:
+        def __init__(self, **kwargs):
+            self.challenge_id = kwargs["challenge_id"]
+            self.evaluation_id = kwargs["evaluation_id"]
+            self.network = "none"
+            lifecycle.append(("created", self.challenge_id, self.evaluation_id))
+
+        def start(self):
+            self.network = "securebench-evaluation-test"
+            lifecycle.append(("started", self.challenge_id, self.evaluation_id))
+            return {
+                "webhook": {
+                    "type": "securebench.http-request-recorder/v1",
+                    "url": "http://securebench-helper-0:8080/callback",
+                    "authorization": "Bearer evaluation-secret",
+                }
+            }
+
+        def evaluation_environment(self):
+            return {
+                "HTTP_PROXY": "",
+                "NO_PROXY": "securebench-helper-0",
+            }
+
+        def collect(self):
+            lifecycle.append(("collected", self.challenge_id, self.evaluation_id))
+            return (
+                TrustedHelperEvidence(
+                    name="webhook",
+                    type="securebench.http-request-recorder/v1",
+                    challenge_id=self.challenge_id,
+                    evaluation_id=self.evaluation_id,
+                    value={"requests": []},
+                ),
+            )
+
+        def close(self):
+            lifecycle.append(("closed", self.challenge_id, self.evaluation_id))
+
+    class FakeDockerSandbox:
+        def __init__(self, **kwargs):
+            assert kwargs["network"] == "securebench-evaluation-test"
+            assert kwargs["env"] == {
+                "HTTP_PROXY": "",
+                "NO_PROXY": "securebench-helper-0",
+            }
+
+        def run(self, command, *, workdir, timeout, stdin):
+            request = json.loads(stdin)
+            requests.append(request)
+            assert request["trusted_helpers"] == {
+                "webhook": {
+                    "type": "securebench.http-request-recorder/v1",
+                    "url": "http://securebench-helper-0:8080/callback",
+                    "authorization": "Bearer evaluation-secret",
+                }
+            }
+            return CommandResult(
+                command=tuple(command),
+                exit_code=0,
+                stdout=json.dumps(
+                    {
+                        "format": "securebench.adapter-response/v2",
+                        "status": "observed",
+                        "observation": {
+                            "candidate": "candidate-state",
+                            "answer": request["challenge"]["value"] * 2,
+                        },
+                    }
+                ),
+            )
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        "securebench.harnesses.shared.materialize_image_workdir", materialize_baseline
+    )
+    monkeypatch.setattr(
+        "securebench.verification.protocol.TrustedHelperEvaluation",
+        FakeTrustedHelperEvaluation,
+    )
+    monkeypatch.setattr("securebench.verification.protocol.DockerSandbox", FakeDockerSandbox)
+    monkeypatch.setattr(
+        "securebench.verification.protocol.remove_untrusted_tree",
+        lambda path, *, image: shutil.rmtree(path),
+    )
+    oracle = ProtocolOracle([OracleCase({"value": 2}, {"expected": 4})])
+
+    result = VerificationEngine().verify(
+        task,
+        candidate,
+        store,
+        run_seed="trusted-helper-seed",
+        oracle=oracle,
+    )
+
+    assert result.status == "passed"
+    evidence = oracle.evidence[0]
+    assert evidence.challenge_id == requests[0]["challenge_id"]
+    assert evidence.evaluation_id == requests[0]["evaluation_id"]
+    assert evidence.trusted_helper_evidence[0].challenge_id == evidence.challenge_id
+    assert evidence.trusted_helper_evidence[0].evaluation_id == evidence.evaluation_id
+    assert [item[0] for item in lifecycle] == ["created", "started", "collected", "closed"]
+    encoded = json.dumps(result.to_record(run_id="run", execution_digest=DIGEST))
+    assert "evaluation-secret" not in encoded
+
+
 def test_adapter_failure_is_infrastructure_not_candidate_evidence(tmp_path):
     task = write_protocol_pack(tmp_path / "pack")
     check = task.verification.checks[0]
@@ -609,6 +775,51 @@ def test_protocol_check_runs_in_real_fresh_docker_evaluation(tmp_path):
     os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
     reason="set SECUREBENCH_DOCKER_INTEGRATION=1 to exercise Docker",
 )
+def test_http_recorder_runs_on_a_fresh_internal_docker_evaluation_network(tmp_path):
+    image = (
+        "alexgshaw/constraints-scheduling@sha256:"
+        "567ce5a189f8d11ac461790876e934cc7af38391baf89a78f95f4dafc1fec3b0"
+    )
+    task = write_protocol_pack(tmp_path / "pack", image=image, recorder=True)
+    validate_executable_task(task)
+    store, candidate = capture_answer(tmp_path, task)
+    oracle = ProtocolOracle(
+        [
+            OracleCase({"value": 5}, {"expected": 10}),
+            OracleCase({"value": 7}, {"expected": 14}),
+        ]
+    )
+
+    result = VerificationEngine().verify(
+        task,
+        candidate,
+        store,
+        run_seed="live-recorder-seed",
+        oracle=oracle,
+    )
+
+    assert result.status == "passed"
+    assert len(oracle.evidence) == 2
+    assert len({evidence.evaluation_id for evidence in oracle.evidence}) == 2
+    for evidence in oracle.evidence:
+        helper = evidence.trusted_helper_evidence[0]
+        assert helper.challenge_id == evidence.challenge_id
+        assert helper.evaluation_id == evidence.evaluation_id
+        assert helper.truncated is False
+        assert len(helper.value["requests"]) == 1
+        request = helper.value["requests"][0]
+        assert request["sequence"] == 0
+        assert request["method"] == "POST"
+        assert request["target"] == "/callback"
+        assert request["authenticated"] is True
+        assert request["path_matched"] is True
+        assert request["response_status"] == 202
+
+
+@pytest.mark.skipif(
+    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
+    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 to exercise Docker",
+)
 def test_git_patch_protocol_runs_from_real_fresh_docker_repositories(tmp_path):
     parent_image = (
         "alexgshaw/constraints-scheduling@sha256:"
@@ -690,13 +901,17 @@ WORKDIR /app
 
 
 def test_protocol_candidate_error_is_scored_without_starting_evaluation(tmp_path, monkeypatch):
-    task = write_protocol_pack(tmp_path / "pack")
+    task = write_protocol_pack(tmp_path / "pack", recorder=True)
     oracle = ProtocolOracle([OracleCase({"value": 2}, {"expected": 4})])
 
     def unexpected_sandbox(**kwargs):
         raise AssertionError("candidate-error verification must not start Evaluation")
 
     monkeypatch.setattr("securebench.verification.protocol.DockerSandbox", unexpected_sandbox)
+    monkeypatch.setattr(
+        "securebench.verification.protocol.TrustedHelperEvaluation",
+        unexpected_sandbox,
+    )
     result = VerificationEngine().verify_candidate_error(
         task,
         code="agent_timeout",

@@ -1,8 +1,8 @@
 # Current SecureBench v2 state
 
-Last reviewed: 2026-08-20
+Last reviewed: 2026-08-21
 
-Implementation baseline reviewed: `9dbbbb5` plus the protocol component/evidence contract batch
+Implementation baseline reviewed: this branch through the HTTP request recorder Trusted Helper slice
 
 Active development branch: `split-verification-v2`
 
@@ -50,7 +50,9 @@ future-facing contracts that are schema-valid but not necessarily executable yet
 7. After the Agent container stops, trusted capture exports only the declared bounded candidate
    into a content-addressed store.
 8. Artifact checks parse hostile bytes passively. Protocol checks reconstruct the candidate in a
-   fresh, offline Evaluation container for every current Oracle-selected case.
+   fresh Evaluation container for every current Oracle-selected Challenge. Evaluations without
+   helpers have no network; an Evaluation using the HTTP recorder receives only an internal Docker
+   network shared with its fresh helper instance.
 9. Internal evidence goes to the host Oracle. Public results contain only bounded diagnostics,
    digests, check summaries, and provenance.
 10. The stopped Agent workspace and disposable Evaluation roots are removed.
@@ -76,9 +78,10 @@ the runner does not invent a benchmark score.
 | Basic protocol check | Implemented with finite JSON, bounded I/O, and a fresh offline container per Challenge |
 | Adapter v2 contract | The only supported Adapter format; implemented with typed Challenge/Observation schemas, Evaluation Participants, Trusted Helper requirements, Output Artifacts, and reduced maximums |
 | Challenge Evidence | Implemented with host Challenge/Evaluation IDs, correlation checks, and explicit failure source |
-| Trusted Helper Catalog | Typed contract and preflight validation implemented; Helper runtime and Helper Access still rejected |
+| Trusted Helper Catalog | Typed contracts, semantic preflight, reviewed runtime registration, and fail-closed lookup implemented |
+| `securebench.http-request-recorder/v1` | Implemented end to end with fresh instances/credentials, internal-only networking, bounded request evidence, and correlated teardown |
 | Output Artifacts | Typed contract and preflight validation implemented; collection still rejected |
-| `strict-split/v1` | Implemented for file-bundle and git-patch artifact/basic-protocol paths |
+| `strict-split/v1` | Implemented for file-bundle and git-patch artifact/protocol paths, including the HTTP recorder Trusted Helper |
 | `batched-split/v1` | Registered but explicitly not implemented |
 | Host Oracle JSON-lines ABI | Implemented for initialize, artifact evidence, cases, case evidence, and final verdict |
 | Sanitized result/provenance and resume validation | Implemented |
@@ -86,9 +89,9 @@ the runner does not invent a benchmark score.
 | Result signing | Not implemented |
 
 The reference executable pack currently contains one converted row:
-`terminal-bench/constraints-scheduling`. The three recommended example documents conform to the
-row schema, but the DeepSWE Trusted Helper example and filesystem-overlay example are intentionally not
-executable yet.
+`terminal-bench/constraints-scheduling`. The recommended example documents conform to the row
+schema. The HTTP-recorder pattern used by the DeepSWE target example is now supported, while the
+filesystem-overlay example remains intentionally non-executable.
 
 ## What is already correct for the schema's purpose
 
@@ -113,7 +116,7 @@ executable yet.
 - Oracle and adapter manifests fail closed, and Oracle manifests are validated during preflight
   without starting the process.
 - Executable-capability matrix tests prove the registered batched profile, overlay candidate,
-  Trusted Helper runtime, and Output Artifact collection fail preflight while unsupported.
+  unknown Trusted Helper types, and Output Artifact collection fail preflight while unsupported.
 - Adapter v2 validates closed typed Challenge and Observation values, exact Evaluation
   Participants, Trusted Helper requirements, Output Artifact declarations, and row limits against
   Adapter hard maximums before Candidate execution.
@@ -121,6 +124,15 @@ executable yet.
   compatibility path with ambiguous Adapter/Candidate failure handling.
 - SecureBench creates opaque Challenge and Evaluation IDs. Challenge Evidence rejects nested
   Trusted Helper or Output Artifact evidence carrying either ID from another Evaluation.
+- The built-in HTTP recorder is registered as one contract/runtime pair. Every Evaluation creates
+  a fresh internal Docker network, helper container, host state directory, and credential. The
+  Adapter receives only the helper type, internal URL, and scoped authorization value.
+- Recorder request count, target, headers, bodies, response settings, evidence bytes, and lifecycle
+  operations are bounded. Authorization headers are redacted, the data-plane server exposes no
+  control route, and the host revalidates row-reduced limits, hashes, sequence, and Challenge/
+  Evaluation correlation before evidence reaches the Oracle.
+- Helper containers have no published port or upstream network. Cleanup and helper-crash failures
+  are classified as Trusted Helper infrastructure errors rather than Candidate evidence.
 - Candidate-reported failures are distinct from Adapter, Trusted Helper, and framework
   infrastructure failures. The public result format remains unchanged.
 - For `repo_patch`, the digest-pinned image workdir must be a clean Git repository at the row's
@@ -137,9 +149,8 @@ executable yet.
 These do not invalidate the current supported slice, but they must not be described as complete
 schema support.
 
-1. Trusted Helper execution is not implemented: no helper instance, network, credential, scoped
-   Helper Access, host control/evidence plane, or teardown path exists yet. Rows requiring a
-   Trusted Helper fail preflight after their declarations are checked against the catalog.
+1. Only `securebench.http-request-recorder/v1` has an executable Trusted Helper runtime. Other
+   helper types must be reviewed, registered with finite contracts, and implemented explicitly.
 2. Output Artifact collection is not implemented. Rows can be checked against Adapter declarations
    and parser/limit contracts, but non-empty `output_artifacts` still fail preflight.
 3. Resource-usage evidence is not yet included in Challenge Evidence.
@@ -156,16 +167,18 @@ schema support.
 
 ## Verification evidence
 
-At the implementation baseline above:
+At this implementation batch:
 
-- full suite: `359 passed, 2 skipped`;
-- focused protocol-component, execution-profile, and schema suite: `59 passed, 2 skipped`;
-- the two skipped tests are opt-in real-Docker protocol tests; this contract-only batch does not
-  change container isolation and they were not enabled for this review;
+- full suite: `366 passed, 3 skipped`;
+- focused recorder, protocol-component, and protocol-execution suite: `44 passed, 3 skipped`;
+- the three skipped tests are opt-in real-Docker protocol tests, including the fresh internal
+  recorder-network test. Docker Desktop was not running during this review, so the new live test
+  remains to be executed before calling the vertical slice fully demonstrated;
 - built-in robustness audit: 5 passed, 0 failed, 0 warnings;
-- generated JSON Schemas matched the checked-in files;
-- a wheel containing the new contract module built successfully and imported outside the repository;
-- the live protocol test leaked no new SecureBench container.
+- no author-facing Pydantic schema changed in this batch, so checked-in JSON Schemas did not require
+  regeneration;
+- a wheel containing both the helper lifecycle and standalone recorder server built successfully;
+- compile checks and `git diff --check` passed.
 
 Useful commands:
 
@@ -174,7 +187,7 @@ uv run --no-sync --with pytest python -m pytest -q
 .venv/bin/python -m tools.generate_schemas
 .venv/bin/python -m securebench.cli audit-self --output-dir /tmp/securebench-audit
 SECUREBENCH_DOCKER_INTEGRATION=1 uv run --no-sync --with pytest python -m pytest -q \
-  tests/test_v2_protocol_verification.py -k 'real_fresh_docker'
+  tests/test_v2_protocol_verification.py -k 'real_fresh_docker or fresh_internal_docker'
 ```
 
 ## Branch and workspace state
@@ -182,9 +195,9 @@ SECUREBENCH_DOCKER_INTEGRATION=1 uv run --no-sync --with pytest python -m pytest
 - Original branch: `main` at `bf9a108` (`Complete isolated Terminal-Bench conversion`).
 - Development branch: `split-verification-v2`.
 - `main` is the merge-base and direct ancestor of the development branch.
-- Before this alignment pass, the development branch was twelve commits ahead and zero
+- Before this implementation batch, the development branch was sixteen commits ahead and zero
   commits behind `main`.
-- `origin/split-verification-v2` contained all committed work through `e311c3a`.
+- After publication, `origin/split-verification-v2` contains this Trusted Helper implementation batch.
 
 There is an unrelated malformed local ref named `refs/heads/main 2`; commands using `--all` may
 warn or fail on it. Do not alter it without the repository owner's approval.

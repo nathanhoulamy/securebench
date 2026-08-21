@@ -22,6 +22,7 @@ from securebench.verification.protocol import (
     load_adapter_manifest,
     require_supported_protocol_features,
 )
+from securebench.verification.trusted_helpers import default_trusted_helper_catalog
 
 
 @dataclass(frozen=True)
@@ -200,12 +201,18 @@ def _validate_runtime_resources(task: BenchmarkTask) -> None:
 
 
 def _validate_protocol_checks(task: BenchmarkTask) -> None:
+    trusted_helpers = default_trusted_helper_catalog()
     for check in task.verification.checks:
         if not isinstance(check, ProtocolCheck):
             continue
         try:
             manifest = load_adapter_manifest(task, check)
-            require_supported_protocol_features(check, manifest, task=task)
+            require_supported_protocol_features(
+                check,
+                manifest,
+                trusted_helpers,
+                task=task,
+            )
         except VerificationInfrastructureError as exc:
             raise ConfigError(
                 f"Protocol check {check.id!r} is not executable: {exc.public_message}"

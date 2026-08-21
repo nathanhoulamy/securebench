@@ -135,10 +135,10 @@ tester-owned upper bound on actual connectivity.
   execution preflight until composed stopped-filesystem capture is available.
 - `filesystem_overlay` and `batched-split/v1` are registered design surfaces
   but not executable.
-- Adapter v2, Challenge Evidence, and Trusted Helper Catalog contracts are
-  implemented. Starting Trusted Helpers, issuing Helper Access, collecting
-  helper evidence, and collecting Output Artifacts are still rejected by
-  preflight until their runtimes are implemented.
+- Adapter v2, Challenge Evidence, and the Trusted Helper Catalog are
+  implemented. `securebench.http-request-recorder/v1` is the only executable
+  helper type; unregistered helpers still fail preflight. Output Artifact
+  collection remains rejected until its runtime is implemented.
 - Pack-local Oracle code is trusted and requires review/admission controls.
 - The reference Oracle runs as a sanitized host subprocess; stronger OS-level
   Oracle confinement remains future hardening.

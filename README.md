@@ -14,10 +14,12 @@ The two current row families describe the Agent task, not its verification topol
 Verification is composed independently from candidate capture, artifact or
 protocol checks, parser profiles, and a host-only Oracle. The executable path
 supports `strict-split/v1`, `file_bundle`, passive artifact checks, and the
-first protocol-check slice: bounded JSON challenges, an assertion-free runtime
-adapter, and one fresh offline Evaluation container per case. Git patches,
-overlays, protocol services, returned protocol artifacts, and the weaker
-registered batching profile remain schema-valid but fail preflight until their
+protocol path: bounded JSON Challenges, a reviewed runtime Adapter, and one
+fresh Evaluation container per Challenge. `git_patch` candidates and the
+`securebench.http-request-recorder/v1` Trusted Helper are executable end to
+end; helper Evaluations use a fresh internal-only Docker network. Filesystem
+overlays, Output Artifact collection, other unregistered helpers, and the
+weaker batching profile remain schema-valid but fail preflight until their
 engines are implemented.
 
 ## Quick start

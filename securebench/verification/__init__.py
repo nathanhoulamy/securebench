@@ -25,6 +25,11 @@ from securebench.verification.models import (
 from securebench.verification.oracle import OracleProcessSession, OracleSession
 from securebench.verification.parsers import ParserRegistry, default_parser_registry
 from securebench.verification.protocol import ProtocolCheckRunner
+from securebench.verification.trusted_helpers import (
+    HTTP_REQUEST_RECORDER_TYPE,
+    default_trusted_helper_catalog,
+    http_request_recorder_contract,
+)
 
 __all__ = [
     "AdapterMaximums",
@@ -32,6 +37,7 @@ __all__ = [
     "ChallengeEvidence",
     "CheckResultSummary",
     "EvaluationParticipant",
+    "HTTP_REQUEST_RECORDER_TYPE",
     "JsonValueSchema",
     "OracleCase",
     "OracleChallenge",
@@ -50,4 +56,6 @@ __all__ = [
     "VerificationEngine",
     "VerificationResultV2",
     "default_parser_registry",
+    "default_trusted_helper_catalog",
+    "http_request_recorder_contract",
 ]

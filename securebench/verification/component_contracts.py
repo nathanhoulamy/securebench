@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any, Literal
@@ -202,12 +203,25 @@ class TrustedHelperContract(ContractModel):
 class TrustedHelperCatalog:
     """Host-owned catalog of reviewed Trusted Helper contracts."""
 
-    def __init__(self, contracts: tuple[TrustedHelperContract, ...] = ()) -> None:
+    def __init__(
+        self,
+        contracts: tuple[TrustedHelperContract, ...] = (),
+        runtime_factories: dict[str, Callable[..., Any]] | None = None,
+    ) -> None:
         self._contracts: dict[str, TrustedHelperContract] = {}
         for contract in contracts:
             if contract.type in self._contracts:
                 raise ValueError(f"duplicate trusted helper type: {contract.type}")
             self._contracts[contract.type] = contract
+        self._runtime_factories = dict(runtime_factories or {})
+        unknown_runtime_types = set(self._runtime_factories) - set(self._contracts)
+        if unknown_runtime_types:
+            raise ValueError(
+                "trusted helper runtimes require registered contracts: "
+                + ", ".join(sorted(unknown_runtime_types))
+            )
+        if any(not callable(factory) for factory in self._runtime_factories.values()):
+            raise ValueError("trusted helper runtime factories must be callable")
 
     def contract(self, helper_type: str) -> TrustedHelperContract:
         try:
@@ -261,6 +275,35 @@ class TrustedHelperCatalog:
             raise VerificationInfrastructureError(
                 "trusted_helper_evidence_invalid",
                 f"Trusted Helper type {contract.type!r} evidence does not match its contract",
+                source="trusted_helper",
+            ) from exc
+
+    def runtime_factory(self, helper_type: str) -> Callable[..., Any]:
+        """Return the reviewed runtime bound to a registered helper contract."""
+        self.contract(helper_type)
+        try:
+            return self._runtime_factories[helper_type]
+        except KeyError as exc:
+            raise VerificationInfrastructureError(
+                "trusted_helper_runtime_unavailable",
+                f"Trusted Helper type {helper_type!r} has no executable runtime",
+                source="trusted_helper",
+            ) from exc
+
+    def validate_runtime_settings(self, helper_type: str, value: Any) -> None:
+        """Apply semantic settings checks owned by the reviewed runtime."""
+        factory = self.runtime_factory(helper_type)
+        validator = getattr(factory, "validate_settings", None)
+        if validator is None:
+            return
+        try:
+            validator(value)
+        except VerificationInfrastructureError:
+            raise
+        except (TypeError, ValueError) as exc:
+            raise VerificationInfrastructureError(
+                "trusted_helper_settings_invalid",
+                f"Trusted Helper type {helper_type!r} settings are invalid",
                 source="trusted_helper",
             ) from exc
 

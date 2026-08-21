@@ -528,6 +528,15 @@ control plane, settings and evidence schemas, reset behavior, credential
 lifetime, and component-specific maximums. Rows may select settings and reduce
 limits; they cannot add capabilities or raise maximums.
 
+The first executable catalog entry is
+`securebench.http-request-recorder/v1`. It provides an authenticated HTTP data
+plane on a fresh internal Evaluation network and returns bounded, host-collected
+request evidence. Its optional settings are `path` (default `/`),
+`response_status` (default `204`), and `response_body` (default empty). Rows
+must bound `max_requests` and `max_body_bytes`, and may reduce
+`max_header_bytes` from the catalog maximum. Other helper types remain
+non-executable until a reviewed contract and runtime are registered together.
+
 ### Oracle contract
 
 The Oracle resource contains a reviewed manifest and implementation conforming

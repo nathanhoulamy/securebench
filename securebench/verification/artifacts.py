@@ -145,6 +145,7 @@ class VerificationEngine:
             for check in task.verification.checks:
                 if isinstance(check, ProtocolCheck):
                     evidence = self.protocols.evaluate_candidate_error(
+                        task,
                         check,
                         session,
                         code=code,

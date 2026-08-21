@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
@@ -38,6 +38,11 @@ from securebench.verification.models import (
     VerificationInfrastructureError,
 )
 from securebench.verification.oracle import OracleSession
+from securebench.verification.trusted_helpers import (
+    TrustedHelperEvaluation,
+    default_trusted_helper_catalog,
+    load_trusted_helper_settings,
+)
 from securebench.workspaces.cleanup import remove_untrusted_tree
 from securebench.workspaces.materialization import (
     VisibilityAwareMaterializer,
@@ -46,7 +51,6 @@ from securebench.workspaces.materialization import (
 
 
 MAX_ADAPTER_MANIFEST_BYTES = 256 * 1024
-MAX_TRUSTED_HELPER_SETTINGS_BYTES = 256 * 1024
 MAX_ADAPTER_COMMAND_PARTS = 32
 MAX_ADAPTER_COMMAND_PART_BYTES = 4096
 MAX_PROTOCOL_CHALLENGE_BYTES = 1024 * 1024
@@ -70,7 +74,7 @@ class ProtocolCheckRunner:
         trusted_helpers: TrustedHelperCatalog | None = None,
     ) -> None:
         self.materializer = materializer or VisibilityAwareMaterializer()
-        self.trusted_helpers = trusted_helpers or TrustedHelperCatalog()
+        self.trusted_helpers = trusted_helpers or default_trusted_helper_catalog()
 
     def evaluate(
         self,
@@ -126,6 +130,7 @@ class ProtocolCheckRunner:
 
     def evaluate_candidate_error(
         self,
+        task: BenchmarkTask,
         check: ProtocolCheck,
         oracle: OracleSession,
         *,
@@ -133,7 +138,13 @@ class ProtocolCheckRunner:
         message: str,
     ) -> tuple[ChallengeEvidence, ...]:
         """Report the same candidate-production failure for every hidden case."""
-        require_supported_protocol_features(check)
+        manifest = load_adapter_manifest(task, check)
+        require_supported_protocol_features(
+            check,
+            manifest,
+            self.trusted_helpers,
+            task=task,
+        )
         evidence: list[ChallengeEvidence] = []
         for challenge_index in range(check.challenge.max_cases):
             case = oracle.next_challenge(
@@ -187,6 +198,7 @@ class ProtocolCheckRunner:
         evaluation_id = _new_identifier("evaluation")
         evaluation_root = Path(tempfile.mkdtemp(prefix="securebench-evaluation-"))
         sandbox: DockerSandbox | None = None
+        helper_evaluation: TrustedHelperEvaluation | None = None
         try:
             # Import lazily: the harness package imports execution-profile validation.
             from securebench.harnesses.shared import materialize_image_workdir
@@ -203,11 +215,20 @@ class ProtocolCheckRunner:
                 plan = self.materializer.materialize(task, staging, "evaluation_runtime")
             finally:
                 staging.close()
+            helper_evaluation = TrustedHelperEvaluation(
+                task=task,
+                check=check,
+                catalog=self.trusted_helpers,
+                challenge_id=challenge_id,
+                evaluation_id=evaluation_id,
+            )
+            helper_access = helper_evaluation.start()
             sandbox = DockerSandbox(
                 image=task.environment.image,
                 root=evaluation_root,
                 persistent=False,
-                network="none",
+                network=helper_evaluation.network,
+                env=helper_evaluation.evaluation_environment(),
                 read_only=True,
                 mounts=docker_resource_mounts(plan),
                 workspace_mount_target=task.environment.workdir,
@@ -218,7 +239,7 @@ class ProtocolCheckRunner:
                     challenge_id=challenge_id,
                     evaluation_id=evaluation_id,
                     challenge=case.challenge,
-                    trusted_helpers={},
+                    trusted_helpers=helper_access,
                 )
             )
             result = sandbox.run(
@@ -228,15 +249,19 @@ class ProtocolCheckRunner:
                 stdin=adapter_input + b"\n",
             )
             duration_ms = max(0, round((time.monotonic() - started) * 1000))
-            return _adapter_evidence(
-                check,
-                manifest.contract,
-                challenge_index,
-                challenge_id,
-                evaluation_id,
-                case,
-                result,
-                duration_ms,
+            helper_evidence = helper_evaluation.collect()
+            return replace(
+                _adapter_evidence(
+                    check,
+                    manifest.contract,
+                    challenge_index,
+                    challenge_id,
+                    evaluation_id,
+                    case,
+                    result,
+                    duration_ms,
+                ),
+                trusted_helper_evidence=helper_evidence,
             )
         finally:
             cleanup_error: Exception | None = None
@@ -245,11 +270,18 @@ class ProtocolCheckRunner:
                     sandbox.close()
                 except Exception as exc:
                     cleanup_error = exc
+            if helper_evaluation is not None:
+                try:
+                    helper_evaluation.close()
+                except Exception as exc:
+                    cleanup_error = cleanup_error or exc
             try:
                 remove_untrusted_tree(evaluation_root, image=task.environment.image)
             except Exception as exc:
                 cleanup_error = cleanup_error or exc
             if cleanup_error is not None:
+                if isinstance(cleanup_error, VerificationInfrastructureError):
+                    raise cleanup_error
                 raise VerificationInfrastructureError(
                     "evaluation_cleanup_failed", "Evaluation sandbox cleanup failed"
                 ) from cleanup_error
@@ -438,16 +470,14 @@ def _validate_trusted_helper_contracts(
         )
     for helper in check.trusted_helpers:
         helper_contract = catalog.validate_declaration(helper)
+        catalog.runtime_factory(helper.type)
         if task is not None:
+            settings = load_trusted_helper_settings(task, helper.settings)
             catalog.validate_settings(
                 helper_contract,
-                _trusted_helper_settings(task, helper.settings),
+                settings,
             )
-    if check.trusted_helpers:
-        raise VerificationInfrastructureError(
-            "trusted_helper_runtime_unavailable",
-            "Trusted Helper contracts are defined but their runtime is not implemented yet",
-        )
+            catalog.validate_runtime_settings(helper.type, settings)
 
 
 def _validate_output_artifact_contracts(
@@ -481,42 +511,6 @@ def _validate_output_artifact_contracts(
             "output_artifact_collection_unavailable",
             "Output Artifact contracts are defined but collection is not implemented yet",
         )
-
-
-def _trusted_helper_settings(task: BenchmarkTask, reference: str | None) -> Any:
-    if reference is None:
-        return {}
-    resource = task.resources.resources.get(reference)
-    if resource is None or resource.kind != "file" or not isinstance(resource.value, dict):
-        raise VerificationInfrastructureError(
-            "trusted_helper_settings_invalid",
-            "Trusted Helper settings must reference one host-only file",
-            source="trusted_helper",
-        )
-    source = resource.value.get("source_path")
-    if not isinstance(source, str):
-        raise VerificationInfrastructureError(
-            "trusted_helper_settings_invalid",
-            "Trusted Helper settings are unavailable",
-            source="trusted_helper",
-        )
-    content = _read_bounded_file(
-        Path(source),
-        MAX_TRUSTED_HELPER_SETTINGS_BYTES,
-        unavailable_code="trusted_helper_settings_invalid",
-        unavailable_message="Trusted Helper settings are unavailable",
-        too_large_code="trusted_helper_settings_too_large",
-        too_large_message="Trusted Helper settings exceeded their bound",
-        source="trusted_helper",
-    )
-    try:
-        return strict_yaml_loads(content.decode("utf-8"))
-    except (UnicodeError, YAMLError) as exc:
-        raise VerificationInfrastructureError(
-            "trusted_helper_settings_invalid",
-            "Trusted Helper settings are not valid YAML",
-            source="trusted_helper",
-        ) from exc
 
 
 def _valid_command_part(value: Any) -> bool:

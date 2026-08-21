@@ -73,29 +73,30 @@ APIs will need repeated redesign.
 Definition of done: component contracts are typed and versioned, evidence from one Evaluation
 cannot be mis-correlated, and unsupported component capabilities fail preflight.
 
-## Priority 3: implement one Trusted Helper
+## Implemented 2026-08-21: first Trusted Helper vertical slice
 
 Use `securebench.http-request-recorder/v1` as the first vertical slice because it exercises the
 external-state pattern without requiring a general-purpose database or process broker.
 
 Required properties:
 
-- a fresh Trusted Helper instance and fresh credential for every Evaluation;
-- candidate-facing data plane on an internal Evaluation network only;
-- host-only control/evidence plane;
-- Adapter receives only scoped Helper Access;
-- bounded requests, headers, bodies, records, and time;
-- host Evaluation ID on every recorder record;
-- no route from Evaluation to the public internet;
-- teardown failures become infrastructure errors.
+- [x] a fresh Trusted Helper instance and fresh credential for every Evaluation;
+- [x] candidate-facing data plane on an internal Evaluation network only;
+- [x] host-only control/evidence plane;
+- [x] Adapter receives only scoped Helper Access;
+- [x] bounded requests, headers, bodies, records, evidence, and lifecycle operations;
+- [x] host Challenge and Evaluation IDs on every recorder record;
+- [x] no route from Evaluation to the public internet;
+- [x] teardown failures become Trusted Helper infrastructure errors.
 
 Add adversarial tests for stale cross-Evaluation state, forged credentials, direct control-plane
 access, record truncation, oversized bodies, host-header/SNI confusion, helper crashes, and evidence
 from the wrong Evaluation ID.
 
-Definition of done: a file-bundle protocol row with `trusted_helpers` executes under
-`strict-split/v1`; the same Trusted Helper declaration no longer fails preflight; fresh-Evaluation
-isolation is demonstrated in real Docker.
+The file-bundle protocol path, preflight admission, Helper Access, evidence correlation, and
+adversarial host-side tests are complete. One definition-of-done item remains operationally
+pending: run the opt-in fresh-Evaluation Docker test when Docker Desktop is available and inspect
+for leaked helper containers/networks.
 
 ## Priority 4: Output Artifacts
 
