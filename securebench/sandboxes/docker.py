@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import uuid
@@ -33,6 +34,16 @@ class DockerBindMount:
     source: str | Path
     target: str
     read_only: bool = True
+
+
+@dataclass(frozen=True)
+class DockerVolumeMount:
+    """Named Docker volume mounted from one pre-existing volume subdirectory."""
+
+    source: str
+    target: str
+    subpath: str
+    read_only: bool = False
 
 
 class DockerSandboxError(RuntimeError):
@@ -68,6 +79,7 @@ class DockerSandbox(Sandbox):
         pids_limit: int | None = 256,
         security_opt: tuple[str, ...] = ("no-new-privileges:true",),
         mounts: tuple[DockerBindMount, ...] = (),
+        volume_mounts: tuple[DockerVolumeMount, ...] = (),
         workspace_mount_target: str = "/workspace",
     ) -> None:
         self.image = image
@@ -83,6 +95,7 @@ class DockerSandbox(Sandbox):
         self.pids_limit = _docker_pids_limit_override(pids_limit)
         self.security_opt = tuple(security_opt)
         self.mounts = tuple(mounts)
+        self.volume_mounts = tuple(volume_mounts)
         self.workspace_mount_target = _docker_bind_mount_target(workspace_mount_target, allow_workspace_root=True)
         self._container_name: str | None = None
         self._owns_root = root is None
@@ -144,6 +157,7 @@ class DockerSandbox(Sandbox):
                 "-v",
                 f"{self.root}:{self.workspace_mount_target}",
                 *_docker_bind_mount_args(self.mounts, workspace_mount_target=self.workspace_mount_target),
+                *_docker_volume_mount_args(self.volume_mounts),
                 "-w",
                 docker_workdir,
                 *_docker_hardening_args(
@@ -271,6 +285,14 @@ class DockerSandbox(Sandbox):
     def _ensure_container(self) -> None:
         if self._container_name is not None:
             return
+        # Validate all mount inputs before assigning a container identity so a
+        # rejected mount plan cannot trigger cleanup for a container that was
+        # never started.
+        _docker_bind_mount_args(
+            self.mounts,
+            workspace_mount_target=self.workspace_mount_target,
+        )
+        _docker_volume_mount_args(self.volume_mounts)
         self._container_name = f"securebench-{uuid.uuid4().hex}"
         emit_progress(
             "sandbox_start",
@@ -294,6 +316,7 @@ class DockerSandbox(Sandbox):
                         self.mounts,
                         workspace_mount_target=self.workspace_mount_target,
                     ),
+                    *_docker_volume_mount_args(self.volume_mounts),
                     "-w",
                     self.workspace_mount_target,
                     *_docker_hardening_args(
@@ -509,6 +532,58 @@ def _docker_bind_mount_target(
     if candidate.is_absolute():
         return str(relative)
     return str(PurePosixPath(workspace_mount_target) / relative)
+
+
+def _docker_volume_mount_args(
+    mounts: tuple[DockerVolumeMount, ...],
+) -> tuple[str, ...]:
+    args: list[str] = []
+    targets: list[PurePosixPath] = []
+    for mount in mounts:
+        if not isinstance(mount, DockerVolumeMount):
+            raise ValueError("Docker volume mounts must be DockerVolumeMount instances")
+        if (
+            not isinstance(mount.source, str)
+            or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", mount.source)
+            is None
+        ):
+            raise ValueError("Docker volume mount source is invalid")
+        if not isinstance(mount.target, str):
+            raise ValueError("Docker volume mount target must be canonical, absolute, and non-root")
+        target = PurePosixPath(mount.target)
+        if (
+            mount.target.startswith("//")
+            or not target.is_absolute()
+            or str(target) == "/"
+            or str(target) != mount.target
+            or ".." in target.parts
+            or "\\" in mount.target
+            or "\x00" in mount.target
+        ):
+            raise ValueError("Docker volume mount target must be canonical, absolute, and non-root")
+        if any(portable_paths_overlap(target, existing) for existing in targets):
+            raise ValueError(f"Docker volume mount targets overlap at: {mount.target}")
+        targets.append(target)
+        if not isinstance(mount.subpath, str):
+            raise ValueError("Docker volume mount subpath must be canonical and relative")
+        subpath = PurePosixPath(mount.subpath)
+        if (
+            subpath.is_absolute()
+            or str(subpath) in ("", ".")
+            or str(subpath) != mount.subpath
+            or ".." in subpath.parts
+            or "\\" in mount.subpath
+            or "\x00" in mount.subpath
+        ):
+            raise ValueError("Docker volume mount subpath must be canonical and relative")
+        option = (
+            f"type=volume,source={mount.source},target={mount.target},"
+            f"volume-subpath={mount.subpath}"
+        )
+        if mount.read_only:
+            option += ",readonly"
+        args.extend(["--mount", option])
+    return tuple(args)
 
 
 def _docker_hardening_args(

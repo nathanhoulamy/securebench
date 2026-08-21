@@ -1,7 +1,7 @@
 # Filesystem overlay v1
 
-Status: Phase 1 accepted; the Phase 2 schema is registered but
-`filesystem_overlay` remains non-executable.
+Status: Phases 1 and 2 accepted; the Phase 3 quota backend is a review
+candidate and `filesystem_overlay` remains non-executable.
 
 This document specifies the first reviewable filesystem-overlay Candidate
 format and its threat model. It does not enable capture or replay. The
@@ -171,6 +171,38 @@ Framework capacities, which rows may only reduce, are initially fixed at:
 Deployment policy may impose smaller capacities. Exceeding a baseline
 capacity rejects the row before Agent execution. Exceeding a final-tree or
 Candidate limit rejects Candidate capture.
+
+## Quota workspace backend
+
+Overlay runs require a tester-owned hard capacity:
+
+~~~yaml
+docker:
+  overlay_workspace_bytes: 2147483648
+~~~
+
+The setting is required only when a selected row uses `filesystem_overlay`.
+It must be a 4,096-byte-aligned value between 64 MiB and 16 TiB. It is bound
+into execution provenance, so changing it invalidates resume records.
+
+The Phase 3 backend has no directory or tmpfs fallback. It requires a native
+Linux host running as root, the host loop/ext4 utilities, a Linux Docker
+daemon using the reviewed `overlay2` storage driver, and Docker volume-subpath
+support. One sparse ext4 backing file and loop device are created per Agent or
+Evaluation. That filesystem is exposed through one local Docker volume; each
+include root receives a distinct `roots/NNNN` volume subpath.
+
+Before future activation, the backend probe removes stale workspaces from an
+interrupted prior process, uses a digest-pinned container to write until the
+filesystem returns `ENOSPC`, and proves that its probe container, Docker
+volume, loop device, mount, and backing file were removed. Cleanup never uses
+lazy unmounting: a volume-removal or unmount failure is an infrastructure
+error and leaves the remaining state attached for safe recovery.
+The pinned probe image must already be local; the probe never substitutes or
+implicitly selects an unreviewed image.
+
+Phase 3 does not connect this backend to Agent capture or Evaluation replay.
+The unconditional non-executable overlay gate remains in force.
 
 ## Stored Candidate payload
 

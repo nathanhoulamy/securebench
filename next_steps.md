@@ -178,6 +178,13 @@ capture/replay order, failure ownership, and security checklist. This documentat
 the feature executable. The Phase 2 schema/preflight gate migrates the unused limit names, validates
 static root and mount policy, and retains the unconditional non-executable gate.
 
+The Phase 3 review candidate adds the required tester-owned
+`docker.overlay_workspace_bytes` capacity, binds it to resume provenance, and implements the
+Linux-only sparse-ext4/loop-device workspace exposed through one Docker volume with distinct root
+subpaths. Its capability probe requires reviewed Docker storage, proves enforced `ENOSPC`, recovers
+stale interrupted state, and checks complete cleanup. Overlay execution remains disabled pending
+review.
+
 Then implement stopped-state capture, clean-baseline replay, passive `source.path`, protocol replay,
 and adversarial tests. This remains the highest-risk candidate transport.
 

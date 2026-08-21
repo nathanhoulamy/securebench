@@ -70,6 +70,8 @@ harness:
     allow_external_tools: false
 docker:
   max_cached_images: 2
+  # Required when any selected row uses filesystem_overlay.
+  overlay_workspace_bytes: 2147483648
 ```
 
 Each run writes sanitized `results.jsonl` plus immutable candidate manifests

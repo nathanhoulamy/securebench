@@ -8,6 +8,7 @@ from securebench.sandboxes import (
     DockerBindMount,
     DockerSandbox,
     DockerSandboxError,
+    DockerVolumeMount,
 )
 
 
@@ -406,6 +407,64 @@ def test_docker_sandbox_can_mount_workspace_at_app_target(monkeypatch, tmp_path)
 
     assert f"{tmp_path}:/app" in seen["command"]
     assert seen["command"][seen["command"].index("-w") + 1] == "/app"
+
+
+def test_docker_sandbox_mounts_distinct_subpaths_from_one_named_volume(
+    monkeypatch,
+    tmp_path,
+):
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path,
+        persistent=False,
+        volume_mounts=(
+            DockerVolumeMount(
+                source="securebench-overlay-example",
+                target="/app",
+                subpath="roots/0000",
+            ),
+            DockerVolumeMount(
+                source="securebench-overlay-example",
+                target="/etc/nginx",
+                subpath="roots/0001",
+            ),
+        ),
+        workspace_mount_target="/securebench-workspace",
+    )
+
+    sandbox.run(["true"], workdir="/app")
+
+    mount_values = [
+        seen["command"][index + 1]
+        for index, value in enumerate(seen["command"])
+        if value == "--mount"
+    ]
+    assert mount_values == [
+        "type=volume,source=securebench-overlay-example,target=/app,volume-subpath=roots/0000",
+        "type=volume,source=securebench-overlay-example,target=/etc/nginx,volume-subpath=roots/0001",
+    ]
+    assert "--read-only" in seen["command"]
+
+
+def test_docker_sandbox_rejects_overlapping_volume_mount_targets(tmp_path):
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path,
+        volume_mounts=(
+            DockerVolumeMount("volume-one", "/app", "roots/0000"),
+            DockerVolumeMount("volume-one", "/APP/results", "roots/0001"),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="targets overlap"):
+        sandbox.run(["true"])
 
 
 def test_docker_sandbox_allows_explicit_asset_mount_below_configured_workspace(

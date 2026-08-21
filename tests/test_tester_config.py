@@ -1,7 +1,11 @@
 import pytest
 
 from securebench.errors import ConfigError
-from securebench.tester_config import load_tester_config, parse_tester_config
+from securebench.tester_config import (
+    MIN_OVERLAY_WORKSPACE_BYTES,
+    load_tester_config,
+    parse_tester_config,
+)
 
 
 def valid_tester_config(**overrides):
@@ -19,7 +23,10 @@ def test_parse_tester_config_keeps_execution_choices_outside_rows():
     config = parse_tester_config(
         valid_tester_config(
             run={"id": "v2-run", "output_dir": "runs/v2-run", "max_workers": 4},
-            docker={"max_cached_images": 2},
+            docker={
+                "max_cached_images": 2,
+                "overlay_workspace_bytes": 2147483648,
+            },
         )
     )
 
@@ -28,6 +35,7 @@ def test_parse_tester_config_keeps_execution_choices_outside_rows():
     assert config.harness.type == "codex"
     assert config.harness.env == ("OPENAI_API_KEY",)
     assert config.docker.max_cached_images == 2
+    assert config.docker.overlay_workspace_bytes == 2147483648
     assert not hasattr(config, "verification")
 
 
@@ -96,6 +104,15 @@ def test_load_tester_config_rejects_an_oversized_document(tmp_path, monkeypatch)
         ({"benchmark": "bad"}, "root.benchmark must be an object"),
         ({"harness": "bad"}, "root.harness must be an object"),
         ({"docker": {"max_cached_images": 0}}, "must be a positive integer"),
+        ({"docker": {"overlay_workspace_bytes": True}}, "positive integer"),
+        (
+            {"docker": {"overlay_workspace_bytes": MIN_OVERLAY_WORKSPACE_BYTES - 4096}},
+            "must be between",
+        ),
+        (
+            {"docker": {"overlay_workspace_bytes": MIN_OVERLAY_WORKSPACE_BYTES + 1}},
+            "multiple of 4096",
+        ),
         (
             {"run": {"id": "x", "output_dir": "runs/x", "max_workers": True}},
             "must be a positive integer",

@@ -34,6 +34,7 @@ from securebench.harnesses.registry import (
 from securebench.harnesses.shared import environment_image_for_task, workspace_dir_name
 from securebench.locking import FileLockError, exclusive_file_lock
 from securebench.progress import ProgressReporter, emit_progress, progress_context
+from securebench.schemas.benchmark import FilesystemOverlayCandidate
 from securebench.tasks import BenchmarkTask
 from securebench.tester_config import TesterConfig
 from securebench.verification import VerificationEngine
@@ -43,7 +44,7 @@ from securebench.workspaces.cleanup import remove_untrusted_tree
 
 DEFAULT_RESULTS_FILENAME = "results.jsonl"
 RUN_LOCK_FILENAME = ".securebench-run.lock"
-EXECUTION_IDENTITY_SCHEMA_VERSION = "1"
+EXECUTION_IDENTITY_SCHEMA_VERSION = "2"
 MAX_RESULT_RECORD_BYTES = 256 * 1024
 _DOCKER_EXECUTION_ENV_NAMES = (
     "SECUREBENCH_DOCKER_MEM_LIMIT",
@@ -86,6 +87,7 @@ def run_tester_config(
     """Produce, capture, and verify every selected row through the v2 path."""
     pack = load_benchmark_pack(config.benchmark.manifest, config.benchmark.tasks)
     tasks = list(compile_benchmark_pack(pack, limit=limit))
+    _validate_overlay_workspace_capacity(config, tasks)
     for task in tasks:
         validate_executable_task(task)
 
@@ -239,6 +241,9 @@ def execution_config_digest(config: TesterConfig) -> str:
             for name in _DOCKER_EXECUTION_ENV_NAMES
             if name in os.environ
         },
+        "docker": {
+            "overlay_workspace_bytes": config.docker.overlay_workspace_bytes,
+        },
     }
     encoded = json.dumps(
         document,
@@ -248,6 +253,22 @@ def execution_config_digest(config: TesterConfig) -> str:
         allow_nan=False,
     ).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _validate_overlay_workspace_capacity(
+    config: TesterConfig,
+    tasks: list[BenchmarkTask],
+) -> None:
+    overlay_tasks = [
+        task.id
+        for task in tasks
+        if isinstance(task.verification.candidate, FilesystemOverlayCandidate)
+    ]
+    if overlay_tasks and config.docker.overlay_workspace_bytes is None:
+        raise ConfigError(
+            "docker.overlay_workspace_bytes is required when selected rows use "
+            "filesystem_overlay; affected task ids: " + ", ".join(overlay_tasks)
+        )
 
 
 def _validate_output_location(output_dir: Path, pack_root: Path) -> None:

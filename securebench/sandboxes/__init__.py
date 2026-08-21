@@ -5,6 +5,7 @@ from securebench.sandboxes.docker import (
     DockerBindMount,
     DockerSandbox,
     DockerSandboxError,
+    DockerVolumeMount,
     validate_docker_bind_mounts,
 )
 from securebench.sandboxes.host import HostSandbox
@@ -14,6 +15,7 @@ __all__ = [
     "DockerBindMount",
     "DockerSandbox",
     "DockerSandboxError",
+    "DockerVolumeMount",
     "HostSandbox",
     "Sandbox",
     "TIMEOUT_EXIT_CODE",

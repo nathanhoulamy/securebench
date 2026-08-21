@@ -355,6 +355,18 @@ in [`filesystem-overlay-v1.md`](filesystem-overlay-v1.md). The row shape above
 is registered and validated but remains non-executable until its quota
 backend, capture, replay, and adversarial qualification gates are accepted.
 
+Tester configuration for a run selecting an overlay row must declare the
+hard ext4 workspace capacity. The value is not benchmark-author controlled:
+
+~~~yaml
+docker:
+  overlay_workspace_bytes: 2147483648
+~~~
+
+The Linux-only Phase 3 backend and its fail-closed capability probe are
+documented in the canonical overlay specification. Their presence does not
+make an overlay row executable.
+
 ## Check branches
 
 ### Artifact check
@@ -762,9 +774,10 @@ fresh-case execution proves prohibitively expensive.
 The accepted canonical diff representation, baseline identity, deletions,
 normalized metadata, symlink rules, bounds, excluded filesystem semantics,
 and protected regions are in
-[`filesystem-overlay-v1.md`](filesystem-overlay-v1.md). The row schema and
-static preflight contract are implemented, but capture and replay remain
-deferred. This is the highest-risk candidate transport.
+[`filesystem-overlay-v1.md`](filesystem-overlay-v1.md). The row schema,
+static preflight contract, and Linux quota-workspace review candidate are
+implemented, but capture and replay remain deferred. This is the highest-risk
+candidate transport.
 
 ### Oracle publication policy
 

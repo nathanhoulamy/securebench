@@ -20,11 +20,14 @@ ROOT_FIELDS = {"schema_version", "run", "benchmark", "harness", "docker"}
 RUN_FIELDS = {"id", "output_dir", "max_workers"}
 BENCHMARK_FIELDS = {"manifest", "tasks"}
 HARNESS_FIELDS = {"type", "env", "config"}
-DOCKER_FIELDS = {"max_cached_images"}
+DOCKER_FIELDS = {"max_cached_images", "overlay_workspace_bytes"}
 HARNESS_TYPES = {"codex", "claude_code", "command"}
 ENVIRONMENT_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 MAX_RUN_ID_LENGTH = 256
 MAX_TESTER_CONFIG_BYTES = 1024 * 1024
+MIN_OVERLAY_WORKSPACE_BYTES = 64 * 1024 * 1024
+MAX_OVERLAY_WORKSPACE_BYTES = 16 * 1024 * 1024 * 1024 * 1024
+OVERLAY_WORKSPACE_BLOCK_BYTES = 4096
 
 
 @dataclass(frozen=True)
@@ -55,9 +58,10 @@ class TesterHarnessSection:
 
 @dataclass(frozen=True)
 class TesterDockerSection:
-    """Docker image retention policy for one tester run."""
+    """Docker retention and hard workspace capacities for one tester run."""
 
     max_cached_images: int | None = None
+    overlay_workspace_bytes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -156,7 +160,30 @@ def _docker_section(value: Any) -> TesterDockerSection:
         or max_cached_images <= 0
     ):
         raise ConfigError("docker.max_cached_images must be a positive integer")
-    return TesterDockerSection(max_cached_images=max_cached_images)
+    overlay_workspace_bytes = data.get("overlay_workspace_bytes")
+    if overlay_workspace_bytes is not None:
+        overlay_workspace_bytes = _positive_int(
+            overlay_workspace_bytes,
+            "docker.overlay_workspace_bytes",
+        )
+        if not (
+            MIN_OVERLAY_WORKSPACE_BYTES
+            <= overlay_workspace_bytes
+            <= MAX_OVERLAY_WORKSPACE_BYTES
+        ):
+            raise ConfigError(
+                "docker.overlay_workspace_bytes must be between "
+                f"{MIN_OVERLAY_WORKSPACE_BYTES} and {MAX_OVERLAY_WORKSPACE_BYTES}"
+            )
+        if overlay_workspace_bytes % OVERLAY_WORKSPACE_BLOCK_BYTES:
+            raise ConfigError(
+                "docker.overlay_workspace_bytes must be a multiple of "
+                f"{OVERLAY_WORKSPACE_BLOCK_BYTES}"
+            )
+    return TesterDockerSection(
+        max_cached_images=max_cached_images,
+        overlay_workspace_bytes=overlay_workspace_bytes,
+    )
 
 
 def _required_dict(data: dict[str, Any], key: str, section: str) -> dict[str, Any]:

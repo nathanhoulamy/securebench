@@ -22,6 +22,7 @@ from securebench.sandboxes import CommandResult
 from securebench.tester_config import (
     TesterBenchmarkSection as BenchmarkSection,
     TesterConfig as RunConfig,
+    TesterDockerSection as DockerSection,
     TesterHarnessSection as HarnessSection,
     TesterRunSection as RunSection,
 )
@@ -33,9 +34,11 @@ from securebench.tester_run import (
     _reset_task_workspace,
     _resume_candidate_available,
     _resume_records,
+    _validate_overlay_workspace_capacity,
     execution_config_digest,
     run_tester_config,
 )
+from securebench.schemas.benchmark import FilesystemOverlayCandidate
 from securebench.verification import CheckResultSummary, VerificationEngine
 
 
@@ -400,6 +403,63 @@ def test_runner_resume_reexecutes_after_harness_config_changes(monkeypatch, tmp_
     assert producer.calls == 2
     record = json.loads(Path(current.run.output_dir / "results.jsonl").read_text())
     assert record["provenance"]["execution_digest"] == execution_config_digest(changed)
+
+
+def test_runner_resume_reexecutes_after_overlay_workspace_capacity_changes(
+    monkeypatch,
+    tmp_path,
+):
+    current = replace(
+        config(tmp_path),
+        docker=DockerSection(overlay_workspace_bytes=2 * 1024 * 1024 * 1024),
+    )
+    producer = GoodProducer(current.run.output_dir / "workspaces")
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: producer,
+    )
+    first_digest = execution_config_digest(current)
+    run_tester_config(current)
+    changed = replace(
+        current,
+        docker=replace(
+            current.docker,
+            overlay_workspace_bytes=3 * 1024 * 1024 * 1024,
+        ),
+    )
+
+    run_tester_config(changed, resume=True)
+
+    assert producer.calls == 2
+    assert execution_config_digest(changed) != first_digest
+
+
+def test_overlay_rows_require_a_tester_owned_workspace_capacity(tmp_path):
+    current = config(tmp_path)
+    compiled = next(
+        compile_benchmark_pack(
+            load_benchmark_pack(current.benchmark.manifest, current.benchmark.tasks)
+        )
+    )
+    overlay = FilesystemOverlayCandidate.model_validate(
+        {
+            "type": "filesystem_overlay",
+            "include_roots": ["/app"],
+            "max_changed_paths": 10,
+            "max_changed_bytes": 1024,
+        }
+    )
+    verification = compiled.verification.model_copy(update={"candidate": overlay})
+    overlay_task = replace(compiled, verification=verification)
+
+    with pytest.raises(ConfigError, match="overlay_workspace_bytes is required"):
+        _validate_overlay_workspace_capacity(current, [overlay_task])
+
+    configured = replace(
+        current,
+        docker=DockerSection(overlay_workspace_bytes=2 * 1024 * 1024 * 1024),
+    )
+    _validate_overlay_workspace_capacity(configured, [overlay_task])
 
 
 def test_runner_resume_reexecutes_after_agent_environment_changes(monkeypatch, tmp_path):
