@@ -333,22 +333,28 @@
     "FilesystemOverlayCandidate": {
       "additionalProperties": false,
       "properties": {
+        "allow_internal_symlinks": {
+          "default": false,
+          "title": "Allow Internal Symlinks",
+          "type": "boolean"
+        },
         "include_roots": {
           "items": {
             "type": "string"
           },
+          "maxItems": 16,
           "minItems": 1,
           "title": "Include Roots",
           "type": "array"
         },
-        "max_files": {
+        "max_changed_bytes": {
           "exclusiveMinimum": 0,
-          "title": "Max Files",
+          "title": "Max Changed Bytes",
           "type": "integer"
         },
-        "max_total_bytes": {
+        "max_changed_paths": {
           "exclusiveMinimum": 0,
-          "title": "Max Total Bytes",
+          "title": "Max Changed Paths",
           "type": "integer"
         },
         "type": {
@@ -360,8 +366,8 @@
       "required": [
         "type",
         "include_roots",
-        "max_files",
-        "max_total_bytes"
+        "max_changed_paths",
+        "max_changed_bytes"
       ],
       "title": "FilesystemOverlayCandidate",
       "type": "object"

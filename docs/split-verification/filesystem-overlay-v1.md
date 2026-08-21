@@ -1,6 +1,7 @@
 # Filesystem overlay v1
 
-Status: Phase 1 review candidate; `filesystem_overlay` remains non-executable.
+Status: Phase 1 accepted; the Phase 2 schema is registered but
+`filesystem_overlay` remains non-executable.
 
 This document specifies the first reviewable filesystem-overlay Candidate
 format and its threat model. It does not enable capture or replay. The
@@ -26,9 +27,9 @@ trusted inputs must still fail within framework bounds.
 
 ## Planned row contract
 
-The Phase 2 schema gate will replace the current unused overlay limit names.
-There is no compatibility path because the existing overlay schema has never
-been executable.
+The Phase 2 schema gate replaces the previous unused overlay limit names.
+There is no compatibility path because the earlier overlay schema was never
+executable.
 
 ~~~yaml
 candidate:
@@ -334,5 +335,5 @@ exercise Candidate state only after replay verification succeeds.
 - [x] Fresh verified replay and cleanup required for every Evaluation.
 - [x] Candidate and infrastructure failure sources kept distinct.
 
-Phase 2 may implement the row-schema and preflight portion of this contract,
-but it must retain the unconditional non-executable overlay gate.
+Phase 2 implements the row-schema and static-preflight portion of this
+contract while retaining the unconditional non-executable overlay gate.

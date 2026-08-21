@@ -14,6 +14,7 @@ from securebench.schemas.benchmark import (
     EnvironmentDefaults,
     EnvironmentSpec,
     FileBundleCandidate,
+    FilesystemOverlayCandidate,
     ProtocolLimits,
     normalize_benchmark_row,
 )
@@ -91,6 +92,31 @@ def passive_row_data(**updates):
     return value
 
 
+def overlay_row_data(*, candidate_updates=None, **updates):
+    value = passive_row_data()
+    candidate = {
+        "type": "filesystem_overlay",
+        "include_roots": ["/app", "/etc/example-service"],
+        "max_changed_paths": 20,
+        "max_changed_bytes": 4096,
+    }
+    candidate.update(candidate_updates or {})
+    value["verification"]["candidate"] = candidate
+    value["verification"]["checks"][0]["artifacts"][0]["source"] = {
+        "path": "/app/result.json"
+    }
+    value.update(updates)
+    return value
+
+
+def normalized_overlay_row(*, candidate_updates=None, **updates):
+    document = BenchmarkRowDocumentV2.model_validate(
+        overlay_row_data(candidate_updates=candidate_updates, **updates)
+    )
+    manifest = BenchmarkPackManifestV2.model_validate(manifest_data())
+    return normalize_benchmark_row(document, manifest)
+
+
 def test_manifest_requires_v2_and_non_overlapping_roots():
     manifest = BenchmarkPackManifestV2.model_validate(manifest_data())
     assert manifest.schema_version == "2.0"
@@ -117,6 +143,160 @@ def test_manifest_requires_v2_and_non_overlapping_roots():
             )
         )
 
+
+def test_filesystem_overlay_v1_schema_uses_explicit_change_limits_only():
+    candidate = FilesystemOverlayCandidate.model_validate(
+        {
+            "type": "filesystem_overlay",
+            "include_roots": ["/app", "/etc/nginx"],
+            "max_changed_paths": 20,
+            "max_changed_bytes": 4096,
+        }
+    )
+
+    assert candidate.allow_internal_symlinks is False
+    assert candidate.max_changed_paths == 20
+    assert candidate.max_changed_bytes == 4096
+
+    with pytest.raises(ValidationError, match="max_files|max_total_bytes"):
+        FilesystemOverlayCandidate.model_validate(
+            {
+                "type": "filesystem_overlay",
+                "include_roots": ["/app"],
+                "max_files": 20,
+                "max_total_bytes": 4096,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "root",
+    [
+        "/etc",
+        "/ETC/SSH/keys",
+        "/root/task",
+        "/var/lib/dpkg/status",
+        "/tmp/result",
+    ],
+)
+def test_filesystem_overlay_rejects_permanently_protected_roots(root):
+    with pytest.raises(ValidationError, match="overlaps protected path"):
+        FilesystemOverlayCandidate.model_validate(
+            {
+                "type": "filesystem_overlay",
+                "include_roots": [root],
+                "max_changed_paths": 20,
+                "max_changed_bytes": 4096,
+            }
+        )
+
+
+@pytest.mark.parametrize("root", ["/app/", "/app//nested", "//app"])
+def test_filesystem_overlay_roots_require_canonical_posix_spelling(root):
+    with pytest.raises(ValidationError, match="canonical POSIX spelling"):
+        FilesystemOverlayCandidate.model_validate(
+            {
+                "type": "filesystem_overlay",
+                "include_roots": [root],
+                "max_changed_paths": 20,
+                "max_changed_bytes": 4096,
+            }
+        )
+
+
+def test_filesystem_overlay_rejects_overlapping_or_excessive_roots():
+    with pytest.raises(ValidationError, match="may not overlap"):
+        FilesystemOverlayCandidate.model_validate(
+            {
+                "type": "filesystem_overlay",
+                "include_roots": ["/app", "/APP/results"],
+                "max_changed_paths": 20,
+                "max_changed_bytes": 4096,
+            }
+        )
+
+    with pytest.raises(ValidationError, match="at most 16 items"):
+        FilesystemOverlayCandidate.model_validate(
+            {
+                "type": "filesystem_overlay",
+                "include_roots": [f"/srv/root-{index}" for index in range(17)],
+                "max_changed_paths": 20,
+                "max_changed_bytes": 4096,
+            }
+        )
+
+    excessive_depth = "/" + "/".join("a" for _ in range(129))
+    excessive_bytes = "/" + "a" * 4096
+    for root in (excessive_depth, excessive_bytes):
+        with pytest.raises(ValidationError, match="exceeds path bounds"):
+            FilesystemOverlayCandidate.model_validate(
+                {
+                    "type": "filesystem_overlay",
+                    "include_roots": [root],
+                    "max_changed_paths": 20,
+                    "max_changed_bytes": 4096,
+                }
+            )
+
+
+def test_filesystem_overlay_row_validates_workdir_and_mount_boundaries():
+    row = normalized_overlay_row()
+    candidate = row.verification.candidate
+    assert isinstance(candidate, FilesystemOverlayCandidate)
+    assert candidate.include_roots == ("/app", "/etc/example-service")
+
+    workdir_mismatch = overlay_row_data(
+        candidate_updates={"include_roots": ["/srv/task"]}
+    )
+    workdir_mismatch["verification"]["checks"][0]["artifacts"][0]["source"] = {
+        "path": "/srv/task/result.json"
+    }
+    with pytest.raises(ValidationError, match="must contain environment.workdir"):
+        document = BenchmarkRowDocumentV2.model_validate(workdir_mismatch)
+        normalize_benchmark_row(
+            document,
+            BenchmarkPackManifestV2.model_validate(manifest_data()),
+        )
+
+    writable_asset = overlay_row_data()
+    writable_asset["assets"][0]["read_only"] = False
+    with pytest.raises(ValidationError, match="must be read-only"):
+        document = BenchmarkRowDocumentV2.model_validate(writable_asset)
+        normalize_benchmark_row(
+            document,
+            BenchmarkPackManifestV2.model_validate(manifest_data()),
+        )
+
+    replacing_asset = overlay_row_data()
+    replacing_asset["assets"][0]["mount"] = "/app"
+    with pytest.raises(ValidationError, match="may not contain or replace"):
+        document = BenchmarkRowDocumentV2.model_validate(replacing_asset)
+        normalize_benchmark_row(
+            document,
+            BenchmarkPackManifestV2.model_validate(manifest_data()),
+        )
+
+    runtime_overlap = overlay_row_data()
+    runtime_overlap["verification"]["resources"]["runtime"] = {
+        "tool": {"path": "example/tool", "mount": "/app/runtime"}
+    }
+    with pytest.raises(ValidationError, match="runtime resource.*may not overlap"):
+        document = BenchmarkRowDocumentV2.model_validate(runtime_overlap)
+        normalize_benchmark_row(
+            document,
+            BenchmarkPackManifestV2.model_validate(manifest_data()),
+        )
+
+    reserved_artifact = overlay_row_data()
+    reserved_artifact["verification"]["checks"][0]["artifacts"][0]["source"] = {
+        "path": "/app/input.json"
+    }
+    with pytest.raises(ValidationError, match="reserved public asset mount"):
+        document = BenchmarkRowDocumentV2.model_validate(reserved_artifact)
+        normalize_benchmark_row(
+            document,
+            BenchmarkPackManifestV2.model_validate(manifest_data()),
+        )
 
 def test_author_paths_reject_embedded_nul_bytes():
     row = passive_row_data()

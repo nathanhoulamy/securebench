@@ -7,6 +7,8 @@ from securebench.benchmark_pack import load_benchmark_pack
 from securebench.errors import ConfigError
 from securebench.execution_profiles import (
     MAX_FILE_BUNDLE_BYTES,
+    MAX_FILESYSTEM_OVERLAY_CHANGED_BYTES,
+    MAX_FILESYSTEM_OVERLAY_CHANGED_PATHS,
     MAX_GIT_CHANGED_BYTES,
     MAX_PASSIVE_ARTIFACT_BYTES_PER_CHECK,
     execution_profile,
@@ -66,8 +68,8 @@ def _unsupported_filesystem_overlay(compiled):
         {
             "type": "filesystem_overlay",
             "include_roots": ["/app"],
-            "max_files": 4,
-            "max_total_bytes": 4096,
+            "max_changed_paths": 4,
+            "max_changed_bytes": 4096,
         }
     )
     return _validated_task_variant(
@@ -262,6 +264,25 @@ def test_current_backend_rejects_candidate_bounds_above_its_capacity():
 
     with pytest.raises(ConfigError, match="git_patch candidate bounds"):
         validate_executable_task(oversized_git)
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"max_changed_paths": MAX_FILESYSTEM_OVERLAY_CHANGED_PATHS + 1},
+        {"max_changed_bytes": MAX_FILESYSTEM_OVERLAY_CHANGED_BYTES + 1},
+    ],
+)
+def test_overlay_bounds_fail_before_the_non_executable_gate(updates):
+    compiled = _unsupported_filesystem_overlay(task())
+    candidate = compiled.verification.candidate.model_copy(update=updates)
+    verification = compiled.verification.model_copy(update={"candidate": candidate})
+    changed = compiled.__class__(
+        **{**compiled.__dict__, "verification": verification}
+    )
+
+    with pytest.raises(ConfigError, match="planned backend capacity"):
+        validate_executable_task(changed)
 
 
 def test_current_backend_rejects_passive_artifact_bounds_above_its_capacity():

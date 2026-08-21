@@ -15,6 +15,7 @@ from securebench.path_safety import (
 from securebench.schemas.benchmark import (
     ArtifactCheck,
     FileBundleCandidate,
+    FilesystemOverlayCandidate,
     GitPatchCandidate,
     ProtocolCheck,
     RegularFileEntry,
@@ -55,6 +56,8 @@ MAX_FILE_BUNDLE_FILES = 10_000
 MAX_GIT_PATCH_BYTES = 16 * 1024 * 1024
 MAX_GIT_CHANGED_BYTES = 128 * 1024 * 1024
 MAX_GIT_CHANGED_FILES = 2048
+MAX_FILESYSTEM_OVERLAY_CHANGED_BYTES = 4 * 1024 * 1024 * 1024
+MAX_FILESYSTEM_OVERLAY_CHANGED_PATHS = 50_000
 MAX_PASSIVE_ARTIFACT_BYTES_PER_CHECK = 256 * 1024 * 1024
 MAX_PASSIVE_ARTIFACT_FILES_PER_CHECK = 10_000
 
@@ -72,12 +75,12 @@ def validate_executable_task(task: BenchmarkTask) -> None:
     if not profile.implemented:
         raise ConfigError(f"Execution profile {profile.id!r} is registered but not implemented")
     candidate = task.verification.candidate
+    _validate_candidate_bounds(candidate)
     if not isinstance(candidate, (FileBundleCandidate, GitPatchCandidate)):
         raise ConfigError(
             "This implementation batch executes file_bundle and git_patch candidates; "
             f"{task.verification.candidate.type!r} is schema-valid but not executable yet"
         )
-    _validate_candidate_bounds(candidate)
     if isinstance(candidate, FileBundleCandidate):
         workdir = PurePosixPath(task.environment.workdir)
         outside = [
@@ -136,7 +139,9 @@ def _validate_public_assets(task: BenchmarkTask) -> None:
                     )
 
 
-def _validate_candidate_bounds(candidate: FileBundleCandidate | GitPatchCandidate) -> None:
+def _validate_candidate_bounds(
+    candidate: FileBundleCandidate | GitPatchCandidate | FilesystemOverlayCandidate,
+) -> None:
     if isinstance(candidate, FileBundleCandidate):
         if (
             candidate.max_total_files > MAX_FILE_BUNDLE_FILES
@@ -144,6 +149,15 @@ def _validate_candidate_bounds(candidate: FileBundleCandidate | GitPatchCandidat
         ):
             raise ConfigError(
                 "file_bundle candidate bounds exceed the capture backend capacity"
+            )
+        return
+    if isinstance(candidate, FilesystemOverlayCandidate):
+        if (
+            candidate.max_changed_paths > MAX_FILESYSTEM_OVERLAY_CHANGED_PATHS
+            or candidate.max_changed_bytes > MAX_FILESYSTEM_OVERLAY_CHANGED_BYTES
+        ):
+            raise ConfigError(
+                "filesystem_overlay candidate bounds exceed the planned backend capacity"
             )
         return
     if (

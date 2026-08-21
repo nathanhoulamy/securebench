@@ -88,8 +88,9 @@ verification:
     include_roots:
       - /app
       - /etc/nginx
-    max_files: 20000
-    max_total_bytes: 1073741824
+    max_changed_paths: 20000
+    max_changed_bytes: 1073741824
+    allow_internal_symlinks: false
   resources:
     runtime:
       vnc_http_adapter:

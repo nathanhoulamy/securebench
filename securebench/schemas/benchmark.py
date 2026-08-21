@@ -19,6 +19,47 @@ from securebench.path_safety import portable_path_is_relative_to, portable_paths
 SCHEMA_VERSION = "2.0"
 EXECUTION_PROFILE_STRICT = "strict-split/v1"
 EXECUTION_PROFILE_BATCHED = "batched-split/v1"
+MAX_FILESYSTEM_OVERLAY_ROOTS = 16
+MAX_FILESYSTEM_OVERLAY_PATH_BYTES = 4096
+MAX_FILESYSTEM_OVERLAY_PATH_DEPTH = 128
+
+FILESYSTEM_OVERLAY_PROTECTED_PATHS = tuple(
+    PurePosixPath(value)
+    for value in (
+        "/proc",
+        "/sys",
+        "/dev",
+        "/run",
+        "/var/run",
+        "/tmp",
+        "/var/tmp",
+        "/var/lib/docker",
+        "/var/lib/containerd",
+        "/run/containerd",
+        "/root",
+        "/etc/passwd",
+        "/etc/group",
+        "/etc/shadow",
+        "/etc/gshadow",
+        "/etc/subuid",
+        "/etc/subgid",
+        "/etc/sudoers",
+        "/etc/sudoers.d",
+        "/etc/ssh",
+        "/etc/apt",
+        "/etc/dnf",
+        "/etc/yum.repos.d",
+        "/etc/pacman.conf",
+        "/etc/pacman.d",
+        "/var/lib/apt",
+        "/var/lib/dpkg",
+        "/var/lib/rpm",
+        "/var/lib/pacman",
+        "/var/cache/apt",
+        "/var/cache/dnf",
+        "/var/cache/yum",
+    )
+)
 
 FamilyName = Literal["repo_patch", "terminal_task"]
 AgentNetwork = Literal["none", "restricted", "internet"]
@@ -243,18 +284,46 @@ class FileBundleCandidate(StrictModel):
 
 class FilesystemOverlayCandidate(StrictModel):
     type: Literal["filesystem_overlay"]
-    include_roots: Annotated[tuple[str, ...], Field(min_length=1)]
-    max_files: Annotated[int, Field(gt=0)]
-    max_total_bytes: Annotated[int, Field(gt=0)]
+    include_roots: Annotated[
+        tuple[str, ...],
+        Field(min_length=1, max_length=MAX_FILESYSTEM_OVERLAY_ROOTS),
+    ]
+    max_changed_paths: Annotated[int, Field(gt=0)]
+    max_changed_bytes: Annotated[int, Field(gt=0)]
+    allow_internal_symlinks: bool = False
 
     @field_validator("include_roots")
     @classmethod
     def validate_roots(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        normalized = tuple(
-            _absolute_runtime_path(value, "filesystem overlay include root") for value in values
-        )
+        normalized: list[str] = []
+        for value in values:
+            path = PurePosixPath(value)
+            if value.startswith("//") or value != str(path):
+                raise ValueError(
+                    "filesystem overlay include root must use canonical POSIX spelling"
+                )
+            try:
+                encoded = value.encode("utf-8", errors="strict")
+            except UnicodeError as exc:
+                raise ValueError(
+                    "filesystem overlay include root must be valid UTF-8"
+                ) from exc
+            if (
+                len(encoded) > MAX_FILESYSTEM_OVERLAY_PATH_BYTES
+                or len(path.parts[1:]) > MAX_FILESYSTEM_OVERLAY_PATH_DEPTH
+            ):
+                raise ValueError("filesystem overlay include root exceeds path bounds")
+            checked = _absolute_runtime_path(value, "filesystem overlay include root")
+            checked_path = PurePosixPath(checked)
+            for protected in FILESYSTEM_OVERLAY_PROTECTED_PATHS:
+                if portable_paths_overlap(checked_path, protected):
+                    raise ValueError(
+                        "filesystem overlay include root overlaps protected path: "
+                        f"{checked!r} and {str(protected)!r}"
+                    )
+            normalized.append(checked)
         _non_overlapping_paths(normalized, "filesystem overlay include roots")
-        return normalized
+        return tuple(normalized)
 
 
 CandidateSpec = Annotated[
@@ -495,6 +564,8 @@ class BenchmarkRowV2(StrictModel):
         runtime_mounts = tuple(resource.mount for resource in self.verification.resources.runtime.values())
         _non_overlapping_paths(runtime_mounts, "runtime resource mounts")
         _cross_namespace_mounts_do_not_overlap(self.assets, self.verification.resources.runtime)
+        if isinstance(self.verification.candidate, FilesystemOverlayCandidate):
+            _validate_filesystem_overlay_row(self)
         return self
 
 
@@ -590,6 +661,55 @@ def _non_overlapping_paths(values: Any, field: str) -> None:
         for right in paths[index + 1 :]:
             if portable_paths_overlap(left, right):
                 raise ValueError(f"{field} may not overlap: {left} and {right}")
+
+
+def _validate_filesystem_overlay_row(row: BenchmarkRowV2) -> None:
+    candidate = row.verification.candidate
+    assert isinstance(candidate, FilesystemOverlayCandidate)
+    roots = tuple(PurePosixPath(value) for value in candidate.include_roots)
+    workdir = PurePosixPath(row.environment.workdir)
+    if not any(workdir.is_relative_to(root) for root in roots):
+        raise ValueError(
+            "filesystem overlay include_roots must contain environment.workdir"
+        )
+
+    asset_mounts = tuple(PurePosixPath(asset.mount) for asset in row.assets)
+    for index, asset in enumerate(row.assets):
+        mount = PurePosixPath(asset.mount)
+        overlapping = tuple(root for root in roots if portable_paths_overlap(mount, root))
+        if not overlapping:
+            continue
+        nested_below_root = any(
+            mount.is_relative_to(root) and mount != root
+            for root in overlapping
+        )
+        if not nested_below_root:
+            raise ValueError(
+                f"assets[{index}].mount may not contain or replace a filesystem overlay root"
+            )
+        if not asset.read_only:
+            raise ValueError(
+                f"assets[{index}] below a filesystem overlay root must be read-only"
+            )
+
+    for identifier, resource in row.verification.resources.runtime.items():
+        mount = PurePosixPath(resource.mount)
+        if any(portable_paths_overlap(mount, root) for root in roots):
+            raise ValueError(
+                f"runtime resource {identifier!r} may not overlap a filesystem overlay root"
+            )
+
+    for check in row.verification.checks:
+        if not isinstance(check, ArtifactCheck):
+            continue
+        for artifact in check.artifacts:
+            source = artifact.source.path
+            assert source is not None
+            path = PurePosixPath(source)
+            if any(portable_paths_overlap(path, mount) for mount in asset_mounts):
+                raise ValueError(
+                    f"artifact {artifact.id!r} may not observe a reserved public asset mount"
+                )
 
 
 def _require_reference(

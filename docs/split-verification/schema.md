@@ -339,8 +339,9 @@ candidate:
   include_roots:
     - /app
     - /etc/example-service
-  max_files: 20000
-  max_total_bytes: 536870912
+  max_changed_paths: 20000
+  max_changed_bytes: 536870912
+  allow_internal_symlinks: false
 ~~~
 
 The overlay contains a bounded diff against the declared digest-pinned
@@ -349,12 +350,10 @@ internal symlinks according to the canonical overlay specification. Devices,
 sockets, FIFOs, mounts, processes, credentials, and in-memory state are
 rejected. The overlay may be applied only to the same pinned baseline.
 
-The proposed format, replay order, protected-path policy, and threat model are
-the Phase 1 review candidate in
-[`filesystem-overlay-v1.md`](filesystem-overlay-v1.md). The currently
-registered row shape above remains non-executable until that design and its
-schema migration, quota backend, capture, replay, and adversarial
-qualification gates are accepted.
+The accepted format, replay order, protected-path policy, and threat model are
+in [`filesystem-overlay-v1.md`](filesystem-overlay-v1.md). The row shape above
+is registered and validated but remains non-executable until its quota
+backend, capture, replay, and adversarial qualification gates are accepted.
 
 ## Check branches
 
@@ -645,8 +644,9 @@ evidence, while the other sources are infrastructure failures.
 | `candidate.files` | File bundle only | Exact exported regular files or bounded directory trees. |
 | `candidate.files[].allow_internal_symlinks` | no, directory tree only | Row-level opt-in, defaulting to `false`, for symlinks whose targets resolve inside the same captured tree. Symlink entries and target bytes count toward candidate bounds; absolute, escaping, and oversized targets remain rejected. |
 | `candidate.include_roots` | Overlay only | Absolute roots whose durable changes may be captured. |
-| `candidate.max_files` | Overlay only | Maximum overlay entries. |
-| `candidate.max_total_bytes` | Overlay only | Maximum logical overlay bytes. |
+| `candidate.max_changed_paths` | Overlay only | Maximum changed descendants; recursive deletions count every removed descendant. |
+| `candidate.max_changed_bytes` | Overlay only | Maximum logical bytes across changed final files and symlink targets. |
+| `candidate.allow_internal_symlinks` | no, overlay only | Opt in to changed relative symlinks that remain inside the same include root. |
 | `verification.resources.runtime` | Protocol checks only | Read-only Evaluation-runtime resources compiled as `evaluation_inputs`. |
 | `verification.resources.host` | yes | Host-only challenge, configuration, and Oracle resources compiled as `hidden`. |
 | `resource.path` | yes | Pack-relative file or directory that may not escape the pack. |
@@ -759,12 +759,12 @@ fresh-case execution proves prohibitively expensive.
 
 ### Filesystem overlay format
 
-Review the proposed canonical diff representation, baseline identity,
-deletions, normalized metadata, symlink rules, bounds, excluded filesystem
-semantics, and protected regions in
-[`filesystem-overlay-v1.md`](filesystem-overlay-v1.md). Schema and runtime
-implementation remain deferred until the Phase 1 design is accepted. This is
-the highest-risk candidate transport.
+The accepted canonical diff representation, baseline identity, deletions,
+normalized metadata, symlink rules, bounds, excluded filesystem semantics,
+and protected regions are in
+[`filesystem-overlay-v1.md`](filesystem-overlay-v1.md). The row schema and
+static preflight contract are implemented, but capture and replay remain
+deferred. This is the highest-risk candidate transport.
 
 ### Oracle publication policy
 
