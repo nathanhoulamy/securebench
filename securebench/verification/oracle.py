@@ -29,6 +29,7 @@ from securebench.verification.models import (
 
 ORACLE_ABI = "securebench.oracle/v1"
 MAX_ORACLE_RESPONSE_BYTES = 2 * 1024 * 1024
+MAX_ORACLE_MANIFEST_BYTES = 256 * 1024
 MAX_ORACLE_COMMAND_PARTS = 32
 MAX_ORACLE_COMMAND_PART_BYTES = 4096
 
@@ -416,11 +417,18 @@ def load_oracle_manifest(resource_root: str | Path) -> OracleManifest:
     """Validate a trusted pack-local Oracle manifest without starting it."""
     manifest_path = Path(resource_root).resolve() / "oracle.yaml"
     try:
-        manifest_text = manifest_path.read_text(encoding="utf-8")
+        with manifest_path.open("rb") as stream:
+            manifest_bytes = stream.read(MAX_ORACLE_MANIFEST_BYTES + 1)
     except OSError as exc:
         raise VerificationInfrastructureError(
             "oracle_manifest_missing", "Oracle manifest is unavailable"
         ) from exc
+    if len(manifest_bytes) > MAX_ORACLE_MANIFEST_BYTES:
+        raise VerificationInfrastructureError(
+            "oracle_manifest_too_large", "Oracle manifest exceeded its bound"
+        )
+    try:
+        manifest_text = manifest_bytes.decode("utf-8")
     except UnicodeError as exc:
         raise VerificationInfrastructureError(
             "oracle_manifest_invalid", "Oracle manifest is not valid UTF-8"

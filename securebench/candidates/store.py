@@ -16,6 +16,15 @@ from securebench.candidates.models import (
     CandidateType,
     StoredCandidate,
 )
+from securebench.data_formats import strict_json_loads
+
+
+MAX_CANDIDATE_MANIFEST_BYTES = 64 * 1024 * 1024
+MAX_CANDIDATE_BLOB_BYTES = 256 * 1024 * 1024
+
+
+class CandidateStoreCapacityError(CandidateStoreError):
+    """A candidate exceeds a fixed durable-store backend capacity."""
 
 
 class CandidateStore:
@@ -29,6 +38,8 @@ class CandidateStore:
         self.candidates_root.mkdir(parents=True, exist_ok=True)
 
     def put_blob(self, content: bytes) -> str:
+        if len(content) > MAX_CANDIDATE_BLOB_BYTES:
+            raise CandidateStoreCapacityError("candidate blob exceeds the store capacity")
         digest = _digest_bytes(content)
         target = self._blob_path(digest)
         if target.exists():
@@ -40,9 +51,23 @@ class CandidateStore:
     def read_blob(self, digest: str, *, expected_size: int | None = None) -> bytes:
         target = self._blob_path(digest)
         try:
-            content = target.read_bytes()
+            maximum = MAX_CANDIDATE_BLOB_BYTES if expected_size is None else expected_size
+            if (
+                isinstance(maximum, bool)
+                or not isinstance(maximum, int)
+                or maximum < 0
+                or maximum > MAX_CANDIDATE_BLOB_BYTES
+            ):
+                raise CandidateStoreCapacityError(
+                    "candidate blob expected size is outside the store capacity"
+                )
+            content = _read_bounded_file(target, maximum)
         except OSError as exc:
             raise CandidateStoreError(f"candidate blob is missing: {digest}") from exc
+        except CandidateStoreError:
+            raise
+        if len(content) > maximum:
+            raise CandidateStoreError(f"candidate blob exceeds its expected size: {digest}")
         if _digest_bytes(content) != digest:
             raise CandidateStoreError(f"candidate blob digest mismatch: {digest}")
         if expected_size is not None and len(content) != expected_size:
@@ -73,10 +98,16 @@ class CandidateStore:
             encoded = _canonical_json(document)
         except (TypeError, ValueError) as exc:
             raise CandidateStoreError("candidate manifest payload is not canonical JSON") from exc
+        if len(encoded) > MAX_CANDIDATE_MANIFEST_BYTES:
+            raise CandidateStoreCapacityError("candidate manifest exceeds the store capacity")
         digest = _digest_bytes(encoded)
         target = self._candidate_path(digest) / "manifest.json"
         if target.exists():
-            existing = target.read_bytes()
+            existing = _read_bounded_file(target, MAX_CANDIDATE_MANIFEST_BYTES)
+            if len(existing) > MAX_CANDIDATE_MANIFEST_BYTES:
+                raise CandidateStoreCapacityError(
+                    "candidate manifest exceeds the store capacity"
+                )
             if existing != encoded or _digest_bytes(existing) != digest:
                 raise CandidateStoreError(f"candidate manifest collision: {digest}")
         else:
@@ -91,15 +122,19 @@ class CandidateStore:
     def load_candidate(self, digest: str) -> CandidateManifest:
         path = self._candidate_path(digest) / "manifest.json"
         try:
-            encoded = path.read_bytes()
+            encoded = _read_bounded_file(path, MAX_CANDIDATE_MANIFEST_BYTES)
         except OSError as exc:
             raise CandidateStoreError(f"candidate manifest is missing: {digest}") from exc
+        if len(encoded) > MAX_CANDIDATE_MANIFEST_BYTES:
+            raise CandidateStoreCapacityError(
+                f"candidate manifest exceeds the store capacity: {digest}"
+            )
         if _digest_bytes(encoded) != digest:
             raise CandidateStoreError(f"candidate manifest digest mismatch: {digest}")
         try:
-            document = json.loads(encoded)
-        except json.JSONDecodeError as exc:
-            raise CandidateStoreError(f"candidate manifest is invalid JSON: {digest}") from exc
+            document = strict_json_loads(encoded)
+        except (UnicodeError, ValueError) as exc:
+            raise CandidateStoreError(f"candidate manifest is invalid finite JSON: {digest}") from exc
         if not isinstance(document, dict) or set(document) != {
             "schema_version",
             "type",
@@ -146,16 +181,19 @@ class CandidateStore:
 
 
 def _canonical_json(value: Any) -> bytes:
-    return (
-        json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        )
-        + "\n"
-    ).encode("utf-8")
+    try:
+        return (
+            json.dumps(
+                value,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8")
+    except RecursionError as exc:
+        raise ValueError("candidate manifest exceeds the nesting limit") from exc
 
 
 def _digest_bytes(content: bytes) -> str:
@@ -184,3 +222,8 @@ def _atomic_write(path: Path, content: bytes) -> None:
     finally:
         if temporary.exists():
             temporary.unlink()
+
+
+def _read_bounded_file(path: Path, maximum_bytes: int) -> bytes:
+    with path.open("rb") as stream:
+        return stream.read(maximum_bytes + 1)

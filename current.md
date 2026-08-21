@@ -2,7 +2,8 @@
 
 Last reviewed: 2026-08-21
 
-Implementation baseline reviewed: this branch through Output Artifacts and the subsequent hardening pass
+Implementation baseline reviewed: this branch through Output Artifacts, Trusted Helper execution,
+and the subsequent architecture-wide hardening passes
 
 Active development branch: `split-verification-v2`
 
@@ -106,9 +107,9 @@ filesystem-overlay example remains intentionally non-executable.
   fresh Evaluation root/container for every Challenge.
 - Adapter stdout is bounded by raw byte count. Truncation and invalid UTF-8 cannot be normalized
   into an acceptable JSON observation.
-- Benchmark, adapter, and Oracle authoring documents reject duplicate mapping keys rather than
-  accepting parser-dependent last-key-wins behavior. Row JSONL and protocol JSON additionally
-  share finite, duplicate-key-free decoding semantics.
+- Tester, benchmark, Adapter, and Oracle YAML reject duplicate mapping keys rather than accepting
+  parser-dependent last-key-wins behavior. Row JSONL, protocol JSON, resume records, and stored
+  candidate manifests share finite, duplicate-key-free decoding semantics.
 - `securebench.strict-json/v1` uses the same finite, duplicate-key-free decoder as protocol
   transport, so passive artifact parsing cannot interpret ambiguous objects differently.
 - Directory-tree symlinks are an explicit row-level opt-in. Capture permits only bounded targets
@@ -181,22 +182,35 @@ schema support.
 7. Candidate capture and observation have strict output capacities, but the host-backed Agent
    workspace itself has no framework-owned disk quota yet. Deployment storage isolation is still
    needed to prevent a running Agent from filling the host filesystem.
+8. Trusted benchmark resource trees and Git baselines are not subject to a framework-wide
+   traversal-entry or subprocess wall-clock ceiling. They are author-controlled and hash-bound,
+   rather than Candidate-controlled, but an oversized or malformed admitted pack can still consume
+   excessive host resources during compilation, reconstruction, or patch validation.
+9. Protocol payloads have per-case and per-component bounds, but there is no framework-owned total
+   Evaluation budget yet. In particular, `max_cases`, the sum of per-case time, aggregate Trusted
+   Helper evidence, and serialized Oracle request size are not capped across a whole row. A reviewed
+   but impractical row can therefore consume excessive time or memory even though each individual
+   component remains within its declared maximum.
+10. Candidate capture writes content-addressed blobs before committing the final manifest. A
+    capture that is interrupted or rejected after some writes can leave bounded but unreferenced
+    blobs in the run artifact store; there is no transactional staging or garbage collector yet.
+    This is another reason the output directory still needs a storage quota for long-lived use.
 
 ## Verification evidence
 
-At this implementation batch:
+At this review pass:
 
-- full warning-strict suite: `403 passed, 3 skipped`;
+- full warning-strict suite: `416 passed, 3 skipped`;
 - complete protocol suite with Docker integration enabled: `34 passed`, including two fresh
   combined recorder/Output Artifact Evaluations, the ordinary fresh Evaluation, and
   clean-repository git-patch replay;
 - the Docker pass left no Trusted Helper containers, materialization containers, or Evaluation
   networks behind;
 - built-in robustness audit: 5 passed, 0 failed, 0 warnings;
-- no author-facing Pydantic field changed in this batch, and schema regeneration produced no
+- no author-facing Pydantic field changed in this review, and schema regeneration produced no
   checked-in JSON Schema diff;
-- a wheel containing the helper lifecycle, standalone recorder server, Output Artifact collector,
-  and shared passive filesystem observer built successfully;
+- a wheel containing the reviewed tester, candidate-store, evidence, Oracle, helper, and artifact
+  paths built successfully;
 - compile checks and `git diff --check` passed.
 
 Useful commands:
@@ -214,9 +228,9 @@ SECUREBENCH_DOCKER_INTEGRATION=1 uv run --no-sync --with pytest python -m pytest
 - Original branch: `main` at `bf9a108` (`Complete isolated Terminal-Bench conversion`).
 - Development branch: `split-verification-v2`.
 - `main` is the merge-base and direct ancestor of the development branch.
-- Before this implementation batch, the development branch was eighteen commits ahead and zero
+- Before this review pass, the development branch was twenty commits ahead and zero
   commits behind `main`.
-- After publication, `origin/split-verification-v2` contains this Output Artifact implementation batch.
+- After publication, `origin/split-verification-v2` contains this review and hardening pass.
 
 There is an unrelated malformed local ref named `refs/heads/main 2`; commands using `--all` may
 warn or fail on it. Do not alter it without the repository owner's approval.

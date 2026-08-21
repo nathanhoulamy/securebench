@@ -133,7 +133,33 @@ collector capacity per Evaluation in addition to Adapter maxima and row-reduced 
 
 The remaining resource-control gap is the host-backed Agent workspace itself: it needs a
 framework-owned disk quota or deployment-enforced isolated storage before SecureBench can claim
-that a running Agent cannot exhaust host disk capacity.
+that a running Agent cannot exhaust host disk capacity. Trusted resource-tree traversal and Git
+baseline operations also need explicit admission/runtime entry and wall-clock budgets before the
+framework can safely process arbitrarily large admitted packs.
+
+Make candidate-store capture transactional, or add a reference-aware garbage collector, so a
+capture rejected after writing some blobs cannot accumulate orphaned artifacts across interrupted
+or repeatedly retried runs. Keep deletion conservative because blobs may be shared by valid
+candidate manifests.
+
+Add one coherent total Evaluation budget rather than unrelated magic constants: cap cases and
+cumulative case time per row, bound combined Trusted Helper and Output Artifact evidence, and make
+the maximum serialized Oracle request an executable preflight invariant. The row's reduced limits
+should remain configurable below those framework capacities.
+
+## Completed 2026-08-21: architecture-wide review after the major rework
+
+- Resume, tester YAML, and candidate manifests now use strict duplicate-key-free decoders; corrupt
+  NUL-padded records and numeric overflows are rejected rather than reused or allowed to crash a run.
+- Candidate blobs/manifests, tester configuration, and Oracle manifests have backend read bounds.
+- Artifact, Challenge, and Output Artifact evidence enforce bounded identities, finite JSON,
+  correlated status/error fields, and explicit source metadata.
+- Passive file-bundle tree evidence uses the tree's own digest and verifies every referenced blob
+  before it reaches the Oracle.
+- HTTP recorder evidence is revalidated against the recorder's response-state machine, not merely
+  against broad status-code ranges.
+- Full warning-strict, real-Docker protocol, self-audit, schema regeneration, packaging, and leak
+  checks passed. The unresolved resource budgets above remain explicit future work.
 
 ## Priority 5: filesystem overlays
 

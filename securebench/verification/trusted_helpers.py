@@ -662,10 +662,30 @@ def _validate_recorder_records(
         )
         if record["path_matched"] != expected_match:
             _invalid_recorder_evidence("Trusted Helper request path metadata is invalid")
-        if record["target_truncated"] and record["response_status"] != 414:
-            _invalid_recorder_evidence("Trusted Helper target truncation metadata is invalid")
-        if not 200 <= record["response_status"] <= 599:
-            _invalid_recorder_evidence("Trusted Helper response status is invalid")
+        target_invalid = (
+            "\\" in target
+            or "#" in target
+            or any(ord(character) < 0x21 or ord(character) > 0x7E for character in target)
+        )
+        if record["target_truncated"]:
+            expected_statuses = {414}
+        elif target_invalid:
+            expected_statuses = {400}
+        elif record["headers_truncated"] or record["header_bytes"] > max_header_bytes:
+            expected_statuses = {431}
+        elif record["body_truncated"]:
+            # The recorder uses 400 for ambiguous framing and 413 for an
+            # oversized or incomplete fixed-length body. Evidence deliberately
+            # excludes the untrusted framing headers themselves.
+            expected_statuses = {400, 413}
+        elif not record["authenticated"]:
+            expected_statuses = {401}
+        elif not record["path_matched"]:
+            expected_statuses = {404}
+        else:
+            expected_statuses = {settings.get("response_status", 204)}
+        if record["response_status"] not in expected_statuses:
+            _invalid_recorder_evidence("Trusted Helper response status metadata is invalid")
 
 
 def _invalid_recorder_evidence(message: str) -> None:

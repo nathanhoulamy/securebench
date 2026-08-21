@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import subprocess
 import tempfile
@@ -22,6 +23,7 @@ from securebench.candidates import (
     CandidateStore,
     capture_production,
 )
+from securebench.data_formats import strict_json_loads
 from securebench.errors import ConfigError
 from securebench.execution_profiles import validate_executable_task
 from securebench.harnesses import build_harness_producer
@@ -416,12 +418,12 @@ def _resume_records(
     records: list[dict[str, Any]] = []
     seen: set[str] = set()
     for line in _bounded_result_lines(output_path):
-        line = line.strip("\x00").strip()
+        line = line.strip()
         if not line.startswith("{"):
             continue
         try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
+            record = strict_json_loads(line)
+        except (UnicodeError, ValueError):
             continue
         if not isinstance(record, dict) or record.get("run_id") != run_id:
             continue
@@ -547,9 +549,7 @@ def _valid_resume_record(record: dict[str, Any], expected: dict[str, Any]) -> bo
         and status in {"passed", "failed", "infrastructure_error"}
         and isinstance(passed, bool)
         and passed is (status == "passed")
-        and isinstance(score, (int, float))
-        and not isinstance(score, bool)
-        and 0.0 <= float(score) <= 1.0
+        and _valid_score(score)
         and isinstance(candidate, dict)
         and set(candidate) == {"type", "digest"}
         and _valid_candidate_reference(candidate)
@@ -584,6 +584,16 @@ def _valid_resume_record(record: dict[str, Any], expected: dict[str, Any]) -> bo
             else infrastructure_error is None
         )
     )
+
+
+def _valid_score(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        score = float(value)
+    except (OverflowError, ValueError):
+        return False
+    return math.isfinite(score) and 0.0 <= score <= 1.0
 
 
 def _valid_check_records(

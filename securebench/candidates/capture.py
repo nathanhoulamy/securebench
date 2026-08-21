@@ -12,8 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Protocol
 
-from securebench.candidates.models import CandidateCaptureError, StoredCandidate
-from securebench.candidates.store import CandidateStore
 from securebench.candidates.git_repository import (
     GitRepositoryError,
     git_command,
@@ -21,6 +19,8 @@ from securebench.candidates.git_repository import (
     run_git_bytes as trusted_run_git_bytes,
     validate_clean_repository,
 )
+from securebench.candidates.models import CandidateCaptureError, StoredCandidate
+from securebench.candidates.store import CandidateStore, CandidateStoreCapacityError
 from securebench.path_safety import portable_path_is_relative_to, portable_path_text
 from securebench.schemas.benchmark import (
     DirectoryTreeEntry,
@@ -221,15 +221,18 @@ def capture_file_bundle(
             }
         )
 
-    return store.put_candidate(
-        "file_bundle",
-        baseline_digest,
-        {
-            "total_entries": aggregate_entries,
-            "total_bytes": aggregate_bytes,
-            "entries": stored_entries,
-        },
-    )
+    try:
+        return store.put_candidate(
+            "file_bundle",
+            baseline_digest,
+            {
+                "total_entries": aggregate_entries,
+                "total_bytes": aggregate_bytes,
+                "entries": stored_entries,
+            },
+        )
+    except CandidateStoreCapacityError as exc:
+        raise CandidateCaptureError("candidate bundle exceeds the durable store capacity") from exc
 
 
 def capture_git_patch(
@@ -322,17 +325,20 @@ def capture_git_patch(
             )
         patch_bytes = _canonical_staged_patch(checkout, maximum=spec.max_patch_bytes)
 
-    return store.put_candidate(
-        "git_patch",
-        baseline_digest,
-        {
-            "patch_blob": store.put_blob(patch_bytes),
-            "patch_bytes": len(patch_bytes),
-            "changed_files": list(changed_paths),
-            "changed_bytes": changed_bytes,
-            "base_commit": validated_commit,
-        },
-    )
+    try:
+        return store.put_candidate(
+            "git_patch",
+            baseline_digest,
+            {
+                "patch_blob": store.put_blob(patch_bytes),
+                "patch_bytes": len(patch_bytes),
+                "changed_files": list(changed_paths),
+                "changed_bytes": changed_bytes,
+                "base_commit": validated_commit,
+            },
+        )
+    except CandidateStoreCapacityError as exc:
+        raise CandidateCaptureError("candidate patch exceeds the durable store capacity") from exc
 
 
 def capture_git_patch_workspace(

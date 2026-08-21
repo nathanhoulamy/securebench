@@ -7,13 +7,13 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from securebench.baselines import task_baseline_digest, task_verification_digest
-from securebench.candidates.models import CandidateReplayError, StoredCandidate
+from securebench.candidates.models import CandidateReplayError, CandidateStoreError, StoredCandidate
 from securebench.candidates.replay import replay_candidate
 from securebench.candidates.store import CandidateStore
 from securebench.errors import ConfigError
 from securebench.schemas.benchmark import ArtifactCheck, ArtifactSpec, ProtocolCheck
 from securebench.tasks import BenchmarkTask
-from securebench.verification.json_data import canonical_json_bytes
+from securebench.verification.json_data import canonical_json_bytes, json_digest
 from securebench.verification.models import (
     ArtifactEvidence,
     CandidateObservationError,
@@ -338,19 +338,104 @@ def _candidate_artifact(
             raise VerificationInfrastructureError(
                 "candidate_manifest_invalid", "Stored directory-tree entry is invalid"
             )
-        total_bytes = sum(
-            value.get("size", len(str(value.get("target", "")).encode("utf-8")))
-            for value in nodes
-            if isinstance(value, dict)
-        )
-        if len(nodes) > maximum_files or total_bytes > maximum_bytes:
+        if len(nodes) > maximum_files:
             raise CandidateObservationError(
                 "artifact_too_large", f"Candidate artifact {artifact.id!r} exceeds its tree bounds"
             )
-        return "directory_tree", candidate.digest, total_bytes, {"nodes": nodes}
+        total_bytes = _validate_stored_tree(
+            nodes,
+            store,
+            maximum_bytes=maximum_bytes,
+            artifact_id=artifact.id,
+        )
+        tree = {"nodes": nodes}
+        return "directory_tree", json_digest(tree), total_bytes, tree
     raise VerificationInfrastructureError(
         "candidate_manifest_invalid", "Stored candidate entry kind is invalid"
     )
+
+
+def _validate_stored_tree(
+    nodes: list[Any],
+    store: CandidateStore,
+    *,
+    maximum_bytes: int,
+    artifact_id: str,
+) -> int:
+    total_bytes = 0
+    paths: set[str] = set()
+    for node in nodes:
+        if not isinstance(node, dict):
+            raise VerificationInfrastructureError(
+                "candidate_manifest_invalid", "Stored directory-tree node is invalid"
+            )
+        path = node.get("path")
+        kind = node.get("kind")
+        if not isinstance(path, str) or not path or path in paths:
+            raise VerificationInfrastructureError(
+                "candidate_manifest_invalid", "Stored directory-tree path is invalid"
+            )
+        paths.add(path)
+        if kind == "directory" and set(node) == {"path", "kind", "mode"}:
+            if node.get("mode") != 0o755:
+                raise VerificationInfrastructureError(
+                    "candidate_manifest_invalid", "Stored directory metadata is invalid"
+                )
+            continue
+        if kind == "regular_file" and set(node) == {
+            "path",
+            "kind",
+            "mode",
+            "size",
+            "blob",
+        }:
+            size = node.get("size")
+            blob = node.get("blob")
+            if (
+                isinstance(size, bool)
+                or not isinstance(size, int)
+                or size < 0
+                or node.get("mode") not in {0o644, 0o755}
+                or not isinstance(blob, str)
+            ):
+                raise VerificationInfrastructureError(
+                    "candidate_manifest_invalid", "Stored directory file metadata is invalid"
+                )
+            total_bytes += size
+            if total_bytes > maximum_bytes:
+                raise CandidateObservationError(
+                    "artifact_too_large",
+                    f"Candidate artifact {artifact_id!r} exceeds its tree bounds",
+                )
+            try:
+                store.read_blob(blob, expected_size=size)
+            except CandidateStoreError as exc:
+                raise VerificationInfrastructureError(
+                    "candidate_manifest_invalid", "Stored directory file blob is invalid"
+                ) from exc
+            continue
+        if kind == "symlink" and set(node) == {"path", "kind", "target"}:
+            target = node.get("target")
+            if not isinstance(target, str):
+                raise VerificationInfrastructureError(
+                    "candidate_manifest_invalid", "Stored directory symlink is invalid"
+                )
+            try:
+                total_bytes += len(target.encode("utf-8"))
+            except UnicodeError as exc:
+                raise VerificationInfrastructureError(
+                    "candidate_manifest_invalid", "Stored directory symlink is invalid"
+                ) from exc
+            if total_bytes > maximum_bytes:
+                raise CandidateObservationError(
+                    "artifact_too_large",
+                    f"Candidate artifact {artifact_id!r} exceeds its tree bounds",
+                )
+            continue
+        raise VerificationInfrastructureError(
+            "candidate_manifest_invalid", "Stored directory-tree node is invalid"
+        )
+    return total_bytes
 
 
 def _git_patch_artifact(

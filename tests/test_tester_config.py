@@ -57,6 +57,36 @@ harness:
     assert config.harness.config == {"command": "produce"}
 
 
+def test_load_tester_config_rejects_duplicate_mapping_keys(tmp_path):
+    path = tmp_path / "tester.yaml"
+    path.write_text(
+        """
+schema_version: "1.0"
+run:
+  id: first
+  id: second
+  output_dir: runs/test
+benchmark:
+  manifest: manifest.yaml
+  tasks: tasks.jsonl
+harness:
+  type: command
+""".lstrip()
+    )
+
+    with pytest.raises(ConfigError, match="duplicate mapping key"):
+        load_tester_config(path)
+
+
+def test_load_tester_config_rejects_an_oversized_document(tmp_path, monkeypatch):
+    path = tmp_path / "tester.yaml"
+    path.write_text("x" * 17)
+    monkeypatch.setattr("securebench.tester_config.MAX_TESTER_CONFIG_BYTES", 16)
+
+    with pytest.raises(ConfigError, match="size bound"):
+        load_tester_config(path)
+
+
 @pytest.mark.parametrize(
     ("override", "match"),
     [

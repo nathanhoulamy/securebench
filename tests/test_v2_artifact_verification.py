@@ -18,6 +18,7 @@ from securebench.candidates import (
     capture_file_bundle,
     capture_git_patch_workspace,
 )
+from securebench.schemas.benchmark import ArtifactSpec, FileBundleCandidate
 from securebench.verification import (
     VerificationEngine,
     OracleSession,
@@ -25,6 +26,8 @@ from securebench.verification import (
 )
 from securebench.verification.models import VerificationInfrastructureError
 from securebench.verification.oracle import OracleProcessSession
+from securebench.verification.artifacts import _candidate_artifact
+from securebench.verification.json_data import json_digest
 
 
 DIGEST = "sha256:" + "c" * 64
@@ -143,6 +146,59 @@ def capture_result(tmp_path: Path, task, content: bytes):
         baseline_digest=task.baseline_digest,
     )
     return store, candidate
+
+
+def test_file_bundle_tree_evidence_uses_its_own_digest_and_requires_all_blobs(tmp_path):
+    workspace = tmp_path / "workspace"
+    (workspace / "tree").mkdir(parents=True)
+    (workspace / "tree" / "answer.txt").write_text("42")
+    spec = FileBundleCandidate.model_validate(
+        {
+            "type": "file_bundle",
+            "max_total_files": 2,
+            "max_total_bytes": 16,
+            "files": [
+                {
+                    "id": "tree",
+                    "path": "/app/tree",
+                    "kind": "directory_tree",
+                    "max_files": 2,
+                    "max_total_bytes": 16,
+                }
+            ],
+        }
+    )
+    store = CandidateStore(tmp_path / "store")
+    candidate = capture_file_bundle(
+        HostWorkspaceFilesystem(workspace, guest_root="/app"),
+        spec,
+        store,
+        baseline_digest=DIGEST,
+    )
+    artifact = ArtifactSpec.model_validate(
+        {
+            "id": "tree",
+            "source": {"entry": "tree"},
+            "parser": "securebench.tree-manifest/v1",
+            "limits": {"max_files": 2, "max_total_bytes": 16},
+        }
+    )
+
+    kind, digest, size, tree = _candidate_artifact(
+        object(), candidate, store, artifact
+    )
+
+    assert kind == "directory_tree"
+    assert digest == json_digest(tree)
+    assert digest != candidate.digest
+    assert size == 2
+
+    manifest = store.load_candidate(candidate.digest)
+    blob = manifest.payload["entries"][0]["nodes"][0]["blob"]
+    hexadecimal = blob.removeprefix("sha256:")
+    (store.blobs_root / hexadecimal[:2] / hexadecimal).unlink()
+    with pytest.raises(VerificationInfrastructureError, match="blob is invalid"):
+        _candidate_artifact(object(), candidate, store, artifact)
 
 
 def write_repo_artifact_pack(root: Path, *, base_commit: str):
@@ -576,6 +632,18 @@ def test_oracle_process_rejects_invalid_manifests(tmp_path, manifest):
     assert error.value.code == "oracle_manifest_invalid"
 
 
+def test_oracle_process_rejects_an_oversized_manifest(tmp_path, monkeypatch):
+    oracle_root = tmp_path / "oracle"
+    oracle_root.mkdir()
+    (oracle_root / "oracle.yaml").write_text("x" * 17)
+    monkeypatch.setattr("securebench.verification.oracle.MAX_ORACLE_MANIFEST_BYTES", 16)
+
+    with pytest.raises(VerificationInfrastructureError) as error:
+        OracleProcessSession(oracle_root)
+
+    assert error.value.code == "oracle_manifest_too_large"
+
+
 def test_oracle_process_reports_start_failure_as_infrastructure_error(tmp_path):
     oracle_root = tmp_path / "oracle"
     oracle_root.mkdir()
@@ -614,6 +682,39 @@ timeout_seconds: 1
 """.lstrip()
     )
     response = json.dumps({"type": "verdict", "verdict": verdict})
+    (oracle_root / "oracle.py").write_text(
+        "import sys\nfor line in sys.stdin:\n"
+        f"    print({response!r}, flush=True)\n"
+    )
+    session = OracleProcessSession(oracle_root)
+
+    try:
+        with pytest.raises(VerificationInfrastructureError) as error:
+            session.finalize()
+    finally:
+        session.close()
+
+    assert error.value.code == "oracle_protocol_error"
+
+
+def test_oracle_process_rejects_a_numeric_score_that_overflows_float(tmp_path):
+    oracle_root = tmp_path / "oracle"
+    oracle_root.mkdir()
+    (oracle_root / "oracle.yaml").write_text(
+        "abi: securebench.oracle/v1\n"
+        "command: ['{python}', 'oracle.py']\n"
+        "timeout_seconds: 1\n"
+    )
+    response = json.dumps(
+        {
+            "type": "verdict",
+            "verdict": {
+                "passed": True,
+                "score": 10**400,
+                "check_outcomes": {"result_artifact": True},
+            },
+        }
+    )
     (oracle_root / "oracle.py").write_text(
         "import sys\nfor line in sys.stdin:\n"
         f"    print({response!r}, flush=True)\n"

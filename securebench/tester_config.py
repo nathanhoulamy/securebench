@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 import yaml
 
+from securebench.data_formats import DuplicateYamlKeyError, strict_yaml_loads
 from securebench.errors import ConfigError
 
 
@@ -23,6 +24,7 @@ DOCKER_FIELDS = {"max_cached_images"}
 HARNESS_TYPES = {"codex", "claude_code", "command"}
 ENVIRONMENT_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 MAX_RUN_ID_LENGTH = 256
+MAX_TESTER_CONFIG_BYTES = 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -72,7 +74,23 @@ class TesterConfig:
 def load_tester_config(path: str | Path) -> TesterConfig:
     """Load a tester config from a YAML file."""
     config_path = Path(path)
-    loaded = yaml.safe_load(config_path.read_text())
+    try:
+        with config_path.open("rb") as stream:
+            config_bytes = stream.read(MAX_TESTER_CONFIG_BYTES + 1)
+    except OSError as exc:
+        raise ConfigError("Unable to read tester config") from exc
+    if len(config_bytes) > MAX_TESTER_CONFIG_BYTES:
+        raise ConfigError("Tester config exceeds its size bound")
+    try:
+        config_text = config_bytes.decode("utf-8")
+    except UnicodeError as exc:
+        raise ConfigError("Tester config is not valid UTF-8") from exc
+    try:
+        loaded = strict_yaml_loads(config_text)
+    except DuplicateYamlKeyError as exc:
+        raise ConfigError("Tester config contains a duplicate mapping key") from exc
+    except yaml.YAMLError as exc:
+        raise ConfigError("Tester config is not valid YAML") from exc
     if not isinstance(loaded, dict):
         raise ConfigError("Tester config root must be an object")
     return parse_tester_config(loaded, base_dir=config_path.parent)

@@ -408,11 +408,15 @@ def validate_json_value(schema: JsonValueSchema, value: Any, *, path: str = "$")
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError(f"{path} must be an integer")
     elif schema.type == "number":
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(float(value))
-        ):
+        try:
+            finite_number = (
+                not isinstance(value, bool)
+                and isinstance(value, (int, float))
+                and math.isfinite(float(value))
+            )
+        except (OverflowError, ValueError):
+            finite_number = False
+        if not finite_number:
             raise ValueError(f"{path} must be a finite number")
     elif schema.type == "boolean":
         if not isinstance(value, bool):

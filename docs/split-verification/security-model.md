@@ -116,8 +116,9 @@ Public `results.jsonl` records contain candidate/evidence digests, check
 summaries, public diagnostics, and manifest, row, image, baseline, verification,
 and execution provenance. Raw Agent
 stdout, stderr, metadata, parsed evidence, runtime resources, and host paths are
-not serialized. The result component has no live resource view. Resume validates
-the complete result envelope, declared checks, stored candidate content, and all
+not serialized. The result component has no live resource view. Resume accepts
+only bounded finite, duplicate-key-free JSON records and validates the complete
+result envelope, declared checks, stored candidate content, and all
 current provenance digests before reusing a row. For a patch candidate, resume
 also requires its manifest's `base_commit`, changed-path metadata, and patch blob
 to remain valid; the candidate digest binds that manifest while the row and
@@ -159,3 +160,20 @@ tester-owned upper bound on actual connectivity.
   capture and observation are bounded, but an Agent can still consume host
   workspace capacity while it is running; deployment-level storage isolation
   is required until a backend quota is implemented.
+- Trusted benchmark resources and Git baselines are hash-bound and reviewed,
+  but their directory traversal and Git subprocesses do not yet have a
+  framework-wide entry-count or wall-clock ceiling. This is not an
+  Agent-controlled candidate escape, but a malformed or impractically large
+  admitted pack can consume excessive host time or memory during compilation,
+  baseline reconstruction, or patch validation.
+- Protocol challenge, observation, helper, and artifact payloads have local
+  bounds, but the current profile has no aggregate per-row Evaluation budget.
+  `max_cases`, cumulative case time, combined helper evidence, and serialized
+  Oracle request volume therefore still require admission limits or a
+  framework-owned total budget before arbitrarily large reviewed rows are safe
+  to execute.
+- Candidate blobs are written content-addressably before the manifest commit.
+  An interrupted or rejected capture can leave unreferenced, individually
+  bounded blobs in the run artifact store. Transactional staging or a
+  reference-aware garbage collector is still needed in addition to output
+  storage quotas.

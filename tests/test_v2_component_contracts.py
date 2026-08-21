@@ -12,6 +12,7 @@ from securebench.verification.component_contracts import (
     validate_json_value,
 )
 from securebench.verification.models import (
+    ArtifactEvidence,
     ChallengeEvidence,
     OutputArtifactEvidence,
     TrustedHelperEvidence,
@@ -91,6 +92,10 @@ def test_closed_value_schema_rejects_wrong_types_and_unknown_fields():
         validate_json_value(schema, {"value": True})
     with pytest.raises(ValueError, match="too large"):
         validate_json_value(schema, {"value": 3, "label": "too-large"})
+
+    number_schema = JsonValueSchema.model_validate({"type": "number"})
+    with pytest.raises(ValueError, match="finite number"):
+        validate_json_value(number_schema, 10**400)
 
 
 def test_adapter_v2_response_distinguishes_observation_from_candidate_failure():
@@ -465,4 +470,39 @@ def test_challenge_evidence_rejects_mis_correlated_trusted_helper_evidence():
             status="observed",
             observation={"answer": 4},
             output_artifacts=(wrong_artifact,),
+        )
+
+
+def test_artifact_evidence_enforces_observed_and_error_invariants():
+    observed = ArtifactEvidence(
+        check_id="result",
+        artifact_id="answer",
+        status="observed",
+        source_kind="regular_file",
+        source_digest="sha256:" + "a" * 64,
+        source_size=2,
+        parser="securebench.strict-json/v1",
+        parsed_value={},
+    )
+    assert observed.internal_record()["source"]["size"] == 2
+
+    with pytest.raises(ValueError, match="finite JSON"):
+        ArtifactEvidence(
+            check_id="result",
+            artifact_id="answer",
+            status="observed",
+            source_kind="regular_file",
+            source_digest="sha256:" + "a" * 64,
+            source_size=2,
+            parser="securebench.strict-json/v1",
+            parsed_value={"score": float("nan")},
+        )
+
+    with pytest.raises(ValueError, match="requires an error"):
+        ArtifactEvidence(
+            check_id="result",
+            artifact_id="answer",
+            status="candidate_error",
+            source_kind="unknown",
+            parser="securebench.strict-json/v1",
         )

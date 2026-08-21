@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 from pathlib import Path
@@ -230,6 +231,45 @@ def test_candidate_store_rejects_non_finite_manifest_data(tmp_path):
             BASELINE,
             {"invalid_number": float("nan")},
         )
+
+
+def test_candidate_store_rejects_blobs_above_its_backend_capacity(tmp_path, monkeypatch):
+    store = CandidateStore(tmp_path / "store")
+    monkeypatch.setattr("securebench.candidates.store.MAX_CANDIDATE_BLOB_BYTES", 4)
+
+    with pytest.raises(CandidateStoreError, match="store capacity"):
+        store.put_blob(b"12345")
+
+
+def test_file_bundle_classifies_manifest_capacity_as_candidate_rejection(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "result.json").write_text("{}")
+    monkeypatch.setattr("securebench.candidates.store.MAX_CANDIDATE_MANIFEST_BYTES", 16)
+
+    with pytest.raises(CandidateCaptureError, match="durable store capacity"):
+        capture_file_bundle(
+            HostWorkspaceFilesystem(workspace, guest_root="/app"),
+            file_bundle_spec(),
+            CandidateStore(tmp_path / "store"),
+            baseline_digest=BASELINE,
+        )
+
+
+def test_candidate_store_rejects_duplicate_manifest_keys(tmp_path):
+    store = CandidateStore(tmp_path / "store")
+    encoded = (
+        b'{"schema_version":"1","type":"file_bundle","type":"git_patch",'
+        b'"baseline_digest":"sha256:' + b"1" * 64 + b'","payload":{}}\n'
+    )
+    digest = "sha256:" + hashlib.sha256(encoded).hexdigest()
+    hexadecimal = digest.removeprefix("sha256:")
+    manifest = store.candidates_root / hexadecimal[:2] / hexadecimal / "manifest.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_bytes(encoded)
+
+    with pytest.raises(CandidateStoreError, match="invalid finite JSON"):
+        store.load_candidate(digest)
 
 
 def test_file_bundle_replay_requires_exact_baseline(tmp_path):

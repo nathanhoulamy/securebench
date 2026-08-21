@@ -466,6 +466,40 @@ def test_runner_resume_skips_oversized_corrupt_lines_without_buffering_them(
     assert len(output.read_text().splitlines()) == 1
 
 
+@pytest.mark.parametrize("corruption", ["duplicate_key", "nul_padding", "huge_score"])
+def test_runner_resume_reexecutes_for_noncanonical_or_invalid_records(
+    monkeypatch,
+    tmp_path,
+    corruption,
+):
+    current = config(tmp_path)
+    producer = GoodProducer(current.run.output_dir / "workspaces")
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: producer,
+    )
+    first = run_tester_config(current)
+    output = Path(first.output_path)
+    record = json.loads(output.read_text())
+    if corruption == "duplicate_key":
+        encoded = _encode_record(record).replace(
+            '"run_id":"runner-v2"',
+            '"run_id":"runner-v2","run_id":"runner-v2"',
+            1,
+        )
+    elif corruption == "nul_padding":
+        encoded = _encode_record(record).rstrip("\n") + "\x00\n"
+    else:
+        record["score"] = 10**400
+        encoded = _encode_record(record)
+    output.write_text(encoded)
+
+    run_tester_config(current, resume=True)
+
+    assert producer.calls == 2
+    assert len(output.read_text().splitlines()) == 1
+
+
 def test_result_writer_replaces_oversized_record_with_bounded_infrastructure_error():
     task = next(
         compile_benchmark_pack(

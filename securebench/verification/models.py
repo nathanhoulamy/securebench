@@ -96,7 +96,7 @@ class OutputArtifactEvidence:
                 raise ValueError("observed output artifact metadata is invalid")
             _json_bytes(self.parsed_value, "output artifact parsed value")
         elif self.status == "candidate_error":
-            if not self.failure_code or not self.failure_message:
+            if not _bounded_failure(self.failure_code, self.failure_message):
                 raise ValueError("failed output artifact requires a failure")
             if self.parsed_value is not None:
                 raise ValueError("failed output artifact may not contain parsed output")
@@ -142,8 +142,8 @@ class ChallengeEvidence:
     output_artifacts: tuple[OutputArtifactEvidence, ...] = ()
 
     def __post_init__(self) -> None:
-        if not self.check_id:
-            raise ValueError("challenge evidence check_id must be non-empty")
+        if not _bounded_identifier(self.check_id):
+            raise ValueError("challenge evidence check_id must be a bounded identifier")
         if not _bounded_identifier(self.challenge_id):
             raise ValueError("challenge evidence challenge_id must be a bounded identifier")
         if self.evaluation_id is not None and not _bounded_identifier(self.evaluation_id):
@@ -184,7 +184,12 @@ class ChallengeEvidence:
                 raise ValueError("observed challenge evidence may not contain a failure")
             _json_bytes(self.observation, "protocol observation")
         else:
-            if not self.failure_source or not self.failure_code or not self.failure_message:
+            if self.failure_source not in {
+                "candidate",
+                "adapter",
+                "trusted_helper",
+                "framework",
+            } or not _bounded_failure(self.failure_code, self.failure_message):
                 raise ValueError("failed challenge evidence requires a failure source, code, and message")
             if self.observation is not None:
                 raise ValueError("failed challenge evidence may not contain an observation")
@@ -255,6 +260,39 @@ class ArtifactEvidence:
     error_code: str | None = None
     error_message: str | None = None
 
+    def __post_init__(self) -> None:
+        if not _bounded_identifier(self.check_id) or not _bounded_identifier(self.artifact_id):
+            raise ValueError("artifact evidence identities must be bounded")
+        if self.source_kind not in {"regular_file", "directory_tree", "unknown"}:
+            raise ValueError("artifact evidence source kind is invalid")
+        if not _bounded_text(self.parser, maximum_bytes=256):
+            raise ValueError("artifact evidence parser must be bounded")
+        if self.source_digest is not None and not _is_sha256_digest(self.source_digest):
+            raise ValueError("artifact evidence source digest must be a sha256 digest or null")
+        if self.source_size is not None and (
+            isinstance(self.source_size, bool)
+            or not isinstance(self.source_size, int)
+            or self.source_size < 0
+        ):
+            raise ValueError("artifact evidence source size must be non-negative or null")
+        if (self.source_digest is None) != (self.source_size is None):
+            raise ValueError("artifact evidence source digest and size must be present together")
+        if self.status == "observed":
+            if self.source_kind not in {"regular_file", "directory_tree"}:
+                raise ValueError("observed artifact evidence requires a known source kind")
+            if self.source_digest is None or self.source_size is None:
+                raise ValueError("observed artifact evidence requires source metadata")
+            if self.error_code is not None or self.error_message is not None:
+                raise ValueError("observed artifact evidence may not contain an error")
+            _json_bytes(self.parsed_value, "artifact parsed value")
+        elif self.status == "candidate_error":
+            if not _bounded_failure(self.error_code, self.error_message):
+                raise ValueError("failed artifact evidence requires an error")
+            if self.parsed_value is not None:
+                raise ValueError("failed artifact evidence may not contain parsed output")
+        else:
+            raise ValueError("artifact evidence status is invalid")
+
     def internal_record(self) -> dict[str, Any]:
         return {
             "check_id": self.check_id,
@@ -291,9 +329,7 @@ class OracleVerdict:
     def __post_init__(self) -> None:
         if not isinstance(self.passed, bool):
             raise ValueError("Oracle passed must be a boolean")
-        if isinstance(self.score, bool) or not isinstance(self.score, (int, float)):
-            raise ValueError("Oracle score must be numeric")
-        if not math.isfinite(float(self.score)) or not 0.0 <= float(self.score) <= 1.0:
+        if not _valid_score(self.score):
             raise ValueError("Oracle score must be between 0 and 1")
         if not isinstance(self.public_diagnostics, dict):
             raise ValueError("Oracle public_diagnostics must be an object")
@@ -350,9 +386,7 @@ class VerificationResultV2:
             raise ValueError("passed verification status requires passed=true")
         if self.status != "passed" and self.passed:
             raise ValueError("non-passed verification status requires passed=false")
-        if isinstance(self.score, bool) or not isinstance(self.score, (int, float)):
-            raise ValueError("verification score must be numeric")
-        if not math.isfinite(float(self.score)) or not 0.0 <= float(self.score) <= 1.0:
+        if not _valid_score(self.score):
             raise ValueError("verification score must be between 0 and 1")
         if self.status == "infrastructure_error" and self.infrastructure_error is None:
             raise ValueError("infrastructure_error status requires infrastructure_error details")
@@ -473,6 +507,16 @@ def _is_sha256_digest(value: object) -> bool:
     return len(hexadecimal) == 64 and all(character in "0123456789abcdef" for character in hexadecimal)
 
 
+def _valid_score(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        score = float(value)
+    except (OverflowError, ValueError):
+        return False
+    return math.isfinite(score) and 0.0 <= score <= 1.0
+
+
 def _bounded_identifier(value: object) -> bool:
     return _bounded_text(value, maximum_bytes=128)
 
@@ -484,6 +528,10 @@ def _bounded_text(value: object, *, maximum_bytes: int) -> bool:
         return len(value.encode("utf-8")) <= maximum_bytes
     except UnicodeError:
         return False
+
+
+def _bounded_failure(code: object, message: object) -> bool:
+    return _bounded_identifier(code) and _bounded_text(message, maximum_bytes=4096)
 
 
 def _require_correlated_evidence(

@@ -22,6 +22,7 @@ from securebench.verification.trusted_helpers import (
     HttpRequestRecorderRuntime,
     default_trusted_helper_catalog,
     http_request_recorder_contract,
+    _validate_recorder_records,
 )
 
 
@@ -266,6 +267,38 @@ def test_recorder_runtime_uses_internal_network_hardening_and_file_backed_secret
     assert evidence.truncated is False
     assert commands[1][:3] == ["docker", "stop", "--time"]
     assert not root.exists()
+
+
+def test_host_revalidation_rejects_forged_recorder_response_semantics():
+    helper = TrustedHelperSpec.model_validate(
+        {
+            "name": "webhook",
+            "type": HTTP_REQUEST_RECORDER_TYPE,
+            "limits": {"max_requests": 2, "max_body_bytes": 16},
+        }
+    )
+    record = {
+        "sequence": 0,
+        "challenge_id": "challenge-test",
+        "evaluation_id": "evaluation-test",
+        "method": "GET",
+        "target": "/",
+        "target_truncated": False,
+        "headers": [],
+        "header_bytes": 0,
+        "headers_truncated": False,
+        "body_base64": "",
+        "body_bytes": 0,
+        "declared_body_bytes": 0,
+        "body_sha256": "sha256:" + hashlib.sha256(b"").hexdigest(),
+        "body_truncated": False,
+        "authenticated": False,
+        "path_matched": True,
+        "response_status": 204,
+    }
+
+    with pytest.raises(VerificationInfrastructureError, match="response status metadata"):
+        _validate_recorder_records(helper, {}, [record])
 
 
 def test_recorder_rejects_evidence_from_another_evaluation(tmp_path, monkeypatch):
