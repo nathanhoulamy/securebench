@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import re
 import secrets
 import subprocess
 import tempfile
@@ -43,9 +44,11 @@ MAX_RECORDER_RECORDS = 128
 MAX_RECORDER_BODY_BYTES = 65536
 MAX_RECORDER_HEADER_BYTES = 32768
 MAX_RECORDER_RESPONSE_BYTES = 16384
-MAX_RECORDER_EVIDENCE_BYTES = 20 * 1024 * 1024
+MAX_RECORDER_EVIDENCE_BYTES = 32 * 1024 * 1024
+MAX_RECORDER_READY_BYTES = 1024
 HELPER_START_TIMEOUT_SECONDS = 10.0
 DOCKER_OPERATION_TIMEOUT_SECONDS = 30.0
+RECORDED_HEADER_NAME = re.compile(r"[!#$%&'*+.^_`|~0-9a-z-]+")
 
 
 def _object_schema(
@@ -77,6 +80,7 @@ def http_request_recorder_contract() -> TrustedHelperContract:
             "evaluation_id": {"type": "string", "max_utf8_bytes": 128},
             "method": {"type": "string", "max_utf8_bytes": 32},
             "target": {"type": "string", "max_utf8_bytes": 8192},
+            "target_truncated": {"type": "boolean"},
             "headers": {
                 "type": "array",
                 "items": header_schema,
@@ -102,6 +106,7 @@ def http_request_recorder_contract() -> TrustedHelperContract:
             "evaluation_id",
             "method",
             "target",
+            "target_truncated",
             "headers",
             "header_bytes",
             "headers_truncated",
@@ -233,7 +238,7 @@ class HttpRequestRecorderRuntime:
         status = value.get("response_status", 204)
         if isinstance(status, bool) or not isinstance(status, int) or not 200 <= status <= 599:
             raise ValueError("response_status must be an HTTP status code")
-        if status in {204, 304} and value.get("response_body", ""):
+        if status in {204, 205, 304} and value.get("response_body", ""):
             raise ValueError("response_body must be empty for a bodyless HTTP status")
 
     def __init__(
@@ -297,6 +302,8 @@ class HttpRequestRecorderRuntime:
             "no-new-privileges:true",
             "--label",
             "securebench.role=trusted-helper",
+            "--log-driver",
+            "none",
             "--mount",
             f"type=bind,source={script_path},target=/opt/securebench/recorder.py,readonly",
             "--mount",
@@ -319,30 +326,41 @@ class HttpRequestRecorderRuntime:
             "--state-dir",
             "/var/lib/securebench",
         ]
-        _run_docker(command, "trusted_helper_start_failed", "Trusted Helper failed to start")
+        # Claim cleanup ownership before invoking Docker: a timed-out CLI may
+        # still have created the named container in the daemon.
         self.started = True
-        deadline = time.monotonic() + HELPER_START_TIMEOUT_SECONDS
-        ready_path = self.state_dir / "ready.json"
-        while time.monotonic() < deadline:
-            if ready_path.is_file() and not ready_path.is_symlink():
-                try:
-                    ready = strict_json_loads(ready_path.read_text(encoding="utf-8"))
-                except (OSError, UnicodeError, ValueError):
+        try:
+            _run_docker(command, "trusted_helper_start_failed", "Trusted Helper failed to start")
+            deadline = time.monotonic() + HELPER_START_TIMEOUT_SECONDS
+            ready_path = self.state_dir / "ready.json"
+            while time.monotonic() < deadline:
+                if ready_path.is_file() and not ready_path.is_symlink():
+                    try:
+                        with ready_path.open("rb") as stream:
+                            ready_bytes = stream.read(MAX_RECORDER_READY_BYTES + 1)
+                        if len(ready_bytes) > MAX_RECORDER_READY_BYTES:
+                            break
+                        ready = strict_json_loads(ready_bytes.decode("utf-8"))
+                    except (OSError, UnicodeError, ValueError):
+                        break
+                    if ready == {"port": HTTP_REQUEST_RECORDER_PORT}:
+                        path = self.settings.get("path", "/")
+                        return {
+                            "type": self.helper.type,
+                            "url": f"http://{alias}:{HTTP_REQUEST_RECORDER_PORT}{path}",
+                            "authorization": f"Bearer {self.token}",
+                        }
                     break
-                if ready == {"port": HTTP_REQUEST_RECORDER_PORT}:
-                    path = self.settings.get("path", "/")
-                    return {
-                        "type": self.helper.type,
-                        "url": f"http://{alias}:{HTTP_REQUEST_RECORDER_PORT}{path}",
-                        "authorization": f"Bearer {self.token}",
-                    }
-                break
-            time.sleep(0.05)
-        raise VerificationInfrastructureError(
-            "trusted_helper_start_failed",
-            "Trusted Helper did not become ready within its bound",
-            source="trusted_helper",
-        )
+                time.sleep(0.05)
+            raise VerificationInfrastructureError(
+                "trusted_helper_start_failed",
+                "Trusted Helper did not become ready within its bound",
+                source="trusted_helper",
+            )
+        except Exception:
+            _remove_container(self.container_name)
+            self.started = False
+            raise
 
     def collect(self, catalog: TrustedHelperCatalog) -> TrustedHelperEvidence:
         if not self.started:
@@ -419,7 +437,9 @@ class HttpRequestRecorderRuntime:
             )
         _validate_recorder_records(self.helper, self.settings, requests)
         truncated = truncated_path.exists() or any(
-            record["body_truncated"] or record["headers_truncated"]
+            record["target_truncated"]
+            or record["body_truncated"]
+            or record["headers_truncated"]
             for record in requests
         )
         return TrustedHelperEvidence(
@@ -477,14 +497,22 @@ class TrustedHelperEvaluation:
         if not self.check.trusted_helpers:
             return {}
         self._network_name = f"securebench-evaluation-{uuid.uuid4().hex}"
-        _run_docker(
-            ["docker", "network", "create", "--internal", self._network_name],
-            "trusted_helper_network_failed",
-            "Trusted Helper Evaluation network could not be created",
-        )
-        self.network = self._network_name
         access: dict[str, dict[str, str]] = {}
         try:
+            _run_docker(
+                [
+                    "docker",
+                    "network",
+                    "create",
+                    "--internal",
+                    "--label",
+                    "securebench.role=trusted-helper-network",
+                    self._network_name,
+                ],
+                "trusted_helper_network_failed",
+                "Trusted Helper Evaluation network could not be created",
+            )
+            self.network = self._network_name
             for index, helper in enumerate(self.check.trusted_helpers):
                 contract = self.catalog.validate_declaration(helper)
                 settings = load_trusted_helper_settings(self.task, helper.settings)
@@ -577,6 +605,8 @@ def _validate_recorder_records(
     for index, record in enumerate(requests):
         if record["sequence"] != index:
             _invalid_recorder_evidence("Trusted Helper request sequence is invalid")
+        if record["method"] not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}:
+            _invalid_recorder_evidence("Trusted Helper request method is invalid")
         try:
             body = base64.b64decode(record["body_base64"], validate=True)
         except (ValueError, TypeError) as exc:
@@ -605,7 +635,14 @@ def _validate_recorder_records(
             retained_header_bytes > max_header_bytes
             or record["header_bytes"] < retained_header_bytes
             or any(
-                header["name"] in {"authorization", "proxy-authorization"}
+                header["name"] != header["name"].lower()
+                or header["name"] in {"authorization", "proxy-authorization"}
+                or RECORDED_HEADER_NAME.fullmatch(header["name"]) is None
+                or any(
+                    (ord(character) < 0x20 and character != "\t")
+                    or ord(character) == 0x7F
+                    for character in header["value"]
+                )
                 for header in record["headers"]
             )
         ):
@@ -618,10 +655,15 @@ def _validate_recorder_records(
         expected_match = (
             target.startswith("/")
             and not target.startswith("//")
+            and "\\" not in target
+            and "#" not in target
+            and all(0x21 <= ord(character) <= 0x7E for character in target)
             and request_path == expected_path
         )
         if record["path_matched"] != expected_match:
             _invalid_recorder_evidence("Trusted Helper request path metadata is invalid")
+        if record["target_truncated"] and record["response_status"] != 414:
+            _invalid_recorder_evidence("Trusted Helper target truncation metadata is invalid")
         if not 200 <= record["response_status"] <= 599:
             _invalid_recorder_evidence("Trusted Helper response status is invalid")
 
@@ -649,7 +691,7 @@ def _remove_container(name: str) -> None:
             "Trusted Helper container cleanup failed",
             source="trusted_helper",
         ) from exc
-    if completed.returncode != 0 and "No such container" not in completed.stderr:
+    if completed.returncode != 0 and "no such container" not in completed.stderr.lower():
         raise VerificationInfrastructureError(
             "trusted_helper_cleanup_failed",
             "Trusted Helper container cleanup failed",

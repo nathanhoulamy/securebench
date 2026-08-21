@@ -169,16 +169,18 @@ schema support.
 
 At this implementation batch:
 
-- full suite: `366 passed, 3 skipped`;
-- focused recorder, protocol-component, and protocol-execution suite: `44 passed, 3 skipped`;
-- the three skipped tests are opt-in real-Docker protocol tests, including the fresh internal
-  recorder-network test. Docker Desktop was not running during this review, so the new live test
-  remains to be executed before calling the vertical slice fully demonstrated;
+- full default suite: `369 passed, 3 skipped`;
+- warning-strict recorder, protocol-component, protocol-execution, and audit suite:
+  `44 passed, 3 skipped`;
+- complete protocol suite with Docker integration enabled: `33 passed`, including two fresh
+  recorder Evaluations, the ordinary fresh Evaluation, and clean-repository git-patch replay;
+- the Docker pass left no Trusted Helper containers, materialization containers, or Evaluation
+  networks behind;
 - built-in robustness audit: 5 passed, 0 failed, 0 warnings;
 - no author-facing Pydantic schema changed in this batch, so checked-in JSON Schemas did not require
   regeneration;
 - a wheel containing both the helper lifecycle and standalone recorder server built successfully;
-- compile checks and `git diff --check` passed.
+- warning-strict focused tests, compile checks, and `git diff --check` passed.
 
 Useful commands:
 

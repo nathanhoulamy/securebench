@@ -4,7 +4,9 @@ import hashlib
 import json
 import socket
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Thread
 
 import pytest
 
@@ -23,7 +25,7 @@ from securebench.verification.trusted_helpers import (
 )
 
 
-def _recorder_state(tmp_path: Path, *, max_requests: int = 4):
+def _recorder_state(tmp_path: Path, *, max_requests: int = 6):
     state = tmp_path / "state"
     state.mkdir()
     config = {
@@ -55,6 +57,7 @@ def _request(
     *,
     body: bytes = b"",
     token: str = "test-secret",
+    extra_headers: tuple[tuple[str, str], ...] = (),
 ):
     client, server = socket.socketpair()
     request = (
@@ -64,12 +67,20 @@ def _request(
         "Proxy-Authorization: must-not-be-recorded\r\n"
         "X-Test: visible\r\n"
         f"Content-Length: {len(body)}\r\n"
-        "Connection: close\r\n\r\n"
+        + "".join(f"{name}: {value}\r\n" for name, value in extra_headers)
+        + "Connection: close\r\n\r\n"
     ).encode("ascii") + body
     try:
+        handler = Thread(
+            target=RecorderHandler,
+            args=(server, ("local", 0), _FakeServer(state)),
+            daemon=True,
+        )
+        handler.start()
         client.sendall(request)
         client.shutdown(socket.SHUT_WR)
-        RecorderHandler(server, ("local", 0), _FakeServer(state))
+        handler.join(timeout=2)
+        assert not handler.is_alive()
         server.shutdown(socket.SHUT_WR)
         response = b""
         while True:
@@ -94,11 +105,13 @@ def test_recorder_data_plane_is_bounded_authenticated_and_has_no_control_route(t
     assert _request(recorder, "GET", "/callback", token="forged") == (401, b"")
     assert _request(recorder, "GET", "/__securebench_evidence") == (404, b"")
     assert _request(recorder, "POST", "/callback", body=b"oversized") == (413, b"")
+    assert _request(recorder, "GET", "http://attacker.example/callback") == (404, b"")
+    assert _request(recorder, "GET", "/" + "x" * 9000) == (414, b"")
     assert _request(recorder, "GET", "/callback") == (429, b"")
 
     records = [json.loads(line) for line in (state / "requests.jsonl").read_text().splitlines()]
-    assert len(records) == 4
-    assert [record["sequence"] for record in records] == [0, 1, 2, 3]
+    assert len(records) == 6
+    assert [record["sequence"] for record in records] == list(range(6))
     assert all(record["challenge_id"] == "challenge-test" for record in records)
     assert all(record["evaluation_id"] == "evaluation-test" for record in records)
     assert records[0]["authenticated"] is True
@@ -107,6 +120,10 @@ def test_recorder_data_plane_is_bounded_authenticated_and_has_no_control_route(t
     assert records[1]["authenticated"] is False
     assert records[2]["path_matched"] is False
     assert records[3]["body_truncated"] is True
+    assert records[4]["path_matched"] is False
+    assert records[4]["target_truncated"] is False
+    assert records[5]["target_truncated"] is True
+    assert len(records[5]["target"].encode("utf-8")) <= 8192
     assert all(
         header["name"] not in {"authorization", "proxy-authorization"}
         for record in records
@@ -139,6 +156,38 @@ def test_default_catalog_accepts_only_bounded_semantically_valid_recorder_settin
         catalog.validate_runtime_settings(helper.type, {"path": "https://attacker.example/"})
     assert invalid.value.code == "trusted_helper_settings_invalid"
     assert invalid.value.source == "trusted_helper"
+    with pytest.raises(VerificationInfrastructureError):
+        catalog.validate_runtime_settings(
+            helper.type,
+            {"response_status": 205, "response_body": "not allowed"},
+        )
+
+
+def test_recorder_rejects_ambiguous_authentication_and_body_framing(tmp_path):
+    recorder, state = _recorder_state(tmp_path, max_requests=3)
+    assert _request(
+        recorder,
+        "GET",
+        "/callback",
+        extra_headers=(("Authorization", "Bearer test-secret"),),
+    ) == (401, b"")
+    assert _request(
+        recorder,
+        "POST",
+        "/callback",
+        extra_headers=(("Content-Length", "0"),),
+    ) == (400, b"")
+    assert _request(
+        recorder,
+        "POST",
+        "/callback",
+        extra_headers=(("Transfer-Encoding", "chunked"),),
+    ) == (400, b"")
+
+    records = [json.loads(line) for line in (state / "requests.jsonl").read_text().splitlines()]
+    assert records[0]["authenticated"] is False
+    assert records[1]["body_truncated"] is True
+    assert records[2]["body_truncated"] is True
 
 
 def test_recorder_runtime_uses_internal_network_hardening_and_file_backed_secret(
@@ -183,6 +232,7 @@ def test_recorder_runtime_uses_internal_network_hardening_and_file_backed_secret
     assert "--read-only" in start_command
     assert "--security-opt" in start_command
     assert "no-new-privileges:true" in start_command
+    assert start_command[start_command.index("--log-driver") + 1] == "none"
     assert HTTP_REQUEST_RECORDER_IMAGE in start_command
     assert runtime.token not in start_command
     assert not any(part in {"-p", "--publish", "--publish-all"} for part in start_command)
@@ -193,6 +243,7 @@ def test_recorder_runtime_uses_internal_network_hardening_and_file_backed_secret
         "evaluation_id": "evaluation-test",
         "method": "POST",
         "target": "/hook",
+        "target_truncated": False,
         "headers": [],
         "header_bytes": 0,
         "headers_truncated": False,
@@ -240,6 +291,7 @@ def test_recorder_rejects_evidence_from_another_evaluation(tmp_path, monkeypatch
         "evaluation_id": "evaluation-forged",
         "method": "GET",
         "target": "/",
+        "target_truncated": False,
         "headers": [],
         "header_bytes": 0,
         "headers_truncated": False,
@@ -345,3 +397,58 @@ def test_recorder_crash_and_cleanup_failure_are_trusted_helper_infrastructure_er
         _remove_network("network-test")
     assert cleanup.value.code == "trusted_helper_cleanup_failed"
     assert cleanup.value.source == "trusted_helper"
+
+
+def test_recorder_concurrently_enforces_its_exact_record_limit(tmp_path):
+    recorder, state = _recorder_state(tmp_path, max_requests=4)
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        statuses = list(
+            pool.map(
+                lambda _: _request(recorder, "GET", "/callback")[0],
+                range(16),
+            )
+        )
+
+    records = [json.loads(line) for line in (state / "requests.jsonl").read_text().splitlines()]
+    assert statuses.count(202) == 4
+    assert statuses.count(429) == 12
+    assert [record["sequence"] for record in records] == [0, 1, 2, 3]
+    assert (state / "truncated.flag").is_file()
+
+
+def test_failed_helper_start_remains_owned_by_cleanup(monkeypatch):
+    helper = TrustedHelperSpec.model_validate(
+        {
+            "name": "webhook",
+            "type": HTTP_REQUEST_RECORDER_TYPE,
+            "limits": {"max_requests": 2, "max_body_bytes": 16},
+        }
+    )
+    runtime = HttpRequestRecorderRuntime(
+        helper=helper,
+        contract=http_request_recorder_contract(),
+        settings={},
+        challenge_id="challenge-test",
+        evaluation_id="evaluation-test",
+        network="network-test",
+    )
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(
+            command,
+            1 if command[:3] == ["docker", "run", "-d"] else 0,
+            "",
+            "failed",
+        )
+
+    monkeypatch.setattr("securebench.verification.trusted_helpers.subprocess.run", fake_run)
+    with pytest.raises(VerificationInfrastructureError) as error:
+        runtime.start("securebench-helper-0")
+    root = runtime.root
+    runtime.close()
+
+    assert error.value.code == "trusted_helper_start_failed"
+    assert any(command[:3] == ["docker", "rm", "-f"] for command in commands)
+    assert not root.exists()

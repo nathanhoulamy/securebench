@@ -93,10 +93,10 @@ Add adversarial tests for stale cross-Evaluation state, forged credentials, dire
 access, record truncation, oversized bodies, host-header/SNI confusion, helper crashes, and evidence
 from the wrong Evaluation ID.
 
-The file-bundle protocol path, preflight admission, Helper Access, evidence correlation, and
-adversarial host-side tests are complete. One definition-of-done item remains operationally
-pending: run the opt-in fresh-Evaluation Docker test when Docker Desktop is available and inspect
-for leaked helper containers/networks.
+The file-bundle protocol path, preflight admission, Helper Access, evidence correlation,
+adversarial host-side tests, and the two-Evaluation live-Docker isolation test are complete. The
+live pass demonstrated fresh request sequence/state and left no helper container or Evaluation
+network behind.
 
 ## Priority 4: Output Artifacts
 

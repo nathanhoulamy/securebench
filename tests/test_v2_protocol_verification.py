@@ -136,7 +136,15 @@ evaluation_participants:
     helper_adapter = (
         """
 helper = request["trusted_helpers"]["webhook"]
+import socket
 import urllib.request
+try:
+    external = socket.create_connection(("1.1.1.1", 80), timeout=0.2)
+except OSError:
+    pass
+else:
+    external.close()
+    raise RuntimeError("Evaluation unexpectedly reached the public internet")
 callback = urllib.request.Request(
     helper["url"],
     data=json.dumps({"event": request["challenge"]["value"]}).encode(),
@@ -827,16 +835,13 @@ def test_git_patch_protocol_runs_from_real_fresh_docker_repositories(tmp_path):
     )
     context = tmp_path / "docker-context"
     context.mkdir()
+    _, base_commit = make_git_baseline(context / "app")
     (context / "Dockerfile").write_text(
         f"""
 FROM {parent_image}
 USER root
-RUN rm -rf /app && mkdir -p /app && cd /app \\
-    && git init --quiet \\
-    && git config user.email securebench@example.invalid \\
-    && git config user.name SecureBench \\
-    && printf 'baseline\\n' > README.md \\
-    && git add . && git commit --quiet -m baseline
+RUN rm -rf /app && mkdir -p /app
+COPY app/ /app/
 WORKDIR /app
 """.lstrip()
     )
@@ -848,12 +853,6 @@ WORKDIR /app
     )
     image = built.stdout.strip().splitlines()[-1]
     try:
-        base_commit = subprocess.run(
-            ["docker", "run", "--rm", "--network", "none", image, "git", "-C", "/app", "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
         task = write_protocol_pack(
             tmp_path / "pack",
             image=image,

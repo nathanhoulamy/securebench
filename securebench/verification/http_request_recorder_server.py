@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import signal
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,6 +26,7 @@ from urllib.parse import urlsplit
 MAX_CONFIG_BYTES = 256 * 1024
 MAX_CREDENTIAL_BYTES = 512
 MAX_REQUEST_TARGET_BYTES = 8192
+HTTP_HEADER_NAME = re.compile(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+")
 
 
 def _read_json(path: Path, maximum_bytes: int) -> Any:
@@ -55,6 +57,10 @@ class RecorderState:
     def mark_truncated(self) -> None:
         self.truncated_path.touch(exist_ok=True)
 
+    def at_capacity(self) -> bool:
+        with self.lock:
+            return self.sequence >= self.max_requests
+
     def append(self, record: dict[str, Any]) -> bool:
         with self.lock:
             if self.sequence >= self.max_requests:
@@ -81,6 +87,11 @@ class RecorderServer(ThreadingHTTPServer):
     def __init__(self, address: tuple[str, int], state: RecorderState) -> None:
         super().__init__(address, RecorderHandler)
         self.recorder_state = state
+
+    def handle_error(self, request: object, client_address: object) -> None:
+        # Candidate-controlled disconnects and malformed sockets must not
+        # generate unbounded tracebacks in the container log.
+        return
 
 
 class RecorderHandler(BaseHTTPRequestHandler):
@@ -115,11 +126,20 @@ class RecorderHandler(BaseHTTPRequestHandler):
     def _record_request(self) -> None:
         state = self.server.recorder_state
         self.close_connection = True
+        if state.at_capacity():
+            state.mark_truncated()
+            self._respond(429, b"")
+            return
         target_bytes = self.path.encode("utf-8", errors="replace")
         target_too_large = len(target_bytes) > MAX_REQUEST_TARGET_BYTES
-        target = target_bytes[:MAX_REQUEST_TARGET_BYTES].decode("utf-8", errors="replace")
-        authorization = self.headers.get("Authorization", "")
-        authenticated = hmac.compare_digest(authorization, f"Bearer {state.token}")
+        target = target_bytes[:MAX_REQUEST_TARGET_BYTES].decode("utf-8", errors="ignore")
+        target_invalid = "\\" in target or "#" in target or any(
+            ord(character) < 0x21 or ord(character) > 0x7E for character in target
+        )
+        authorizations = self.headers.get_all("Authorization", [])
+        authenticated = len(authorizations) == 1 and hmac.compare_digest(
+            authorizations[0], f"Bearer {state.token}"
+        )
         header_bytes = sum(
             len(name.encode("utf-8", errors="replace"))
             + len(value.encode("utf-8", errors="replace"))
@@ -137,7 +157,13 @@ class RecorderHandler(BaseHTTPRequestHandler):
             value_bytes = value.encode("utf-8", errors="replace")
             item_bytes = len(name_bytes) + len(value_bytes) + 4
             if (
-                len(name_bytes) > 256
+                HTTP_HEADER_NAME.fullmatch(name) is None
+                or any(
+                    (ord(character) < 0x20 and character != "\t")
+                    or ord(character) == 0x7F
+                    for character in value
+                )
+                or len(name_bytes) > 256
                 or len(value_bytes) > state.max_header_bytes
                 or retained_header_bytes + item_bytes > state.max_header_bytes
                 or len(headers) >= 128
@@ -146,8 +172,9 @@ class RecorderHandler(BaseHTTPRequestHandler):
                 continue
             retained_header_bytes += item_bytes
             headers.append({"name": normalized_name, "value": value})
-        transfer_encoding = self.headers.get("Transfer-Encoding")
-        content_length_value = self.headers.get("Content-Length", "0")
+        transfer_encodings = self.headers.get_all("Transfer-Encoding", [])
+        content_lengths = self.headers.get_all("Content-Length", [])
+        content_length_value = content_lengths[0] if len(content_lengths) == 1 else "0"
         try:
             content_length = int(content_length_value)
             if content_length < 0:
@@ -156,7 +183,7 @@ class RecorderHandler(BaseHTTPRequestHandler):
             content_length = 0
             invalid_length = True
         else:
-            invalid_length = False
+            invalid_length = len(content_lengths) > 1
 
         body_truncated = content_length > state.max_body_bytes
         read_length = min(content_length, state.max_body_bytes)
@@ -169,20 +196,18 @@ class RecorderHandler(BaseHTTPRequestHandler):
         except ValueError:
             request_path = ""
         origin_form = target.startswith("/") and not target.startswith("//")
-        path_matched = origin_form and request_path == state.path
+        path_matched = origin_form and not target_invalid and request_path == state.path
 
-        if state.sequence >= state.max_requests:
-            state.mark_truncated()
-            self._respond(429, b"")
-            return
         if target_too_large:
             status, response_body = 414, b""
             state.mark_truncated()
+        elif target_invalid:
+            status, response_body = 400, b""
         elif header_bytes > state.max_header_bytes or header_truncated:
             status, response_body = 431, b""
             header_truncated = True
             state.mark_truncated()
-        elif transfer_encoding not in {None, "", "identity"} or invalid_length:
+        elif transfer_encodings or invalid_length:
             status, response_body = 400, b""
             body_truncated = True
             state.mark_truncated()
@@ -202,6 +227,7 @@ class RecorderHandler(BaseHTTPRequestHandler):
                 "evaluation_id": state.evaluation_id,
                 "method": self.command,
                 "target": target,
+                "target_truncated": target_too_large,
                 "headers": headers,
                 "header_bytes": header_bytes,
                 "headers_truncated": header_truncated,
@@ -218,13 +244,16 @@ class RecorderHandler(BaseHTTPRequestHandler):
         self._respond(status if recorded else 429, response_body if recorded else b"")
 
     def _respond(self, status: int, body: bytes) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", "application/octet-stream")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Connection", "close")
-        self.end_headers()
-        if self.command != "HEAD" and body:
-            self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            if self.command != "HEAD" and body:
+                self.wfile.write(body)
+        except OSError:
+            pass
 
 
 def _write_ready(path: Path, port: int) -> None:
