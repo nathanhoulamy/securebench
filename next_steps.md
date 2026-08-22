@@ -191,29 +191,26 @@ revalidation, absolute artifact observation, Output Artifacts, cleanup, and fres
 isolation. A real two-volume Docker Evaluation test is present but intentionally skipped outside
 the explicit root-Linux qualification environment.
 
-### Next: finish Phase 7 and activate
+### Next on macOS: finish the Phase 7 implementation
 
-Overlay rows remain deliberately non-executable. Complete these gates in order:
+Continue development on the normal macOS workspace; the final Linux qualification is recorded in
+its own section below and must not block other implementation work.
 
 1. Connect the Phase 5 quota-backed Agent capture orchestrator to the normal tester/harness path.
    Command, Codex, and Claude Code overlay runs must keep task instructions, credentials, Adapter
    state, and tool state outside captured roots while ensuring every writable location is bounded.
    Add direct runner tests proving the normal path returns exactly one stored overlay Candidate and
    cleans Agent state on success, failure, rejection, timeout, and interruption.
-2. Run the qualification on a real root Linux host, not Docker Desktop on macOS. The host must
-   provide loop-backed ext4, mount/umount, Docker `overlay2`, volume subpaths, and a locally available
-   digest-pinned probe image. Run the quota-exhaustion test, real stopped-Agent capture, and the real
-   two-Evaluation replay test; prove distinct volumes, identical baseline reconstruction, no stale
-   state, and no leaked containers, volumes, loop mounts, backing files, or networks.
-3. Re-run the warning-strict full suite, robustness audit, schema-generation check, package build,
-   and leak inspection on that Linux host.
-4. Only after every gate passes, replace the unconditional overlay preflight rejection with the
-   reviewed Linux capability probe. Unsupported hosts and storage drivers must still fail before
-   Agent execution. Then update `current.md`, this roadmap, the overlay documentation, and the
-   capability matrix to mark the feature executable.
-
-The macOS workspace can be used to finish harness integration and mocked/adversarial tests. Final
-qualification and activation require the native Linux host.
+2. Implement and review the final capability-gated execution path. Mock the Linux host probe and
+   quota backend in macOS tests, and prove unsupported hosts/storage drivers fail before Agent
+   execution. Keep the author-facing overlay path marked non-executable until the deferred native
+   qualification passes.
+3. Finish all remaining deterministic, mocked-Docker, failure-path, adversarial, schema, audit, and
+   packaging checks available on macOS. When a test fundamentally requires native Linux, add it as
+   an explicitly gated test and record it in the final qualification section instead of stopping
+   development.
+4. Continue with later roadmap work after the macOS implementation is complete. Do not wait for a
+   Linux host between features; collect native-only qualification work for the single final pass.
 
 ## Later work
 
@@ -227,6 +224,30 @@ qualification and activation require the native Linux host.
 - Convert more benchmark rows only when their required Candidate, check, and Trusted Helper features are
   executable; do not weaken preflight to admit them early.
 
+## Final Linux-host qualification — deliberately deferred until the end
+
+This is the last project step, not a blocker for ongoing macOS development. Add future
+Linux-only checks to this section and continue with the next macOS-capable roadmap item.
+
+Use a real root Linux host, not Docker Desktop on macOS. It must provide loop-backed ext4,
+mount/umount, Docker `overlay2`, Docker volume subpaths, and every required digest-pinned test image
+locally. Then:
+
+1. Run the overlay backend probe and prove physical `ENOSPC`, volume-subpath behavior, stale-state
+   recovery, and cleanup after success, failure, timeout, and interruption.
+2. Run real quota-backed stopped-Agent capture through every supported normal harness path.
+3. Run at least two real overlay Evaluations and prove distinct volumes, identical pinned-baseline
+   reconstruction, no cross-Evaluation state, exact artifact/protocol behavior, and final-state
+   digest enforcement.
+4. Run all other explicitly gated Linux/Docker integration tests accumulated during development.
+5. Inspect for leaked Agent/Evaluation/helper containers, Docker networks and volumes, loop mounts,
+   backing files, temporary state, and credentials.
+6. Run the warning-strict full suite, robustness audit, schema-generation check, package build, and
+   `git diff --check` on Linux.
+7. Only after every native gate passes, enable the reviewed overlay capability path and any other
+   deferred Linux-only features. Update `current.md`, this roadmap, security documentation, and the
+   capability matrix with the final tested state.
+
 ## Working rules for a future agent
 
 - Begin on `split-verification-v2`, not `main`.
@@ -234,8 +255,13 @@ qualification and activation require the native Linux host.
   `securebench/execution_profiles.py` before editing.
 - Treat schema-valid and executable as separate states; add capability support explicitly rather
   than silently falling back.
+- Develop and review everything possible on macOS. A missing native Linux environment is not an
+  intermediate blocker: add the gated integration test and its requirement to the final Linux-host
+  qualification section, then continue the roadmap.
 - Preserve unrelated user files and inspect `git status` before editing.
 - Use `rg` for discovery and `apply_patch` for edits.
-- Keep batches small, add failure-path tests, and test with real Docker when isolation changes.
+- Keep batches small and add deterministic and failure-path tests on macOS. Add real-Docker/Linux
+  tests when isolation changes, but defer running Linux-only tests to the single final qualification
+  pass.
 - Before handoff, run the commands recorded in `current.md`, inspect leaked Docker resources, build
   a wheel, review `git diff --check`, and push only to the feature branch.
