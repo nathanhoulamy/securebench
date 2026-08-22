@@ -262,6 +262,92 @@ def test_baseline_materialization_failure_still_destroys_workspace(tmp_path: Pat
     assert events == ["workspace_closed"]
 
 
+def test_harness_preflight_failure_stops_container_and_destroys_workspace(tmp_path: Path):
+    events: list[str] = []
+    workspace = FakeWorkspace(tmp_path / "quota", events)
+    (workspace.roots["/app"] / "value").write_text("before")
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+
+    def materializer(image, staged, *, scan_limits):
+        return scan_overlay_roots(
+            staged.include_roots,
+            staged.host_roots(),
+            limits=scan_limits,
+            label="baseline",
+        )
+
+    with pytest.raises(OverlayAgentInfrastructureError, match="preflight failed"):
+        run_filesystem_overlay_agent_capture(
+            image=IMAGE,
+            command=("agent",),
+            preflight_command=("agent", "--version"),
+            workdir="/app",
+            spec=overlay_spec(),
+            store=CandidateStore(tmp_path / "store"),
+            baseline_digest=BASELINE,
+            storage_root=tmp_path / "storage",
+            capacity_bytes=MIN_OVERLAY_WORKSPACE_BYTES,
+            trusted_inputs_root=trusted,
+            scan_limits=local_limits(),
+            _workspace_factory=lambda **options: workspace,
+            _sandbox_factory=lambda **options: FakeSandbox(
+                events,
+                lambda: None,
+                _successful_result(exit_code=9),
+                **options,
+            ),
+            _materializer=materializer,
+        )
+
+    assert events[-2:] == ["sandbox_closed", "workspace_closed"]
+
+
+def test_interruption_stops_container_and_destroys_workspace(tmp_path: Path):
+    events: list[str] = []
+    workspace = FakeWorkspace(tmp_path / "quota", events)
+    (workspace.roots["/app"] / "value").write_text("before")
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+
+    def materializer(image, staged, *, scan_limits):
+        return scan_overlay_roots(
+            staged.include_roots,
+            staged.host_roots(),
+            limits=scan_limits,
+            label="baseline",
+        )
+
+    class InterruptedSandbox(FakeSandbox):
+        def run(self, command, *, workdir, timeout):
+            self.events.append("agent_run")
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_filesystem_overlay_agent_capture(
+            image=IMAGE,
+            command=("agent",),
+            workdir="/app",
+            spec=overlay_spec(),
+            store=CandidateStore(tmp_path / "store"),
+            baseline_digest=BASELINE,
+            storage_root=tmp_path / "storage",
+            capacity_bytes=MIN_OVERLAY_WORKSPACE_BYTES,
+            trusted_inputs_root=trusted,
+            scan_limits=local_limits(),
+            _workspace_factory=lambda **options: workspace,
+            _sandbox_factory=lambda **options: InterruptedSandbox(
+                events,
+                lambda: None,
+                _successful_result(),
+                **options,
+            ),
+            _materializer=materializer,
+        )
+
+    assert events[-2:] == ["sandbox_closed", "workspace_closed"]
+
+
 def test_materializer_copies_each_root_then_removes_container(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

@@ -15,9 +15,12 @@ from securebench.errors import ConfigError
 from securebench.candidates.git_repository import GitRepositoryError, validate_clean_repository
 from securebench.path_safety import portable_paths_equal, portable_paths_overlap
 from securebench.schemas.benchmark import GitPatchCandidate
-from securebench.workspaces.materialization import MaterializationPlan
+from securebench.workspaces.materialization import (
+    MaterializationPlan,
+    VisibilityAwareMaterializer,
+)
 from securebench.workspaces.path_policy import PathPolicyError, validate_workspace_mount_for_component
-from securebench.sandboxes import Sandbox
+from securebench.sandboxes import HostSandbox, Sandbox
 from securebench.tasks import BenchmarkTask
 
 
@@ -214,6 +217,27 @@ def reject_task_file_collision(
             raise ConfigError(
                 f"harness.config.task_file collides with public materialized path: {task_file}"
             )
+
+
+def prepare_overlay_agent_inputs(
+    task: BenchmarkTask,
+    destination: Path,
+    *,
+    task_file: str,
+    workspace_mount_target: str,
+    materializer: VisibilityAwareMaterializer,
+) -> MaterializationPlan:
+    """Stage public Agent inputs outside every captured overlay root."""
+    destination.mkdir(parents=True, exist_ok=True)
+    staging = HostSandbox(root=destination)
+    plan = materializer.materialize(task, staging, "agent")
+    reject_task_file_collision(
+        task_file,
+        plan,
+        workspace_mount_target=workspace_mount_target,
+    )
+    staging.write_file(task_file, agent_task_json(task))
+    return plan
 
 
 def reject_git_patch_framework_collisions(

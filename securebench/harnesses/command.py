@@ -9,7 +9,14 @@ from securebench.candidates.extraction import (
     default_extraction_spec,
     extract_candidate,
 )
-from securebench.candidates import CandidateProducer, CandidateProduction
+from securebench.candidates import (
+    CandidateProducer,
+    CandidateProduction,
+    OverlayAgentCaptureResult,
+    run_filesystem_overlay_agent_capture,
+)
+from securebench.candidates.overlay_agent import OVERLAY_AGENT_INPUTS_TARGET
+from securebench.candidates.store import CandidateStore
 from securebench.errors import ConfigError
 from securebench.execution_profiles import validate_executable_task
 from securebench.harnesses.shared import (
@@ -18,6 +25,7 @@ from securebench.harnesses.shared import (
     container_image_for_task,
     materialize_image_workdir,
     optional_positive_number,
+    prepare_overlay_agent_inputs,
     reject_git_patch_framework_collisions,
     reject_task_file_collision,
     reject_unknown_fields,
@@ -40,6 +48,7 @@ from securebench.workspaces.materialization import (
     docker_resource_mounts,
 )
 from securebench.sandboxes import DockerSandbox, HostSandbox, Sandbox
+from securebench.schemas.benchmark import FilesystemOverlayCandidate
 from securebench.tasks import BenchmarkTask
 
 
@@ -139,6 +148,61 @@ class CommandHarnessProducer(CandidateProducer):
                 )
             finally:
                 close_sandbox(sandbox)
+
+    def capture_filesystem_overlay(
+        self,
+        task: BenchmarkTask,
+        *,
+        store: CandidateStore,
+        storage_root: Path,
+        capacity_bytes: int,
+        **context: Any,
+    ) -> OverlayAgentCaptureResult:
+        """Run the command harness against quota-backed declared roots."""
+        spec = task.verification.candidate
+        if not isinstance(spec, FilesystemOverlayCandidate):
+            raise ConfigError("Command overlay capture requires a filesystem_overlay task")
+        task_workspace = workspace_root(
+            task,
+            context.get("workspace_root", self.workspace_root),
+        )
+        if task_workspace is None:
+            raise ConfigError(
+                "Command harness requires a persistent workspace_root for overlay Agent inputs"
+            )
+        plan = prepare_overlay_agent_inputs(
+            task,
+            task_workspace,
+            task_file=self.task_file,
+            workspace_mount_target=OVERLAY_AGENT_INPUTS_TARGET,
+            materializer=self.materializer,
+        )
+        allowed_domains = task_allowed_domains(
+            task,
+            effective_allowed_domains("command", self.allowed_domains),
+        )
+        timeout = run_timeout_seconds(
+            task,
+            context_timeout=context.get("timeout"),
+            fallback_timeout=self.timeout_seconds,
+        )
+        with docker_egress_policy(allowed_domains) as egress:
+            return run_filesystem_overlay_agent_capture(
+                image=container_image_for_task(task),
+                command=self.command,
+                workdir=task_workdir(task),
+                spec=spec,
+                store=store,
+                baseline_digest=task.baseline_digest,
+                storage_root=storage_root,
+                capacity_bytes=capacity_bytes,
+                trusted_inputs_root=task_workspace,
+                timeout=timeout,
+                env=egress.env,
+                env_names=self.env_names,
+                network=egress.network,
+                public_mounts=docker_resource_mounts(plan),
+            )
 
     def _sandbox(
         self,

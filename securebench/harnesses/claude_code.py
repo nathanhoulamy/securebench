@@ -9,7 +9,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from securebench.candidates import CandidateProducer, CandidateProduction
+from securebench.candidates import (
+    CandidateProducer,
+    CandidateProduction,
+    OverlayAgentCaptureResult,
+    run_filesystem_overlay_agent_capture,
+)
+from securebench.candidates.overlay_agent import OVERLAY_AGENT_INPUTS_TARGET
+from securebench.candidates.store import CandidateStore
 from securebench.candidates.extraction import (
     default_extraction_spec,
     extract_candidate,
@@ -30,6 +37,7 @@ from securebench.harnesses.shared import (
     container_workspace_path,
     materialize_image_workdir,
     optional_positive_number,
+    prepare_overlay_agent_inputs,
     reject_git_patch_framework_collisions,
     reject_task_file_collision,
     reject_unknown_fields,
@@ -53,6 +61,7 @@ from securebench.harnesses.network import (
 from securebench.locking import exclusive_file_lock
 from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
+from securebench.schemas.benchmark import FilesystemOverlayCandidate
 from securebench.tasks import BenchmarkTask
 from securebench.workspaces.cleanup import remove_untrusted_tree
 from securebench.workspaces.materialization import (
@@ -72,6 +81,7 @@ CLAUDE_CODE_CONFIG_FIELDS = {
 }
 CLAUDE_CODE_OVERLAY_TARGET = "/opt/securebench/claude-code"
 CLAUDE_CODE_HOME_TARGET = "/opt/securebench/claude-home"
+CLAUDE_CODE_OVERLAY_AGENT_HOME_TARGET = "/tmp/securebench-claude-home"
 CLAUDE_CODE_DEFAULT_MODEL = "sonnet"
 CLAUDE_CODE_DEFAULT_VERSION = "latest"
 CLAUDE_CODE_DEFAULT_TASK_FILE = "task.json"
@@ -286,6 +296,94 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
             if state_root is not None:
                 remove_untrusted_tree(state_root, image=image)
 
+    def capture_filesystem_overlay(
+        self,
+        task: BenchmarkTask,
+        *,
+        store: CandidateStore,
+        storage_root: Path,
+        capacity_bytes: int,
+        **context: Any,
+    ) -> OverlayAgentCaptureResult:
+        """Run Claude Code with bounded tool state and capture declared roots."""
+        spec = task.verification.candidate
+        if not isinstance(spec, FilesystemOverlayCandidate):
+            raise ConfigError("Claude Code overlay capture requires a filesystem_overlay task")
+        image = container_image_for_task(task)
+        relay_spec = claude_code_provider_relay_spec(self.auth)
+        require_provider_credential(relay_spec)
+        require_env_names(self.env_names, "claude_code")
+        task_workspace = workspace_root(
+            task,
+            context.get("workspace_root", self.workspace_root),
+        )
+        if task_workspace is None:
+            raise ConfigError(
+                "Claude Code harness requires a persistent workspace_root for overlay Agent inputs"
+            )
+        plan = prepare_overlay_agent_inputs(
+            task,
+            task_workspace,
+            task_file=self.task_file,
+            workspace_mount_target=OVERLAY_AGENT_INPUTS_TARGET,
+            materializer=self.materializer,
+        )
+        overlay = claude_code_overlay_for_image(image, self.version)
+        task_file_for_agent = container_workspace_path(
+            self.task_file,
+            mount_target=OVERLAY_AGENT_INPUTS_TARGET,
+        )
+        allowed_domains = task_allowed_domains(
+            task,
+            effective_allowed_domains("claude_code", self.allowed_domains),
+        )
+        timeout = run_timeout_seconds(
+            task,
+            context_timeout=context.get("timeout"),
+            fallback_timeout=self.timeout_seconds,
+        )
+        with docker_provider_relay_policy(
+            relay_spec,
+            allowed_domains,
+            allow_external_tools=self.allow_external_tools,
+        ) as egress:
+            if egress.provider_base_url is None:
+                raise ConfigError("claude_code provider relay did not provide a base URL")
+            return run_filesystem_overlay_agent_capture(
+                image=image,
+                command=claude_code_overlay_shell_command(
+                    f"claude -p --model {shell_quote(self.model)} "
+                    "--output-format json --dangerously-skip-permissions "
+                    "--no-session-persistence "
+                    f"{shell_quote(claude_code_prompt(task, task_file_for_agent))}"
+                ),
+                preflight_command=claude_code_overlay_shell_command("claude --version"),
+                workdir=claude_code_agent_workdir(task),
+                spec=spec,
+                store=store,
+                baseline_digest=task.baseline_digest,
+                storage_root=storage_root,
+                capacity_bytes=capacity_bytes,
+                trusted_inputs_root=task_workspace,
+                timeout=timeout,
+                env=claude_code_agent_env(
+                    egress.env,
+                    egress.provider_base_url,
+                    self.env_names,
+                    auth=self.auth,
+                ),
+                env_names=self.env_names,
+                network=egress.network,
+                public_mounts=(
+                    *docker_resource_mounts(plan),
+                    DockerBindMount(
+                        source=overlay.path,
+                        target=CLAUDE_CODE_OVERLAY_TARGET,
+                        read_only=True,
+                    ),
+                ),
+            )
+
 
 def claude_code_config(config: dict[str, Any]) -> dict[str, Any]:
     reject_unknown_fields(config, CLAUDE_CODE_CONFIG_FIELDS, "harness.config")
@@ -445,11 +543,27 @@ def claude_code_agent_env(
     return env
 
 
-def claude_code_shell_command(inner: str) -> str:
+def claude_code_shell_command(
+    inner: str,
+    *,
+    home_target: str = CLAUDE_CODE_HOME_TARGET,
+) -> str:
     return (
-        f"export HOME={shell_quote(CLAUDE_CODE_HOME_TARGET)}; "
+        f"export HOME={shell_quote(home_target)}; "
         f"export PATH={shell_quote(CLAUDE_CODE_OVERLAY_TARGET + '/bin')}:$PATH; "
         f"{inner}"
+    )
+
+
+def claude_code_overlay_shell_command(inner: str) -> str:
+    """Initialize bounded, case-local Claude Code state before invoking the CLI."""
+    home = shell_quote(CLAUDE_CODE_OVERLAY_AGENT_HOME_TARGET)
+    return (
+        f"umask 077; mkdir -p {home}; "
+        + claude_code_shell_command(
+            inner,
+            home_target=CLAUDE_CODE_OVERLAY_AGENT_HOME_TARGET,
+        )
     )
 
 

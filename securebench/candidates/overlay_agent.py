@@ -139,6 +139,7 @@ def run_filesystem_overlay_agent_capture(
     env_names: tuple[str, ...] = (),
     network: str = "none",
     public_mounts: tuple[DockerBindMount, ...] = (),
+    preflight_command: str | list[str] | tuple[str, ...] | None = None,
     scan_limits: OverlayScanLimits = OverlayScanLimits(),
     _workspace_factory: Callable[..., OverlayQuotaWorkspace] = OverlayQuotaWorkspace.create,
     _sandbox_factory: Callable[..., DockerSandbox] = DockerSandbox,
@@ -177,6 +178,20 @@ def run_filesystem_overlay_agent_capture(
             allow_resource_overrides=False,
         )
         try:
+            if preflight_command is not None:
+                preflight = sandbox.run(
+                    preflight_command,
+                    workdir=workdir,
+                    timeout=timeout,
+                )
+                if preflight.timed_out:
+                    raise OverlayAgentInfrastructureError(
+                        "overlay Agent harness preflight timed out"
+                    )
+                if preflight.exit_code != 0:
+                    raise OverlayAgentInfrastructureError(
+                        "overlay Agent harness preflight failed"
+                    )
             result = sandbox.run(command, workdir=workdir, timeout=timeout)
         finally:
             try:

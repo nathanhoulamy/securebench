@@ -18,7 +18,14 @@ from securebench.candidates.extraction import (
     extract_candidate,
     extraction_instructions,
 )
-from securebench.candidates import CandidateProducer, CandidateProduction
+from securebench.candidates import (
+    CandidateProducer,
+    CandidateProduction,
+    OverlayAgentCaptureResult,
+    run_filesystem_overlay_agent_capture,
+)
+from securebench.candidates.overlay_agent import OVERLAY_AGENT_INPUTS_TARGET
+from securebench.candidates.store import CandidateStore
 from securebench.errors import ConfigError
 from securebench.execution_profiles import validate_executable_task
 from securebench.harnesses.shared import (
@@ -27,6 +34,7 @@ from securebench.harnesses.shared import (
     container_workspace_path,
     container_image_for_task,
     optional_positive_number,
+    prepare_overlay_agent_inputs,
     materialize_image_workdir,
     reject_git_patch_framework_collisions,
     reject_task_file_collision,
@@ -56,6 +64,7 @@ from securebench.harnesses.codex_oauth import (
 from securebench.locking import exclusive_file_lock
 from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
+from securebench.schemas.benchmark import FilesystemOverlayCandidate
 from securebench.tasks import BenchmarkTask
 from securebench.workspaces.cleanup import remove_untrusted_tree
 from securebench.workspaces.materialization import (
@@ -76,6 +85,8 @@ CODEX_CONFIG_FIELDS = {
 }
 CODEX_OVERLAY_TARGET = "/opt/securebench/codex"
 CODEX_HOME_TARGET = "/opt/securebench/codex-home"
+CODEX_OVERLAY_AGENT_HOME_TARGET = "/tmp/securebench-codex-home"
+CODEX_OVERLAY_AUTH_SEED = "securebench/tool-state/codex-auth.json"
 CODEX_DEFAULT_VERSION = "latest"
 CODEX_DEFAULT_TASK_FILE = "task.json"
 CODEX_DEFAULT_TIMEOUT_SECONDS = 900.0
@@ -333,6 +344,117 @@ class CodexHarnessProducer(CandidateProducer):
         finally:
             if state_root is not None:
                 remove_untrusted_tree(state_root, image=image)
+
+    def capture_filesystem_overlay(
+        self,
+        task: BenchmarkTask,
+        *,
+        store: CandidateStore,
+        storage_root: Path,
+        capacity_bytes: int,
+        **context: Any,
+    ) -> OverlayAgentCaptureResult:
+        """Run Codex with tool state on bounded tmpfs and capture declared roots."""
+        spec = task.verification.candidate
+        if not isinstance(spec, FilesystemOverlayCandidate):
+            raise ConfigError("Codex overlay capture requires a filesystem_overlay task")
+        image = container_image_for_task(task)
+        relay_spec = codex_provider_relay_spec(self.auth)
+        credential_file = codex_subscription_credential_file(self.auth)
+        require_provider_credential(relay_spec, credential_file)
+        if credential_file is not None:
+            try:
+                ensure_valid_codex_oauth_credentials(credential_file)
+            except CodexOAuthError as exc:
+                raise ConfigError(str(exc)) from exc
+        require_env_names(self.env_names, "codex")
+        task_workspace = workspace_root(
+            task,
+            context.get("workspace_root", self.workspace_root),
+        )
+        if task_workspace is None:
+            raise ConfigError(
+                "Codex harness requires a persistent workspace_root for overlay Agent inputs"
+            )
+        plan = prepare_overlay_agent_inputs(
+            task,
+            task_workspace,
+            task_file=self.task_file,
+            workspace_mount_target=OVERLAY_AGENT_INPUTS_TARGET,
+            materializer=self.materializer,
+        )
+        auth_seed: str | None = None
+        if self.auth == "subscription":
+            write_dummy_codex_auth(task_workspace / CODEX_OVERLAY_AUTH_SEED)
+            auth_seed = container_workspace_path(
+                CODEX_OVERLAY_AUTH_SEED,
+                mount_target=OVERLAY_AGENT_INPUTS_TARGET,
+            )
+        overlay = codex_overlay_for_image(image, self.version)
+        task_file_for_agent = container_workspace_path(
+            self.task_file,
+            mount_target=OVERLAY_AGENT_INPUTS_TARGET,
+        )
+        allowed_domains = task_allowed_domains(
+            task,
+            effective_allowed_domains("codex", self.allowed_domains),
+        )
+        timeout = run_timeout_seconds(
+            task,
+            context_timeout=context.get("timeout"),
+            fallback_timeout=self.timeout_seconds,
+        )
+        relay_options: dict[str, Any] = {
+            "allow_external_tools": self.allow_external_tools,
+        }
+        if credential_file is not None:
+            relay_options["credential_file"] = credential_file
+        with docker_provider_relay_policy(
+            relay_spec,
+            allowed_domains,
+            **relay_options,
+        ) as egress:
+            if egress.provider_base_url is None:
+                raise ConfigError("codex provider relay did not provide a base URL")
+            config_args = codex_config_args(
+                egress.provider_base_url,
+                auth=self.auth,
+                reasoning_effort=self.reasoning_effort,
+                allow_external_tools=self.allow_external_tools,
+            )
+            return run_filesystem_overlay_agent_capture(
+                image=image,
+                command=codex_overlay_shell_command(
+                    f"codex {config_args} "
+                    f"exec --model {shell_quote(self.model)} --json --skip-git-repo-check "
+                    "--dangerously-bypass-approvals-and-sandbox "
+                    f"{shell_quote(codex_prompt(task, task_file_for_agent))}",
+                    auth_seed=auth_seed,
+                ),
+                preflight_command=codex_overlay_shell_command(
+                    "codex --version",
+                    auth_seed=auth_seed,
+                ),
+                workdir=codex_agent_workdir(task),
+                spec=spec,
+                store=store,
+                baseline_digest=task.baseline_digest,
+                storage_root=storage_root,
+                capacity_bytes=capacity_bytes,
+                trusted_inputs_root=task_workspace,
+                timeout=timeout,
+                env=codex_agent_env(egress.env, auth=self.auth),
+                env_names=self.env_names,
+                network=egress.network,
+                public_mounts=(
+                    *docker_resource_mounts(plan),
+                    DockerBindMount(
+                        source=overlay.path,
+                        target=CODEX_OVERLAY_TARGET,
+                        read_only=True,
+                    ),
+                ),
+            )
 
 
 def codex_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -696,14 +818,29 @@ def dummy_jwt(claims: dict[str, Any]) -> str:
     )
 
 
-def codex_shell_command(inner: str) -> str:
+def codex_shell_command(inner: str, *, home_target: str = CODEX_HOME_TARGET) -> str:
     return (
-        f"export HOME={shell_quote(CODEX_HOME_TARGET)}; "
-        f"export CODEX_HOME={shell_quote(CODEX_HOME_TARGET)}; "
+        f"export HOME={shell_quote(home_target)}; "
+        f"export CODEX_HOME={shell_quote(home_target)}; "
         f"export PATH={shell_quote(CODEX_OVERLAY_TARGET + '/bin')}:$PATH; "
         'if [ -z "$OPENAI_API_KEY" ] && [ -n "$CODEX_API_KEY" ]; then export OPENAI_API_KEY="$CODEX_API_KEY"; fi; '
         'if [ -z "$CODEX_API_KEY" ] && [ -n "$OPENAI_API_KEY" ]; then export CODEX_API_KEY="$OPENAI_API_KEY"; fi; '
         f"{inner}"
+    )
+
+
+def codex_overlay_shell_command(inner: str, *, auth_seed: str | None) -> str:
+    """Initialize bounded, case-local Codex state before invoking the CLI."""
+    home = shell_quote(CODEX_OVERLAY_AGENT_HOME_TARGET)
+    setup = f"umask 077; mkdir -p {home}; "
+    if auth_seed is not None:
+        setup += (
+            f"if [ ! -f {home}/auth.json ]; then "
+            f"cp {shell_quote(auth_seed)} {home}/auth.json; fi; "
+        )
+    return setup + codex_shell_command(
+        inner,
+        home_target=CODEX_OVERLAY_AGENT_HOME_TARGET,
     )
 
 

@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from securebench.tasks import BenchmarkTask
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from securebench.candidates.overlay_agent import OverlayAgentCaptureResult
+    from securebench.candidates.store import CandidateStore
 
 
 @dataclass(frozen=True)
@@ -24,3 +30,15 @@ class CandidateProducer(ABC):
     @abstractmethod
     def produce(self, task: BenchmarkTask, **context: Any) -> CandidateProduction:
         """Run the Agent and return state eligible for trusted capture."""
+
+    def capture_filesystem_overlay(
+        self,
+        task: BenchmarkTask,
+        *,
+        store: CandidateStore,
+        storage_root: Path,
+        capacity_bytes: int,
+        **context: Any,
+    ) -> OverlayAgentCaptureResult:
+        """Run and capture an overlay Candidate through the trusted orchestrator."""
+        raise NotImplementedError

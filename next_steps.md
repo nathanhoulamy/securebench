@@ -184,7 +184,7 @@ state before Candidate code runs, resolves absolute passive artifact paths, moun
 roots into protocol Evaluations, collects overlay Output Artifacts, and destroys the fresh quota
 workspace after every observation or Challenge.
 
-The warning-strict local suite passes with `478 passed, 6 skipped`; the robustness audit, schema
+The warning-strict local suite passes with `488 passed, 6 skipped`; the robustness audit, schema
 generation, compilation, package build, and `git diff --check` also pass. Host-side tests cover
 exact replay, forged baselines, corrupt chunks, traversal and symlink attacks, row-limit
 revalidation, absolute artifact observation, Output Artifacts, cleanup, and fresh two-Challenge
@@ -196,11 +196,12 @@ the explicit root-Linux qualification environment.
 Continue development on the normal macOS workspace; the final Linux qualification is recorded in
 its own section below and must not block other implementation work.
 
-1. Connect the Phase 5 quota-backed Agent capture orchestrator to the normal tester/harness path.
-   Command, Codex, and Claude Code overlay runs must keep task instructions, credentials, Adapter
-   state, and tool state outside captured roots while ensuring every writable location is bounded.
-   Add direct runner tests proving the normal path returns exactly one stored overlay Candidate and
-   cleans Agent state on success, failure, rejection, timeout, and interruption.
+1. [x] Connect the Phase 5 quota-backed Agent capture orchestrator to the normal tester/harness
+   path. Command, Codex, and Claude Code now stage public task inputs on a read-only framework
+   mount, use only declared quota roots for durable writes, and keep CLI state on the bounded
+   container tmpfs. Provider credentials remain behind the host relay. Focused tests prove the
+   runner returns exactly one overlay Candidate and cleans Agent state after success, failure,
+   rejection, timeout, preflight failure, infrastructure failure, and interruption.
 2. Implement and review the final capability-gated execution path. Mock the Linux host probe and
    quota backend in macOS tests, and prove unsupported hosts/storage drivers fail before Agent
    execution. Keep the author-facing overlay path marked non-executable until the deferred native

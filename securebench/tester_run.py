@@ -312,7 +312,29 @@ def _execute_task(
             emit_progress("producer_start", task_id=task.id)
             _reset_task_workspace(workspace_root, task)
             try:
-                production = producer.produce(task)
+                if isinstance(
+                    task.verification.candidate,
+                    FilesystemOverlayCandidate,
+                ):
+                    assert config.docker.overlay_workspace_bytes is not None
+                    emit_progress("candidate_capture_start", task_id=task.id)
+                    overlay_capture = producer.capture_filesystem_overlay(
+                        task,
+                        store=store,
+                        storage_root=(workspace_root / "overlay-agents").resolve(),
+                        capacity_bytes=config.docker.overlay_workspace_bytes,
+                        workspace_root=workspace_root,
+                    )
+                    candidate = overlay_capture.candidate
+                else:
+                    production = producer.produce(task)
+                    emit_progress(
+                        "producer_done",
+                        task_id=task.id,
+                        candidate_type=task.verification.candidate.type,
+                    )
+                    emit_progress("candidate_capture_start", task_id=task.id)
+                    candidate = capture_production(task, production, store)
             except (CandidateProductionTimeout, CandidateProductionError) as exc:
                 code = (
                     "producer_timeout"
@@ -330,32 +352,41 @@ def _execute_task(
                     ),
                     run_seed=run_seed,
                 )
-            else:
-                emit_progress(
-                    "producer_done",
-                    task_id=task.id,
-                    candidate_type=task.verification.candidate.type,
-                )
-                emit_progress("candidate_capture_start", task_id=task.id)
-                try:
-                    candidate = capture_production(task, production, store)
-                except CandidateCaptureError:
-                    emit_progress("candidate_capture_done", task_id=task.id, status="rejected")
-                    result = engine.verify_candidate_error(
-                        task,
-                        code="candidate_capture_rejected",
-                        message="Candidate capture was rejected",
-                        run_seed=run_seed,
-                    )
-                else:
+            except CandidateCaptureError:
+                if isinstance(
+                    task.verification.candidate,
+                    FilesystemOverlayCandidate,
+                ):
                     emit_progress(
-                        "candidate_capture_done",
+                        "producer_done",
                         task_id=task.id,
-                        status="captured",
-                        candidate_digest=candidate.digest,
+                        candidate_type=task.verification.candidate.type,
                     )
-                    emit_progress("verification_start", task_id=task.id)
-                    result = engine.verify(task, candidate, store, run_seed=run_seed)
+                emit_progress("candidate_capture_done", task_id=task.id, status="rejected")
+                result = engine.verify_candidate_error(
+                    task,
+                    code="candidate_capture_rejected",
+                    message="Candidate capture was rejected",
+                    run_seed=run_seed,
+                )
+            else:
+                if isinstance(
+                    task.verification.candidate,
+                    FilesystemOverlayCandidate,
+                ):
+                    emit_progress(
+                        "producer_done",
+                        task_id=task.id,
+                        candidate_type=task.verification.candidate.type,
+                    )
+                emit_progress(
+                    "candidate_capture_done",
+                    task_id=task.id,
+                    status="captured",
+                    candidate_digest=candidate.digest,
+                )
+                emit_progress("verification_start", task_id=task.id)
+                result = engine.verify(task, candidate, store, run_seed=run_seed)
         except Exception as exc:
             emit_progress(
                 "task_internal_error",
