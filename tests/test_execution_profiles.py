@@ -13,6 +13,7 @@ from securebench.execution_profiles import (
     MAX_PASSIVE_ARTIFACT_BYTES_PER_CHECK,
     execution_profile,
     validate_executable_task,
+    validate_task_components,
 )
 from securebench.harnesses.shared import run_timeout_seconds, task_allowed_domains
 from securebench.schemas.benchmark import (
@@ -135,6 +136,10 @@ def test_executable_capability_matrix_rejects_unsupported_schema_branches(varian
 
 def test_git_patch_candidate_is_executable_for_repo_patch_rows():
     validate_executable_task(_unsupported_git_patch(task()))
+
+
+def test_overlay_static_contract_can_be_validated_only_by_the_internal_gate():
+    validate_task_components(_unsupported_filesystem_overlay(task()))
 
 
 def test_unknown_profile_does_not_fall_back_to_another_policy():

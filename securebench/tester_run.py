@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterator
 
+from securebench import execution_profiles
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import (
@@ -26,7 +27,7 @@ from securebench.candidates import (
 )
 from securebench.data_formats import strict_json_loads
 from securebench.errors import ConfigError
-from securebench.execution_profiles import validate_executable_task
+from securebench.execution_profiles import validate_task_components
 from securebench.harnesses import build_harness_producer
 from securebench.harnesses.registry import (
     effective_harness_env_names,
@@ -41,12 +42,18 @@ from securebench.tester_config import TesterConfig
 from securebench.verification import VerificationEngine
 from securebench.verification.models import RESULT_SCHEMA_VERSION, VerificationResultV2
 from securebench.workspaces.cleanup import remove_untrusted_tree
+from securebench.workspaces.overlay_quota import (
+    OverlayWorkspaceCapabilities,
+    OverlayWorkspaceUnavailable,
+    probe_overlay_workspace_backend,
+)
 
 
 DEFAULT_RESULTS_FILENAME = "results.jsonl"
 RUN_LOCK_FILENAME = ".securebench-run.lock"
 EXECUTION_IDENTITY_SCHEMA_VERSION = "2"
 MAX_RESULT_RECORD_BYTES = 256 * 1024
+OVERLAY_AGENT_STORAGE_DIRNAME = "overlay-agents"
 _DOCKER_EXECUTION_ENV_NAMES = (
     "SECUREBENCH_DOCKER_MEM_LIMIT",
     "SECUREBENCH_DOCKER_PIDS_LIMIT",
@@ -78,6 +85,12 @@ class _CompletedTask:
     record: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class _OverlayExecutionCapability:
+    host: OverlayWorkspaceCapabilities
+    storage_root: Path
+
+
 def run_tester_config(
     config: TesterConfig,
     *,
@@ -89,15 +102,18 @@ def run_tester_config(
     pack = load_benchmark_pack(config.benchmark.manifest, config.benchmark.tasks)
     tasks = list(compile_benchmark_pack(pack, limit=limit))
     _validate_overlay_workspace_capacity(config, tasks)
-    for task in tasks:
-        validate_executable_task(task)
-
     output_dir = config.run.output_dir.resolve()
     _validate_output_location(output_dir, pack.root)
     output_dir.mkdir(parents=True, exist_ok=True)
     execution_digest = execution_config_digest(config)
     try:
         with exclusive_file_lock(output_dir / RUN_LOCK_FILENAME, blocking=False):
+            overlay_capability = _validate_execution_capabilities(
+                tasks,
+                overlay_storage_root=(
+                    output_dir / "workspaces" / OVERLAY_AGENT_STORAGE_DIRNAME
+                ).resolve(),
+            )
             return _run_selected_tasks(
                 config,
                 tasks,
@@ -105,6 +121,7 @@ def run_tester_config(
                 execution_digest=execution_digest,
                 progress=progress,
                 resume=resume,
+                overlay_capability=overlay_capability,
             )
     except FileLockError as exc:
         raise ConfigError(
@@ -120,6 +137,7 @@ def _run_selected_tasks(
     execution_digest: str,
     progress: ProgressReporter | None,
     resume: bool,
+    overlay_capability: _OverlayExecutionCapability | None,
 ) -> TesterRunSummary:
     """Execute already-compiled rows while holding the output-directory lock."""
     output_path = output_dir / DEFAULT_RESULTS_FILENAME
@@ -179,6 +197,7 @@ def _run_selected_tasks(
                             progress=progress,
                             index=indexes[task.id],
                             total=len(tasks),
+                            overlay_capability=overlay_capability,
                         )
                     )
             elif remaining:
@@ -196,6 +215,7 @@ def _run_selected_tasks(
                             progress=progress,
                             index=indexes[task.id],
                             total=len(tasks),
+                            overlay_capability=overlay_capability,
                         )
                         for task in remaining
                     ]
@@ -272,6 +292,46 @@ def _validate_overlay_workspace_capacity(
         )
 
 
+def _validate_execution_capabilities(
+    tasks: list[BenchmarkTask],
+    *,
+    overlay_storage_root: Path,
+) -> _OverlayExecutionCapability | None:
+    """Validate static support, then prove the qualified overlay backend once per run."""
+    overlay_tasks = []
+    for task in tasks:
+        overlay = isinstance(
+            task.verification.candidate,
+            FilesystemOverlayCandidate,
+        )
+        validate_task_components(task)
+        if overlay:
+            overlay_tasks.append(task.id)
+    if not overlay_tasks:
+        return None
+    if not execution_profiles.FILESYSTEM_OVERLAY_NATIVE_QUALIFICATION_COMPLETE:
+        raise ConfigError(
+            "filesystem_overlay is schema-valid but not executable until the reviewed "
+            "native-Linux qualification is complete; affected task ids: "
+            + ", ".join(overlay_tasks)
+        )
+    try:
+        host = probe_overlay_workspace_backend(storage_root=overlay_storage_root)
+    except OverlayWorkspaceUnavailable as exc:
+        raise ConfigError(
+            f"filesystem_overlay capability preflight failed: {exc}"
+        ) from exc
+    if (
+        host.operating_system != "Linux"
+        or host.docker_operating_system != "linux"
+        or host.docker_storage_driver != "overlay2"
+    ):
+        raise ConfigError(
+            "filesystem_overlay capability preflight returned unsupported host facts"
+        )
+    return _OverlayExecutionCapability(host=host, storage_root=overlay_storage_root)
+
+
 def _validate_output_location(output_dir: Path, pack_root: Path) -> None:
     root = Path(output_dir.anchor)
     if output_dir == root:
@@ -292,11 +352,16 @@ def _execute_task(
     progress: ProgressReporter | None,
     index: int,
     total: int,
+    overlay_capability: _OverlayExecutionCapability | None,
 ) -> _CompletedTask:
     with progress_context(progress):
         emit_progress("task_start", index=index, total=total, task_id=task.id, family=task.family)
         overlay_backend = None
         if isinstance(task.verification.candidate, FilesystemOverlayCandidate):
+            if overlay_capability is None:
+                raise ConfigError(
+                    "filesystem_overlay execution requires a successful capability preflight"
+                )
             capacity = config.docker.overlay_workspace_bytes
             if capacity is None:
                 raise ConfigError(
@@ -321,7 +386,7 @@ def _execute_task(
                     overlay_capture = producer.capture_filesystem_overlay(
                         task,
                         store=store,
-                        storage_root=(workspace_root / "overlay-agents").resolve(),
+                        storage_root=overlay_capability.storage_root,
                         capacity_bytes=config.docker.overlay_workspace_bytes,
                         workspace_root=workspace_root,
                     )

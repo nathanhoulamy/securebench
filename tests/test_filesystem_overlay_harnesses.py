@@ -32,8 +32,9 @@ from securebench.tester_config import (
     TesterHarnessSection as HarnessSection,
     TesterRunSection as RunSection,
 )
-from securebench.tester_run import _execute_task
+from securebench.tester_run import _OverlayExecutionCapability, _execute_task
 from securebench.verification import VerificationEngine
+from securebench.workspaces.overlay_quota import OverlayWorkspaceCapabilities
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -214,6 +215,13 @@ def runner_config(tmp_path: Path) -> RunConfig:
     )
 
 
+def runner_capability(workspace_root: Path) -> _OverlayExecutionCapability:
+    return _OverlayExecutionCapability(
+        host=OverlayWorkspaceCapabilities("Linux", "linux", "overlay2"),
+        storage_root=(workspace_root / "overlay-agents").resolve(),
+    )
+
+
 def test_normal_runner_captures_one_overlay_and_cleans_agent_inputs(monkeypatch, tmp_path):
     task = overlay_task()
     current = runner_config(tmp_path)
@@ -247,6 +255,7 @@ def test_normal_runner_captures_one_overlay_and_cleans_agent_inputs(monkeypatch,
         progress=None,
         index=1,
         total=1,
+        overlay_capability=runner_capability(workspace_root),
     )
 
     assert len(calls) == 1
@@ -293,6 +302,7 @@ def test_normal_runner_cleans_inputs_after_overlay_failures(monkeypatch, tmp_pat
         progress=None,
         index=1,
         total=1,
+        overlay_capability=runner_capability(workspace_root),
     )
 
     assert completed.record["status"] == "infrastructure_error"

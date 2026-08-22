@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import securebench.execution_profiles as execution_profiles
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import (
@@ -14,6 +15,8 @@ from securebench.candidates import (
     CandidateProductionError,
     CandidateProductionTimeout,
     CandidateStore,
+    OverlayAgentCaptureResult,
+    StoredCandidate,
 )
 from securebench.errors import ConfigError
 from securebench.harnesses.shared import workspace_dir_name
@@ -38,8 +41,12 @@ from securebench.tester_run import (
     execution_config_digest,
     run_tester_config,
 )
-from securebench.schemas.benchmark import FilesystemOverlayCandidate
+from securebench.schemas.benchmark import ArtifactSource, FilesystemOverlayCandidate
 from securebench.verification import CheckResultSummary, VerificationEngine
+from securebench.workspaces.overlay_quota import (
+    OverlayWorkspaceCapabilities,
+    OverlayWorkspaceUnavailable,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -460,6 +467,183 @@ def test_overlay_rows_require_a_tester_owned_workspace_capacity(tmp_path):
         docker=DockerSection(overlay_workspace_bytes=2 * 1024 * 1024 * 1024),
     )
     _validate_overlay_workspace_capacity(configured, [overlay_task])
+
+
+def _overlay_task_for_capability_gate(current):
+    compiled = next(
+        compile_benchmark_pack(
+            load_benchmark_pack(current.benchmark.manifest, current.benchmark.tasks)
+        )
+    )
+    candidate = FilesystemOverlayCandidate.model_validate(
+        {
+            "type": "filesystem_overlay",
+            "include_roots": ["/app"],
+            "max_changed_paths": 10,
+            "max_changed_bytes": 1024,
+        }
+    )
+    check = compiled.verification.checks[0]
+    artifact = check.artifacts[0].model_copy(
+        update={"source": ArtifactSource(path="/app/meeting_scheduled.ics")}
+    )
+    verification = compiled.verification.model_copy(
+        update={
+            "candidate": candidate,
+            "checks": (check.model_copy(update={"artifacts": (artifact,)}),),
+        }
+    )
+    return replace(compiled, verification=verification)
+
+
+def _overlay_run_config(tmp_path):
+    return replace(
+        config(tmp_path),
+        docker=DockerSection(overlay_workspace_bytes=2 * 1024 * 1024 * 1024),
+    )
+
+
+def test_overlay_public_path_remains_disabled_until_native_qualification(
+    monkeypatch,
+    tmp_path,
+):
+    current = _overlay_run_config(tmp_path)
+    task = _overlay_task_for_capability_gate(current)
+    monkeypatch.setattr(
+        "securebench.tester_run.compile_benchmark_pack",
+        lambda pack, limit=None: iter((task,)),
+    )
+    monkeypatch.setattr(
+        "securebench.tester_run.probe_overlay_workspace_backend",
+        lambda **options: pytest.fail("disabled overlay must not probe the host"),
+    )
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda *args, **kwargs: pytest.fail("disabled overlay must not start an Agent"),
+    )
+
+    with pytest.raises(ConfigError, match="native-Linux qualification"):
+        run_tester_config(current)
+
+
+def test_qualified_overlay_gate_probes_once_before_agent_execution(monkeypatch, tmp_path):
+    current = _overlay_run_config(tmp_path)
+    task = _overlay_task_for_capability_gate(current)
+    events = []
+    candidate = StoredCandidate(
+        type="filesystem_overlay",
+        digest="sha256:" + "a" * 64,
+        manifest_path=tmp_path / "candidate.json",
+        baseline_digest=task.baseline_digest,
+    )
+
+    def probe(*, storage_root):
+        events.append(("probe", storage_root))
+        return OverlayWorkspaceCapabilities("Linux", "linux", "overlay2")
+
+    class Producer:
+        def capture_filesystem_overlay(self, selected, **options):
+            events.append(("agent", options["storage_root"]))
+            return OverlayAgentCaptureResult(
+                candidate=candidate,
+                agent_result=CommandResult(command=("agent",), exit_code=0),
+            )
+
+    def fake_verify(self, selected, stored, store, *, run_seed):
+        return self.infrastructure_error(
+            selected,
+            code="test_verification",
+            message="verification intentionally stubbed",
+            candidate=stored,
+        )
+
+    monkeypatch.setattr(
+        execution_profiles,
+        "FILESYSTEM_OVERLAY_NATIVE_QUALIFICATION_COMPLETE",
+        True,
+    )
+    monkeypatch.setattr(
+        "securebench.tester_run.compile_benchmark_pack",
+        lambda pack, limit=None: iter((task,)),
+    )
+    monkeypatch.setattr("securebench.tester_run.probe_overlay_workspace_backend", probe)
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda harness, workspace_root=None: Producer(),
+    )
+    monkeypatch.setattr(VerificationEngine, "verify", fake_verify)
+
+    summary = run_tester_config(current)
+
+    assert summary.infrastructure_errors == 1
+    assert [event[0] for event in events] == ["probe", "agent"]
+    assert events[0][1] == events[1][1]
+
+
+def test_unsupported_overlay_host_fails_before_agent_execution(monkeypatch, tmp_path):
+    current = _overlay_run_config(tmp_path)
+    task = _overlay_task_for_capability_gate(current)
+    events = []
+
+    def unsupported(*, storage_root):
+        events.append("probe")
+        raise OverlayWorkspaceUnavailable("unsupported Docker storage driver")
+
+    monkeypatch.setattr(
+        execution_profiles,
+        "FILESYSTEM_OVERLAY_NATIVE_QUALIFICATION_COMPLETE",
+        True,
+    )
+    monkeypatch.setattr(
+        "securebench.tester_run.compile_benchmark_pack",
+        lambda pack, limit=None: iter((task,)),
+    )
+    monkeypatch.setattr(
+        "securebench.tester_run.probe_overlay_workspace_backend",
+        unsupported,
+    )
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda *args, **kwargs: events.append("agent"),
+    )
+
+    with pytest.raises(ConfigError, match="capability preflight.*storage driver"):
+        run_tester_config(current)
+
+    assert events == ["probe"]
+
+
+def test_overlay_gate_rejects_unexpected_probe_facts_before_agent(monkeypatch, tmp_path):
+    current = _overlay_run_config(tmp_path)
+    task = _overlay_task_for_capability_gate(current)
+    events = []
+
+    def malformed(*, storage_root):
+        events.append("probe")
+        return OverlayWorkspaceCapabilities("Linux", "linux", "btrfs")
+
+    monkeypatch.setattr(
+        execution_profiles,
+        "FILESYSTEM_OVERLAY_NATIVE_QUALIFICATION_COMPLETE",
+        True,
+    )
+    monkeypatch.setattr(
+        "securebench.tester_run.compile_benchmark_pack",
+        lambda pack, limit=None: iter((task,)),
+    )
+    monkeypatch.setattr(
+        "securebench.tester_run.probe_overlay_workspace_backend",
+        malformed,
+    )
+    monkeypatch.setattr(
+        "securebench.tester_run.build_harness_producer",
+        lambda *args, **kwargs: events.append("agent"),
+    )
+
+    with pytest.raises(ConfigError, match="unsupported host facts"):
+        run_tester_config(current)
+
+    assert events == ["probe"]
 
 
 def test_runner_resume_reexecutes_after_agent_environment_changes(monkeypatch, tmp_path):

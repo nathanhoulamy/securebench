@@ -60,6 +60,9 @@ MAX_FILESYSTEM_OVERLAY_CHANGED_BYTES = 4 * 1024 * 1024 * 1024
 MAX_FILESYSTEM_OVERLAY_CHANGED_PATHS = 50_000
 MAX_PASSIVE_ARTIFACT_BYTES_PER_CHECK = 256 * 1024 * 1024
 MAX_PASSIVE_ARTIFACT_FILES_PER_CHECK = 10_000
+# This is deliberately changed only by the final reviewed native-Linux
+# qualification commit. It has no environment-variable or tester-config bypass.
+FILESYSTEM_OVERLAY_NATIVE_QUALIFICATION_COMPLETE = False
 
 
 def execution_profile(profile_id: str) -> ExecutionProfile:
@@ -71,15 +74,28 @@ def execution_profile(profile_id: str) -> ExecutionProfile:
 
 def validate_executable_task(task: BenchmarkTask) -> None:
     """Fail before Agent execution when the declared path is not implemented."""
+    _validate_task_components(task, reject_unqualified_overlay=True)
+
+
+def validate_task_components(task: BenchmarkTask) -> None:
+    """Validate task components without asserting host capability qualification."""
+    _validate_task_components(task, reject_unqualified_overlay=False)
+
+
+def _validate_task_components(
+    task: BenchmarkTask,
+    *,
+    reject_unqualified_overlay: bool,
+) -> None:
     profile = execution_profile(task.verification.execution_profile)
     if not profile.implemented:
         raise ConfigError(f"Execution profile {profile.id!r} is registered but not implemented")
     candidate = task.verification.candidate
     _validate_candidate_bounds(candidate)
-    if not isinstance(candidate, (FileBundleCandidate, GitPatchCandidate)):
+    if isinstance(candidate, FilesystemOverlayCandidate) and reject_unqualified_overlay:
         raise ConfigError(
-            "This implementation batch executes file_bundle and git_patch candidates; "
-            f"{task.verification.candidate.type!r} is schema-valid but not executable yet"
+            "filesystem_overlay is schema-valid but not executable until the reviewed "
+            "native-Linux qualification is complete"
         )
     if isinstance(candidate, FileBundleCandidate):
         workdir = PurePosixPath(task.environment.workdir)

@@ -184,7 +184,7 @@ state before Candidate code runs, resolves absolute passive artifact paths, moun
 roots into protocol Evaluations, collects overlay Output Artifacts, and destroys the fresh quota
 workspace after every observation or Challenge.
 
-The warning-strict local suite passes with `488 passed, 6 skipped`; the robustness audit, schema
+The warning-strict local suite passes with `493 passed, 6 skipped`; the robustness audit, schema
 generation, compilation, package build, and `git diff --check` also pass. Host-side tests cover
 exact replay, forged baselines, corrupt chunks, traversal and symlink attacks, row-limit
 revalidation, absolute artifact observation, Output Artifacts, cleanup, and fresh two-Challenge
@@ -202,10 +202,13 @@ its own section below and must not block other implementation work.
    container tmpfs. Provider credentials remain behind the host relay. Focused tests prove the
    runner returns exactly one overlay Candidate and cleans Agent state after success, failure,
    rejection, timeout, preflight failure, infrastructure failure, and interruption.
-2. Implement and review the final capability-gated execution path. Mock the Linux host probe and
-   quota backend in macOS tests, and prove unsupported hosts/storage drivers fail before Agent
-   execution. Keep the author-facing overlay path marked non-executable until the deferred native
-   qualification passes.
+2. [x] Implement and review the final capability-gated execution path. The run lock now protects a
+   one-time probe of the exact Agent-overlay storage root before the harness is constructed, and
+   the runner requires the resulting internal capability token before capture. macOS tests mock
+   the quota probe and prove the supported sequence is probe then Agent, while unsupported or
+   malformed host/storage facts fail before Agent execution. The source-controlled native
+   qualification flag remains false, with no tester-config or environment-variable bypass, so the
+   author-facing overlay path stays non-executable until the deferred native qualification passes.
 3. Finish all remaining deterministic, mocked-Docker, failure-path, adversarial, schema, audit, and
    packaging checks available on macOS. When a test fundamentally requires native Linux, add it as
    an explicitly gated test and record it in the final qualification section instead of stopping
