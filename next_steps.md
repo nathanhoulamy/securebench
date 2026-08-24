@@ -219,10 +219,16 @@ its own section below and must not block other implementation work.
 
 ## Later work
 
+- **Decision 2026-08-24:** do not prioritize a standalone benchmark-admission tool yet. During each
+  conversion, manually demonstrate base failure, reference success, targeted-mutant rejection,
+  malicious-candidate rejection, and semantic fidelity in that conversion's review record. Build
+  automation for this workflow later, after practical DeepSWE and Terminal-Bench conversions have
+  established what should be generalized.
+- Finish the remaining resource hardening: quota active Agent workspaces, bound trusted resource
+  and Git-baseline processing, add a coherent total Evaluation budget, and prevent abandoned
+  non-overlay Candidate blobs from accumulating.
 - Implement `batched-split/v1` only as a visibly weaker, separately reported fallback after strict
   Trusted Helper isolation is mature.
-- Build admission tooling for base failure, reference success, targeted-mutant rejection,
-  malicious-candidate rejection, and semantic-fidelity records.
 - Define component registry governance and review/publication policy for pack-local adapters and
   Oracles.
 - Add stronger Oracle OS confinement and, if required, signed result records.
