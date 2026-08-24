@@ -151,7 +151,14 @@ resource_roots:
 
 
 class FakeOverlayWorkspace:
-    def __init__(self, root: Path, include_roots: tuple[str, ...], events: list[str]):
+    def __init__(
+        self,
+        root: Path,
+        include_roots: tuple[str, ...],
+        events: list[str],
+        *,
+        fail_cleanup: bool = False,
+    ):
         self.include_roots = include_roots
         self.root = root
         self.roots = {
@@ -161,6 +168,7 @@ class FakeOverlayWorkspace:
         for path in self.roots.values():
             path.mkdir(parents=True)
         self.events = events
+        self.fail_cleanup = fail_cleanup
 
     def host_roots(self):
         return self.roots
@@ -168,10 +176,13 @@ class FakeOverlayWorkspace:
     def close(self):
         self.events.append("closed")
         shutil.rmtree(self.root)
+        if self.fail_cleanup:
+            raise RuntimeError("synthetic overlay cleanup failure")
 
 
+@pytest.mark.parametrize("fail_cleanup", [False, True])
 def test_overlay_artifact_uses_fresh_absolute_path_mapping_and_cleanup(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, fail_cleanup
 ):
     import securebench.candidates.overlay as overlay_module
 
@@ -198,7 +209,10 @@ def test_overlay_artifact_uses_fresh_absolute_path_mapping_and_cleanup(
 
     def workspace_factory(*, include_roots, **_kwargs):
         workspace = FakeOverlayWorkspace(
-            tmp_path / f"evaluation-{len(created)}", include_roots, events
+            tmp_path / f"evaluation-{len(created)}",
+            include_roots,
+            events,
+            fail_cleanup=fail_cleanup,
         )
         created.append(workspace)
         return workspace
@@ -225,8 +239,12 @@ def test_overlay_artifact_uses_fresh_absolute_path_mapping_and_cleanup(
         task, candidate, store, run_seed="overlay-artifact", oracle=oracle
     )
 
-    assert result.status == "passed"
-    assert oracle.evidence[0].parsed_value == {"answer": 42}
+    if fail_cleanup:
+        assert result.status == "infrastructure_error"
+        assert result.infrastructure_error["code"] == "artifact_cleanup_failed"
+    else:
+        assert result.status == "passed"
+        assert oracle.evidence[0].parsed_value == {"answer": 42}
     assert len(created) == 1
     assert events == ["closed"]
     assert not created[0].root.exists()

@@ -356,7 +356,14 @@ def capture_answer(root: Path, task):
 
 
 class FakeProtocolOverlayWorkspace:
-    def __init__(self, root: Path, include_roots: tuple[str, ...], index: int):
+    def __init__(
+        self,
+        root: Path,
+        include_roots: tuple[str, ...],
+        index: int,
+        *,
+        fail_cleanup: bool = False,
+    ):
         self.root = root
         self.include_roots = include_roots
         self.volume_name = f"securebench-test-overlay-{index}"
@@ -366,6 +373,7 @@ class FakeProtocolOverlayWorkspace:
         }
         for path in self.roots.values():
             path.mkdir(parents=True)
+        self.fail_cleanup = fail_cleanup
 
     def host_roots(self):
         return self.roots
@@ -383,10 +391,13 @@ class FakeProtocolOverlayWorkspace:
 
     def close(self):
         shutil.rmtree(self.root)
+        if self.fail_cleanup:
+            raise RuntimeError("synthetic overlay cleanup failure")
 
 
+@pytest.mark.parametrize("fail_cleanup", [False, True])
 def test_overlay_protocol_uses_fresh_replay_per_case_and_collects_output(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, fail_cleanup
 ):
     import securebench.candidates.overlay as overlay_module
 
@@ -415,6 +426,7 @@ def test_overlay_protocol_uses_fresh_replay_per_case_and_collects_output(
             tmp_path / f"overlay-evaluation-{len(workspaces)}",
             include_roots,
             len(workspaces),
+            fail_cleanup=fail_cleanup,
         )
         workspaces.append(workspace)
         return workspace
@@ -485,13 +497,18 @@ def test_overlay_protocol_uses_fresh_replay_per_case_and_collects_output(
         task, candidate, store, run_seed="overlay-protocol", oracle=oracle
     )
 
-    assert result.status == "passed"
-    assert len(workspaces) == 2
-    assert workspaces[0].volume_name != workspaces[1].volume_name
+    if fail_cleanup:
+        assert result.status == "infrastructure_error"
+        assert result.infrastructure_error["code"] == "evaluation_cleanup_failed"
+        assert len(workspaces) == 1
+    else:
+        assert result.status == "passed"
+        assert len(workspaces) == 2
+        assert workspaces[0].volume_name != workspaces[1].volume_name
+        assert [
+            evidence.output_artifacts[0].parsed_value for evidence in oracle.evidence
+        ] == [{"challenge": 2}, {"challenge": 3}]
     assert not any(workspace.root.exists() for workspace in workspaces)
-    assert [
-        evidence.output_artifacts[0].parsed_value for evidence in oracle.evidence
-    ] == [{"challenge": 2}, {"challenge": 3}]
 
 
 @pytest.mark.skipif(

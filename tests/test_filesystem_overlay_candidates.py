@@ -385,6 +385,35 @@ def test_overlay_load_rejects_escaping_stored_path(tmp_path: Path):
         store.load_candidate(malformed.digest)
 
 
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("Config", "config"),
+        ("caf\N{LATIN SMALL LETTER E WITH ACUTE}", "cafe\N{COMBINING ACUTE ACCENT}"),
+    ],
+)
+def test_overlay_load_rejects_stored_portable_path_aliases(
+    tmp_path: Path, first: str, second: str
+):
+    baseline, final = root_pair(tmp_path)
+    (final / "changed.txt").write_text("after\n")
+    store = CandidateStore(tmp_path / "store")
+    valid = capture(baseline, final, store)
+    payload = copy.deepcopy(store.load_candidate(valid.digest).payload)
+    original = payload["changes"][0]
+    aliases = [
+        {**original, "path": first},
+        {**original, "path": second},
+    ]
+    payload["changes"] = sorted(aliases, key=lambda item: item["path"].encode("utf-8"))
+    payload["changed_paths"] = 2
+    payload["changed_bytes"] = 2 * original["size"]
+    malformed = store.put_candidate("filesystem_overlay", BASELINE, payload)
+
+    with pytest.raises(CandidateStoreError, match="changes contain path aliases"):
+        store.load_candidate(malformed.digest)
+
+
 def test_overlay_replay_reconstructs_exact_final_state(tmp_path: Path):
     baseline, final = root_pair(tmp_path)
     (baseline / "current").symlink_to("unchanged.txt")
@@ -434,6 +463,28 @@ def test_overlay_replay_rejects_forged_baseline_digest(tmp_path: Path):
     shutil.copytree(baseline, replay)
 
     with pytest.raises(CandidateReplayError, match="baseline root mismatch"):
+        replay_filesystem_overlay(
+            forged,
+            store,
+            {"/app": replay},
+            spec=overlay_spec(),
+            expected_baseline_digest=BASELINE,
+            scan_limits=local_limits(),
+        )
+
+
+def test_overlay_replay_rejects_forged_final_state_digest(tmp_path: Path):
+    baseline, final = root_pair(tmp_path)
+    (final / "changed.txt").write_text("after\n")
+    store = CandidateStore(tmp_path / "store")
+    valid = capture(baseline, final, store)
+    payload = copy.deepcopy(store.load_candidate(valid.digest).payload)
+    payload["roots"][0]["final_tree_digest"] = "sha256:" + "f" * 64
+    forged = store.put_candidate("filesystem_overlay", BASELINE, payload)
+    replay = tmp_path / "replay"
+    shutil.copytree(baseline, replay)
+
+    with pytest.raises(CandidateReplayError, match="final root mismatch"):
         replay_filesystem_overlay(
             forged,
             store,

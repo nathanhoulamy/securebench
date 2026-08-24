@@ -161,21 +161,21 @@ should remain configurable below those framework capacities.
 - Full warning-strict, real-Docker protocol, self-audit, schema regeneration, packaging, and leak
   checks passed. The unresolved resource budgets above remain explicit future work.
 
-## Priority 5: filesystem overlays — Phase 7 remains
+## Completed on macOS 2026-08-22: filesystem-overlay implementation
 
 The accepted Phase 1 contract is documented in
 [`docs/split-verification/filesystem-overlay-v1.md`](docs/split-verification/filesystem-overlay-v1.md).
 It fixes the proposed v1 payload, trust boundary, protected paths, normalized semantics, bounds,
 capture/replay order, failure ownership, and security checklist. This documentation does not make
 the feature executable. The Phase 2 schema/preflight gate migrates the unused limit names, validates
-static root and mount policy, and retains the unconditional non-executable gate.
+static root and mount policy, and retains fail-closed activation.
 
-The Phase 3 review candidate adds the required tester-owned
+The Phase 3 implementation adds the required tester-owned
 `docker.overlay_workspace_bytes` capacity, binds it to resume provenance, and implements the
 Linux-only sparse-ext4/loop-device workspace exposed through one Docker volume with distinct root
 subpaths. Its capability probe requires reviewed Docker storage, proves enforced `ENOSPC`, recovers
 stale interrupted state, and checks complete cleanup. Overlay execution remains disabled pending
-review.
+the final native qualification.
 
 Phases 4 and 5 add canonical transactional capture and a standalone stopped-Agent capture
 orchestrator. Phase 6 now adds fresh Evaluation reconstruction: it materializes and verifies the
@@ -184,14 +184,15 @@ state before Candidate code runs, resolves absolute passive artifact paths, moun
 roots into protocol Evaluations, collects overlay Output Artifacts, and destroys the fresh quota
 workspace after every observation or Challenge.
 
-The warning-strict local suite passes with `493 passed, 6 skipped`; the robustness audit, schema
+The warning-strict local suite passes with `498 passed, 6 skipped`; the robustness audit, schema
 generation, compilation, package build, and `git diff --check` also pass. Host-side tests cover
-exact replay, forged baselines, corrupt chunks, traversal and symlink attacks, row-limit
-revalidation, absolute artifact observation, Output Artifacts, cleanup, and fresh two-Challenge
-isolation. A real two-volume Docker Evaluation test is present but intentionally skipped outside
-the explicit root-Linux qualification environment.
+exact replay, forged baseline and final-state digests, corrupt chunks, traversal and symlink
+attacks, case/Unicode aliases, malformed manifests, row-limit revalidation, absolute artifact
+observation, Output Artifacts, cleanup-failure ownership, and fresh two-Challenge isolation. A real
+two-volume Docker Evaluation test is present but intentionally skipped outside the explicit
+root-Linux qualification environment.
 
-### Next on macOS: finish the Phase 7 implementation
+### macOS Phase 7 closure
 
 Continue development on the normal macOS workspace; the final Linux qualification is recorded in
 its own section below and must not block other implementation work.
@@ -209,11 +210,11 @@ its own section below and must not block other implementation work.
    malformed host/storage facts fail before Agent execution. The source-controlled native
    qualification flag remains false, with no tester-config or environment-variable bypass, so the
    author-facing overlay path stays non-executable until the deferred native qualification passes.
-3. Finish all remaining deterministic, mocked-Docker, failure-path, adversarial, schema, audit, and
-   packaging checks available on macOS. When a test fundamentally requires native Linux, add it as
-   an explicitly gated test and record it in the final qualification section instead of stopping
-   development.
-4. Continue with later roadmap work after the macOS implementation is complete. Do not wait for a
+3. [x] Finish all deterministic, mocked-Docker, failure-path, adversarial, schema, audit, and
+   packaging checks available on macOS. The final closure adds explicit stored case/Unicode-alias,
+   forged final-state digest, and Artifact/protocol cleanup-failure tests. Native-only checks remain
+   explicitly gated and recorded in the final qualification section.
+4. [x] Return to later roadmap work after the macOS implementation is complete. Do not wait for a
    Linux host between features; collect native-only qualification work for the single final pass.
 
 ## Later work

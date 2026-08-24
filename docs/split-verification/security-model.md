@@ -148,23 +148,24 @@ tester-owned upper bound on actual connectivity.
   authority or content after validating CONNECT, DNS, public IPs, and SNI.
 - Writable public asset mounts are schema-valid but blocked by current
   execution preflight until composed stopped-filesystem capture is available.
-- `filesystem_overlay` and `batched-split/v1` are registered design surfaces
-  but not executable. The accepted overlay format and threat model are in
-  [`filesystem-overlay-v1.md`](filesystem-overlay-v1.md); its row schema and
-  static preflight validation do not enable capture or replay. The Phase 3
-  Linux ext4 quota backend is also present only as a review-gated capability:
-  unsupported hosts, missing loop/mount support, unsupported Docker storage,
-  failed `ENOSPC` enforcement, or incomplete cleanup all fail closed.
+- `filesystem_overlay` and `batched-split/v1` are registered but not executable
+  in normal runs. The overlay capture/replay implementation and accepted threat
+  model are documented in
+  [`filesystem-overlay-v1.md`](filesystem-overlay-v1.md). Overlay execution is
+  protected by an internal capability token and a source-controlled native
+  qualification flag with no configuration or environment bypass. Unsupported
+  hosts, missing loop/mount support, unsupported Docker storage, failed
+  `ENOSPC` enforcement, or incomplete cleanup all fail closed before the Agent.
 - Adapter v2, Challenge Evidence, the Trusted Helper Catalog, and bounded
   Output Artifact collection are implemented. `securebench.http-request-recorder/v1`
   is the only executable helper type; unregistered helpers still fail preflight.
 - Pack-local Oracle code is trusted and requires review/admission controls.
 - The reference Oracle runs as a sanitized host subprocess; stronger OS-level
   Oracle confinement remains future hardening.
-- Currently executable Agent workspaces do not yet use a framework-owned disk
-  quota. The overlay-specific quota backend is not connected to Agent runs
-  until the remaining overlay gates are accepted, so deployment-level storage
-  isolation remains required for existing Candidate types.
+- Currently executable `file_bundle` and `git_patch` Agent workspaces do not yet
+  use a framework-owned disk quota, so deployment-level storage isolation
+  remains required for them. Overlay Agent and Evaluation paths are connected
+  to the quota backend, but remain non-executable pending native qualification.
 - Trusted benchmark resources and Git baselines are hash-bound and reviewed,
   but their directory traversal and Git subprocesses do not yet have a
   framework-wide entry-count or wall-clock ceiling. This is not an

@@ -1,13 +1,12 @@
 # Filesystem overlay v1
 
-Status: Phases 1 and 2 accepted; the Phase 3 quota backend, Phase 4 canonical
-scanner/store, and Phase 5 stopped-Agent capture path are review candidates.
-`filesystem_overlay` remains non-executable.
+Status: Phases 1-7 are implemented and locally qualified. Native activation is
+still gated on the deferred root-Linux qualification, so `filesystem_overlay`
+remains non-executable in normal runs.
 
-This document specifies the first reviewable filesystem-overlay Candidate
-format and its threat model. The contract does not by itself enable overlay
-rows: schema migration, quota, capture, replay, and final activation remain
-separate security gates.
+This document specifies the filesystem-overlay Candidate format and its threat
+model. Implementing the contract does not by itself enable overlay rows: native
+qualification and final activation remain separate security gates.
 
 ## Purpose and trust boundary
 
@@ -202,8 +201,9 @@ error and leaves the remaining state attached for safe recovery.
 The pinned probe image must already be local; the probe never substitutes or
 implicitly selects an unreviewed image.
 
-Phase 3 does not connect this backend to Agent capture or Evaluation replay.
-The unconditional non-executable overlay gate remains in force.
+The backend is connected to Agent capture and Evaluation replay behind an
+internal capability token. Normal execution cannot obtain that token while the
+source-controlled native-qualification flag remains false.
 
 ## Stored Candidate payload
 
@@ -368,17 +368,13 @@ exercise Candidate state only after replay verification succeeds.
 - [x] Fresh verified replay and cleanup required for every Evaluation.
 - [x] Candidate and infrastructure failure sources kept distinct.
 
-Phase 2 implements the row-schema and static-preflight portion of this
-contract while retaining the unconditional non-executable overlay gate.
+Phases 2-4 implement the row-schema/static-preflight contract, Linux quota
+backend, no-follow bounded scanner, canonical diff and chunk representation,
+strict stored-manifest validation, and crash-recoverable Candidate-store
+transactions.
 
-Phase 4 implements the no-follow bounded tree scanner, canonical diff and
-chunk representation, strict stored-manifest validation, and crash-recoverable
-Candidate-store transactions. It is deliberately not connected to Agent
-capture at that gate. Phase 5 connects stopped-Agent capture; Evaluation replay
-remains the separate Phase 6 gate.
-
-Phase 5 adds a Linux-only Agent-capture orchestrator without activating overlay
-rows. It copies each declared root from the digest-pinned image directly into
+Phase 5 adds the Linux-only Agent-capture orchestrator. It copies each declared
+root from the digest-pinned image directly into
 the quota filesystem under an aggregate timeout, rejects an unsupported
 baseline before Agent startup, and records the trusted baseline manifests.
 Task inputs are mounted read-only at `/opt/securebench/agent-inputs`, outside
@@ -390,5 +386,31 @@ The orchestrator removes the Agent container before asking the trusted scanner
 for final root paths. It then stores exactly one Candidate and destroys the
 volume, loop mount, and backing file on success, Agent failure, capture
 rejection, timeout, or interruption. Candidate-store and cleanup faults remain
-infrastructure errors. The normal execution-profile gate is still unconditional
-until replay and adversarial qualification are complete.
+infrastructure errors.
+
+Phase 6 reconstructs a fresh quota workspace from the pinned baseline for every
+Artifact observation or protocol Challenge, verifies the baseline, applies the
+Candidate in canonical order, verifies the final-state digest before execution,
+and destroys the workspace afterward. Absolute Artifact and Output Artifact
+paths are resolved only through the declared root mapping.
+
+## Phase 7 local qualification
+
+The macOS-capable qualification is complete. Deterministic and mocked-Docker
+tests cover traversal, escaping symlinks, case and Unicode-normalization
+aliases, malformed manifests, corrupt chunks, deletion bombs, unsupported
+metadata and file types, protected roots, quota-probe exhaustion, forged
+baseline and final-state digests, cleanup failures, exact replay, and
+cross-Evaluation isolation. Cleanup faults at both passive Artifact and protocol
+boundaries are proven to remain infrastructure errors.
+
+The warning-strict suite passes with `498 passed, 6 skipped`. Schema
+regeneration, the built-in robustness audit, bytecode compilation, package
+build, and `git diff --check` also pass.
+
+The skipped native tests are deliberate activation gates, not local test gaps.
+They require a real root Linux host with loop-backed ext4, Docker `overlay2`,
+and volume-subpath support. They prove physical `ENOSPC`, real stopped-Agent
+capture, two fresh real-Docker Evaluations, complete resource cleanup, and leak
+absence. The normal execution path remains fail-closed until those tests pass
+and the source-controlled qualification flag is reviewed and enabled.

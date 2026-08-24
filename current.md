@@ -1,9 +1,9 @@
 # Current SecureBench v2 state
 
-Last reviewed: 2026-08-21
+Last reviewed: 2026-08-22
 
 Implementation baseline reviewed: this branch through Output Artifacts, Trusted Helper execution,
-and the subsequent architecture-wide hardening passes
+git-patch execution, and the locally qualified filesystem-overlay implementation
 
 Active development branch: `split-verification-v2`
 
@@ -72,9 +72,9 @@ the runner does not invent a benchmark score.
 | Non-overlapping, symlink-safe resource roots | Implemented |
 | `file_bundle` candidate | Implemented end to end, including bounded directory trees |
 | `git_patch` candidate | Implemented end to end with exact clean-commit baselines and canonical stopped-state capture |
-| `filesystem_overlay` candidate | Schema only; capture format and engine are not implemented |
+| `filesystem_overlay` candidate | Capture, transactional storage, fresh replay, and normal harness integration implemented; native execution remains qualification-gated |
 | Passive artifact check using `source.entry` | Implemented for `file_bundle` |
-| Artifact check using `source.path` | Implemented for bounded repository-relative `git_patch` paths; overlay paths remain blocked |
+| Artifact check using `source.path` | Implemented for bounded repository-relative `git_patch` paths and absolute paths mapped through fresh overlay roots |
 | Registered passive parsers | JSON, UTF-8 text, ICS, and tree-manifest profiles exist |
 | Basic protocol check | Implemented with finite JSON, bounded I/O, and a fresh offline container per Challenge |
 | Adapter v2 contract | The only supported Adapter format; implemented with typed Challenge/Observation schemas, Evaluation Participants, Trusted Helper requirements, Output Artifacts, and reduced maximums |
@@ -82,7 +82,7 @@ the runner does not invent a benchmark score.
 | Trusted Helper Catalog | Typed contracts, semantic preflight, reviewed runtime registration, and fail-closed lookup implemented |
 | `securebench.http-request-recorder/v1` | Implemented end to end with fresh instances/credentials, internal-only networking, bounded request evidence, and correlated teardown |
 | Output Artifacts | Implemented for bounded regular files and directory trees from the same disposable Evaluation |
-| `strict-split/v1` | Implemented for file-bundle and git-patch artifact/protocol paths, including the HTTP recorder Trusted Helper |
+| `strict-split/v1` | Implemented for file-bundle and git-patch execution and for qualification-gated overlay artifact/protocol paths, including the HTTP recorder Trusted Helper |
 | `batched-split/v1` | Registered but explicitly not implemented |
 | Host Oracle JSON-lines ABI | Implemented for initialize, artifact evidence, cases, case evidence, and final verdict |
 | Sanitized result/provenance and resume validation | Implemented |
@@ -123,8 +123,9 @@ filesystem-overlay example remains intentionally non-executable.
   for Git patches, and 10,000 entries / 256 MiB per passive artifact check.
 - Oracle and adapter manifests fail closed, and Oracle manifests are validated during preflight
   without starting the process.
-- Executable-capability matrix tests prove the registered batched profile, overlay candidate, and
-  unknown Trusted Helper types fail preflight while unsupported.
+- Executable-capability matrix tests prove the registered batched profile, qualification-gated
+  overlay candidate, and unknown Trusted Helper types fail preflight while unsupported. Overlay
+  tests also prove the backend probe precedes Agent startup and is bound to the exact storage root.
 - Adapter v2 validates closed typed Challenge and Observation values, exact Evaluation
   Participants, Trusted Helper requirements, Output Artifact declarations, and row limits against
   Adapter hard maximums before Candidate execution.
@@ -172,16 +173,17 @@ schema support.
 3. `restricted` and `internet` both currently permit only the tester's explicit domain allowlist;
    only `none` changes the row-level ceiling. This is safe, but the intended semantic distinction
    should be documented or implemented before relying on it for benchmark requirements.
-4. The filesystem-overlay canonical format and protected-root policy remain intentionally
-   unspecified and unimplemented.
+4. The filesystem-overlay implementation is complete on macOS but deliberately non-executable.
+   Activation still requires the deferred native root-Linux quota, real-Docker isolation, and leak
+   qualification recorded in `next_steps.md`.
 5. Pack-local Oracle code is trusted and hash-bound but runs as a sanitized host subprocess, not
    inside a stronger OS sandbox.
 6. Assertion-free Adapters, component capability review, base/gold/mutant qualification, and
    semantic-fidelity review remain admission/governance responsibilities rather than mechanically
    proven row-schema properties.
-7. Candidate capture and observation have strict output capacities, but the host-backed Agent
-   workspace itself has no framework-owned disk quota yet. Deployment storage isolation is still
-   needed to prevent a running Agent from filling the host filesystem.
+7. Currently executable file-bundle and git-patch Agent workspaces still lack a framework-owned
+   disk quota. The overlay path has a quota backend, but it stays disabled pending native
+   qualification. Deployment storage isolation remains necessary for active Candidate types.
 8. Trusted benchmark resource trees and Git baselines are not subject to a framework-wide
    traversal-entry or subprocess wall-clock ceiling. They are author-controlled and hash-bound,
    rather than Candidate-controlled, but an oversized or malformed admitted pack can still consume
@@ -191,16 +193,15 @@ schema support.
    Helper evidence, and serialized Oracle request size are not capped across a whole row. A reviewed
    but impractical row can therefore consume excessive time or memory even though each individual
    component remains within its declared maximum.
-10. Candidate capture writes content-addressed blobs before committing the final manifest. A
-    capture that is interrupted or rejected after some writes can leave bounded but unreferenced
-    blobs in the run artifact store; there is no transactional staging or garbage collector yet.
-    This is another reason the output directory still needs a storage quota for long-lived use.
+10. Filesystem-overlay capture uses crash-recoverable transactions and removes unpublished chunks.
+    Other Candidate capture paths can still write content-addressed blobs before committing their
+    final manifest, so the run output directory still needs a storage quota for long-lived use.
 
 ## Verification evidence
 
 At this review pass:
 
-- full warning-strict suite: `416 passed, 3 skipped`;
+- full warning-strict suite: `498 passed, 6 skipped`;
 - complete protocol suite with Docker integration enabled: `34 passed`, including two fresh
   combined recorder/Output Artifact Evaluations, the ordinary fresh Evaluation, and
   clean-repository git-patch replay;
@@ -209,8 +210,8 @@ At this review pass:
 - built-in robustness audit: 5 passed, 0 failed, 0 warnings;
 - no author-facing Pydantic field changed in this review, and schema regeneration produced no
   checked-in JSON Schema diff;
-- a wheel containing the reviewed tester, candidate-store, evidence, Oracle, helper, and artifact
-  paths built successfully;
+- a wheel and source distribution containing the reviewed tester, candidate-store, overlay,
+  evidence, Oracle, helper, and artifact paths built successfully;
 - compile checks and `git diff --check` passed.
 
 Useful commands:
