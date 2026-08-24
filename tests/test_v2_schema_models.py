@@ -258,6 +258,13 @@ def test_filesystem_overlay_row_validates_workdir_and_mount_boundaries():
             BenchmarkPackManifestV2.model_validate(manifest_data()),
         )
 
+    aliased_artifact = overlay_row_data()
+    aliased_artifact["verification"]["checks"][0]["artifacts"][0]["source"] = {
+        "path": "/App/result.json"
+    }
+    with pytest.raises(ValidationError, match="outside candidate include_roots"):
+        BenchmarkRowDocumentV2.model_validate(aliased_artifact)
+
     writable_asset = overlay_row_data()
     writable_asset["assets"][0]["read_only"] = False
     with pytest.raises(ValidationError, match="must be read-only"):

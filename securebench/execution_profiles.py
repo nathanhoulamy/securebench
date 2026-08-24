@@ -92,7 +92,11 @@ def _validate_task_components(
         raise ConfigError(f"Execution profile {profile.id!r} is registered but not implemented")
     candidate = task.verification.candidate
     _validate_candidate_bounds(candidate)
-    if isinstance(candidate, FilesystemOverlayCandidate) and reject_unqualified_overlay:
+    if (
+        isinstance(candidate, FilesystemOverlayCandidate)
+        and reject_unqualified_overlay
+        and not FILESYSTEM_OVERLAY_NATIVE_QUALIFICATION_COMPLETE
+    ):
         raise ConfigError(
             "filesystem_overlay is schema-valid but not executable until the reviewed "
             "native-Linux qualification is complete"
@@ -173,7 +177,7 @@ def _validate_candidate_bounds(
             or candidate.max_changed_bytes > MAX_FILESYSTEM_OVERLAY_CHANGED_BYTES
         ):
             raise ConfigError(
-                "filesystem_overlay candidate bounds exceed the planned backend capacity"
+                "filesystem_overlay candidate bounds exceed the backend capacity"
             )
         return
     if (

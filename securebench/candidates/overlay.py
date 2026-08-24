@@ -94,6 +94,15 @@ class ScannedOverlayRoot:
     root_identity: tuple[int, int, int, int, int, int, int, int]
 
 
+@dataclass(frozen=True)
+class OverlayReservedMount:
+    """One public mount target whose underlying Candidate state is immutable."""
+
+    root: str
+    path: str
+    kind: str
+
+
 def scan_overlay_root(
     root_path: str,
     source: str | Path,
@@ -266,6 +275,7 @@ def capture_filesystem_overlay_from_baseline(
     *,
     baseline_digest: str,
     scan_limits: OverlayScanLimits = OverlayScanLimits(),
+    reserved_mounts: tuple[OverlayReservedMount, ...] = (),
 ) -> StoredCandidate:
     """Capture from a trusted manifest recorded before the Agent was started."""
     expected = tuple(spec.include_roots)
@@ -279,6 +289,7 @@ def capture_filesystem_overlay_from_baseline(
     final = scan_overlay_roots(
         expected, final_roots, limits=scan_limits, label="final"
     )
+    _require_reserved_mounts_unchanged(baseline, final, reserved_mounts)
     for root in expected:
         if baseline[root].root_identity[5:] != final[root].root_identity[5:]:
             raise CandidateCaptureError("overlay include-root ownership or mode changed")
@@ -346,6 +357,69 @@ def capture_filesystem_overlay_from_baseline(
             baseline_digest,
             payload,
         )
+
+
+def _require_reserved_mounts_unchanged(
+    baseline: dict[str, ScannedOverlayRoot],
+    final: dict[str, ScannedOverlayRoot],
+    reservations: tuple[OverlayReservedMount, ...],
+) -> None:
+    """Prove nested public mounts did not alter or conceal Candidate changes."""
+    for reservation in reservations:
+        before_root = baseline.get(reservation.root)
+        after_root = final.get(reservation.root)
+        if before_root is None or after_root is None:
+            raise CandidateCaptureError("overlay reserved mount root is invalid")
+        before = {node.path: node for node in before_root.nodes}
+        after = {node.path: node for node in after_root.nodes}
+        target = PurePosixPath(reservation.path)
+        before_target = before.get(reservation.path)
+        after_target = after.get(reservation.path)
+        if (
+            before_target is None
+            or before_target.kind != reservation.kind
+            or after_target is None
+            or after_target.kind != reservation.kind
+        ):
+            raise CandidateCaptureError(
+                "overlay reserved public mount state changed during Agent execution"
+            )
+        if reservation.kind == "directory":
+            before_paths = {
+                path
+                for path in before
+                if PurePosixPath(path) == target
+                or PurePosixPath(path).is_relative_to(target)
+            }
+            after_paths = {
+                path
+                for path in after
+                if PurePosixPath(path) == target
+                or PurePosixPath(path).is_relative_to(target)
+            }
+        elif reservation.kind == "regular_file":
+            before_paths = {reservation.path}
+            after_paths = {reservation.path}
+        else:
+            raise CandidateCaptureError("overlay reserved mount kind is invalid")
+        if before_paths != after_paths or any(
+            not _nodes_equal(before.get(path), after.get(path))
+            for path in before_paths
+        ):
+            raise CandidateCaptureError(
+                "overlay reserved public mount state changed during Agent execution"
+            )
+        for depth in range(1, len(target.parts)):
+            parent = PurePosixPath(*target.parts[:depth]).as_posix()
+            if (
+                before.get(parent) is None
+                or before[parent].kind != "directory"
+                or after.get(parent) is None
+                or after[parent].kind != "directory"
+            ):
+                raise CandidateCaptureError(
+                    "overlay reserved public mount parent changed during Agent execution"
+                )
 
 
 def scan_overlay_roots(

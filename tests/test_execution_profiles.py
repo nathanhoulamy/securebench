@@ -2,6 +2,7 @@ from dataclasses import replace
 
 import pytest
 
+import securebench.execution_profiles as execution_profiles
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.errors import ConfigError
@@ -138,8 +139,18 @@ def test_git_patch_candidate_is_executable_for_repo_patch_rows():
     validate_executable_task(_unsupported_git_patch(task()))
 
 
-def test_overlay_static_contract_can_be_validated_only_by_the_internal_gate():
+def test_overlay_static_contract_can_be_validated_without_the_native_gate():
     validate_task_components(_unsupported_filesystem_overlay(task()))
+
+
+def test_native_qualification_flag_activates_the_public_overlay_gate(monkeypatch):
+    monkeypatch.setattr(
+        execution_profiles,
+        "FILESYSTEM_OVERLAY_NATIVE_QUALIFICATION_COMPLETE",
+        True,
+    )
+
+    validate_executable_task(_unsupported_filesystem_overlay(task()))
 
 
 def test_unknown_profile_does_not_fall_back_to_another_policy():
@@ -286,7 +297,7 @@ def test_overlay_bounds_fail_before_the_non_executable_gate(updates):
         **{**compiled.__dict__, "verification": verification}
     )
 
-    with pytest.raises(ConfigError, match="planned backend capacity"):
+    with pytest.raises(ConfigError, match="backend capacity"):
         validate_executable_task(changed)
 
 

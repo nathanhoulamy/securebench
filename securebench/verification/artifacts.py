@@ -308,7 +308,7 @@ def _candidate_artifact(
     if manifest.type != "file_bundle":
         raise VerificationInfrastructureError(
             "artifact_materializer_unavailable",
-            "Path artifacts for patches and overlays are not implemented in this batch",
+            "Stored Candidate type has no passive artifact materializer",
         )
     source_entry = artifact.source.entry
     if source_entry is None:

@@ -18,6 +18,7 @@ from securebench.candidates.extraction import (
 from securebench.candidates.models import CandidateCaptureError, StoredCandidate
 from securebench.candidates.overlay import (
     OverlayScanLimits,
+    OverlayReservedMount,
     ScannedOverlayRoot,
     MAX_OVERLAY_CHANGED_BYTES,
     MAX_OVERLAY_CHANGED_PATHS,
@@ -162,6 +163,11 @@ def run_filesystem_overlay_agent_capture(
                 "overlay quota workspace roots do not match the Candidate contract"
             )
         baseline = _materializer(image, workspace, scan_limits=scan_limits)
+        reserved_mounts = _reserved_overlay_mounts(
+            baseline,
+            spec.include_roots,
+            public_mounts,
+        )
         sandbox = _sandbox_factory(
             image=image,
             root=trusted_inputs,
@@ -213,6 +219,7 @@ def run_filesystem_overlay_agent_capture(
             store,
             baseline_digest=baseline_digest,
             scan_limits=scan_limits,
+            reserved_mounts=reserved_mounts,
         )
         return OverlayAgentCaptureResult(candidate=candidate, agent_result=result)
     except (CandidateCaptureError, CandidateProductionError, CandidateProductionTimeout):
@@ -335,6 +342,71 @@ def _validate_agent_mount_plan(
             raise OverlayAgentInfrastructureError(
                 "public mounts may not overlap framework-owned Agent inputs"
             )
+
+
+def _reserved_overlay_mounts(
+    baseline: dict[str, ScannedOverlayRoot],
+    include_roots: tuple[str, ...],
+    public_mounts: tuple[DockerBindMount, ...],
+) -> tuple[OverlayReservedMount, ...]:
+    """Validate and record public mount targets nested below captured roots."""
+    reservations: list[OverlayReservedMount] = []
+    for mount in public_mounts:
+        target = PurePosixPath(mount.target)
+        matching_roots = tuple(
+            root
+            for root in include_roots
+            if target.is_relative_to(PurePosixPath(root))
+        )
+        if not matching_roots:
+            continue
+        if len(matching_roots) != 1:
+            raise OverlayAgentInfrastructureError(
+                "overlay public mount selects an ambiguous include root"
+            )
+        root = matching_roots[0]
+        relative = target.relative_to(PurePosixPath(root))
+        if not relative.parts:
+            raise OverlayAgentInfrastructureError(
+                "a public mount may not replace an overlay root"
+            )
+        source = Path(mount.source)
+        if source.is_symlink():
+            raise OverlayAgentInfrastructureError(
+                "overlay public mount source must not be a symlink"
+            )
+        if source.is_file():
+            kind = "regular_file"
+        elif source.is_dir():
+            kind = "directory"
+        else:
+            raise OverlayAgentInfrastructureError(
+                "overlay public mount source must be an existing file or directory"
+            )
+        scanned = baseline.get(root)
+        if scanned is None:
+            raise OverlayAgentInfrastructureError(
+                "overlay public mount root is absent from the trusted baseline"
+            )
+        nodes = {node.path: node for node in scanned.nodes}
+        relative_text = relative.as_posix()
+        node = nodes.get(relative_text)
+        if node is None or node.kind != kind:
+            raise OverlayAgentInfrastructureError(
+                "overlay public mount target must already exist with the matching type "
+                "in the trusted baseline"
+            )
+        for depth in range(1, len(relative.parts)):
+            parent = PurePosixPath(*relative.parts[:depth]).as_posix()
+            parent_node = nodes.get(parent)
+            if parent_node is None or parent_node.kind != "directory":
+                raise OverlayAgentInfrastructureError(
+                    "overlay public mount parents must be real baseline directories"
+                )
+        reservations.append(
+            OverlayReservedMount(root=root, path=relative_text, kind=kind)
+        )
+    return tuple(reservations)
 
 
 def _run_materializer(

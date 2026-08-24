@@ -178,8 +178,9 @@ tester-owned upper bound on actual connectivity.
   Oracle request volume therefore still require admission limits or a
   framework-owned total budget before arbitrarily large reviewed rows are safe
   to execute.
-- Candidate blobs are written content-addressably before the manifest commit.
-  An interrupted or rejected capture can leave unreferenced, individually
-  bounded blobs in the run artifact store. Transactional staging or a
-  reference-aware garbage collector is still needed in addition to output
-  storage quotas.
+- Non-overlay Candidate blobs are written content-addressably before the
+  manifest commit. An interrupted or rejected file-bundle or Git-patch capture
+  can leave unreferenced, individually bounded blobs in the run artifact store.
+  Overlay capture is transactional; the remaining paths still need equivalent
+  staging or a reference-aware garbage collector in addition to output storage
+  quotas.

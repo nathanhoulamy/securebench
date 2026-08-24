@@ -396,8 +396,10 @@ references either a regular-file or directory-tree entry in a `file_bundle`.
 For a directory tree, parser limits use both `max_files` and
 `max_total_bytes`. For `git_patch`, `source.path` is repository-relative and
 observation happens passively after replay onto a fresh clean baseline. For
-overlays, detailed path semantics remain part of the future materializer
-specification.
+`filesystem_overlay`, `source.path` is absolute and must be contained by one
+declared include root. Observation happens after integrity-checked replay into
+a fresh quota workspace; normal execution remains qualification-gated as
+described in [`filesystem-overlay-v1.md`](filesystem-overlay-v1.md).
 
 ### Protocol check
 

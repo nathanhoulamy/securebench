@@ -1,9 +1,10 @@
 # Current SecureBench v2 state
 
-Last reviewed: 2026-08-22
+Last reviewed: 2026-08-24
 
 Implementation baseline reviewed: this branch through Output Artifacts, Trusted Helper execution,
-git-patch execution, and the locally qualified filesystem-overlay implementation
+git-patch execution, the locally qualified filesystem-overlay implementation, and the subsequent
+architecture-wide overlay integration review
 
 Active development branch: `split-verification-v2`
 
@@ -103,6 +104,9 @@ filesystem-overlay example remains intentionally non-executable.
 - Public assets use their declared read-only mounts in both Agent and relevant Evaluation
   runtimes. Runtime resources never enter the Agent container.
 - Candidate capture is stopped-state, bounded, content-addressed, and baseline-bound.
+- Filesystem-overlay public assets mounted below captured roots must select an existing baseline
+  node with the same file/directory kind. Capture proves the underlying target subtree and required
+  mount parents remain unchanged after Agent execution.
 - The basic strict protocol path releases one bounded current Challenge at a time and constructs a
   fresh Evaluation root/container for every Challenge.
 - Adapter stdout is bounded by raw byte count. Truncation and invalid UTF-8 cannot be normalized
@@ -161,6 +165,8 @@ filesystem-overlay example remains intentionally non-executable.
   candidate code.
 - Only Oracle output controls score, pass/fail, and check outcomes.
 - Public result records exclude raw observations, hidden case context, Agent logs, and host paths.
+- Resume revalidates complete filesystem-overlay manifests and chunks and can reuse a matching
+  overlay Candidate; changing the quota capacity remains bound into execution provenance.
 
 ## Known alignment gaps and design debt
 
@@ -175,7 +181,9 @@ schema support.
    should be documented or implemented before relying on it for benchmark requirements.
 4. The filesystem-overlay implementation is complete on macOS but deliberately non-executable.
    Activation still requires the deferred native root-Linux quota, real-Docker isolation, and leak
-   qualification recorded in `next_steps.md`.
+   qualification recorded in `next_steps.md`. That pass must also prove real image include roots,
+   configured root Agent identity, canonical baseline permission semantics, and nested public-mount
+   behavior before the source-controlled gate is enabled.
 5. Pack-local Oracle code is trusted and hash-bound but runs as a sanitized host subprocess, not
    inside a stronger OS sandbox.
 6. Assertion-free Adapters, component capability review, base/gold/mutant qualification, and
@@ -201,17 +209,17 @@ schema support.
 
 At this review pass:
 
-- full warning-strict suite: `498 passed, 6 skipped`;
-- complete protocol suite with Docker integration enabled: `34 passed`, including two fresh
+- full warning-strict suite: `502 passed, 6 skipped`;
+- complete protocol suite with Docker integration enabled: `36 passed, 1 skipped`, including two fresh
   combined recorder/Output Artifact Evaluations, the ordinary fresh Evaluation, and
   clean-repository git-patch replay;
-- the Docker pass left no Trusted Helper containers, materialization containers, or Evaluation
-  networks behind;
+- the Docker pass left no Trusted Helper containers, materialization containers, Evaluation
+  networks, or overlay volumes behind;
 - built-in robustness audit: 5 passed, 0 failed, 0 warnings;
 - no author-facing Pydantic field changed in this review, and schema regeneration produced no
   checked-in JSON Schema diff;
-- a wheel and source distribution containing the reviewed tester, candidate-store, overlay,
-  evidence, Oracle, helper, and artifact paths built successfully;
+- a wheel containing the reviewed tester, candidate-store, overlay, evidence, Oracle, helper, and
+  artifact paths built successfully;
 - compile checks and `git diff --check` passed.
 
 Useful commands:
@@ -229,7 +237,7 @@ SECUREBENCH_DOCKER_INTEGRATION=1 uv run --no-sync --with pytest python -m pytest
 - Original branch: `main` at `bf9a108` (`Complete isolated Terminal-Bench conversion`).
 - Development branch: `split-verification-v2`.
 - `main` is the merge-base and direct ancestor of the development branch.
-- Before this review pass, the development branch was twenty commits ahead and zero
+- At the pulled `e716f6d` baseline, the development branch was thirty-two commits ahead and zero
   commits behind `main`.
 - After publication, `origin/split-verification-v2` contains this review and hardening pass.
 

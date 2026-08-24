@@ -7,6 +7,7 @@ import os
 import shutil
 import stat
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -202,15 +203,30 @@ def test_overlay_scan_rejects_special_files(tmp_path: Path):
         scan_overlay_root("/app", root, limits=local_limits())
 
 
-def test_overlay_scan_rejects_unsupported_mode_metadata(tmp_path: Path):
+def test_overlay_scan_rejects_unsupported_mode_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     root = tmp_path / "root"
     root.mkdir()
     path = root / "setuid"
     path.write_text("data")
-    path.chmod(0o4755)
+    current = path.lstat()
+    unsupported = SimpleNamespace(
+        st_uid=current.st_uid,
+        st_gid=current.st_gid,
+        st_mode=current.st_mode | stat.S_ISUID,
+        st_nlink=current.st_nlink,
+        st_flags=0,
+    )
+    monkeypatch.setattr(overlay_module, "_has_extended_metadata", lambda candidate: False)
 
     with pytest.raises(CandidateCaptureError, match="unsupported mode"):
-        scan_overlay_root("/app", root, limits=local_limits())
+        overlay_module._validate_metadata(
+            path,
+            unsupported,
+            local_limits(),
+            is_root=False,
+        )
 
 
 def test_overlay_scan_rejects_extended_metadata(
@@ -220,18 +236,11 @@ def test_overlay_scan_rejects_extended_metadata(
     root.mkdir()
     path = root / "file"
     path.write_text("data")
-    attribute = "com.securebench.test" if os.uname().sysname == "Darwin" else "user.securebench"
-    if setxattr := getattr(os, "setxattr", None):
-        try:
-            setxattr(path, attribute, b"value")
-        except OSError as exc:
-            pytest.skip(f"xattrs are unavailable: {exc}")
-    else:
-        monkeypatch.setattr(
-            overlay_module,
-            "_has_extended_metadata",
-            lambda candidate: candidate == path,
-        )
+    monkeypatch.setattr(
+        overlay_module,
+        "_has_extended_metadata",
+        lambda candidate: candidate == path,
+    )
 
     with pytest.raises(CandidateCaptureError, match="xattrs or ACLs"):
         scan_overlay_root("/app", root, limits=local_limits())

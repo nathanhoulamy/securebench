@@ -414,3 +414,13 @@ and volume-subpath support. They prove physical `ENOSPC`, real stopped-Agent
 capture, two fresh real-Docker Evaluations, complete resource cleanup, and leak
 absence. The normal execution path remains fail-closed until those tests pass
 and the source-controlled qualification flag is reviewed and enabled.
+
+The native pass must also confirm that every image include root is a real
+directory rather than a symlink, that the image's configured Agent identity is
+compatible with the v1 root-owned contract, and that baseline permission
+normalization matches the canonical tree semantics. Nested public mounts must
+be exercised with real Docker: their target and parents must already exist in
+the baseline, and the underlying file or directory subtree must remain
+unchanged after the mount is removed. Host-side capture now enforces these
+reserved-target invariants, but Docker mount behavior still belongs in the
+native qualification evidence.

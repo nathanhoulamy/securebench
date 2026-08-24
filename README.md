@@ -17,10 +17,11 @@ supports `strict-split/v1`, `file_bundle`, passive artifact checks, and the
 protocol path: bounded JSON Challenges, a reviewed runtime Adapter, and one
 fresh Evaluation container per Challenge. `git_patch` candidates and the
 `securebench.http-request-recorder/v1` Trusted Helper are executable end to
-end; helper Evaluations use a fresh internal-only Docker network. Filesystem
-overlays, Output Artifact collection, other unregistered helpers, and the
-weaker batching profile remain schema-valid but fail preflight until their
-engines are implemented.
+end; helper Evaluations use a fresh internal-only Docker network, and bounded
+Output Artifacts can be collected from the same disposable Evaluation.
+Filesystem-overlay capture and replay are implemented but remain fail-closed
+until their deferred native root-Linux qualification passes. Other unregistered
+helpers and the weaker batching profile remain non-executable.
 
 ## Quick start
 

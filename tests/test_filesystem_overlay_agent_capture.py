@@ -413,6 +413,89 @@ def test_agent_mount_plan_rejects_writable_or_framework_colliding_inputs(tmp_pat
         )
 
 
+def test_nested_public_mount_requires_a_matching_baseline_target_before_agent(tmp_path: Path):
+    events: list[str] = []
+    workspace = FakeWorkspace(tmp_path / "quota", events)
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+    public = tmp_path / "public.txt"
+    public.write_text("mounted")
+
+    def materializer(image, staged, *, scan_limits):
+        return scan_overlay_roots(
+            staged.include_roots,
+            staged.host_roots(),
+            limits=scan_limits,
+            label="baseline",
+        )
+
+    with pytest.raises(OverlayAgentInfrastructureError, match="must already exist"):
+        run_filesystem_overlay_agent_capture(
+            image=IMAGE,
+            command=("agent",),
+            workdir="/app",
+            spec=overlay_spec(),
+            store=CandidateStore(tmp_path / "store"),
+            baseline_digest=BASELINE,
+            storage_root=tmp_path / "storage",
+            capacity_bytes=MIN_OVERLAY_WORKSPACE_BYTES,
+            trusted_inputs_root=trusted,
+            public_mounts=(DockerBindMount(public, "/app/public.txt", read_only=True),),
+            scan_limits=local_limits(),
+            _workspace_factory=lambda **options: workspace,
+            _sandbox_factory=lambda **options: pytest.fail(
+                "invalid baseline mount target must fail before Agent startup"
+            ),
+            _materializer=materializer,
+        )
+
+    assert events == ["workspace_closed"]
+
+
+def test_nested_public_mount_underlying_state_must_remain_unchanged(tmp_path: Path):
+    events: list[str] = []
+    workspace = FakeWorkspace(tmp_path / "quota", events)
+    underlying = workspace.roots["/app"] / "public.txt"
+    underlying.write_text("underlying")
+    trusted = tmp_path / "trusted"
+    trusted.mkdir()
+    public = tmp_path / "public.txt"
+    public.write_text("mounted")
+
+    def materializer(image, staged, *, scan_limits):
+        return scan_overlay_roots(
+            staged.include_roots,
+            staged.host_roots(),
+            limits=scan_limits,
+            label="baseline",
+        )
+
+    with pytest.raises(CandidateCaptureError, match="reserved public mount state changed"):
+        run_filesystem_overlay_agent_capture(
+            image=IMAGE,
+            command=("agent",),
+            workdir="/app",
+            spec=overlay_spec(),
+            store=CandidateStore(tmp_path / "store"),
+            baseline_digest=BASELINE,
+            storage_root=tmp_path / "storage",
+            capacity_bytes=MIN_OVERLAY_WORKSPACE_BYTES,
+            trusted_inputs_root=trusted,
+            public_mounts=(DockerBindMount(public, "/app/public.txt", read_only=True),),
+            scan_limits=local_limits(),
+            _workspace_factory=lambda **options: workspace,
+            _sandbox_factory=lambda **options: FakeSandbox(
+                events,
+                lambda: underlying.write_text("changed behind mount"),
+                _successful_result(),
+                **options,
+            ),
+            _materializer=materializer,
+        )
+
+    assert events[-2:] == ["sandbox_closed", "workspace_closed"]
+
+
 @pytest.mark.skipif(
     os.environ.get("SECUREBENCH_RUN_REAL_DOCKER_OVERLAY_TESTS") != "1",
     reason="requires an explicitly provisioned root Linux Docker host",

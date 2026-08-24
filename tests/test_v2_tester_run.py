@@ -441,6 +441,44 @@ def test_runner_resume_reexecutes_after_overlay_workspace_capacity_changes(
     assert execution_config_digest(changed) != first_digest
 
 
+def test_resume_accepts_a_fully_validated_filesystem_overlay_candidate(tmp_path):
+    store = CandidateStore(tmp_path / "store")
+    baseline_digest = "sha256:" + "1" * 64
+    empty_tree_digest = "sha256:" + "2" * 64
+    candidate = store.put_candidate(
+        "filesystem_overlay",
+        baseline_digest,
+        {
+            "format": "securebench.filesystem-overlay/v1",
+            "roots": [
+                {
+                    "path": "/app",
+                    "baseline_tree_digest": empty_tree_digest,
+                    "baseline_entries": 0,
+                    "baseline_bytes": 0,
+                    "final_tree_digest": empty_tree_digest,
+                    "final_entries": 0,
+                    "final_bytes": 0,
+                }
+            ],
+            "changes": [],
+            "changed_paths": 0,
+            "changed_bytes": 0,
+        },
+    )
+
+    assert _resume_candidate_available(
+        {
+            "candidate": {
+                "type": "filesystem_overlay",
+                "digest": candidate.digest,
+            }
+        },
+        {"baseline_digest": baseline_digest, "base_commit": None},
+        store,
+    )
+
+
 def test_overlay_rows_require_a_tester_owned_workspace_capacity(tmp_path):
     current = config(tmp_path)
     compiled = next(

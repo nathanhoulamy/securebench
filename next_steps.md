@@ -131,22 +131,6 @@ collector capacity per Evaluation in addition to Adapter maxima and row-reduced 
 6. [x] Add defense-in-depth validation at Output Artifact collection and reject noncanonical,
    NUL-containing, reserved, or mount-overlapping paths before collection.
 
-The remaining resource-control gap is the host-backed Agent workspace itself: it needs a
-framework-owned disk quota or deployment-enforced isolated storage before SecureBench can claim
-that a running Agent cannot exhaust host disk capacity. Trusted resource-tree traversal and Git
-baseline operations also need explicit admission/runtime entry and wall-clock budgets before the
-framework can safely process arbitrarily large admitted packs.
-
-Make candidate-store capture transactional, or add a reference-aware garbage collector, so a
-capture rejected after writing some blobs cannot accumulate orphaned artifacts across interrupted
-or repeatedly retried runs. Keep deletion conservative because blobs may be shared by valid
-candidate manifests.
-
-Add one coherent total Evaluation budget rather than unrelated magic constants: cap cases and
-cumulative case time per row, bound combined Trusted Helper and Output Artifact evidence, and make
-the maximum serialized Oracle request an executable preflight invariant. The row's reduced limits
-should remain configurable below those framework capacities.
-
 ## Completed 2026-08-21: architecture-wide review after the major rework
 
 - Resume, tester YAML, and candidate manifests now use strict duplicate-key-free decoders; corrupt
@@ -159,7 +143,7 @@ should remain configurable below those framework capacities.
 - HTTP recorder evidence is revalidated against the recorder's response-state machine, not merely
   against broad status-code ranges.
 - Full warning-strict, real-Docker protocol, self-audit, schema regeneration, packaging, and leak
-  checks passed. The unresolved resource budgets above remain explicit future work.
+  checks passed. The unresolved resource budgets below remain explicit future work.
 
 ## Completed on macOS 2026-08-22: filesystem-overlay implementation
 
@@ -184,7 +168,7 @@ state before Candidate code runs, resolves absolute passive artifact paths, moun
 roots into protocol Evaluations, collects overlay Output Artifacts, and destroys the fresh quota
 workspace after every observation or Challenge.
 
-The warning-strict local suite passes with `498 passed, 6 skipped`; the robustness audit, schema
+The warning-strict local suite passes with `502 passed, 6 skipped`; the robustness audit, schema
 generation, compilation, package build, and `git diff --check` also pass. Host-side tests cover
 exact replay, forged baseline and final-state digests, corrupt chunks, traversal and symlink
 attacks, case/Unicode aliases, malformed manifests, row-limit revalidation, absolute artifact
@@ -217,6 +201,37 @@ its own section below and must not block other implementation work.
 4. [x] Return to later roadmap work after the macOS implementation is complete. Do not wait for a
    Linux host between features; collect native-only qualification work for the single final pass.
 
+## Next implementation gate: resource hardening before conversions
+
+Defer standalone benchmark-admission tooling, but do not begin executing a broad conversion
+campaign with the remaining framework-wide resource gaps. Complete this bounded gate first:
+
+1. Add a framework-owned quota for the currently executable `file_bundle` and `git_patch` Agent
+   workspaces, or require and verify an equivalent deployment-owned isolated storage boundary
+   before Agent startup. Exhaustion must be a Candidate resource failure; inability to prove the
+   quota must fail before the Agent.
+2. Add one coherent total Evaluation budget: cap cases and cumulative case time per row, bound the
+   combined Trusted Helper and Output Artifact evidence, and make the maximum serialized Oracle
+   request an executable preflight invariant. Rows may reduce but never raise framework capacities.
+3. Bound trusted resource-tree and Git-baseline processing with aggregate entry/byte capacities and
+   subprocess wall-clock ceilings during compilation, baseline reconstruction, and patch
+   validation. Oversized or impractical packs must fail deterministically before Candidate work.
+4. Make non-overlay Candidate capture transactional, or add a conservative reference-aware
+   garbage collector, so rejected and interrupted file-bundle or Git-patch captures cannot
+   accumulate abandoned blobs. Blobs shared by valid manifests must never be deleted.
+
+Definition of done: the full warning-strict and live-Docker suites pass; quota exhaustion,
+aggregate-budget exhaustion, hostile trusted-tree/Git inputs, interrupted capture, and cleanup
+failures have explicit ownership tests; schema generation, audit, package build, and leak checks
+remain clean.
+
+After this gate, begin with a small conversion pilot rather than admission-tool automation. Select
+rows whose required Candidate/check/helper paths are already executable, manually record base
+failure, reference success, targeted-mutant rejection, malicious-candidate rejection, and semantic
+fidelity in each dossier, and implement new assertion-free Adapters or reviewed Trusted Helpers only
+when a selected row demonstrates the need. Prepare the conversion-agent guide at that point against
+the then-current executable capability matrix.
+
 ## Later work
 
 - **Decision 2026-08-24:** do not prioritize a standalone benchmark-admission tool yet. During each
@@ -224,9 +239,6 @@ its own section below and must not block other implementation work.
   malicious-candidate rejection, and semantic fidelity in that conversion's review record. Build
   automation for this workflow later, after practical DeepSWE and Terminal-Bench conversions have
   established what should be generalized.
-- Finish the remaining resource hardening: quota active Agent workspaces, bound trusted resource
-  and Git-baseline processing, add a coherent total Evaluation budget, and prevent abandoned
-  non-overlay Candidate blobs from accumulating.
 - Implement `batched-split/v1` only as a visibly weaker, separately reported fallback after strict
   Trusted Helper isolation is mature.
 - Define component registry governance and review/publication policy for pack-local adapters and
@@ -246,16 +258,19 @@ locally. Then:
 
 1. Run the overlay backend probe and prove physical `ENOSPC`, volume-subpath behavior, stale-state
    recovery, and cleanup after success, failure, timeout, and interruption.
-2. Run real quota-backed stopped-Agent capture through every supported normal harness path.
-3. Run at least two real overlay Evaluations and prove distinct volumes, identical pinned-baseline
+2. Prove every selected image include root is a real directory, the configured Agent identity is
+   compatible with the root-owned v1 contract, canonical baseline permission semantics are
+   preserved, and nested public mounts leave their reserved underlying targets unchanged.
+3. Run real quota-backed stopped-Agent capture through every supported normal harness path.
+4. Run at least two real overlay Evaluations and prove distinct volumes, identical pinned-baseline
    reconstruction, no cross-Evaluation state, exact artifact/protocol behavior, and final-state
    digest enforcement.
-4. Run all other explicitly gated Linux/Docker integration tests accumulated during development.
-5. Inspect for leaked Agent/Evaluation/helper containers, Docker networks and volumes, loop mounts,
+5. Run all other explicitly gated Linux/Docker integration tests accumulated during development.
+6. Inspect for leaked Agent/Evaluation/helper containers, Docker networks and volumes, loop mounts,
    backing files, temporary state, and credentials.
-6. Run the warning-strict full suite, robustness audit, schema-generation check, package build, and
+7. Run the warning-strict full suite, robustness audit, schema-generation check, package build, and
    `git diff --check` on Linux.
-7. Only after every native gate passes, enable the reviewed overlay capability path and any other
+8. Only after every native gate passes, enable the reviewed overlay capability path and any other
    deferred Linux-only features. Update `current.md`, this roadmap, security documentation, and the
    capability matrix with the final tested state.
 

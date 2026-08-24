@@ -631,6 +631,11 @@ def _resume_candidate_available(
                 store,
             ):
                 return False
+        elif manifest.type == "filesystem_overlay":
+            # CandidateStore.load_candidate() has already revalidated the complete
+            # canonical payload and every referenced chunk. Row-specific bounds
+            # remain bound by the expected verification digest below.
+            pass
         else:
             return False
     except (OSError, ValueError):

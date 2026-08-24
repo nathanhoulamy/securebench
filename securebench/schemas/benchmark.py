@@ -507,7 +507,7 @@ class VerificationSpec(StrictModel):
             if not path.is_absolute():
                 raise ValueError("filesystem_overlay artifact source.path must be absolute")
             if not any(
-                portable_path_is_relative_to(path, PurePosixPath(root))
+                path.is_relative_to(PurePosixPath(root))
                 for root in self.candidate.include_roots
             ):
                 raise ValueError("filesystem_overlay artifact source.path is outside candidate include_roots")
