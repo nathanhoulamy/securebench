@@ -5,6 +5,11 @@ and DeepSWE to split verification. Each dossier records the original grading
 surface, the proposed durable candidate, the evidence strategy, fidelity limits,
 and the validation plan.
 
+The implementation workflow for turning these dossiers into v2 rows is in the
+[`conversion guide`](conversion-guide.md).
+The first-wave Linux admission record is the
+[`pilot qualification checklist`](pilot-qualification-checklist.md).
+
 ## Portfolio
 
 | Benchmark | Rows | Approved | Excluded |

@@ -74,3 +74,15 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 ## Future conversion notes
 
 Use passive artifact verification. The vulnerable executable may enter the Evaluation VM as per-case challenge data, but the candidate's bounded `results.txt` is extracted and compared host-side with the Oracle's secret flag and format rules. Keep the expected flag, hidden tests, scoring, and reference exploit out of both VMs; no candidate-controlled code executes during evaluation, and the Oracle trusts only the bounded artifact. This preserves the original scored assertions. Verdict: clean conversion; auto-approved under the first-pass policy.
+
+## Implemented v2 conversion
+
+- Row: `terminal-bench/vulnerable-secret` in `benchmarks/terminal-bench/tasks-v2.jsonl`.
+- Candidate: one bounded regular file, `/app/results.txt` (4 KiB maximum).
+- Check: passive `securebench.utf8-text/v1` parsing followed by exact host-only flag and public-format validation. Candidate text is never executed.
+- Image: `alexgshaw/vulnerable-secret@sha256:61ebb40454dd103aa2f7e71ad6dafd91cf2b301e6bb07e69d5b472412d1ee15b`.
+- Source semantics retained: leading and trailing whitespace is stripped, the `FLAG{...}` format is required, and only the exact program key passes.
+- Deterministic qualification on 2026-08-24 covers exact success, plausible wrong-flag rejection, schema compilation, and executable preflight.
+- Linux image qualification remains to be recorded: missing/base failure, reference extraction, malformed UTF-8/oversize/symlink capture rejection, end-to-end Agent run, and cleanup/leak inspection.
+
+Admission status: qualification pending. The final binary status must be **Approved** or **Excluded** after the Linux matrix is complete.

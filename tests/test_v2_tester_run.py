@@ -71,12 +71,17 @@ END:VCALENDAR
 
 
 def config(tmp_path: Path) -> RunConfig:
+    # Runner unit tests exercise one deterministic row. Keep this fixture
+    # isolated as the real pilot pack grows additional converted rows.
+    tasks = tmp_path / "runner-tasks-v2.jsonl"
+    first_row = next(line for line in (PACK / "tasks-v2.jsonl").read_text().splitlines() if line.strip())
+    tasks.write_text(first_row + "\n")
     return RunConfig(
         schema_version="1.0",
         run=RunSection(id="runner-v2", output_dir=tmp_path / "run"),
         benchmark=BenchmarkSection(
             manifest=PACK / "manifest-v2.yaml",
-            tasks=PACK / "tasks-v2.jsonl",
+            tasks=tasks,
         ),
         harness=HarnessSection(type="command", config={"command": "ignored"}),
     )

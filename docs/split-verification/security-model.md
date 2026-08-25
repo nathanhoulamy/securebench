@@ -166,21 +166,11 @@ tester-owned upper bound on actual connectivity.
   use a framework-owned disk quota, so deployment-level storage isolation
   remains required for them. Overlay Agent and Evaluation paths are connected
   to the quota backend, but remain non-executable pending native qualification.
-- Trusted benchmark resources and Git baselines are hash-bound and reviewed,
-  but their directory traversal and Git subprocesses do not yet have a
-  framework-wide entry-count or wall-clock ceiling. This is not an
-  Agent-controlled candidate escape, but a malformed or impractically large
-  admitted pack can consume excessive host time or memory during compilation,
-  baseline reconstruction, or patch validation.
-- Protocol challenge, observation, helper, and artifact payloads have local
-  bounds, but the current profile has no aggregate per-row Evaluation budget.
-  `max_cases`, cumulative case time, combined helper evidence, and serialized
-  Oracle request volume therefore still require admission limits or a
-  framework-owned total budget before arbitrarily large reviewed rows are safe
-  to execute.
 - Non-overlay Candidate blobs are written content-addressably before the
   manifest commit. An interrupted or rejected file-bundle or Git-patch capture
   can leave unreferenced, individually bounded blobs in the run artifact store.
   Overlay capture is transactional; the remaining paths still need equivalent
   staging or a reference-aware garbage collector in addition to output storage
-  quotas.
+  quotas. Both operational risks are consciously deferred for the supervised
+  conversion pilot and are described with mitigations in
+  [`current.md`](../../current.md#accepted-deferred-operational-hardening).

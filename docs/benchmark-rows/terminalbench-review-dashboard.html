@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Interactive overview of the SecureBench Terminal-Bench split-verification review.">
+<title>Terminal-Bench Split-Verification Review</title>
+<style>
+:root{
+  color-scheme:light dark;
+  --bg:#f4f7fb;--surface:#fff;--surface-2:#edf2f8;--text:#122033;--muted:#617087;
+  --line:#d8e0eb;--green:#17865f;--green-soft:#dff5ea;--red:#c44d33;--red-soft:#fbe7e1;
+  --blue:#2563eb;--blue-soft:#e4edff;--purple:#7c3aed;--gold:#a66b00;
+  --shadow:0 18px 50px rgba(30,51,80,.10);--radius:20px;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#09111d;--surface:#101c2c;--surface-2:#17263a;--text:#eef5ff;--muted:#a9b6c9;
+  --line:#2a3a50;--green:#56d39c;--green-soft:#163b31;--red:#ff8c72;--red-soft:#46261f;
+  --blue:#79a7ff;--blue-soft:#172e59;--purple:#b393ff;--gold:#f2bd5b;
+  --shadow:0 22px 65px rgba(0,0,0,.28);
+}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:
+  radial-gradient(circle at 15% 0%,color-mix(in srgb,var(--blue) 12%,transparent),transparent 34rem),
+  radial-gradient(circle at 90% 18%,color-mix(in srgb,var(--purple) 10%,transparent),transparent 30rem),
+  var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input,select{font:inherit}button{color:inherit}a{color:inherit}
+.shell{width:min(1220px,calc(100% - 32px));margin:0 auto;padding:38px 0 64px}
+.hero{padding:36px;border:1px solid var(--line);border-radius:28px;background:color-mix(in srgb,var(--surface) 92%,transparent);box-shadow:var(--shadow)}
+.eyebrow{display:flex;align-items:center;gap:9px;color:var(--blue);font-size:.78rem;font-weight:800;letter-spacing:.13em;text-transform:uppercase}
+.eyebrow::before{content:"";width:26px;height:2px;background:currentColor}
+h1{max-width:840px;margin:14px 0 12px;font-size:clamp(2rem,5vw,4.25rem);line-height:1.02;letter-spacing:-.055em}
+.hero-copy{max-width:780px;margin:0;color:var(--muted);font-size:1.02rem;line-height:1.65}
+.source{display:inline-flex;margin-top:18px;color:var(--blue);font-size:.88rem;font-weight:700;text-decoration:none}.source:hover{text-decoration:underline}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0}
+.stat,.panel{border:1px solid var(--line);background:color-mix(in srgb,var(--surface) 94%,transparent);box-shadow:var(--shadow)}
+.stat{padding:21px;border-radius:18px}.stat-label{color:var(--muted);font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
+.stat-value{margin-top:7px;font-size:2rem;font-weight:850;letter-spacing:-.045em}.stat-note{margin-top:5px;color:var(--muted);font-size:.82rem}
+.grid{display:grid;grid-template-columns:1.25fr .75fr;gap:18px}.panel{border-radius:var(--radius);padding:24px}
+.panel h2{margin:0;font-size:1.12rem;letter-spacing:-.02em}.panel-head{display:flex;justify-content:space-between;align-items:end;gap:16px;margin-bottom:20px}
+.panel-sub{margin:5px 0 0;color:var(--muted);font-size:.86rem;line-height:1.5}
+.pattern-list{display:grid;gap:15px}.pattern-row{display:grid;grid-template-columns:minmax(180px,1.2fr) 2fr 42px;gap:12px;align-items:center;font-size:.85rem}
+.pattern-label{overflow-wrap:anywhere}.track{height:12px;border-radius:999px;background:var(--surface-2);overflow:hidden}.fill{height:100%;border-radius:999px;background:linear-gradient(90deg,var(--blue),var(--purple))}
+.pattern-row b{text-align:right;font-variant-numeric:tabular-nums}.verdict-list{display:grid;gap:10px}.verdict-row{display:flex;justify-content:space-between;gap:15px;padding:13px 14px;border-radius:13px;background:var(--surface-2);font-size:.88rem}
+.verdict-row strong{font-variant-numeric:tabular-nums}.trusted{margin-top:18px;background:linear-gradient(135deg,color-mix(in srgb,var(--surface) 90%,var(--blue) 10%),var(--surface))}
+.trusted-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:24px;align-items:center}.trusted-copy{margin:8px 0 0;color:var(--muted);line-height:1.6;font-size:.92rem}
+.trusted-copy strong{color:var(--text)}.trusted-items{display:grid;gap:10px}.trusted-item{display:flex;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:13px;background:color-mix(in srgb,var(--surface) 82%,transparent);font-size:.84rem}
+.catalog{margin-top:18px}.filters{display:grid;grid-template-columns:2fr 1fr 1.4fr auto;gap:12px;align-items:end;margin-bottom:17px}
+.field{display:grid;gap:7px}.field label{color:var(--muted);font-size:.75rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em}
+.control{width:100%;min-height:42px;border:1px solid var(--line);border-radius:11px;padding:9px 11px;background:var(--surface);color:var(--text)}
+.clear{min-height:42px;border:1px solid var(--line);border-radius:11px;padding:9px 14px;background:var(--surface-2);cursor:pointer;font-weight:750}.clear:hover{border-color:var(--blue)}
+.result-count{color:var(--muted);font-size:.84rem;white-space:nowrap}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:14px}
+table{width:100%;border-collapse:collapse;min-width:820px;background:var(--surface)}th,td{padding:13px 14px;text-align:left;border-bottom:1px solid var(--line);font-size:.84rem;vertical-align:top}
+th{position:sticky;top:0;background:var(--surface-2);font-size:.72rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}tbody tr:last-child td{border-bottom:0}tbody tr:hover{background:color-mix(in srgb,var(--blue-soft) 38%,transparent)}
+.task-link{font-weight:760;color:var(--blue);text-decoration:none}.task-link:hover{text-decoration:underline}.badge{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:.72rem;font-weight:800;white-space:nowrap}
+.badge.clean{color:var(--green);background:var(--green-soft)}.badge.semantic{color:var(--gold);background:color-mix(in srgb,var(--gold) 14%,transparent)}.badge.major{color:var(--purple);background:color-mix(in srgb,var(--purple) 14%,transparent)}.badge.exclude{color:var(--red);background:var(--red-soft)}
+.empty{display:none;padding:28px;text-align:center;color:var(--muted)}.footer{display:flex;justify-content:space-between;gap:20px;margin-top:18px;color:var(--muted);font-size:.78rem}
+@media(max-width:860px){.stats{grid-template-columns:repeat(2,1fr)}.grid,.trusted-grid{grid-template-columns:1fr}.filters{grid-template-columns:1fr 1fr}.filters .field:first-child{grid-column:1/-1}.pattern-row{grid-template-columns:minmax(140px,1fr) 1.3fr 36px}.footer{display:grid}}
+@media(max-width:540px){.shell{width:min(100% - 20px,1220px);padding-top:18px}.hero{padding:25px 20px;border-radius:20px}.stats{grid-template-columns:1fr 1fr;gap:9px}.stat{padding:16px}.panel{padding:18px}.filters{grid-template-columns:1fr}.filters .field:first-child{grid-column:auto}.pattern-row{grid-template-columns:1fr 45px}.pattern-row .track{grid-column:1/-1;grid-row:2}.footer{font-size:.72rem}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="hero">
+    <div class="eyebrow">SecureBench review catalog</div>
+    <h1>Terminal-Bench split-verification review</h1>
+    <p class="hero-copy">A complete map of how 89 Terminal-Bench 2.0 rows can—or cannot—be evaluated with an untrusted Evaluation VM and a host-side Oracle that keeps hidden tests, expected answers, scoring, and reference solutions outside candidate execution.</p>
+    <a class="source" href="CHECKLIST.md">Source: Terminal-Bench review checklist · snapshot 2fd12b88</a>
+  </header>
+
+  <section class="stats" aria-label="Review summary">
+    <article class="stat"><div class="stat-label">Rows reviewed</div><div class="stat-value" id="totalCount">89</div><div class="stat-note">Complete catalog</div></article>
+    <article class="stat"><div class="stat-label">Retained designs</div><div class="stat-value" id="retainedCount">74</div><div class="stat-note">Clean, adapted, or redesigned</div></article>
+    <article class="stat"><div class="stat-label">Clean conversions</div><div class="stat-value" id="cleanCount">53</div><div class="stat-note" id="cleanNote">59.6% of all rows</div></article>
+    <article class="stat"><div class="stat-label">Excluded</div><div class="stat-value" id="excludedCount">15</div><div class="stat-note">No faithful practical boundary</div></article>
+  </section>
+
+  <section class="grid">
+    <article class="panel">
+      <div class="panel-head"><div><h2>Verification architecture</h2><p class="panel-sub">Primary approved pattern, including hybrid designs and exclusions.</p></div></div>
+      <div id="patternBars" class="pattern-list"></div>
+    </article>
+    <article class="panel">
+      <div class="panel-head"><div><h2>Verdict mix</h2><p class="panel-sub">Security and fidelity outcome after the final feasibility audit.</p></div></div>
+      <div id="verdictSummary" class="verdict-list"></div>
+    </article>
+  </section>
+
+  <section class="panel trusted">
+    <div class="trusted-grid">
+      <div><h2>Trusted external state is deliberately rare</h2><p class="trusted-copy">Only <strong id="trustedCount">3</strong> retained designs require a host-owned witness such as a ledger, relay, or launch supervisor. It appears only in combinations with black-box behavior, and once with passive artifact checks as well.</p></div>
+      <div id="trustedItems" class="trusted-items"></div>
+    </div>
+  </section>
+
+  <section class="panel catalog">
+    <div class="panel-head"><div><h2>Row catalog</h2><p class="panel-sub">Search and filter every approved Terminal-Bench decision; each row links to its complete dossier.</p></div><div class="result-count" id="resultCount">89 rows</div></div>
+    <div class="filters">
+      <div class="field"><label for="search">Search</label><input class="control" id="search" type="search" placeholder="Task, pattern, or verdict"></div>
+      <div class="field"><label for="verdictFilter">Verdict</label><select class="control" id="verdictFilter"><option value="">All verdicts</option></select></div>
+      <div class="field"><label for="patternFilter">Pattern</label><select class="control" id="patternFilter"><option value="">All patterns</option></select></div>
+      <button class="clear" id="clearFilters" type="button">Clear</button>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr><th>Row</th><th>Pattern</th><th>Conversion verdict</th></tr></thead><tbody id="taskRows"></tbody></table>
+      <div class="empty" id="emptyState">No rows match these filters.</div>
+    </div>
+  </section>
+
+  <footer class="footer"><span>SecureBench · Terminal-Bench 2.0 split-verification review</span><span>53 clean · 15 semantic changes · 6 major redesigns · 15 exclusions</span></footer>
+</main>
+
+<script id="benchmark-data" type="application/json">[{"task":"adaptive-rejection-sampler","href":"TerminalBench/adaptive-rejection-sampler.md","pattern":"Black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"bn-fit-modify","href":"TerminalBench/bn-fit-modify.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"break-filter-js-from-html","href":"TerminalBench/break-filter-js-from-html.md","pattern":"Passive artifact verification + black-box challenge/response","verdict":"Clean conversion"},{"task":"build-cython-ext","href":"TerminalBench/build-cython-ext.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"build-pmars","href":"TerminalBench/build-pmars.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"build-pov-ray","href":"TerminalBench/build-pov-ray.md","pattern":"Passive artifact verification + black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"caffe-cifar-10","href":"TerminalBench/caffe-cifar-10.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"cancel-async-tasks","href":"TerminalBench/cancel-async-tasks.md","pattern":"Black-box challenge/response + trusted external state","verdict":"Clean conversion"},{"task":"chess-best-move","href":"TerminalBench/chess-best-move.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"circuit-fibsqrt","href":"TerminalBench/circuit-fibsqrt.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"cobol-modernization","href":"TerminalBench/cobol-modernization.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"code-from-image","href":"TerminalBench/code-from-image.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"compile-compcert","href":"TerminalBench/compile-compcert.md","pattern":"Passive artifact verification + black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"configure-git-webserver","href":"TerminalBench/configure-git-webserver.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"constraints-scheduling","href":"TerminalBench/constraints-scheduling.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"count-dataset-tokens","href":"TerminalBench/count-dataset-tokens.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"crack-7z-hash","href":"TerminalBench/crack-7z-hash.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"custom-memory-heap-crash","href":"TerminalBench/custom-memory-heap-crash.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"db-wal-recovery","href":"TerminalBench/db-wal-recovery.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"distribution-search","href":"TerminalBench/distribution-search.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"dna-assembly","href":"TerminalBench/dna-assembly.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"dna-insert","href":"TerminalBench/dna-insert.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"extract-elf","href":"TerminalBench/extract-elf.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"extract-moves-from-video","href":"TerminalBench/extract-moves-from-video.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"feal-differential-cryptanalysis","href":"TerminalBench/feal-differential-cryptanalysis.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"feal-linear-cryptanalysis","href":"TerminalBench/feal-linear-cryptanalysis.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"filter-js-from-html","href":"TerminalBench/filter-js-from-html.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"financial-document-processor","href":"TerminalBench/financial-document-processor.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"fix-code-vulnerability","href":"TerminalBench/fix-code-vulnerability.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"fix-git","href":"TerminalBench/fix-git.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"fix-ocaml-gc","href":"TerminalBench/fix-ocaml-gc.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"gcode-to-text","href":"TerminalBench/gcode-to-text.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"git-leak-recovery","href":"TerminalBench/git-leak-recovery.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"git-multibranch","href":"TerminalBench/git-multibranch.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"gpt2-codegolf","href":"TerminalBench/gpt2-codegolf.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"headless-terminal","href":"TerminalBench/headless-terminal.md","pattern":"Black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"hf-model-inference","href":"TerminalBench/hf-model-inference.md","pattern":"Black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"install-windows-3.11","href":"TerminalBench/install-windows-3.11.md","pattern":"Passive artifact verification + black-box challenge/response + trusted external state","verdict":"Clean conversion"},{"task":"kv-store-grpc","href":"TerminalBench/kv-store-grpc.md","pattern":"Black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"large-scale-text-editing","href":"TerminalBench/large-scale-text-editing.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"largest-eigenval","href":"TerminalBench/largest-eigenval.md","pattern":"Black-box challenge/response","verdict":"Major redesign"},{"task":"llm-inference-batching-scheduler","href":"TerminalBench/llm-inference-batching-scheduler.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"log-summary-date-ranges","href":"TerminalBench/log-summary-date-ranges.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"mailman","href":"TerminalBench/mailman.md","pattern":"Black-box challenge/response + trusted external state","verdict":"Major redesign"},{"task":"make-doom-for-mips","href":"TerminalBench/make-doom-for-mips.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"make-mips-interpreter","href":"TerminalBench/make-mips-interpreter.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"mcmc-sampling-stan","href":"TerminalBench/mcmc-sampling-stan.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"merge-diff-arc-agi-task","href":"TerminalBench/merge-diff-arc-agi-task.md","pattern":"Passive artifact verification + black-box challenge/response","verdict":"Clean conversion"},{"task":"model-extraction-relu-logits","href":"TerminalBench/model-extraction-relu-logits.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"modernize-scientific-stack","href":"TerminalBench/modernize-scientific-stack.md","pattern":"Passive artifact verification + black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"mteb-leaderboard","href":"TerminalBench/mteb-leaderboard.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"mteb-retrieve","href":"TerminalBench/mteb-retrieve.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"multi-source-data-merger","href":"TerminalBench/multi-source-data-merger.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"nginx-request-logging","href":"TerminalBench/nginx-request-logging.md","pattern":"Passive artifact verification + black-box challenge/response","verdict":"Major redesign"},{"task":"openssl-selfsigned-cert","href":"TerminalBench/openssl-selfsigned-cert.md","pattern":"Passive artifact verification + black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"overfull-hbox","href":"TerminalBench/overfull-hbox.md","pattern":"Passive artifact verification + black-box challenge/response","verdict":"Clean conversion"},{"task":"password-recovery","href":"TerminalBench/password-recovery.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"path-tracing-reverse","href":"TerminalBench/path-tracing-reverse.md","pattern":"Black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"path-tracing","href":"TerminalBench/path-tracing.md","pattern":"Black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"polyglot-c-py","href":"TerminalBench/polyglot-c-py.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"polyglot-rust-c","href":"TerminalBench/polyglot-rust-c.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"portfolio-optimization","href":"TerminalBench/portfolio-optimization.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"protein-assembly","href":"TerminalBench/protein-assembly.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"prove-plus-comm","href":"TerminalBench/prove-plus-comm.md","pattern":"Black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"pypi-server","href":"TerminalBench/pypi-server.md","pattern":"Black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"pytorch-model-cli","href":"TerminalBench/pytorch-model-cli.md","pattern":"Passive artifact verification + black-box challenge/response","verdict":"Clean conversion"},{"task":"pytorch-model-recovery","href":"TerminalBench/pytorch-model-recovery.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"qemu-alpine-ssh","href":"TerminalBench/qemu-alpine-ssh.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"qemu-startup","href":"TerminalBench/qemu-startup.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"query-optimize","href":"TerminalBench/query-optimize.md","pattern":"Black-box challenge/response","verdict":"Major redesign"},{"task":"raman-fitting","href":"TerminalBench/raman-fitting.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"regex-chess","href":"TerminalBench/regex-chess.md","pattern":"Black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"regex-log","href":"TerminalBench/regex-log.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"reshard-c4-data","href":"TerminalBench/reshard-c4-data.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"rstan-to-pystan","href":"TerminalBench/rstan-to-pystan.md","pattern":"Passive artifact verification","verdict":"Conversion with semantic change"},{"task":"sam-cell-seg","href":"TerminalBench/sam-cell-seg.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"sanitize-git-repo","href":"TerminalBench/sanitize-git-repo.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"schemelike-metacircular-eval","href":"TerminalBench/schemelike-metacircular-eval.md","pattern":"Black-box challenge/response","verdict":"Conversion with semantic change"},{"task":"sparql-university","href":"TerminalBench/sparql-university.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"sqlite-db-truncate","href":"TerminalBench/sqlite-db-truncate.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"sqlite-with-gcov","href":"TerminalBench/sqlite-with-gcov.md","pattern":"Passive artifact verification + black-box challenge/response","verdict":"Clean conversion"},{"task":"torch-pipeline-parallelism","href":"TerminalBench/torch-pipeline-parallelism.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"torch-tensor-parallelism","href":"TerminalBench/torch-tensor-parallelism.md","pattern":"Redesign or exclude","verdict":"Exclude"},{"task":"train-fasttext","href":"TerminalBench/train-fasttext.md","pattern":"Passive artifact verification + black-box challenge/response","verdict":"Major redesign"},{"task":"tune-mjcf","href":"TerminalBench/tune-mjcf.md","pattern":"Black-box challenge/response","verdict":"Major redesign"},{"task":"video-processing","href":"TerminalBench/video-processing.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"vulnerable-secret","href":"TerminalBench/vulnerable-secret.md","pattern":"Passive artifact verification","verdict":"Clean conversion"},{"task":"winning-avg-corewars","href":"TerminalBench/winning-avg-corewars.md","pattern":"Black-box challenge/response","verdict":"Clean conversion"},{"task":"write-compressor","href":"TerminalBench/write-compressor.md","pattern":"Passive artifact verification","verdict":"Clean conversion"}]</script>
+<script>
+(function(){
+  "use strict";
+  var rows=JSON.parse(document.getElementById("benchmark-data").textContent);
+  var verdictOrder=["Clean conversion","Conversion with semantic change","Major redesign","Exclude"];
+  var patternOrder=[
+    "Black-box challenge/response",
+    "Passive artifact verification",
+    "Passive artifact verification + black-box challenge/response",
+    "Black-box challenge/response + trusted external state",
+    "Passive artifact verification + black-box challenge/response + trusted external state",
+    "Redesign or exclude"
+  ];
+  var shortPattern={
+    "Black-box challenge/response":"Black-box challenge/response",
+    "Passive artifact verification":"Passive artifact verification",
+    "Passive artifact verification + black-box challenge/response":"Passive + black-box",
+    "Black-box challenge/response + trusted external state":"Black-box + trusted state",
+    "Passive artifact verification + black-box challenge/response + trusted external state":"Three-way hybrid",
+    "Redesign or exclude":"No retained pattern"
+  };
+  var els={
+    bars:document.getElementById("patternBars"),verdicts:document.getElementById("verdictSummary"),
+    trusted:document.getElementById("trustedItems"),body:document.getElementById("taskRows"),empty:document.getElementById("emptyState"),
+    search:document.getElementById("search"),verdict:document.getElementById("verdictFilter"),pattern:document.getElementById("patternFilter"),
+    count:document.getElementById("resultCount"),clear:document.getElementById("clearFilters")
+  };
+  function esc(value){return String(value).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]})}
+  function countBy(key,value){return rows.filter(function(row){return row[key]===value}).length}
+  function verdictClass(value){return value==="Clean conversion"?"clean":value==="Conversion with semantic change"?"semantic":value==="Major redesign"?"major":"exclude"}
+  document.getElementById("totalCount").textContent=rows.length;
+  document.getElementById("retainedCount").textContent=rows.filter(function(row){return row.verdict!=="Exclude"}).length;
+  document.getElementById("cleanCount").textContent=countBy("verdict","Clean conversion");
+  document.getElementById("excludedCount").textContent=countBy("verdict","Exclude");
+  document.getElementById("cleanNote").textContent=(countBy("verdict","Clean conversion")/rows.length*100).toFixed(1)+"% of all rows";
+
+  patternOrder.forEach(function(pattern){
+    var n=countBy("pattern",pattern),row=document.createElement("div");
+    row.className="pattern-row";
+    row.innerHTML="<span class='pattern-label'>"+esc(shortPattern[pattern])+"</span><span class='track'><span class='fill' style='width:"+(n/rows.length*100).toFixed(1)+"%'></span></span><b>"+n+"</b>";
+    els.bars.appendChild(row);
+    var option=document.createElement("option");option.value=pattern;option.textContent=shortPattern[pattern];els.pattern.appendChild(option);
+  });
+  verdictOrder.forEach(function(verdict){
+    var n=countBy("verdict",verdict),row=document.createElement("div"),option=document.createElement("option");
+    row.className="verdict-row";row.innerHTML="<span>"+esc(verdict)+"</span><strong>"+n+"</strong>";els.verdicts.appendChild(row);
+    option.value=verdict;option.textContent=verdict;els.verdict.appendChild(option);
+  });
+  rows.filter(function(row){return row.pattern.indexOf("trusted external state")!==-1}).forEach(function(row){
+    var item=document.createElement("div");item.className="trusted-item";item.innerHTML="<a class='task-link' href='"+esc(row.href)+"'>"+esc(row.task)+"</a><span>"+esc(row.verdict)+"</span>";els.trusted.appendChild(item);
+  });
+  document.getElementById("trustedCount").textContent=rows.filter(function(row){return row.pattern.indexOf("trusted external state")!==-1}).length;
+
+  function render(){
+    var query=els.search.value.trim().toLowerCase(),verdict=els.verdict.value,pattern=els.pattern.value;
+    var filtered=rows.filter(function(row){return (!query||(row.task+" "+row.pattern+" "+row.verdict).toLowerCase().indexOf(query)!==-1)&&(!verdict||row.verdict===verdict)&&(!pattern||row.pattern===pattern)});
+    els.body.innerHTML=filtered.map(function(row){return "<tr><td><a class='task-link' href='"+esc(row.href)+"'>"+esc(row.task)+"</a></td><td>"+esc(shortPattern[row.pattern]||row.pattern)+"</td><td><span class='badge "+verdictClass(row.verdict)+"'>"+esc(row.verdict)+"</span></td></tr>"}).join("");
+    els.count.textContent=filtered.length+" "+(filtered.length===1?"row":"rows");els.empty.style.display=filtered.length?"none":"block";
+  }
+  [els.search,els.verdict,els.pattern].forEach(function(el){el.addEventListener(el.tagName==="INPUT"?"input":"change",render)});
+  els.clear.addEventListener("click",function(){els.search.value="";els.verdict.value="";els.pattern.value="";render();els.search.focus()});
+  render();
+})();
+</script>
+</body>
+</html>

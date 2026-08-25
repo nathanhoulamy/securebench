@@ -34,6 +34,7 @@ slice, not as complete support for every schema branch.
 - Runtime capability gate: [`securebench/execution_profiles.py`](securebench/execution_profiles.py)
 - Security guarantees and limitations: [`docs/split-verification/security-model.md`](docs/split-verification/security-model.md)
 - Benchmark conversion portfolio: [`docs/benchmark-conversions/`](docs/benchmark-conversions/)
+- Conversion implementation guide: [`docs/benchmark-conversions/conversion-guide.md`](docs/benchmark-conversions/conversion-guide.md)
 
 The Pydantic models are the executable schema source of truth. The design document includes
 future-facing contracts that are schema-valid but not necessarily executable yet.
@@ -189,21 +190,59 @@ schema support.
 6. Assertion-free Adapters, component capability review, base/gold/mutant qualification, and
    semantic-fidelity review remain admission/governance responsibilities rather than mechanically
    proven row-schema properties.
-7. Currently executable file-bundle and git-patch Agent workspaces still lack a framework-owned
-   disk quota. The overlay path has a quota backend, but it stays disabled pending native
-   qualification. Deployment storage isolation remains necessary for active Candidate types.
-8. Trusted benchmark resource trees and Git baselines are not subject to a framework-wide
-   traversal-entry or subprocess wall-clock ceiling. They are author-controlled and hash-bound,
-   rather than Candidate-controlled, but an oversized or malformed admitted pack can still consume
-   excessive host resources during compilation, reconstruction, or patch validation.
-9. Protocol payloads have per-case and per-component bounds, but there is no framework-owned total
-   Evaluation budget yet. In particular, `max_cases`, the sum of per-case time, aggregate Trusted
-   Helper evidence, and serialized Oracle request size are not capped across a whole row. A reviewed
-   but impractical row can therefore consume excessive time or memory even though each individual
-   component remains within its declared maximum.
-10. Filesystem-overlay capture uses crash-recoverable transactions and removes unpublished chunks.
-    Other Candidate capture paths can still write content-addressed blobs before committing their
-    final manifest, so the run output directory still needs a storage quota for long-lived use.
+
+The two operational hardening items that are consciously accepted and deferred during the first
+conversion pilot are documented separately below. They are not reasons to weaken preflight or the
+split-verification boundary.
+
+## Accepted deferred operational hardening
+
+The project is proceeding with a small, supervised Linux conversion pilot before addressing the
+following two issues. Both are known availability/storage risks, not ways for a Candidate to see
+hidden evaluation material or make its own verdict authoritative.
+
+### Framework-owned quota for active Agent workspaces
+
+The declared `file_bundle` and `git_patch` limits are enforced when SecureBench captures the
+stopped Agent workspace. They bound the Candidate that crosses into Evaluation, but they do not
+bound all bytes the Agent can write while it is working. An Agent can therefore create a very large
+irrelevant file and consume the host-backed workspace even when the final declared Candidate is
+small or is later rejected. If the underlying filesystem fills first, other rows or host services
+can be disrupted before stopped-state capture applies its limits.
+
+The overlay backend already has a hard quota design, but overlay execution is still disabled
+pending native qualification and that quota does not protect the currently executable
+`file_bundle` and `git_patch` paths. The eventual fix should either give those active workspaces a
+framework-owned hard quota or require SecureBench to prove an equivalent deployment-owned isolated
+storage boundary before starting the Agent. Exhausting a working quota should be reported as a
+Candidate resource failure; inability to establish the promised boundary should fail before Agent
+execution.
+
+For the conversion pilot this risk is explicitly accepted. Run a small number of reviewed rows on
+the dedicated Linux machine, start with one worker, use a separately bounded or monitored run
+volume, and inspect free space between runs. This is an operational mitigation, not the final
+framework guarantee. The framework change is deferred until conversion experience justifies the
+common quota interface.
+
+### Transactional publication for non-overlay Candidates
+
+`file_bundle` and `git_patch` capture store content-addressed blobs before publishing the final
+Candidate manifest. If capture is rejected, interrupted, or fails after one or more blob writes,
+those blobs may remain without a manifest that references them. Each attempted Candidate remains
+individually bounded at capture time and an orphan cannot be resumed or evaluated as a valid
+Candidate, so this does not compromise scoring or test separation. Repeated failed runs can still
+accumulate unused data in a long-lived output store.
+
+Filesystem-overlay capture already stages its chunks transactionally and removes unpublished
+content on failure. The preferred later fix is to give `file_bundle` and `git_patch` equivalent
+staging and atomic publication semantics. A reference-aware garbage collector is a possible
+fallback, but is more difficult because content-addressed blobs may legitimately be shared by
+multiple published manifests and must never be removed while referenced.
+
+For the conversion pilot this risk is also explicitly accepted. Use per-pilot output directories
+on monitored storage and retain or discard them deliberately after reviewing results. Do not add an
+unsafe blob-deletion shortcut. Transactional non-overlay capture remains future operational
+hardening rather than a prerequisite for writing and qualifying the first converted rows.
 
 ## Verification evidence
 

@@ -1,0 +1,985 @@
+# Structural examples for docs/split-verification-row-schema.md.
+# These are proposed author-facing rows, not inputs accepted by the current
+# SecureBench implementation. Long public instructions and final image digests
+# are abbreviated so the verification structure remains readable.
+
+# ---------------------------------------------------------------------------
+# TerminalBench: passive artifact verification
+# ---------------------------------------------------------------------------
+id: terminal-bench/constraints-scheduling
+family: terminal_task
+input:
+  instructions: "<unchanged TerminalBench constraints-scheduling instruction>"
+assets:
+  - path: constraints-scheduling/alice_calendar.ics
+    mount: /app/alice_calendar.ics
+    read_only: true
+  - path: constraints-scheduling/bob_calendar.ics
+    mount: /app/bob_calendar.ics
+    read_only: true
+  - path: constraints-scheduling/carol_calendar.ics
+    mount: /app/carol_calendar.ics
+    read_only: true
+environment:
+  image: "securebench-terminal-bench-constraints-scheduling@sha256:<digest>"
+  workdir: /app
+  timeout_seconds: 1200
+eval:
+  candidate:
+    capture:
+      type: file_bundle
+      files:
+        - id: schedule
+          path: /app/meeting_scheduled.ics
+          kind: regular_file
+          max_bytes: 65536
+      reject_symlinks: true
+      reject_special_files: true
+  resources:
+    pristine_calendars:
+      visibility: hidden
+      path: constraints-scheduling/oracle/calendars
+      kind: directory
+    task_oracle:
+      visibility: hidden
+      path: constraints-scheduling/oracle
+      kind: directory
+  checks:
+    - id: schedule_artifact
+      patterns: [passive_artifact]
+      driver:
+        type: artifact
+        artifacts: [schedule]
+      observe:
+        files: 1
+        total_bytes: 65536
+  oracle: task_oracle
+metadata:
+  source_dataset: terminal-bench-2
+  source_revision: 2fd12b88aafdd04a52c298e3940bcb189f9766d6
+  conversion:
+    verdict: clean
+    dossier: docs/benchmark-rows/TerminalBench/constraints-scheduling.md
+
+---
+# ---------------------------------------------------------------------------
+# TerminalBench: black-box CLI challenge/response
+# ---------------------------------------------------------------------------
+id: terminal-bench/circuit-fibsqrt
+family: terminal_task
+input:
+  instructions: "<unchanged TerminalBench circuit-fibsqrt instruction>"
+environment:
+  image: "securebench-terminal-bench-circuit-fibsqrt@sha256:<digest>"
+  workdir: /app
+  timeout_seconds: 3600
+eval:
+  candidate:
+    capture:
+      type: file_bundle
+      files:
+        - id: circuit
+          path: /app/gates.txt
+          kind: regular_file
+          max_bytes: 2097152
+          max_lines: 31999
+      reject_symlinks: true
+      reject_special_files: true
+  resources:
+    simulator_adapter:
+      visibility: evaluation_inputs
+      path: circuit-fibsqrt/adapter
+      kind: directory
+      mount: /opt/securebench/adapters/circuit-fibsqrt
+      read_only: true
+    challenge_cases:
+      visibility: hidden
+      path: circuit-fibsqrt/oracle/cases
+      kind: directory
+    task_oracle:
+      visibility: hidden
+      path: circuit-fibsqrt/oracle
+      kind: directory
+  checks:
+    - id: circuit_behavior
+      patterns: [black_box]
+      driver:
+        type: cli
+        adapter: simulator_adapter
+        protocol: securebench.circuit-simulator/v1
+      challenge:
+        source: challenge_cases
+        delivery: one_at_a_time
+        max_cases: 64
+      observe:
+        protocol: securebench.process-observation/v1
+        limits:
+          stdout_bytes: 4096
+          stderr_bytes: 4096
+          seconds_per_case: 2
+      isolation:
+        scope: case
+        network: none
+        writable_tmp_bytes: 16777216
+  oracle: task_oracle
+metadata:
+  source_dataset: terminal-bench-2
+  source_revision: 2fd12b88aafdd04a52c298e3940bcb189f9766d6
+  conversion:
+    verdict: clean
+    dossier: docs/benchmark-rows/TerminalBench/circuit-fibsqrt.md
+
+---
+# ---------------------------------------------------------------------------
+# TerminalBench: network-service black-box verification. The overlay is needed
+# because the task modifies system configuration outside /app.
+# ---------------------------------------------------------------------------
+id: terminal-bench/configure-git-webserver
+family: terminal_task
+input:
+  instructions: "<unchanged TerminalBench configure-git-webserver instruction>"
+environment:
+  image: "securebench-terminal-bench-configure-git-webserver@sha256:<digest>"
+  workdir: /app
+  timeout_seconds: 900
+eval:
+  candidate:
+    capture:
+      type: filesystem_overlay
+      include_roots:
+        - /app
+        - /etc/nginx
+        - /etc/ssh
+        - /git
+        - /var/www
+      max_files: 20000
+      max_total_bytes: 536870912
+      reject_devices: true
+      reject_sockets: true
+  resources:
+    git_http_adapter:
+      visibility: evaluation_inputs
+      path: configure-git-webserver/adapter
+      kind: directory
+      mount: /opt/securebench/adapters/git-http
+      read_only: true
+    challenge_cases:
+      visibility: hidden
+      path: configure-git-webserver/oracle/cases
+      kind: directory
+    task_oracle:
+      visibility: hidden
+      path: configure-git-webserver/oracle
+      kind: directory
+  checks:
+    - id: push_deploy_fetch
+      patterns: [black_box]
+      driver:
+        type: network_service
+        adapter: git_http_adapter
+        protocol: securebench.git-push-http-fetch/v1
+        endpoints:
+          - id: git
+            protocol: ssh
+            guest_port: 22
+          - id: web
+            protocol: http
+            guest_port: 8080
+      challenge:
+        source: challenge_cases
+        delivery: one_at_a_time
+        max_cases: 8
+      observe:
+        protocol: securebench.protocol-transcript/v1
+        limits:
+          requests_per_case: 32
+          body_bytes: 1048576
+          stderr_bytes: 16384
+          seconds_per_case: 30
+      isolation:
+        scope: scenario
+        network: evaluation_private
+        evaluation_vm_cannot_initiate_host_connections: true
+  oracle: task_oracle
+metadata:
+  source_dataset: terminal-bench-2
+  source_revision: 2fd12b88aafdd04a52c298e3940bcb189f9766d6
+  conversion:
+    verdict: clean
+    dossier: docs/benchmark-rows/TerminalBench/configure-git-webserver.md
+
+---
+# ---------------------------------------------------------------------------
+# TerminalBench: black-box scenario plus trusted external event/timing state
+# ---------------------------------------------------------------------------
+id: terminal-bench/cancel-async-tasks
+family: terminal_task
+input:
+  instructions: "<unchanged TerminalBench cancel-async-tasks instruction>"
+environment:
+  image: "securebench-terminal-bench-cancel-async-tasks@sha256:<digest>"
+  workdir: /app
+  timeout_seconds: 900
+eval:
+  candidate:
+    capture:
+      type: file_bundle
+      files:
+        - id: implementation
+          path: /app/run.py
+          kind: regular_file
+          max_bytes: 262144
+      reject_symlinks: true
+      reject_special_files: true
+  resources:
+    async_scenario_adapter:
+      visibility: evaluation_inputs
+      path: cancel-async-tasks/adapter
+      kind: directory
+      mount: /opt/securebench/adapters/async-task-scenario
+      read_only: true
+    challenge_cases:
+      visibility: hidden
+      path: cancel-async-tasks/oracle/cases
+      kind: directory
+    task_oracle:
+      visibility: hidden
+      path: cancel-async-tasks/oracle
+      kind: directory
+  checks:
+    - id: concurrency_and_cancellation
+      patterns: [black_box, trusted_external_state]
+      driver:
+        type: scenario
+        adapter: async_scenario_adapter
+        protocol: securebench.async-task-scenario/v1
+      challenge:
+        source: challenge_cases
+        delivery: one_at_a_time
+        max_cases: 24
+      external_state:
+        - id: lifecycle_events
+          service: append_only_event_ledger
+          evaluation_capabilities: [append_nonce_event]
+          oracle_capabilities: [inspect]
+          reset: per_case
+          limits:
+            events: 256
+            event_bytes: 1024
+        - id: process_control
+          service: process_supervisor
+          evaluation_capabilities: []
+          oracle_capabilities: [deliver_signal, inspect_lifecycle, inspect_timing]
+          reset: per_case
+          limits:
+            processes: 32
+            signals: 4
+      observe:
+        protocol: securebench.process-observation/v1
+        limits:
+          stdout_bytes: 4096
+          stderr_bytes: 16384
+          seconds_per_case: 15
+      isolation:
+        scope: case
+        network: capability_only
+  oracle: task_oracle
+metadata:
+  source_dataset: terminal-bench-2
+  source_revision: 2fd12b88aafdd04a52c298e3940bcb189f9766d6
+  conversion:
+    verdict: clean
+    dossier: docs/benchmark-rows/TerminalBench/cancel-async-tasks.md
+
+---
+# ---------------------------------------------------------------------------
+# TerminalBench: separate passive and black-box checks in one row
+# ---------------------------------------------------------------------------
+id: terminal-bench/overfull-hbox
+family: terminal_task
+input:
+  instructions: "<unchanged TerminalBench overfull-hbox instruction>"
+environment:
+  image: "securebench-terminal-bench-overfull-hbox@sha256:<digest>"
+  workdir: /app
+  timeout_seconds: 750
+eval:
+  candidate:
+    capture:
+      type: file_bundle
+      files:
+        - id: input_tex
+          path: /app/input.tex
+          kind: regular_file
+          max_bytes: 1048576
+        - id: main_tex
+          path: /app/main.tex
+          kind: regular_file
+          max_bytes: 1048576
+        - id: synonyms
+          path: /app/synonyms.txt
+          kind: regular_file
+          max_bytes: 1048576
+      reject_symlinks: true
+      reject_special_files: true
+  resources:
+    latex_adapter:
+      visibility: evaluation_inputs
+      path: overfull-hbox/adapter
+      kind: directory
+      mount: /opt/securebench/adapters/latex
+      read_only: true
+    pristine_inputs:
+      visibility: hidden
+      path: overfull-hbox/oracle/pristine
+      kind: directory
+    task_oracle:
+      visibility: hidden
+      path: overfull-hbox/oracle
+      kind: directory
+  checks:
+    - id: allowed_source_edits
+      patterns: [passive_artifact]
+      driver:
+        type: artifact
+        artifacts: [input_tex, main_tex, synonyms]
+      observe:
+        files: 3
+        total_bytes: 3145728
+    - id: latex_compilation
+      patterns: [black_box]
+      driver:
+        type: cli
+        adapter: latex_adapter
+        protocol: securebench.latex-compile/v1
+      observe:
+        protocol: securebench.process-with-artifacts/v1
+        artifacts:
+          - id: pdf
+            max_bytes: 16777216
+          - id: log
+            max_bytes: 1048576
+        limits:
+          stdout_bytes: 16384
+          stderr_bytes: 16384
+          seconds: 60
+      isolation:
+        scope: scenario
+        network: none
+  oracle: task_oracle
+metadata:
+  source_dataset: terminal-bench-2
+  source_revision: 2fd12b88aafdd04a52c298e3940bcb189f9766d6
+  conversion:
+    verdict: clean
+    dossier: docs/benchmark-rows/TerminalBench/overfull-hbox.md
+
+---
+# ---------------------------------------------------------------------------
+# TerminalBench: all three patterns. Candidate live processes are deliberately
+# not captured; a fresh VM applies the overlay and the supervisor launches QEMU.
+# ---------------------------------------------------------------------------
+id: terminal-bench/install-windows-3.11
+family: terminal_task
+input:
+  instructions: "<unchanged TerminalBench install-windows-3.11 instruction>"
+assets:
+  - path: install-windows-3.11/isos/win311.img
+    mount: /app/isos/win311.img
+    read_only: false
+environment:
+  image: "securebench-terminal-bench-install-windows-3.11@sha256:<digest>"
+  workdir: /app
+  timeout_seconds: 3600
+eval:
+  candidate:
+    capture:
+      type: filesystem_overlay
+      include_roots:
+        - /app
+        - /etc/nginx
+      max_files: 20000
+      max_total_bytes: 1073741824
+      reject_devices: true
+      reject_sockets: true
+  resources:
+    vnc_http_adapter:
+      visibility: evaluation_inputs
+      path: install-windows-3.11/adapter
+      kind: directory
+      mount: /opt/securebench/adapters/vnc-http
+      read_only: true
+    challenge_cases:
+      visibility: hidden
+      path: install-windows-3.11/oracle/cases
+      kind: directory
+    pristine_disk:
+      visibility: hidden
+      path: install-windows-3.11/oracle/win311.img.digest
+      kind: file
+    task_oracle:
+      visibility: hidden
+      path: install-windows-3.11/oracle
+      kind: directory
+  checks:
+    - id: disk_and_core_files
+      patterns: [passive_artifact]
+      driver:
+        type: artifact
+        paths:
+          - /app/isos/win311.img
+      observe:
+        files: 1
+        total_bytes: 536870912
+    - id: desktop_keyboard_and_reachability
+      patterns: [black_box]
+      driver:
+        type: network_service
+        adapter: vnc_http_adapter
+        protocol: securebench.vnc-keyboard-http/v1
+        endpoints:
+          - id: vnc
+            protocol: vnc
+            guest_port: 5901
+          - id: web
+            protocol: http
+            guest_port: 80
+      challenge:
+        source: challenge_cases
+        delivery: one_at_a_time
+        max_cases: 12
+      observe:
+        protocol: securebench.framebuffer-and-protocol/v1
+        limits:
+          frames: 32
+          frame_bytes: 8388608
+          response_body_bytes: 1048576
+          seconds_per_case: 30
+      isolation:
+        scope: scenario
+        network: evaluation_private
+    - id: qemu_launch_contract
+      patterns: [trusted_external_state]
+      driver:
+        type: service
+        protocol: securebench.supervised-qemu-launch/v1
+      external_state:
+        - id: qemu_launch
+          service: process_launch_broker
+          evaluation_capabilities: [request_declared_qemu_launch]
+          oracle_capabilities: [inspect_argv, inspect_lifecycle, inspect_ports]
+          reset: per_scenario
+          limits:
+            launches: 1
+      observe:
+        limits:
+          processes: 8
+          seconds: 300
+      isolation:
+        scope: scenario
+  oracle: task_oracle
+metadata:
+  source_dataset: terminal-bench-2
+  source_revision: 2fd12b88aafdd04a52c298e3940bcb189f9766d6
+  conversion:
+    verdict: clean
+    dossier: docs/benchmark-rows/TerminalBench/install-windows-3.11.md
+
+---
+# ---------------------------------------------------------------------------
+# DeepSWE: two reusable black-box interfaces in one repo-patch row
+# ---------------------------------------------------------------------------
+id: boa-hierarchical-evaluation-cancellation
+family: repo_patch
+input:
+  repo: boa-dev/boa
+  base_commit: 70409a5052984325dccfdc5f6520818568a81f39
+  instructions: "<unchanged DeepSWE boa-hierarchical-evaluation-cancellation instruction>"
+environment:
+  image: "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:<digest>"
+  workdir: /app
+  timeout_seconds: 5400
+eval:
+  candidate:
+    capture:
+      type: git_patch
+      exclude_paths:
+        - tests/**
+        - securebench/**
+        - target/**
+        - "**/test-results/**"
+      max_bytes: 16777216
+  resources:
+    compile_adapter:
+      visibility: evaluation_inputs
+      path: boa-hierarchical-evaluation-cancellation/adapters/compile
+      kind: directory
+      mount: /opt/securebench/adapters/rust-public-api
+      read_only: true
+    runtime_adapter:
+      visibility: evaluation_inputs
+      path: boa-hierarchical-evaluation-cancellation/adapters/runtime
+      kind: directory
+      mount: /opt/securebench/adapters/boa-cancellation
+      read_only: true
+    compile_cases:
+      visibility: hidden
+      path: boa-hierarchical-evaluation-cancellation/oracle/compile_cases
+      kind: directory
+    runtime_cases:
+      visibility: hidden
+      path: boa-hierarchical-evaluation-cancellation/oracle/runtime_cases
+      kind: directory
+    task_oracle:
+      visibility: hidden
+      path: boa-hierarchical-evaluation-cancellation/oracle
+      kind: directory
+  checks:
+    - id: public_api_shape
+      patterns: [black_box]
+      driver:
+        type: compile
+        adapter: compile_adapter
+        protocol: securebench.rust-separate-crate/v1
+      challenge:
+        source: compile_cases
+        delivery: one_at_a_time
+        max_cases: 64
+      observe:
+        protocol: securebench.compiler-observation/v1
+        limits:
+          diagnostics_bytes: 65536
+          seconds_per_case: 90
+      isolation:
+        scope: case
+        network: none
+    - id: cancellation_runtime
+      patterns: [black_box]
+      driver:
+        type: scenario
+        adapter: runtime_adapter
+        protocol: securebench.boa-cancellation-scenario/v1
+      challenge:
+        source: runtime_cases
+        delivery: one_at_a_time
+        max_cases: 128
+      observe:
+        protocol: securebench.typed-event-trace/v1
+        limits:
+          events: 2048
+          event_bytes: 4096
+          stderr_bytes: 65536
+          seconds_per_case: 30
+      isolation:
+        scope: case
+        network: none
+  oracle: task_oracle
+metadata:
+  source_dataset: deep-swe
+  source_revision: e016041a6ccf8da29906afc9a3f5a8df940a1f78
+  conversion:
+    verdict: clean
+    dossier: docs/benchmark-rows/DeepSWE/boa-hierarchical-evaluation-cancellation.md
+
+---
+# ---------------------------------------------------------------------------
+# DeepSWE: candidate execution creates a hostile SVG artifact. Execution is
+# black-box; independent host parsing of the resulting artifact is passive.
+# ---------------------------------------------------------------------------
+id: oxvg-structural-selector-preservation
+family: repo_patch
+input:
+  repo: noahbald/oxvg
+  base_commit: 1fd7fab851ecc975e008be0e3e279568ce4e2b51
+  instructions: "<unchanged DeepSWE oxvg-structural-selector-preservation instruction>"
+environment:
+  image: "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:<digest>"
+  workdir: /app
+  timeout_seconds: 5400
+eval:
+  candidate:
+    capture:
+      type: git_patch
+      exclude_paths:
+        - tests/**
+        - securebench/**
+        - target/**
+      max_bytes: 16777216
+  resources:
+    optimizer_adapter:
+      visibility: evaluation_inputs
+      path: oxvg-structural-selector-preservation/adapter
+      kind: directory
+      mount: /opt/securebench/adapters/svg-optimizer
+      read_only: true
+    challenge_cases:
+      visibility: hidden
+      path: oxvg-structural-selector-preservation/oracle/cases
+      kind: directory
+    task_oracle:
+      visibility: hidden
+      path: oxvg-structural-selector-preservation/oracle
+      kind: directory
+  checks:
+    - id: selector_preserving_optimization
+      patterns: [black_box, passive_artifact]
+      driver:
+        type: scenario
+        adapter: optimizer_adapter
+        protocol: securebench.svg-optimizer/v1
+      challenge:
+        source: challenge_cases
+        delivery: one_at_a_time
+        max_cases: 256
+      observe:
+        protocol: securebench.process-with-artifacts/v1
+        artifacts:
+          - id: optimized_svg
+            max_bytes: 4194304
+        limits:
+          stderr_bytes: 32768
+          seconds_per_case: 10
+      isolation:
+        scope: case
+        network: none
+  oracle: task_oracle
+metadata:
+  source_dataset: deep-swe
+  source_revision: e016041a6ccf8da29906afc9a3f5a8df940a1f78
+  conversion:
+    verdict: clean
+    dossier: docs/benchmark-rows/DeepSWE/oxvg-structural-selector-preservation.md
+
+---
+# ---------------------------------------------------------------------------
+# DeepSWE: lifecycle scenario correlated with a host-owned probe-model ledger
+# and passively inspected exported artifacts.
+# ---------------------------------------------------------------------------
+id: igel-persist-feature-schema
+family: repo_patch
+input:
+  repo: nidhaloff/igel
+  base_commit: bf4544d6c86ab4ace21254cb38a011ce3e845700
+  instructions: "<unchanged DeepSWE igel-persist-feature-schema instruction>"
+environment:
+  image: "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:<digest>"
+  workdir: /app
+  timeout_seconds: 5400
+eval:
+  candidate:
+    capture:
+      type: git_patch
+      exclude_paths:
+        - tests/**
+        - securebench/**
+        - "**/test-results/**"
+      max_bytes: 16777216
+  resources:
+    workflow_adapter:
+      visibility: evaluation_inputs
+      path: igel-persist-feature-schema/adapter
+      kind: directory
+      mount: /opt/securebench/adapters/igel-workflow
+      read_only: true
+    challenge_cases:
+      visibility: hidden
+      path: igel-persist-feature-schema/oracle/cases
+      kind: directory
+    task_oracle:
+      visibility: hidden
+      path: igel-persist-feature-schema/oracle
+      kind: directory
+  checks:
+    - id: persisted_schema_lifecycle
+      patterns: [black_box, passive_artifact, trusted_external_state]
+      driver:
+        type: scenario
+        adapter: workflow_adapter
+        protocol: securebench.igel-workflow/v1
+      challenge:
+        source: challenge_cases
+        delivery: one_at_a_time
+        max_cases: 96
+      external_state:
+        - id: probe_model
+          service: nonce_probe_model
+          evaluation_capabilities: [invoke]
+          oracle_capabilities: [configure_response, inspect_calls]
+          reset: per_scenario
+          limits:
+            calls: 128
+            matrix_cells_per_call: 100000
+      observe:
+        protocol: securebench.workflow-observation/v1
+        artifacts:
+          - id: description_json
+            max_bytes: 1048576
+          - id: exported_model
+            max_bytes: 67108864
+        limits:
+          http_requests: 64
+          response_body_bytes: 1048576
+          stdout_bytes: 65536
+          stderr_bytes: 65536
+          seconds_per_scenario: 300
+      isolation:
+        scope: scenario
+        network: capability_only
+        supervisor_restarts_allowed: true
+  oracle: task_oracle
+metadata:
+  source_dataset: deep-swe
+  source_revision: e016041a6ccf8da29906afc9a3f5a8df940a1f78
+  conversion:
+    verdict: clean
+    dossier: docs/benchmark-rows/DeepSWE/igel-persist-feature-schema.md
+
+---
+# ---------------------------------------------------------------------------
+# DeepSWE: black-box service plus passive durable-state verification
+# ---------------------------------------------------------------------------
+id: prometheus-transactional-reload-status
+family: repo_patch
+input:
+  repo: prometheus/prometheus
+  base_commit: 24a057bbf9089677b4c49eac4ae1f28287ac8bb9
+  instructions: "<unchanged DeepSWE prometheus-transactional-reload-status instruction>"
+environment:
+  image: "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:<digest>"
+  workdir: /app
+  timeout_seconds: 5400
+eval:
+  candidate:
+    capture:
+      type: git_patch
+      exclude_paths:
+        - tests/**
+        - securebench/**
+        - "**/test-results/**"
+      max_bytes: 33554432
+  resources:
+    service_adapter:
+      visibility: evaluation_inputs
+      path: prometheus-transactional-reload-status/adapter
+      kind: directory
+      mount: /opt/securebench/adapters/prometheus-service
+      read_only: true
+    challenge_cases:
+      visibility: hidden
+      path: prometheus-transactional-reload-status/oracle/cases
+      kind: directory
+    task_oracle:
+      visibility: hidden
+      path: prometheus-transactional-reload-status/oracle
+      kind: directory
+  checks:
+    - id: transactional_reload_lifecycle
+      patterns: [black_box, passive_artifact]
+      driver:
+        type: network_service
+        adapter: service_adapter
+        protocol: securebench.prometheus-reload-lifecycle/v1
+        endpoints:
+          - id: prometheus
+            protocol: http
+            guest_port: 9090
+      challenge:
+        source: challenge_cases
+        delivery: one_at_a_time
+        max_cases: 64
+      observe:
+        protocol: securebench.service-with-filesystem/v1
+        artifacts:
+          - id: reload_state_json
+            max_bytes: 1048576
+        limits:
+          requests_per_scenario: 256
+          response_body_bytes: 4194304
+          process_restarts: 8
+          stderr_bytes: 262144
+          seconds_per_scenario: 300
+      isolation:
+        scope: scenario
+        network: evaluation_private
+        supervisor_restarts_allowed: true
+  oracle: task_oracle
+metadata:
+  source_dataset: deep-swe
+  source_revision: e016041a6ccf8da29906afc9a3f5a8df940a1f78
+  conversion:
+    verdict: clean
+    dossier: docs/benchmark-rows/DeepSWE/prometheus-transactional-reload-status.md
+
+---
+# ---------------------------------------------------------------------------
+# DeepSWE: black-box state machine plus a host-owned webhook ledger
+# ---------------------------------------------------------------------------
+id: updo-policy-alerting
+family: repo_patch
+input:
+  repo: Owloops/updo
+  base_commit: 9ecd74f5bd56fa915501e5b77da044d97c450a74
+  instructions: "<unchanged DeepSWE updo-policy-alerting instruction>"
+environment:
+  image: "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:<digest>"
+  workdir: /app
+  timeout_seconds: 5400
+eval:
+  candidate:
+    capture:
+      type: git_patch
+      exclude_paths:
+        - tests/**
+        - securebench/**
+        - "**/test-results/**"
+      max_bytes: 16777216
+  resources:
+    policy_adapter:
+      visibility: evaluation_inputs
+      path: updo-policy-alerting/adapter
+      kind: directory
+      mount: /opt/securebench/adapters/updo-policy
+      read_only: true
+    challenge_cases:
+      visibility: hidden
+      path: updo-policy-alerting/oracle/cases
+      kind: directory
+    task_oracle:
+      visibility: hidden
+      path: updo-policy-alerting/oracle
+      kind: directory
+  checks:
+    - id: policy_decisions_and_delivery
+      patterns: [black_box, trusted_external_state]
+      driver:
+        type: scenario
+        adapter: policy_adapter
+        protocol: securebench.updo-policy/v1
+      challenge:
+        source: challenge_cases
+        delivery: one_at_a_time
+        max_cases: 128
+      external_state:
+        - id: webhook
+          service: http_request_ledger
+          evaluation_capabilities: [send_http]
+          oracle_capabilities: [inspect_requests, control_responses]
+          reset: per_case
+          limits:
+            requests: 128
+            request_body_bytes: 16384
+            header_bytes: 8192
+      observe:
+        protocol: securebench.typed-event-trace/v1
+        limits:
+          events: 2048
+          event_bytes: 4096
+          stdout_bytes: 65536
+          stderr_bytes: 65536
+          seconds_per_case: 30
+      isolation:
+        scope: case
+        network: capability_only
+  oracle: task_oracle
+metadata:
+  source_dataset: deep-swe
+  source_revision: e016041a6ccf8da29906afc9a3f5a8df940a1f78
+  conversion:
+    verdict: clean
+    dossier: docs/benchmark-rows/DeepSWE/updo-policy-alerting.md
+
+---
+# ---------------------------------------------------------------------------
+# DeepSWE: all three patterns with an explicit semantic-change record
+# ---------------------------------------------------------------------------
+id: arcane-drift-detection-baselines
+family: repo_patch
+input:
+  repo: getarcaneapp/arcane
+  base_commit: d34a5e2a6c5eb0f0955039775f5b9538424b58ff
+  instructions: "<unchanged DeepSWE arcane-drift-detection-baselines instruction>"
+environment:
+  image: "public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:<digest>"
+  workdir: /app
+  timeout_seconds: 5400
+eval:
+  candidate:
+    capture:
+      type: git_patch
+      exclude_paths:
+        - tests/**
+        - securebench/**
+        - "**/test-results/**"
+      max_bytes: 33554432
+  resources:
+    lifecycle_adapter:
+      visibility: evaluation_inputs
+      path: arcane-drift-detection-baselines/adapter
+      kind: directory
+      mount: /opt/securebench/adapters/arcane-lifecycle
+      read_only: true
+    challenge_cases:
+      visibility: hidden
+      path: arcane-drift-detection-baselines/oracle/cases
+      kind: directory
+    task_oracle:
+      visibility: hidden
+      path: arcane-drift-detection-baselines/oracle
+      kind: directory
+  checks:
+    - id: drift_lifecycle_and_scheduling
+      patterns: [black_box, passive_artifact, trusted_external_state]
+      driver:
+        type: network_service
+        adapter: lifecycle_adapter
+        protocol: securebench.arcane-drift-lifecycle/v1
+        endpoints:
+          - id: arcane_api
+            protocol: http
+            guest_port: 3552
+      challenge:
+        source: challenge_cases
+        delivery: one_at_a_time
+        max_cases: 96
+      external_state:
+        - id: container_state
+          service: container_configuration_service
+          evaluation_capabilities: [read_current_state]
+          oracle_capabilities: [set_state, inspect_requests]
+          reset: per_scenario
+          limits:
+            containers: 128
+            requests: 512
+      observe:
+        protocol: securebench.service-with-filesystem/v1
+        artifacts:
+          - id: sqlite_migration_up
+            max_bytes: 1048576
+          - id: sqlite_migration_down
+            max_bytes: 1048576
+          - id: postgres_migration_up
+            max_bytes: 1048576
+          - id: postgres_migration_down
+            max_bytes: 1048576
+        limits:
+          requests_per_scenario: 512
+          response_body_bytes: 4194304
+          process_restarts: 4
+          stderr_bytes: 262144
+          seconds_per_scenario: 300
+      isolation:
+        scope: scenario
+        network: capability_only
+        supervisor_restarts_allowed: true
+  oracle: task_oracle
+metadata:
+  source_dataset: deep-swe
+  source_revision: e016041a6ccf8da29906afc9a3f5a8df940a1f78
+  conversion:
+    verdict: semantic_change
+    intelligence_impact: low
+    omitted_assertion_classes:
+      - private_service_pointer_identity
+      - private_scheduler_map_membership
+      - unexposed_nil_dependency_contracts
+    dossier: docs/benchmark-rows/DeepSWE/arcane-drift-detection-baselines.md

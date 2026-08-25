@@ -72,3 +72,15 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 ## Future conversion notes
 
 Use passive artifact verification. Extract the bounded `recover.json` and compare its parsed `(word, value)` pairs in the host-side Oracle with the Oracle's secret recovered-row set and threshold; keep the corrupted database as challenge data only, and keep expected rows, the score rule, tests, and reference recovery out of both VMs. No candidate-controlled code executes during evaluation, and the Oracle trusts only the parsed artifact. Verdict: clean conversion; auto-approved under the first-pass policy.
+
+## Implemented v2 conversion
+
+- Row: `terminal-bench/sqlite-db-truncate` in `benchmarks/terminal-bench/tasks-v2.jsonl`.
+- Candidate: one bounded regular file, `/app/recover.json` (64 KiB maximum).
+- Check: passive `securebench.strict-json/v1` artifact parsing; the host-only Oracle owns the eight recovered pairs and the original `> 6` acceptance threshold.
+- Image: `alexgshaw/sqlite-db-truncate@sha256:aabac93c93bd1f310e6a6fb893911d7735026ed18491c72133c9196a09092ca4`.
+- Source semantics retained: duplicate pairs cannot inflate recovery, unrelated pairs and additional object fields do not affect scoring, and integer/float-equivalent values compare equally.
+- Deterministic qualification on 2026-08-24 covers seven-row success, six-row failure, duplicate rejection, candidate verdict-claim irrelevance, strict parsing, schema compilation, and executable preflight.
+- Linux image qualification remains to be recorded: missing/base failure, reference success, malformed/oversized/symlink capture rejection, end-to-end Agent run, and cleanup/leak inspection.
+
+Admission status: qualification pending. The final binary status must be **Approved** or **Excluded** after the Linux matrix is complete.

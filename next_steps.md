@@ -143,7 +143,7 @@ collector capacity per Evaluation in addition to Adapter maxima and row-reduced 
 - HTTP recorder evidence is revalidated against the recorder's response-state machine, not merely
   against broad status-code ranges.
 - Full warning-strict, real-Docker protocol, self-audit, schema regeneration, packaging, and leak
-  checks passed. The unresolved resource budgets below remain explicit future work.
+  checks passed. The accepted deferred operational hardening is recorded in `current.md`.
 
 ## Completed on macOS 2026-08-22: filesystem-overlay implementation
 
@@ -201,36 +201,31 @@ its own section below and must not block other implementation work.
 4. [x] Return to later roadmap work after the macOS implementation is complete. Do not wait for a
    Linux host between features; collect native-only qualification work for the single final pass.
 
-## Next implementation gate: resource hardening before conversions
+## Active next batch: small conversion pilot on Linux
 
-Defer standalone benchmark-admission tooling, but do not begin executing a broad conversion
-campaign with the remaining framework-wide resource gaps. Complete this bounded gate first:
+Defer standalone benchmark-admission tooling and proceed with a deliberately small row-conversion
+pilot. The active instructions, selected rows, pack layout, component-authoring rules, manual
+qualification matrix, and Linux workflow are in
+[`docs/benchmark-conversions/conversion-guide.md`](docs/benchmark-conversions/conversion-guide.md).
 
-1. Add a framework-owned quota for the currently executable `file_bundle` and `git_patch` Agent
-   workspaces, or require and verify an equivalent deployment-owned isolated storage boundary
-   before Agent startup. Exhaustion must be a Candidate resource failure; inability to prove the
-   quota must fail before the Agent.
-2. Add one coherent total Evaluation budget: cap cases and cumulative case time per row, bound the
-   combined Trusted Helper and Output Artifact evidence, and make the maximum serialized Oracle
-   request an executable preflight invariant. Rows may reduce but never raise framework capacities.
-3. Bound trusted resource-tree and Git-baseline processing with aggregate entry/byte capacities and
-   subprocess wall-clock ceilings during compilation, baseline reconstruction, and patch
-   validation. Oversized or impractical packs must fail deterministically before Candidate work.
-4. Make non-overlay Candidate capture transactional, or add a conservative reference-aware
-   garbage collector, so rejected and interrupted file-bundle or Git-patch captures cannot
-   accumulate abandoned blobs. Blobs shared by valid manifests must never be deleted.
+The pilot should cover passive artifact verification, ordinary black-box protocol verification,
+and trusted external state. Start with rows that exercise the implemented `file_bundle`,
+`git_patch`, protocol Adapter v2, Output Artifact, and HTTP-recorder paths. Add a new parser,
+Adapter, or Trusted Helper only when a selected row demonstrates a concrete reusable need; register
+and qualify that component before marking the row executable.
 
-Definition of done: the full warning-strict and live-Docker suites pass; quota exhaustion,
-aggregate-budget exhaustion, hostile trusted-tree/Git inputs, interrupted capture, and cleanup
-failures have explicit ownership tests; schema generation, audit, package build, and leak checks
-remain clean.
+For every row, manually record base failure, reference success, targeted-mutant rejection,
+malicious-candidate rejection, and semantic fidelity in its dossier. Run deterministic qualification
+before an expensive Agent attempt, then run the fresh-Docker and end-to-end smoke paths on the Linux
+machine. Keep `max_workers: 1` initially and monitor the run volume because the active Agent
+workspace quota and transactional non-overlay Candidate publication are consciously deferred as
+documented in [`current.md`](current.md#accepted-deferred-operational-hardening).
 
-After this gate, begin with a small conversion pilot rather than admission-tool automation. Select
-rows whose required Candidate/check/helper paths are already executable, manually record base
-failure, reference success, targeted-mutant rejection, malicious-candidate rejection, and semantic
-fidelity in each dossier, and implement new assertion-free Adapters or reviewed Trusted Helpers only
-when a selected row demonstrates the need. Prepare the conversion-agent guide at that point against
-the then-current executable capability matrix.
+Definition of done for the pilot: at least one row from each verification pattern completes the
+manual qualification matrix and a real Linux end-to-end run; each component introduced by the
+pilot has closed contracts and failure-path tests; visibility and fresh-Evaluation isolation are
+demonstrated; the full warning-strict and relevant live-Docker suites, schema generation, audit,
+package build, and leak checks remain clean.
 
 ## Later work
 
@@ -244,13 +239,19 @@ the then-current executable capability matrix.
 - Define component registry governance and review/publication policy for pack-local adapters and
   Oracles.
 - Add stronger Oracle OS confinement and, if required, signed result records.
-- Convert more benchmark rows only when their required Candidate, check, and Trusted Helper features are
-  executable; do not weaken preflight to admit them early.
+- Return to the two accepted operational-hardening items in `current.md` after the pilot provides
+  enough workload evidence to choose clean common interfaces.
+- Convert a selected row only after its required Candidate, check, parser, Adapter, and Trusted
+  Helper features are executable. If the row motivates a missing component, implement and qualify
+  that component explicitly; do not weaken preflight to admit the row early.
 
-## Final Linux-host qualification — deliberately deferred until the end
+## Final root-Linux filesystem-overlay qualification — deliberately deferred
 
-This is the last project step, not a blocker for ongoing macOS development. Add future
-Linux-only checks to this section and continue with the next macOS-capable roadmap item.
+This is the final qualification for the source-gated filesystem-overlay backend, not the ordinary
+Linux conversion testing described in the guide. `file_bundle` and `git_patch` pilot rows should
+be exercised on the available Linux machine now. Do not enable overlay execution merely because
+the conversion host runs Linux; retain this separate root/loop/ext4 gate until all steps below are
+run intentionally.
 
 Use a real root Linux host, not Docker Desktop on macOS. It must provide loop-backed ext4,
 mount/umount, Docker `overlay2`, Docker volume subpaths, and every required digest-pinned test image
@@ -281,9 +282,9 @@ locally. Then:
   `securebench/execution_profiles.py` before editing.
 - Treat schema-valid and executable as separate states; add capability support explicitly rather
   than silently falling back.
-- Develop and review everything possible on macOS. A missing native Linux environment is not an
-  intermediate blocker: add the gated integration test and its requirement to the final Linux-host
-  qualification section, then continue the roadmap.
+- Develop and review deterministic work locally, and use the available Linux machine for
+  benchmark-image, fresh-Docker, and end-to-end conversion tests. Keep root/loop/ext4-only overlay
+  checks in the final qualification section rather than mixing them into ordinary row conversion.
 - Preserve unrelated user files and inspect `git status` before editing.
 - Use `rg` for discovery and `apply_patch` for edits.
 - Keep batches small and add deterministic and failure-path tests on macOS. Add real-Docker/Linux

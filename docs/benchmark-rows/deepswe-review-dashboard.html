@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Interactive overview of the SecureBench DeepSWE split-verification review.">
+<title>DeepSWE Split-Verification Review</title>
+<style>
+:root{
+  color-scheme:light dark;
+  --bg:#f4f7fb;--surface:#ffffff;--surface-2:#edf2f8;--text:#122033;--muted:#617087;
+  --line:#d8e0eb;--approved:#17865f;--approved-soft:#dff5ea;--deferred:#c44d33;
+  --deferred-soft:#fbe7e1;--blue:#2563eb;--blue-soft:#e4edff;--purple:#7c3aed;
+  --gold:#a66b00;--shadow:0 18px 50px rgba(30,51,80,.10);--radius:20px;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#09111d;--surface:#101c2c;--surface-2:#17263a;--text:#eef5ff;--muted:#a9b6c9;
+    --line:#2a3a50;--approved:#56d39c;--approved-soft:#163b31;--deferred:#ff8c72;
+    --deferred-soft:#46261f;--blue:#79a7ff;--blue-soft:#172e59;--purple:#b393ff;
+    --gold:#f2bd5b;--shadow:0 22px 65px rgba(0,0,0,.28);
+  }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:
+  radial-gradient(circle at 15% 0%,color-mix(in srgb,var(--blue) 12%,transparent),transparent 34rem),
+  radial-gradient(circle at 90% 18%,color-mix(in srgb,var(--purple) 10%,transparent),transparent 30rem),
+  var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input,select{font:inherit}
+button{color:inherit}
+a{color:inherit}
+.shell{width:min(1220px,calc(100% - 32px));margin:0 auto;padding:38px 0 64px}
+.hero{position:relative;overflow:hidden;padding:36px;border:1px solid var(--line);border-radius:28px;background:color-mix(in srgb,var(--surface) 92%,transparent);box-shadow:var(--shadow)}
+.eyebrow{display:flex;align-items:center;gap:9px;color:var(--blue);font-size:.78rem;font-weight:800;letter-spacing:.13em;text-transform:uppercase}
+.eyebrow::before{content:"";width:26px;height:2px;background:currentColor}
+h1{max-width:790px;margin:14px 0 12px;font-size:clamp(2rem,5vw,4.25rem);line-height:1.02;letter-spacing:-.055em}
+.hero-copy{max-width:760px;margin:0;color:var(--muted);font-size:1.02rem;line-height:1.65}
+.source{display:inline-flex;margin-top:20px;color:var(--muted);font-size:.84rem;text-decoration:none;border-bottom:1px solid var(--line)}
+.source:hover{color:var(--blue)}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:22px 0}
+.stat{min-height:128px;padding:21px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.stat-label{color:var(--muted);font-size:.78rem;font-weight:750;letter-spacing:.08em;text-transform:uppercase}
+.stat-value{margin-top:9px;font-size:2.2rem;font-weight:780;letter-spacing:-.04em}
+.stat-note{margin-top:5px;color:var(--muted);font-size:.84rem;line-height:1.4}
+.stat.approved .stat-value{color:var(--approved)}
+.stat.deferred .stat-value{color:var(--deferred)}
+.grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:18px;margin-top:18px}
+.panel{padding:24px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.panel h2{margin:0;font-size:1.12rem;letter-spacing:-.02em}
+.panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
+.panel-sub{margin:4px 0 0;color:var(--muted);font-size:.84rem;line-height:1.4}
+.pattern-list{display:grid;gap:13px}
+.pattern-row{width:100%;padding:0;border:0;background:none;text-align:left;cursor:pointer}
+.pattern-top{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:end;margin-bottom:6px}
+.pattern-name{font-size:.88rem;font-weight:700}
+.pattern-count{color:var(--muted);font-variant-numeric:tabular-nums;font-size:.8rem}
+.track{display:flex;height:11px;overflow:hidden;border-radius:999px;background:var(--surface-2)}
+.track span{display:block;min-width:0;transition:width .22s ease}
+.track .ok{background:var(--approved)}
+.track .wait{background:var(--deferred)}
+.pattern-row:hover .pattern-name{color:var(--blue)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:17px;color:var(--muted);font-size:.78rem}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:9px;height:9px;border-radius:50%}
+.dot.ok{background:var(--approved)}.dot.wait{background:var(--deferred)}
+.ring-layout{display:grid;grid-template-columns:150px 1fr;gap:20px;align-items:center}
+.ring{--p:85.8;position:relative;width:150px;aspect-ratio:1;border-radius:50%;background:conic-gradient(var(--approved) calc(var(--p)*1%),var(--deferred) 0)}
+.ring::after{content:"";position:absolute;inset:17px;border-radius:50%;background:var(--surface)}
+.ring-center{position:absolute;inset:0;z-index:1;display:grid;place-content:center;text-align:center}
+.ring-center strong{font-size:1.75rem;letter-spacing:-.05em}
+.ring-center span{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.1em}
+.mini-list{display:grid;gap:11px}
+.mini-row{display:flex;justify-content:space-between;gap:15px;padding-bottom:10px;border-bottom:1px solid var(--line);font-size:.86rem}
+.mini-row:last-child{padding:0;border:0}
+.mini-row span{color:var(--muted)}
+.trusted{margin-top:18px;background:
+  linear-gradient(135deg,color-mix(in srgb,var(--blue-soft) 74%,var(--surface)),var(--surface) 64%)}
+.trusted-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.trusted-copy{color:var(--muted);line-height:1.6;font-size:.92rem}
+.trusted-copy strong{color:var(--text)}
+.subpatterns{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px}
+.subpattern{padding:15px;border:1px solid var(--line);border-radius:15px;background:color-mix(in srgb,var(--surface) 74%,transparent)}
+.subpattern strong{display:block;font-size:1.45rem}
+.subpattern span{color:var(--muted);font-size:.76rem;line-height:1.3}
+.trusted-bars{display:grid;gap:13px;align-content:center}
+.trusted-bar{display:grid;grid-template-columns:100px 1fr 40px;gap:10px;align-items:center;font-size:.82rem}
+.trusted-bar b{text-align:right;font-variant-numeric:tabular-nums}
+.trusted-bar .track{height:12px}
+.explorer{margin-top:18px}
+.toolbar{display:grid;grid-template-columns:minmax(230px,1.4fr) repeat(3,minmax(155px,.6fr));gap:10px;margin:18px 0 14px}
+.field label{display:block;margin:0 0 6px;color:var(--muted);font-size:.74rem;font-weight:750;text-transform:uppercase;letter-spacing:.07em}
+.control{width:100%;height:42px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--surface-2);color:var(--text);outline:none}
+.control:focus{border-color:var(--blue);box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 18%,transparent)}
+.result-line{display:flex;align-items:center;justify-content:space-between;gap:15px;color:var(--muted);font-size:.82rem;margin-bottom:10px}
+.clear{padding:7px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface);cursor:pointer}
+.clear:hover{border-color:var(--blue);color:var(--blue)}
+.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:15px}
+table{width:100%;border-collapse:collapse;min-width:850px;background:var(--surface)}
+th,td{padding:13px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{position:sticky;top:0;z-index:1;background:var(--surface-2);color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.07em}
+td{font-size:.84rem;line-height:1.4}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:color-mix(in srgb,var(--blue-soft) 32%,transparent)}
+.task-link{font-weight:720;text-decoration:none}
+.task-link:hover{color:var(--blue);text-decoration:underline}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;font-size:.72rem;font-weight:750;white-space:nowrap}
+.badge.approved{color:var(--approved);background:var(--approved-soft)}
+.badge.deferred{color:var(--deferred);background:var(--deferred-soft)}
+.badge.impact{color:var(--text);background:var(--surface-2)}
+.badge.impact.moderate{color:var(--gold)}
+.pattern-cell{max-width:310px}
+.empty{padding:42px;text-align:center;color:var(--muted)}
+.footer{display:flex;justify-content:space-between;gap:20px;margin-top:18px;color:var(--muted);font-size:.78rem}
+@media(max-width:900px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .grid,.trusted-grid{grid-template-columns:1fr}
+  .toolbar{grid-template-columns:1fr 1fr}
+}
+@media(max-width:580px){
+  .shell{width:min(100% - 20px,1220px);padding-top:10px}
+  .hero{padding:25px 20px;border-radius:20px}
+  h1{font-size:2.35rem}
+  .stats{grid-template-columns:1fr 1fr;gap:10px}
+  .stat{min-height:112px;padding:16px}
+  .stat-value{font-size:1.75rem}
+  .panel{padding:19px}
+  .ring-layout{grid-template-columns:120px 1fr}
+  .ring{width:120px}
+  .subpatterns{grid-template-columns:1fr}
+  .toolbar{grid-template-columns:1fr}
+  .trusted-bar{grid-template-columns:85px 1fr 32px}
+  .footer{flex-direction:column}
+}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="hero">
+    <div class="eyebrow">SecureBench research map</div>
+    <h1>DeepSWE split-verification review</h1>
+    <p class="hero-copy">A living map of how 113 coding-agent studies can be verified without exposing hidden tests or trusting candidate-controlled assertions.</p>
+    <a class="source" href="CHECKLIST.md">Source: DeepSWE review checklist · snapshot e016041a</a>
+  </header>
+
+  <section class="stats" aria-label="Review summary">
+    <article class="stat"><div class="stat-label">Reviewed studies</div><div class="stat-value" id="totalCount">113</div><div class="stat-note">Every row has a proposed split-verification pattern.</div></article>
+    <article class="stat approved"><div class="stat-label">Approved</div><div class="stat-value" id="approvedCount">97</div><div class="stat-note" id="approvalNote">85.8% of the catalog</div></article>
+    <article class="stat deferred"><div class="stat-label">Deferred</div><div class="stat-value" id="deferredCount">16</div><div class="stat-note">Needs redesign or a stronger external witness.</div></article>
+    <article class="stat"><div class="stat-label">Trusted-state studies</div><div class="stat-value" id="trustedCount">18</div><div class="stat-note" id="trustedNote">13 approved · 5 deferred</div></article>
+  </section>
+
+  <section class="grid">
+    <article class="panel">
+      <div class="panel-head"><div><h2>Verification pattern mix</h2><p class="panel-sub">Click a bar to inspect its studies.</p></div></div>
+      <div id="patternBars" class="pattern-list"></div>
+      <div class="legend"><span><i class="dot ok"></i>Approved</span><span><i class="dot wait"></i>Deferred</span></div>
+    </article>
+    <article class="panel">
+      <div class="panel-head"><div><h2>Approval profile</h2><p class="panel-sub">Current review disposition and fidelity cost.</p></div></div>
+      <div class="ring-layout">
+        <div class="ring" id="approvalRing"><div class="ring-center"><strong id="ringValue">86%</strong><span>approved</span></div></div>
+        <div class="mini-list" id="impactSummary"></div>
+      </div>
+    </article>
+  </section>
+
+  <section class="panel trusted">
+    <div class="trusted-grid">
+      <div>
+        <div class="panel-head"><div><h2>Trusted external state</h2><p class="panel-sub">An established verification family, specialized across these reviews.</p></div></div>
+        <p class="trusted-copy">These studies use a <strong>host-owned witness</strong>—a ledger, service, relay, clock, or supervisor—to corroborate behavior the candidate cannot credibly report about itself.</p>
+        <div class="subpatterns" id="trustedSubpatterns"></div>
+      </div>
+      <div class="trusted-bars" id="trustedBars"></div>
+    </div>
+  </section>
+
+  <section class="panel explorer">
+    <div class="panel-head"><div><h2>Study explorer</h2><p class="panel-sub">Search and combine filters across every reviewed row.</p></div></div>
+    <div class="toolbar">
+      <div class="field"><label for="search">Task name</label><input class="control" id="search" type="search" placeholder="Search 113 studies…"></div>
+      <div class="field"><label for="statusFilter">Status</label><select class="control" id="statusFilter"><option value="">All statuses</option><option>Approved</option><option>Deferred</option></select></div>
+      <div class="field"><label for="impactFilter">Impact</label><select class="control" id="impactFilter"><option value="">All impacts</option><option>None</option><option>Low</option><option>Moderate</option></select></div>
+      <div class="field"><label for="patternFilter">Pattern</label><select class="control" id="patternFilter"><option value="">All patterns</option></select></div>
+    </div>
+    <div class="result-line"><span id="resultCount">Showing 113 studies</span><button class="clear" id="clearFilters" type="button">Clear filters</button></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Study</th><th>Status</th><th>Pattern</th><th>Impact</th><th>Conversion verdict</th></tr></thead>
+        <tbody id="taskRows"></tbody>
+      </table>
+      <div class="empty" id="emptyState" hidden>No studies match these filters.</div>
+    </div>
+  </section>
+  <footer class="footer"><span>SecureBench · DeepSWE split-verification review</span><span>97 approved · 16 deferred · 18 trusted-state designs</span></footer>
+</main>
+
+<script id="benchmark-data" type="application/json">[{"task":"abs-module-cache-flags","href":"DeepSWE/abs-module-cache-flags.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"abs-stepped-slices","href":"DeepSWE/abs-stepped-slices.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"actionlint-action-pinning-lint","href":"DeepSWE/actionlint-action-pinning-lint.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"aiomonitor-task-snapshots-diff","href":"DeepSWE/aiomonitor-task-snapshots-diff.md","pattern":"Black-box challenge/response + trusted external state","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"anko-default-function-arguments","href":"DeepSWE/anko-default-function-arguments.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"anko-typed-variable-bindings","href":"DeepSWE/anko-typed-variable-bindings.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"arcane-drift-detection-baselines","href":"DeepSWE/arcane-drift-detection-baselines.md","pattern":"Black-box challenge/response + passive artifact verification + trusted external state","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"awilix-async-container-initialization","href":"DeepSWE/awilix-async-container-initialization.md","pattern":"Trusted external state","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"bandit-incremental-cache-control","href":"DeepSWE/bandit-incremental-cache-control.md","pattern":"Trusted external state","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"bandit-interprocedural-taint-checks","href":"DeepSWE/bandit-interprocedural-taint-checks.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"bandit-structured-nosec-directives","href":"DeepSWE/bandit-structured-nosec-directives.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"boa-hierarchical-evaluation-cancellation","href":"DeepSWE/boa-hierarchical-evaluation-cancellation.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"cattrs-partial-structuring-recovery","href":"DeepSWE/cattrs-partial-structuring-recovery.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"clack-async-autocomplete-options","href":"DeepSWE/clack-async-autocomplete-options.md","pattern":"Black-box challenge/response + trusted external state","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"claude-code-by-agents-recursive-delegation","href":"DeepSWE/claude-code-by-agents-recursive-delegation.md","pattern":"Trusted external state","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"cliffy-config-file-parsing","href":"DeepSWE/cliffy-config-file-parsing.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"csstree-shorthand-expansion-compression","href":"DeepSWE/csstree-shorthand-expansion-compression.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"dasel-html-document-format","href":"DeepSWE/dasel-html-document-format.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"dateutil-rfc5545-timezone-interop","href":"DeepSWE/dateutil-rfc5545-timezone-interop.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"drizzle-orm-window-function-builders","href":"DeepSWE/drizzle-orm-window-function-builders.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"dynamodb-toolbox-conditional-attribute-requirements","href":"DeepSWE/dynamodb-toolbox-conditional-attribute-requirements.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"dynamodb-toolbox-lazy-recursive-schemas","href":"DeepSWE/dynamodb-toolbox-lazy-recursive-schemas.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"effect-sse-httpapi-streaming","href":"DeepSWE/effect-sse-httpapi-streaming.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"eicrud-keyset-pagination-cursor","href":"DeepSWE/eicrud-keyset-pagination-cursor.md","pattern":"Black-box challenge/response + trusted external state","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"etree-xml-diff-patch","href":"DeepSWE/etree-xml-diff-patch.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"expr-try-catch-errors","href":"DeepSWE/expr-try-catch-errors.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"fastapi-deprecation-response-headers","href":"DeepSWE/fastapi-deprecation-response-headers.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"fd-deterministic-multi-key-sorting","href":"DeepSWE/fd-deterministic-multi-key-sorting.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"geo-shapeindex-serialization","href":"DeepSWE/geo-shapeindex-serialization.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"go-critic-doc-link-checker","href":"DeepSWE/go-critic-doc-link-checker.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"go-genai-streamed-function-args","href":"DeepSWE/go-genai-streamed-function-args.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"go-git-worktree-merge-conflicts","href":"DeepSWE/go-git-worktree-merge-conflicts.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"goreleaser-retry-publish-auditing","href":"DeepSWE/goreleaser-retry-publish-auditing.md","pattern":"Trusted external state","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"happy-dom-abort-pending-body-reads","href":"DeepSWE/happy-dom-abort-pending-body-reads.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"happy-dom-deterministic-intersectionobserver","href":"DeepSWE/happy-dom-deterministic-intersectionobserver.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"helm-array-merge-strategies","href":"DeepSWE/helm-array-merge-strategies.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"helm-unified-manifest-stream","href":"DeepSWE/helm-unified-manifest-stream.md","pattern":"Passive artifact verification","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"igel-persist-feature-schema","href":"DeepSWE/igel-persist-feature-schema.md","pattern":"Trusted external state","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"ink-grid-box-layout","href":"DeepSWE/ink-grid-box-layout.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"ipython-session-bundle-replay","href":"DeepSWE/ipython-session-bundle-replay.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"kcp-go-multiplexed-kcp-streams","href":"DeepSWE/kcp-go-multiplexed-kcp-streams.md","pattern":"Trusted external state","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"kea-atomic-signal-selectors","href":"DeepSWE/kea-atomic-signal-selectors.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"kgateway-consistent-hash-policy","href":"DeepSWE/kgateway-consistent-hash-policy.md","pattern":"Passive artifact verification","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"koota-composite-trait-aspects","href":"DeepSWE/koota-composite-trait-aspects.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"koota-deferred-mutation-buffer","href":"DeepSWE/koota-deferred-mutation-buffer.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"koota-entity-snapshot-rollback","href":"DeepSWE/koota-entity-snapshot-rollback.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"koota-pair-relation-tracking","href":"DeepSWE/koota-pair-relation-tracking.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"koota-query-predicates","href":"DeepSWE/koota-query-predicates.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"kysely-window-grouping-helpers","href":"DeepSWE/kysely-window-grouping-helpers.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"mashumaro-flattened-dataclass-fields","href":"DeepSWE/mashumaro-flattened-dataclass-fields.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"meriyah-explicit-resource-declarations","href":"DeepSWE/meriyah-explicit-resource-declarations.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"narwhals-rolling-window-suite","href":"DeepSWE/narwhals-rolling-window-suite.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"obsidian-linter-auto-table-of-contents","href":"DeepSWE/obsidian-linter-auto-table-of-contents.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"obsidian-linter-link-format-conversion","href":"DeepSWE/obsidian-linter-link-format-conversion.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"obsidian-linter-scoped-ignore-markers","href":"DeepSWE/obsidian-linter-scoped-ignore-markers.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"ofetch-per-origin-circuit-breaker","href":"DeepSWE/ofetch-per-origin-circuit-breaker.md","pattern":"Trusted external state","impact":"Low","status":"Approved","verdict":"Major redesign"},{"task":"onedump-dump-encryption-pipeline","href":"DeepSWE/onedump-dump-encryption-pipeline.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"opa-rego-rule-profiling","href":"DeepSWE/opa-rego-rule-profiling.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"opa-template-string-reconstruction","href":"DeepSWE/opa-template-string-reconstruction.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"optique-conditional-option-dependencies","href":"DeepSWE/optique-conditional-option-dependencies.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"oxvg-structural-selector-preservation","href":"DeepSWE/oxvg-structural-selector-preservation.md","pattern":"Passive artifact verification","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"participle-grammar-conflict-analysis","href":"DeepSWE/participle-grammar-conflict-analysis.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"pest-character-class-coalescing","href":"DeepSWE/pest-character-class-coalescing.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"prometheus-transactional-reload-status","href":"DeepSWE/prometheus-transactional-reload-status.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"prometheus-typed-label-sorting","href":"DeepSWE/prometheus-typed-label-sorting.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"psd-tools-blend-range-api","href":"DeepSWE/psd-tools-blend-range-api.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"pwntools-tube-multiplexing","href":"DeepSWE/pwntools-tube-multiplexing.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"python-statemachine-state-data-scoping","href":"DeepSWE/python-statemachine-state-data-scoping.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"query-persist-restored-query-state","href":"DeepSWE/query-persist-restored-query-state.md","pattern":"Trusted external state","impact":"Low","status":"Approved","verdict":"Major redesign"},{"task":"quill-shared-toolbar-focus","href":"DeepSWE/quill-shared-toolbar-focus.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"returns-validated-error-accumulation","href":"DeepSWE/returns-validated-error-accumulation.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"scc-bounded-memory-spilling","href":"DeepSWE/scc-bounded-memory-spilling.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"scriggo-method-declarations","href":"DeepSWE/scriggo-method-declarations.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"skrub-duration-encoding","href":"DeepSWE/skrub-duration-encoding.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"sql-formatter-bigquery-pipe-formatting","href":"DeepSWE/sql-formatter-bigquery-pipe-formatting.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"sqlfmt-create-table-ddl-formatting","href":"DeepSWE/sqlfmt-create-table-ddl-formatting.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"sqlite-utils-safe-import-checkpoints","href":"DeepSWE/sqlite-utils-safe-import-checkpoints.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"superjson-error-stack-serialization","href":"DeepSWE/superjson-error-stack-serialization.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"task-task-graph-export","href":"DeepSWE/task-task-graph-export.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"tengo-callable-instance-isolation","href":"DeepSWE/tengo-callable-instance-isolation.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"tengo-destructuring-bindings","href":"DeepSWE/tengo-destructuring-bindings.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"termenv-preserve-ansi-resets","href":"DeepSWE/termenv-preserve-ansi-resets.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"testem-bail-on-test-failure","href":"DeepSWE/testem-bail-on-test-failure.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"testem-per-launcher-reports","href":"DeepSWE/testem-per-launcher-reports.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"textual-kitty-key-phases","href":"DeepSWE/textual-kitty-key-phases.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"textual-richlog-follow-state","href":"DeepSWE/textual-richlog-follow-state.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"tomlkit-toml-table-converters","href":"DeepSWE/tomlkit-toml-table-converters.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"true-myth-iterable-collection-combinators","href":"DeepSWE/true-myth-iterable-collection-combinators.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"ts-pattern-match-each","href":"DeepSWE/ts-pattern-match-each.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"updo-policy-alerting","href":"DeepSWE/updo-policy-alerting.md","pattern":"Black-box challenge/response + trusted external state","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"valibot-recursive-schema-composition","href":"DeepSWE/valibot-recursive-schema-composition.md","pattern":"Black-box challenge/response","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"vitest-duration-sharding","href":"DeepSWE/vitest-duration-sharding.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"wasmi-trap-coredumps","href":"DeepSWE/wasmi-trap-coredumps.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"wazero-multi-module-snapshots","href":"DeepSWE/wazero-multi-module-snapshots.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"yaegi-go-embed-directives","href":"DeepSWE/yaegi-go-embed-directives.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"yjs-map-conflict-detection","href":"DeepSWE/yjs-map-conflict-detection.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"Low","status":"Approved","verdict":"Conversion with semantic change"},{"task":"ytt-jsonpath-query-api","href":"DeepSWE/ytt-jsonpath-query-api.md","pattern":"Black-box challenge/response","impact":"None","status":"Approved","verdict":"Clean conversion"},{"task":"adaptix-name-mapping-aliases","href":"DeepSWE/adaptix-name-mapping-aliases.md","pattern":"Black-box challenge/response","impact":"Moderate","status":"Deferred","verdict":"Major redesign"},{"task":"arktype-json-schema-refs-dependencies","href":"DeepSWE/arktype-json-schema-refs-dependencies.md","pattern":"Black-box challenge/response","impact":"Low","status":"Deferred","verdict":"Major redesign"},{"task":"fastapi-implicit-head-options","href":"DeepSWE/fastapi-implicit-head-options.md","pattern":"Black-box challenge/response + passive artifact verification","impact":"Moderate","status":"Deferred","verdict":"Major redesign"},{"task":"gql-incremental-graphql-delivery","href":"DeepSWE/gql-incremental-graphql-delivery.md","pattern":"Black-box challenge/response","impact":"Moderate","status":"Deferred","verdict":"Major redesign"},{"task":"httpx-deterministic-cookie-store","href":"DeepSWE/httpx-deterministic-cookie-store.md","pattern":"Black-box challenge/response","impact":"Moderate","status":"Deferred","verdict":"Major redesign"},{"task":"httpx-multipart-response-parsing","href":"DeepSWE/httpx-multipart-response-parsing.md","pattern":"Black-box challenge/response","impact":"Moderate","status":"Deferred","verdict":"Major redesign"},{"task":"httpx-streaming-json-iteration","href":"DeepSWE/httpx-streaming-json-iteration.md","pattern":"Black-box challenge/response","impact":"Moderate","status":"Deferred","verdict":"Major redesign"},{"task":"katex-multicolumn-array-spans","href":"DeepSWE/katex-multicolumn-array-spans.md","pattern":"Black-box challenge/response","impact":"Moderate","status":"Deferred","verdict":"Major redesign"},{"task":"kombu-single-active-consumer-priority","href":"DeepSWE/kombu-single-active-consumer-priority.md","pattern":"Black-box challenge/response","impact":"Moderate","status":"Deferred","verdict":"Major redesign"},{"task":"kombu-virtual-queue-dead-lettering","href":"DeepSWE/kombu-virtual-queue-dead-lettering.md","pattern":"Black-box challenge/response","impact":"Moderate","status":"Deferred","verdict":"Major redesign"},{"task":"langchain-request-coalescing","href":"DeepSWE/langchain-request-coalescing.md","pattern":"Trusted external state","impact":"Moderate","status":"Deferred","verdict":"Major redesign"},{"task":"mnamer-daemon-watch-lifecycle","href":"DeepSWE/mnamer-daemon-watch-lifecycle.md","pattern":"Trusted external state","impact":"Moderate","status":"Deferred","verdict":"Major redesign"},{"task":"mobly-grouped-test-barriers","href":"DeepSWE/mobly-grouped-test-barriers.md","pattern":"Trusted external state","impact":"Moderate","status":"Deferred","verdict":"Major redesign"},{"task":"numba-stencil-boundary-modes","href":"DeepSWE/numba-stencil-boundary-modes.md","pattern":"Black-box challenge/response","impact":"Moderate","status":"Deferred","verdict":"Conversion with semantic change"},{"task":"pebble-durability-wait-apis","href":"DeepSWE/pebble-durability-wait-apis.md","pattern":"Trusted external state","impact":"Moderate","status":"Deferred","verdict":"Major redesign"},{"task":"vulture-persistent-analysis-cache","href":"DeepSWE/vulture-persistent-analysis-cache.md","pattern":"Black-box challenge/response + passive artifact verification + trusted external state","impact":"Moderate","status":"Deferred","verdict":"Major redesign"}]</script>
+<script>
+(function(){
+  "use strict";
+  var tasks=JSON.parse(document.getElementById("benchmark-data").textContent);
+  var patternOrder=[
+    "Black-box challenge/response",
+    "Black-box challenge/response + passive artifact verification",
+    "Trusted external state",
+    "Black-box challenge/response + trusted external state",
+    "Passive artifact verification",
+    "Black-box challenge/response + passive artifact verification + trusted external state"
+  ];
+  var shortPattern={
+    "Black-box challenge/response":"Black-box challenge/response",
+    "Black-box challenge/response + passive artifact verification":"Black-box + passive artifact",
+    "Trusted external state":"Trusted external state",
+    "Black-box challenge/response + trusted external state":"Black-box + trusted state",
+    "Passive artifact verification":"Passive artifact verification",
+    "Black-box challenge/response + passive artifact verification + trusted external state":"Three-way hybrid"
+  };
+  var els={
+    bars:document.getElementById("patternBars"),impacts:document.getElementById("impactSummary"),
+    subpatterns:document.getElementById("trustedSubpatterns"),trustedBars:document.getElementById("trustedBars"),
+    rows:document.getElementById("taskRows"),empty:document.getElementById("emptyState"),
+    search:document.getElementById("search"),status:document.getElementById("statusFilter"),
+    impact:document.getElementById("impactFilter"),pattern:document.getElementById("patternFilter"),
+    count:document.getElementById("resultCount"),clear:document.getElementById("clearFilters")
+  };
+  function countBy(list,key,value){return list.filter(function(d){return d[key]===value}).length}
+  function trusted(d){return d.pattern.toLowerCase().indexOf("trusted external state")!==-1}
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]})}
+  function pct(n,d){return d?Math.round(n/d*100):0}
+
+  var approved=countBy(tasks,"status","Approved");
+  var deferred=tasks.length-approved;
+  var trustedTasks=tasks.filter(trusted);
+  document.getElementById("totalCount").textContent=tasks.length;
+  document.getElementById("approvedCount").textContent=approved;
+  document.getElementById("deferredCount").textContent=deferred;
+  document.getElementById("approvalNote").textContent=(approved/tasks.length*100).toFixed(1)+"% of the catalog";
+  document.getElementById("trustedCount").textContent=trustedTasks.length;
+  document.getElementById("trustedNote").textContent=countBy(trustedTasks,"status","Approved")+" approved · "+countBy(trustedTasks,"status","Deferred")+" deferred";
+  document.getElementById("approvalRing").style.setProperty("--p",(approved/tasks.length*100).toFixed(1));
+  document.getElementById("ringValue").textContent=Math.round(approved/tasks.length*100)+"%";
+
+  patternOrder.forEach(function(p){
+    var set=tasks.filter(function(d){return d.pattern===p});
+    if(!set.length)return;
+    var ok=countBy(set,"status","Approved"),wait=set.length-ok;
+    var button=document.createElement("button");
+    button.className="pattern-row";button.type="button";button.setAttribute("aria-label","Filter by "+shortPattern[p]);
+    button.innerHTML='<span class="pattern-top"><span class="pattern-name">'+esc(shortPattern[p])+'</span><span class="pattern-count">'+set.length+' total · '+pct(ok,set.length)+'% approved</span></span><span class="track" aria-hidden="true"><span class="ok" style="width:'+pct(ok,set.length)+'%"></span><span class="wait" style="width:'+pct(wait,set.length)+'%"></span></span>';
+    button.addEventListener("click",function(){els.pattern.value=p;renderRows();document.querySelector(".explorer").scrollIntoView({behavior:"smooth"})});
+    els.bars.appendChild(button);
+    var opt=document.createElement("option");opt.value=p;opt.textContent=shortPattern[p];els.pattern.appendChild(opt);
+  });
+
+  ["None","Low","Moderate"].forEach(function(impact){
+    var n=countBy(tasks,"impact",impact);
+    var row=document.createElement("div");row.className="mini-row";
+    row.innerHTML="<span>"+impact+" intelligence impact</span><strong>"+n+"</strong>";
+    els.impacts.appendChild(row);
+  });
+
+  [
+    {label:"Standalone witness",count:countBy(trustedTasks,"pattern","Trusted external state")},
+    {label:"Black-box + witness",count:countBy(trustedTasks,"pattern","Black-box challenge/response + trusted external state")},
+    {label:"Three-way hybrid",count:countBy(trustedTasks,"pattern","Black-box challenge/response + passive artifact verification + trusted external state")}
+  ].forEach(function(x){
+    var div=document.createElement("div");div.className="subpattern";
+    div.innerHTML="<strong>"+x.count+"</strong><span>"+esc(x.label)+"</span>";
+    els.subpatterns.appendChild(div);
+  });
+  ["Approved","Deferred"].forEach(function(status){
+    var n=countBy(trustedTasks,"status",status),div=document.createElement("div");
+    div.className="trusted-bar";
+    div.innerHTML="<span>"+status+"</span><span class='track'><span class='"+(status==="Approved"?"ok":"wait")+"' style='width:"+pct(n,trustedTasks.length)+"%'></span></span><b>"+n+"</b>";
+    els.trustedBars.appendChild(div);
+  });
+  ["None","Low","Moderate"].forEach(function(impact){
+    var n=countBy(trustedTasks,"impact",impact),div=document.createElement("div");
+    div.className="trusted-bar";
+    div.innerHTML="<span>"+impact+" impact</span><span class='track'><span class='ok' style='width:"+pct(n,trustedTasks.length)+"%;background:var(--blue)'></span></span><b>"+n+"</b>";
+    els.trustedBars.appendChild(div);
+  });
+
+  function renderRows(){
+    var q=els.search.value.trim().toLowerCase(),status=els.status.value,impact=els.impact.value,pattern=els.pattern.value;
+    var filtered=tasks.filter(function(d){
+      return (!q||d.task.toLowerCase().indexOf(q)!==-1||d.pattern.toLowerCase().indexOf(q)!==-1)&&
+        (!status||d.status===status)&&(!impact||d.impact===impact)&&(!pattern||d.pattern===pattern);
+    });
+    els.rows.innerHTML=filtered.map(function(d){
+      return "<tr><td><a class='task-link' href='"+esc(d.href)+"'>"+esc(d.task)+"</a></td>"+
+        "<td><span class='badge "+d.status.toLowerCase()+"'>"+esc(d.status)+"</span></td>"+
+        "<td class='pattern-cell'>"+esc(shortPattern[d.pattern]||d.pattern)+"</td>"+
+        "<td><span class='badge impact "+d.impact.toLowerCase()+"'>"+esc(d.impact)+"</span></td>"+
+        "<td>"+esc(d.verdict)+"</td></tr>";
+    }).join("");
+    els.count.textContent="Showing "+filtered.length+" of "+tasks.length+" studies";
+    els.empty.hidden=filtered.length!==0;
+    document.querySelector("table").hidden=filtered.length===0;
+  }
+  [els.search,els.status,els.impact,els.pattern].forEach(function(el){el.addEventListener(el.tagName==="INPUT"?"input":"change",renderRows)});
+  els.clear.addEventListener("click",function(){els.search.value="";els.status.value="";els.impact.value="";els.pattern.value="";renderRows();els.search.focus()});
+  renderRows();
+})();
+</script>
+</body>
+</html>

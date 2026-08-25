@@ -1,0 +1,17 @@
+schema_version: "2.0"
+id: deep-swe-v2
+
+defaults:
+  family: repo_patch
+  environment:
+    workdir: /app
+    timeout_seconds: 5400
+    agent_network: none
+
+resource_roots:
+  public: v2/public/
+  runtime: v2/evaluation_inputs/
+  host: v2/hidden/
+
+asset_defaults:
+  read_only: true

