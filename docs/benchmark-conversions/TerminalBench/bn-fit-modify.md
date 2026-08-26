@@ -121,7 +121,9 @@ and therefore retains the reviewed **Clean conversion / no intelligence impact**
 
 - Source revision: `2fd12b88aafdd04a52c298e3940bcb189f9766d6`.
 - Pinned image: `alexgshaw/bn-fit-modify@sha256:5aeb11ca6e802b83816c9a31f055ac9d028309a853509400c2e3139ac2d8380d` (`linux/amd64`).
-- Conversion worktree: base commit `42341234fc9ea426368423a57c376d55ff5a6254`; final conversion commit is pending publication.
+- Conversion implementation commit:
+  `c3958a188db6565afed2a8de311c20bb036d7bdb` (base
+  `42341234fc9ea426368423a57c376d55ff5a6254`).
 - Host: Linux `7.0.0-29-generic` x86_64; Docker `29.7.2`, Linux amd64, `overlayfs`.
 - Date: `2026-08-25`.
 - Deterministic qualification proves missing/base failure, reference success, rejection of learned-edge, intervention-edge, sample-distribution, row-count, and column mutants, rejection of malformed/oversized/symlink/directory artifacts, and inability of Candidate verdict fields to affect the Oracle.

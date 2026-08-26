@@ -148,7 +148,9 @@ standard library is sufficient.
 - Source revision: `2fd12b88aafdd04a52c298e3940bcb189f9766d6`.
 - Pinned image: `alexgshaw/cancel-async-tasks@sha256:84c7fae6b256dcc56a350790e2a9715eefc7dad662a9d8e8a472363aa71ef18d`
   (`linux/amd64`, Python `3.13.7`).
-- Conversion worktree base: `42341234fc9ea426368423a57c376d55ff5a6254`; final conversion commit is pending publication.
+- Conversion implementation commit:
+  `c3958a188db6565afed2a8de311c20bb036d7bdb` (base
+  `42341234fc9ea426368423a57c376d55ff5a6254`).
 - Host: Linux `7.0.0-29-generic` x86_64; Docker `29.7.2`, Linux amd64.
 - Qualification dates: `2026-08-25` through `2026-08-26`.
 - Deterministic qualification proves executable preflight, missing/base failure,

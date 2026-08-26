@@ -9,32 +9,40 @@ Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
 remain intentionally unchecked; only the three incrementally qualified rows
 below currently have binary admission decisions. Global preflight and final
-pack sign-off therefore also remain unchecked.
+pack sign-off therefore remain incomplete.
 
 ## Run identity and host preflight
 
-- [ ] Branch is `split-verification-v2` and the tested commit SHA is recorded:
-  `____________________________`.
-- [ ] `git status --short` is clean before the run.
-- [ ] Host, date, OS, kernel, and architecture are recorded: `________________`.
-- [ ] `docker version` succeeds and Docker uses Linux containers.
-- [ ] Free disk space is sufficient for the pinned benchmark images and run
+- [x] Branch is `split-verification-v2` and the tested implementation commit is
+  `c3958a188db6565afed2a8de311c20bb036d7bdb`.
+- [x] `git status --short` was clean at the tested implementation commit.
+- [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26,
+  Linux `7.0.0-29-generic`, x86_64.
+- [x] `docker version` succeeds and Docker uses Linux/amd64 containers
+  (Docker `29.7.2`).
+- [x] Free disk space is sufficient for the pinned benchmark images and run
   output.
 - [ ] The environment is installed with `python -m pip install -e '.[dev]'`.
-- [ ] `.venv/bin/pytest -q` passes.
-- [ ] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
-  passes.
-- [ ] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all six selected rows.
-- [ ] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
-  passes with all three selected rows.
-- [ ] The selected harness credential mode is usable. For `auth: api_key`, the
+- [x] `.venv/bin/pytest -q` passes (`577 passed, 19 skipped`; the stricter
+  `-W error` run also passes).
+- [x] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
+  passes (`25/25`, no warnings).
+- [x] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
+  passes with all six selected rows (`25/25`, no warnings).
+- [x] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
+  passes with all three selected rows (`13/13`, no warnings).
+- [x] The selected harness credential mode is usable. For `auth: api_key`, the
   configured env file must contain `OPENAI_API_KEY`; run `securebench auth
-  codex status` only when `auth: subscription` is selected.
-- [ ] Every task image resolves to the digest declared in its row; no mutable
+  codex status` only when `auth: subscription` is selected. API-key-backed
+  smoke runs completed, and no subscription login is configured.
+- [x] Every selected task image uses and resolves to the digest declared in its
+  row; no mutable
   tag was substituted.
 
-Record the audit artifacts and host notes here: `____________________________`.
+Audit artifacts: `/tmp/securebench-precommit-audit-self`,
+`/tmp/securebench-precommit-terminal-audit`, and
+`/tmp/securebench-precommit-deep-audit`. The workspace filesystem had 188 GiB
+free at preflight.
 
 ## Terminal-Bench
 

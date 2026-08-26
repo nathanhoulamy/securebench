@@ -111,6 +111,9 @@ expected move multiset, which remains host-only Oracle data.
 ### Qualification evidence
 
 - Source revision: `2fd12b88aafdd04a52c298e3940bcb189f9766d6`.
+- Conversion implementation commit:
+  `c3958a188db6565afed2a8de311c20bb036d7bdb` (base
+  `42341234fc9ea426368423a57c376d55ff5a6254`).
 - Pinned image:
   `alexgshaw/chess-best-move@sha256:bb447f94d9e2a8ed879f85c85a514b213b7418f9fe11fd7b2428a0b0e436e647`
   (`linux/amd64`, workdir `/app`). The image contains a PNG-signature board
