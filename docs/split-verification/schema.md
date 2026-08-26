@@ -188,9 +188,10 @@ The row supplies only:
 Examples include HTTP request ledgers, controlled origins, SMTP sinks, probe
 models, byte relays, databases, clocks, and process supervisors.
 
-Helper instances, credentials, and state are fresh for every Evaluation under
-the strict execution profile. Multi-phase persistence within one Evaluation is
-allowed when it is part of that Challenge's declared protocol.
+Helper instances, state, and any applicable guest credentials are fresh for
+every Evaluation under the strict execution profile. Multi-phase persistence
+within one Evaluation is allowed when it is part of that Challenge's declared
+protocol.
 
 ### Keep scoring and admission validation outside the row
 
@@ -558,14 +559,36 @@ control plane, settings and evidence schemas, reset behavior, credential
 lifetime, and component-specific maximums. Rows may select settings and reduce
 limits; they cannot add capabilities or raise maximums.
 
-The first executable catalog entry is
-`securebench.http-request-recorder/v1`. It provides an authenticated HTTP data
-plane on a fresh internal Evaluation network and returns bounded, host-collected
-request evidence. Its optional settings are `path` (default `/`),
-`response_status` (default `204`), and `response_body` (default empty). Rows
-must bound `max_requests` and `max_body_bytes`, and may reduce
-`max_header_bytes` from the catalog maximum. Other helper types remain
-non-executable until a reviewed contract and runtime are registered together.
+Three Trusted Helper types are executable:
+
+- `securebench.http-request-recorder/v1` provides an authenticated HTTP data
+  plane on a fresh internal Evaluation network and returns bounded,
+  host-collected request evidence. Its optional settings are `path` (default
+  `/`), `response_status` (default `204`), and `response_body` (default empty).
+  Rows must bound `max_requests` and `max_body_bytes`, and may reduce
+  `max_header_bytes`.
+- `securebench.append-only-event-ledger/v1` provides an authenticated,
+  append-only HTTP endpoint accepting the closed
+  `{nonce, event, data}` shape. It records every bounded attempt with a
+  helper-owned monotonic timestamp, sequence number, body digest, acceptance
+  metadata, and Challenge/Evaluation identities. Rows must bound `max_events`
+  and `max_event_bytes`; the only optional setting is `path` (default
+  `/events`). There is no guest evidence/control route.
+- `securebench.process-supervisor/v1` is host-only and provides no Evaluation
+  credential or network endpoint. It owns Evaluation launch, observes startup,
+  duration, exit, and timeout state, and may deliver a host-configured schedule
+  using only `SIGHUP`, `SIGINT`, `SIGTERM`, `SIGUSR1`, or `SIGUSR2`. Rows must
+  reduce `max_signals` and `max_delay_ms`; settings cannot exceed either bound.
+  Signals target the Evaluation container's init process. An Adapter that runs
+  the Candidate in a child must forward the signal through its reviewed public
+  process boundary. At most one process supervisor may own a protocol
+  Evaluation.
+
+Networked helpers receive fresh credentials and an internal-only network for
+each Evaluation. A process-supervisor-only Evaluation remains on Docker's
+`none` network and receives only the helper type marker in the Adapter request.
+Other helper types remain non-executable until a reviewed contract and runtime
+are registered together.
 
 ### Oracle contract
 

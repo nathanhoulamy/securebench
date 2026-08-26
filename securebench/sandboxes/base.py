@@ -19,6 +19,7 @@ TIMEOUT_EXIT_CODE = 124
 MAX_COMMAND_OUTPUT_BYTES = 1024 * 1024
 OUTPUT_TRUNCATION_MARKER = b"\n[securebench: output truncated]\n"
 OutputCallback = Callable[[str, str], None]
+ProcessStartCallback = Callable[[], None]
 
 
 @dataclass(frozen=True)
@@ -147,6 +148,7 @@ def run_bounded_subprocess(
     timeout: float | None = None,
     stdin: str | bytes | None = None,
     on_output: OutputCallback | None = None,
+    on_start: ProcessStartCallback | None = None,
 ) -> BoundedProcessResult:
     """Run a command while draining and bounding hostile stdout and stderr."""
     if timeout is not None:
@@ -174,7 +176,19 @@ def run_bounded_subprocess(
             text=False,
             bufsize=0,
         )
-    except Exception:
+    except BaseException:
+        if input_file is not None:
+            input_file.close()
+        raise
+    try:
+        if on_start is not None:
+            on_start()
+    except BaseException:
+        process.kill()
+        process.wait()
+        for stream in (process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
         if input_file is not None:
             input_file.close()
         raise

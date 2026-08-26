@@ -6,6 +6,8 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -25,6 +27,8 @@ DOCKER_MEM_LIMIT_ENV = "SECUREBENCH_DOCKER_MEM_LIMIT"
 DOCKER_PIDS_LIMIT_ENV = "SECUREBENCH_DOCKER_PIDS_LIMIT"
 DOCKER_TMPFS_ENV = "SECUREBENCH_DOCKER_TMPFS"
 DOCKER_OPERATION_TIMEOUT_SECONDS = 30.0
+CONTAINER_REMOVAL_ATTEMPTS = 20
+CONTAINER_REMOVAL_INTERVAL_SECONDS = 0.1
 
 
 @dataclass(frozen=True)
@@ -46,8 +50,214 @@ class DockerVolumeMount:
     read_only: bool = False
 
 
+@dataclass(frozen=True)
+class ScheduledContainerSignal:
+    """One host-scheduled signal relative to observed container startup."""
+
+    signal: str
+    after_ms: int
+
+
+@dataclass(frozen=True)
+class ContainerSignalObservation:
+    """Host observation for one configured signal delivery."""
+
+    sequence: int
+    signal: str
+    scheduled_after_ms: int
+    attempted_after_ms: int
+    delivered: bool
+
+
+@dataclass(frozen=True)
+class DockerSupervisionReport:
+    """Host-owned lifecycle and signal observations for one Docker command."""
+
+    container_started: bool
+    started_after_ms: int
+    duration_ms: int
+    signals: tuple[ContainerSignalObservation, ...]
+
+
 class DockerSandboxError(RuntimeError):
     """Docker could not establish or clean up the trusted sandbox boundary."""
+
+
+class _DockerSignalSupervisor:
+    """Observe one named container and deliver a bounded host signal schedule."""
+
+    _START_TIMEOUT_SECONDS = 5.0
+    _OPERATION_TIMEOUT_SECONDS = 5.0
+
+    def __init__(self, signals: tuple[ScheduledContainerSignal, ...]) -> None:
+        self.signals = tuple(signals)
+        previous_delay = -1
+        for scheduled in self.signals:
+            if (
+                not isinstance(scheduled, ScheduledContainerSignal)
+                or not isinstance(scheduled.signal, str)
+                or re.fullmatch(r"SIG[A-Z0-9]{1,12}", scheduled.signal) is None
+                or isinstance(scheduled.after_ms, bool)
+                or not isinstance(scheduled.after_ms, int)
+                or scheduled.after_ms < 0
+                or scheduled.after_ms < previous_delay
+            ):
+                raise DockerSandboxError("supervised signal schedule is invalid")
+            previous_delay = scheduled.after_ms
+        self.container_name: str | None = None
+        self.launch_time: float | None = None
+        self.started_time: float | None = None
+        self.finished_time: float | None = None
+        self.observations: list[ContainerSignalObservation] = []
+        self.failure: Exception | None = None
+        self.stop_event = threading.Event()
+        self.thread: threading.Thread | None = None
+
+    def bind_container(self, name: str) -> None:
+        if self.container_name is not None:
+            raise DockerSandboxError("process supervisor was bound more than once")
+        self.container_name = name
+
+    def start(self) -> None:
+        if self.container_name is None or self.thread is not None:
+            raise DockerSandboxError("process supervisor startup state is invalid")
+        self.launch_time = time.monotonic()
+        self.thread = threading.Thread(
+            target=self._run,
+            name="securebench-docker-signal-supervisor",
+            daemon=True,
+        )
+        self.thread.start()
+
+    def request_stop(self) -> None:
+        self.finished_time = self.finished_time or time.monotonic()
+        self.stop_event.set()
+
+    def finish(self) -> DockerSupervisionReport:
+        self.request_stop()
+        if self.thread is not None:
+            self.thread.join(timeout=self._OPERATION_TIMEOUT_SECONDS + 1.0)
+            if self.thread.is_alive():
+                raise DockerSandboxError("process supervisor did not stop within its bound")
+        if self.failure is not None:
+            raise DockerSandboxError("process supervisor failed") from self.failure
+        launch = self.launch_time or self.finished_time or time.monotonic()
+        finished = self.finished_time or time.monotonic()
+        started_after_ms = (
+            -1
+            if self.started_time is None
+            else max(0, round((self.started_time - launch) * 1000))
+        )
+        duration_origin = self.started_time or launch
+        return DockerSupervisionReport(
+            container_started=self.started_time is not None,
+            started_after_ms=started_after_ms,
+            duration_ms=max(0, round((finished - duration_origin) * 1000)),
+            signals=tuple(self.observations),
+        )
+
+    def _run(self) -> None:
+        try:
+            if not self._wait_until_running():
+                self._append_not_delivered(0)
+                return
+            assert self.started_time is not None
+            for index, scheduled in enumerate(self.signals):
+                target = self.started_time + scheduled.after_ms / 1000
+                remaining = target - time.monotonic()
+                if remaining > 0 and self.stop_event.wait(remaining):
+                    self._append_not_delivered(index)
+                    return
+                if self.stop_event.is_set():
+                    self._append_not_delivered(index)
+                    return
+                attempted_after_ms = max(
+                    0,
+                    round((time.monotonic() - self.started_time) * 1000),
+                )
+                completed = subprocess.run(
+                    [
+                        "docker",
+                        "kill",
+                        "--signal",
+                        scheduled.signal,
+                        self.container_name or "",
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=self._OPERATION_TIMEOUT_SECONDS,
+                )
+                if completed.returncode != 0:
+                    if not self._container_is_running():
+                        self.observations.append(
+                            ContainerSignalObservation(
+                                sequence=index,
+                                signal=scheduled.signal,
+                                scheduled_after_ms=scheduled.after_ms,
+                                attempted_after_ms=attempted_after_ms,
+                                delivered=False,
+                            )
+                        )
+                        self._append_not_delivered(index + 1)
+                        return
+                    raise DockerSandboxError("Docker failed to deliver a supervised signal")
+                self.observations.append(
+                    ContainerSignalObservation(
+                        sequence=index,
+                        signal=scheduled.signal,
+                        scheduled_after_ms=scheduled.after_ms,
+                        attempted_after_ms=attempted_after_ms,
+                        delivered=True,
+                    )
+                )
+        except Exception as exc:
+            self.failure = exc
+
+    def _wait_until_running(self) -> bool:
+        deadline = time.monotonic() + self._START_TIMEOUT_SECONDS
+        while not self.stop_event.is_set() and time.monotonic() < deadline:
+            if self._container_is_running():
+                self.started_time = time.monotonic()
+                return True
+            self.stop_event.wait(0.02)
+        return False
+
+    def _container_is_running(self) -> bool:
+        name = self.container_name or ""
+        completed = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "--filter",
+                f"name=^/{name}$",
+                "--format",
+                "{{.Names}}",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=self._OPERATION_TIMEOUT_SECONDS,
+        )
+        if completed.returncode != 0:
+            raise DockerSandboxError("Docker failed to query supervised container state")
+        names = completed.stdout.splitlines()
+        if any(item != name for item in names):
+            raise DockerSandboxError("Docker returned ambiguous supervised container state")
+        return bool(names)
+
+    def _append_not_delivered(self, start: int) -> None:
+        for index in range(start, len(self.signals)):
+            scheduled = self.signals[index]
+            self.observations.append(
+                ContainerSignalObservation(
+                    sequence=index,
+                    signal=scheduled.signal,
+                    scheduled_after_ms=scheduled.after_ms,
+                    attempted_after_ms=-1,
+                    delivered=False,
+                )
+            )
 
 
 def validate_docker_bind_mounts(
@@ -109,6 +319,7 @@ class DockerSandbox(Sandbox):
         self.workspace_read_only = workspace_read_only
         self.workspace_mount_target = _docker_bind_mount_target(workspace_mount_target, allow_workspace_root=True)
         self._container_name: str | None = None
+        self._active_supervisor: _DockerSignalSupervisor | None = None
         self._owns_root = root is None
         self.root = (
             Path(root)
@@ -156,6 +367,8 @@ class DockerSandbox(Sandbox):
             ]
         else:
             command_container_name = f"securebench-{uuid.uuid4().hex}"
+            if self._active_supervisor is not None:
+                self._active_supervisor.bind_container(command_container_name)
             docker_command = [
                 "docker",
                 "run",
@@ -195,15 +408,26 @@ class DockerSandbox(Sandbox):
                 if stdin is not None:
                     raise ValueError("Streaming agent commands do not support stdin")
             output_emitter = _AgentOutputEmitter() if stream_agent_output else None
-            completed = run_bounded_subprocess(
-                docker_command,
-                timeout=timeout,
-                stdin=stdin,
-                on_output=None if output_emitter is None else output_emitter.feed,
-            )
+            if self._active_supervisor is None:
+                completed = run_bounded_subprocess(
+                    docker_command,
+                    timeout=timeout,
+                    stdin=stdin,
+                    on_output=None if output_emitter is None else output_emitter.feed,
+                )
+            else:
+                completed = run_bounded_subprocess(
+                    docker_command,
+                    timeout=timeout,
+                    stdin=stdin,
+                    on_output=None if output_emitter is None else output_emitter.feed,
+                    on_start=self._active_supervisor.start,
+                )
             if output_emitter is not None:
                 output_emitter.flush()
         except subprocess.TimeoutExpired as exc:
+            if self._active_supervisor is not None:
+                self._active_supervisor.request_stop()
             if self.persistent:
                 self.close()
             elif command_container_name is not None:
@@ -251,6 +475,42 @@ class DockerSandbox(Sandbox):
             stdout_valid_utf8=getattr(completed, "stdout_valid_utf8", True),
             stderr_valid_utf8=getattr(completed, "stderr_valid_utf8", True),
         )
+
+    def run_supervised(
+        self,
+        command: str | list[str] | tuple[str, ...],
+        *,
+        signals: tuple[ScheduledContainerSignal, ...],
+        workdir: str | None = None,
+        timeout: float | None = None,
+        stdin: str | bytes | None = None,
+    ) -> tuple[CommandResult, DockerSupervisionReport]:
+        """Run one ephemeral container under host-controlled signal delivery."""
+        if self.persistent:
+            raise DockerSandboxError(
+                "host process supervision requires an ephemeral Docker sandbox"
+            )
+        if self._active_supervisor is not None:
+            raise DockerSandboxError("Docker sandbox already has an active supervisor")
+        supervisor = _DockerSignalSupervisor(signals)
+        self._active_supervisor = supervisor
+        try:
+            try:
+                result = self.run(
+                    command,
+                    workdir=workdir,
+                    timeout=timeout,
+                    stdin=stdin,
+                )
+            except BaseException:
+                supervisor.request_stop()
+                supervisor.finish()
+                raise
+        finally:
+            supervisor.request_stop()
+            self._active_supervisor = None
+        report = supervisor.finish()
+        return result, report
 
     def close(self) -> None:
         """Remove the persistent container and any sandbox-owned writable root."""
@@ -406,20 +666,28 @@ class _AgentOutputEmitter:
 
 
 def _remove_named_container(name: str) -> None:
-    try:
-        completed = subprocess.run(
-            ["docker", "rm", "-f", name],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=DOCKER_OPERATION_TIMEOUT_SECONDS,
+    for attempt in range(CONTAINER_REMOVAL_ATTEMPTS):
+        try:
+            completed = subprocess.run(
+                ["docker", "rm", "-f", name],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=DOCKER_OPERATION_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise DockerSandboxError(
+                f"failed to remove Docker sandbox container {name!r}"
+            ) from exc
+        if completed.returncode == 0 or "no such container" in completed.stderr.lower():
+            return
+        removal_in_progress = (
+            "removal of container" in completed.stderr.lower()
+            and "already in progress" in completed.stderr.lower()
         )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise DockerSandboxError(
-            f"failed to remove Docker sandbox container {name!r}"
-        ) from exc
-    if completed.returncode != 0 and "no such container" not in completed.stderr.lower():
-        raise DockerSandboxError(f"failed to remove Docker sandbox container {name!r}")
+        if not removal_in_progress or attempt + 1 == CONTAINER_REMOVAL_ATTEMPTS:
+            raise DockerSandboxError(f"failed to remove Docker sandbox container {name!r}")
+        time.sleep(CONTAINER_REMOVAL_INTERVAL_SECONDS)
 
 
 def _docker_path(path: str, *, workspace_mount_target: str = "/workspace") -> str:

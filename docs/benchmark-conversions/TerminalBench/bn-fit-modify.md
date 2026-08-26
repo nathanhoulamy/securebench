@@ -76,14 +76,57 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 
 ## Questions for our later review
 
-- [ ] Read the complete public instruction.
-- [ ] Walk through the verifier entrypoint line by line.
-- [ ] Identify every candidate-controlled input consumed by the verifier.
-- [ ] Identify every scoring-relevant assertion and expected value.
-- [ ] Decide whether the task's intended behavior is fully represented by its tests.
-- [ ] Design the split-verification conversion.
-- [ ] Record fidelity limitations and the final eligibility decision.
+- [x] Read the complete public instruction.
+- [x] Walk through the verifier entrypoint line by line.
+- [x] Identify every candidate-controlled input consumed by the verifier.
+- [x] Identify every scoring-relevant assertion and expected value.
+- [x] Decide whether the task's intended behavior is fully represented by its tests.
+- [x] Design the split-verification conversion.
+- [x] Record fidelity limitations and the final eligibility decision.
 
 ## Future conversion notes
 
 Use passive artifact verification. Extract bounded `learned_dag.csv`, `intervened_dag.csv`, and `final_bn_sample.csv`; parse them with a strict host-side CSV parser and keep expected edge sets, intervention rules, distribution parameters, and scoring in the Oracle. No candidate code needs to execute during evaluation. Preserve the original artifact checks, while documenting that the row does not independently establish dataset use, BN fitting, intervention provenance, or full joint-distribution correctness; also resolve the public `to,from` versus verifier `from,to` format mismatch.
+
+## Implemented v2 conversion
+
+Final status: **Approved**.
+
+### Behavior and trust mapping
+
+| Public requirement | Independently observed evidence | Host-only Oracle decision |
+|---|---|---|
+| Recover the original DAG | Bounded `learned_dag.csv`, passively parsed as a strict string table | Named `from`/`to` columns form exactly the six source edges |
+| Intervene on `Y` | Bounded `intervened_dag.csv`, parsed through the same profile | The edge set is the learned graph with the incoming `U -> Y` edge removed |
+| Emit 10,000 samples with the original columns | Bounded `final_bn_sample.csv` string table | Exactly five named columns and exactly 10,000 rows are present |
+| Preserve the scored distribution of `D` | Finite numeric values from the `D` column | The one-sample KS statistic is at most `0.01947748045729969`, the `scipy==1.16.1` `p >= 0.001` boundary used by the source verifier |
+
+The Candidate is a three-entry `file_bundle` containing only the prompt-declared CSV files. One
+`artifact` check uses `securebench.strict-csv/v1`; there is no Adapter, Candidate execution during
+verification, Output Artifact, or Trusted Helper. Expected edges, distribution parameters, and the
+acceptance boundary exist only in the host Oracle.
+
+The parser rejects invalid UTF-8, NUL bytes, malformed quoting, missing/duplicate headers, ragged
+rows, and fixed profile-capacity overruns. This is a fail-closed input-hardening difference, not a
+change to the intended statistical task. Column order is immaterial because the public names are
+used, resolving the prompt's displayed `to,from` order versus the verifier's `from,to` lookup
+without changing accepted named-edge semantics.
+
+Like the original verifier, this conversion does not independently prove that the supplied dataset
+was used, that a Bayesian network was actually fitted, the provenance of the intervention, or the
+full joint distribution of all five variables. It preserves every externally scored distinction
+and therefore retains the reviewed **Clean conversion / no intelligence impact** decision.
+
+### Qualification evidence
+
+- Source revision: `2fd12b88aafdd04a52c298e3940bcb189f9766d6`.
+- Pinned image: `alexgshaw/bn-fit-modify@sha256:5aeb11ca6e802b83816c9a31f055ac9d028309a853509400c2e3139ac2d8380d` (`linux/amd64`).
+- Conversion worktree: base commit `42341234fc9ea426368423a57c376d55ff5a6254`; final conversion commit is pending publication.
+- Host: Linux `7.0.0-29-generic` x86_64; Docker `29.7.2`, Linux amd64, `overlayfs`.
+- Date: `2026-08-25`.
+- Deterministic qualification proves missing/base failure, reference success, rejection of learned-edge, intervention-edge, sample-distribution, row-count, and column mutants, rejection of malformed/oversized/symlink/directory artifacts, and inability of Candidate verdict fields to affect the Oracle.
+- The known-good reference also passed through the real pinned Agent container, stopped-state capture, passive parser, and host Oracle: `14 passed` with Docker integration enabled.
+- Live command: `.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 4 --resume`.
+- Live result: `runs/terminal-bench-v2-pilot-linux/results.jsonl`; row digest `sha256:26b10e98ce053883043eeec1f1fde69bab257bf16ef941ac5dc9b687f72227be`, execution digest `sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`, Candidate digest `sha256:94096fc34af004c52744aa4a238982aa654676bfa01b930fd884790de7c8ef01`.
+- The deliberately cheap `gpt-5.6-luna` / `none` attempt completed without infrastructure error, captured exactly three regular files (695,892 aggregate bytes), and was correctly rejected for both edge sets and the `D` distribution.
+- Post-run inspection found no SecureBench container, network, or volume residue.

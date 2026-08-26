@@ -55,7 +55,12 @@ def compiled_task():
 
 def test_command_harness_exposes_ephemeral_workspace_for_declared_capture(monkeypatch, tmp_path):
     FakeDockerSandbox.instances = []
+    restored = []
     monkeypatch.setattr("securebench.harnesses.command.DockerSandbox", FakeDockerSandbox)
+    monkeypatch.setattr(
+        "securebench.harnesses.command.restore_untrusted_tree_permissions",
+        lambda path, *, image: restored.append((Path(path), image)),
+    )
     monkeypatch.setattr(
         "securebench.harnesses.command.materialize_image_workdir",
         lambda task, destination: None,
@@ -71,7 +76,9 @@ def test_command_harness_exposes_ephemeral_workspace_for_declared_capture(monkey
     assert production.metadata["candidate_type"] == "file_bundle"
     sandbox = FakeDockerSandbox.instances[-1]
     assert sandbox.commands == [(('produce',), "/app", 1200.0)]
+    assert sandbox.kwargs["cap_add"] == ("DAC_OVERRIDE",)
     assert sandbox.closed is True
+    assert restored == [(Path(production.workspace), task.environment.image)]
     assert len(sandbox.mounts) == 3
     assert not any("oracle" in str(mount.source) for mount in sandbox.mounts)
     assert all(not Path(mount.source).is_relative_to(Path(production.workspace)) for mount in sandbox.mounts)

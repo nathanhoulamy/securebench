@@ -68,10 +68,13 @@ The pilot may use:
 
 - `terminal_task` with `file_bundle`;
 - `repo_patch` with `git_patch`;
-- passive JSON, UTF-8 text, ICS, and tree-manifest parsers;
+- passive JSON, UTF-8 text, ICS, strict CSV, and tree-manifest parsers;
 - `securebench.adapter/v2` protocol checks;
 - regular-file and directory-tree Output Artifacts;
-- `securebench.http-request-recorder/v1` as the first Trusted Helper;
+- `securebench.http-request-recorder/v1` for bounded HTTP request evidence;
+- `securebench.append-only-event-ledger/v1` for timestamped nonce/event evidence;
+- `securebench.process-supervisor/v1` for host-owned launch, timing, and a
+  bounded allowlisted signal schedule;
 - `strict-split/v1` with a fresh Evaluation for every Challenge.
 
 Do not use `filesystem_overlay` in the pilot. Its implementation remains source-gated until the

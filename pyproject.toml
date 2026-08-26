@@ -9,6 +9,9 @@ description = "Benchmark evaluation framework with separated trusted and untrust
 requires-python = ">=3.11"
 dependencies = ["Pydantic>=2.11,<3", "PyYAML>=6.0"]
 
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
 [project.scripts]
 securebench = "securebench.cli:main"
 

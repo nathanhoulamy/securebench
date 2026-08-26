@@ -1,10 +1,11 @@
 # Current SecureBench v2 state
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-08-25
 
-Implementation baseline reviewed: this branch through Output Artifacts, Trusted Helper execution,
-git-patch execution, the locally qualified filesystem-overlay implementation, and the subsequent
-architecture-wide overlay integration review
+Implementation baseline reviewed: this branch through Output Artifacts, HTTP
+request/event-ledger/process-supervisor Trusted Helper execution, git-patch
+execution, the locally qualified filesystem-overlay implementation, and the
+subsequent architecture-wide overlay integration review
 
 Active development branch: `split-verification-v2`
 
@@ -77,24 +78,32 @@ the runner does not invent a benchmark score.
 | `filesystem_overlay` candidate | Capture, transactional storage, fresh replay, and normal harness integration implemented; native execution remains qualification-gated |
 | Passive artifact check using `source.entry` | Implemented for `file_bundle` |
 | Artifact check using `source.path` | Implemented for bounded repository-relative `git_patch` paths and absolute paths mapped through fresh overlay roots |
-| Registered passive parsers | JSON, UTF-8 text, ICS, and tree-manifest profiles exist |
+| Registered passive parsers | JSON, UTF-8 text, ICS, strict CSV, and tree-manifest profiles exist |
 | Basic protocol check | Implemented with finite JSON, bounded I/O, and a fresh offline container per Challenge |
 | Adapter v2 contract | The only supported Adapter format; implemented with typed Challenge/Observation schemas, Evaluation Participants, Trusted Helper requirements, Output Artifacts, and reduced maximums |
 | Challenge Evidence | Implemented with host Challenge/Evaluation IDs, correlation checks, and explicit failure source |
 | Trusted Helper Catalog | Typed contracts, semantic preflight, reviewed runtime registration, and fail-closed lookup implemented |
 | `securebench.http-request-recorder/v1` | Implemented end to end with fresh instances/credentials, internal-only networking, bounded request evidence, and correlated teardown |
+| `securebench.append-only-event-ledger/v1` | Implemented end to end with fresh instances/credentials, a closed nonce/event/data append interface, host-monotonic timestamps, bounded attempt evidence, and correlated teardown |
+| `securebench.process-supervisor/v1` | Implemented as a host-only Evaluation launch owner with no guest credential, an allowlisted bounded signal schedule, and externally captured lifecycle/timing evidence |
 | Output Artifacts | Implemented for bounded regular files and directory trees from the same disposable Evaluation |
-| `strict-split/v1` | Implemented for file-bundle and git-patch execution and for qualification-gated overlay artifact/protocol paths, including the HTTP recorder Trusted Helper |
+| `strict-split/v1` | Implemented for file-bundle and git-patch execution and for qualification-gated overlay artifact/protocol paths, including all three registered Trusted Helpers |
 | `batched-split/v1` | Registered but explicitly not implemented |
 | Host Oracle JSON-lines ABI | Implemented for initialize, artifact evidence, cases, case evidence, and final verdict |
 | Sanitized result/provenance and resume validation | Implemented |
 | Admission qualification pipeline | Not implemented |
 | Result signing | Not implemented |
 
-The reference executable pack currently contains one converted row:
-`terminal-bench/constraints-scheduling`. The recommended example documents conform to the row
-schema. The HTTP-recorder pattern used by the DeepSWE target example is now supported, while the
-filesystem-overlay example remains intentionally non-executable.
+The executable reference packs currently contain six Terminal-Bench rows and
+three DeepSWE rows. The incremental `bn-fit-modify`, `cancel-async-tasks`, and
+`chess-best-move` conversions are Approved after deterministic, pinned-image,
+stopped-capture, and model-backed qualification. The first-wave control,
+`sqlite-db-truncate`, and `vulnerable-secret` remain qualification-pending in
+their dossiers and checklist; an inventory-level Approved review disposition
+is not a completed runtime qualification. The recommended example documents
+conform to the row schema. The HTTP-recorder pattern used by the DeepSWE target
+example is now supported, while the filesystem-overlay example remains
+intentionally non-executable.
 
 ## What is already correct for the schema's purpose
 
@@ -174,8 +183,9 @@ filesystem-overlay example remains intentionally non-executable.
 These do not invalidate the current supported slice, but they must not be described as complete
 schema support.
 
-1. Only `securebench.http-request-recorder/v1` has an executable Trusted Helper runtime. Other
-   helper types must be reviewed, registered with finite contracts, and implemented explicitly.
+1. Only the HTTP request recorder, append-only event ledger, and process
+   supervisor have executable Trusted Helper runtimes. Other helper types must
+   be reviewed, registered with finite contracts, and implemented explicitly.
 2. Resource-usage evidence is not yet included in Challenge Evidence.
 3. `restricted` and `internet` both currently permit only the tester's explicit domain allowlist;
    only `none` changes the row-level ceiling. This is safe, but the intended semantic distinction
@@ -248,17 +258,28 @@ hardening rather than a prerequisite for writing and qualifying the first conver
 
 At this review pass:
 
-- full warning-strict suite: `502 passed, 6 skipped`;
-- complete protocol suite with Docker integration enabled: `36 passed, 1 skipped`, including two fresh
-  combined recorder/Output Artifact Evaluations, the ordinary fresh Evaluation, and
-  clean-repository git-patch replay;
+- full warning-strict suite: `577 passed, 19 skipped`;
+- complete protocol and Trusted Helper suite with Docker integration enabled:
+  `54 passed, 1 skipped`, including fresh ordinary/recorder Evaluations,
+  clean-repository git-patch replay, authenticated event-ledger traffic, external
+  signal delivery, and leak-free teardown;
+- `cancel-async-tasks` pinned-image qualification: the 14-test deterministic,
+  reference, mutant, credential-forgery, premature-cancellation, and stopped-
+  Agent capture/replay matrix passes;
+- `cancel-async-tasks` API-key-backed `gpt-5.6-luna` smoke: score `1.0`, no
+  infrastructure error, both protocol checks and all five cases passed;
+  focused sandbox and live helper regression passes `81/81` after credential
+  isolation, signal-readiness synchronization, and interruption cleanup
+  hardening;
+- `chess-best-move` passive qualification: `16/16` deterministic and pinned-
+  image cases pass; its API-key-backed Luna smoke completed without
+  infrastructure error and the Oracle correctly rejected the model's lone
+  incorrect `d2h6` token;
 - the Docker pass left no Trusted Helper containers, materialization containers, Evaluation
   networks, or overlay volumes behind;
-- built-in robustness audit: 5 passed, 0 failed, 0 warnings;
-- no author-facing Pydantic field changed in this review, and schema regeneration produced no
-  checked-in JSON Schema diff;
-- a wheel containing the reviewed tester, candidate-store, overlay, evidence, Oracle, helper, and
-  artifact paths built successfully;
+- built-in robustness audit: 17 passed, 0 failed, 0 warnings;
+- the generated Trusted Helper contract schema was refreshed for the reviewed
+  HTTP and host-only access/credential modes, and its regeneration check passes;
 - compile checks and `git diff --check` passed.
 
 Useful commands:

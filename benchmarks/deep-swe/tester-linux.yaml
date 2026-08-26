@@ -15,8 +15,9 @@ docker:
 harness:
   type: codex
   config:
+    auth: api_key
     model: gpt-5.6-luna
-    reasoning_effort: max
+    reasoning_effort: none
     version: latest
     task_file: task.json
     timeout_seconds: 5400

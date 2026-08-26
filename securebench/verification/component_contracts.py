@@ -187,13 +187,13 @@ class TrustedHelperContract(ContractModel):
     format: Literal[TRUSTED_HELPER_CONTRACT_FORMAT_V1]
     type: ContractType
     capabilities: tuple[ContractName, ...]
-    helper_access: Literal["http"]
+    helper_access: Literal["http", "none"]
     settings_schema: JsonValueSchema
     limits_schema: JsonValueSchema
     maximum_limits: dict[ContractName, int]
     evidence_schema: JsonValueSchema
     reset: Literal["fresh_per_evaluation"]
-    credentials: Literal["fresh_per_evaluation"]
+    credentials: Literal["fresh_per_evaluation", "none"]
 
     @model_validator(mode="after")
     def contract_is_consistent(self) -> "TrustedHelperContract":
@@ -212,6 +212,10 @@ class TrustedHelperContract(ContractModel):
             raise ValueError("trusted helper limits must be integers")
         if any(isinstance(value, bool) or value <= 0 for value in self.maximum_limits.values()):
             raise ValueError("trusted helper maximum limits must be positive integers")
+        if self.helper_access == "http" and self.credentials != "fresh_per_evaluation":
+            raise ValueError("HTTP trusted helpers require fresh per-Evaluation credentials")
+        if self.helper_access == "none" and self.credentials != "none":
+            raise ValueError("host-only trusted helpers may not declare guest credentials")
         return self
 
 
@@ -319,6 +323,27 @@ class TrustedHelperCatalog:
             raise VerificationInfrastructureError(
                 "trusted_helper_settings_invalid",
                 f"Trusted Helper type {helper_type!r} settings are invalid",
+                source="trusted_helper",
+            ) from exc
+
+    def validate_runtime_declaration(
+        self,
+        helper: TrustedHelperSpec,
+        settings: Any,
+    ) -> None:
+        """Apply runtime checks that depend on both row limits and host settings."""
+        factory = self.runtime_factory(helper.type)
+        validator = getattr(factory, "validate_declaration", None)
+        if validator is None:
+            return
+        try:
+            validator(helper, settings)
+        except VerificationInfrastructureError:
+            raise
+        except (TypeError, ValueError) as exc:
+            raise VerificationInfrastructureError(
+                "trusted_helper_settings_invalid",
+                f"Trusted Helper type {helper.type!r} settings exceed row limits",
                 source="trusted_helper",
             ) from exc
 

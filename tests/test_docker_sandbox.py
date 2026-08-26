@@ -9,6 +9,7 @@ from securebench.sandboxes import (
     DockerSandbox,
     DockerSandboxError,
     DockerVolumeMount,
+    ScheduledContainerSignal,
 )
 
 
@@ -201,6 +202,60 @@ def test_docker_sandbox_bounds_container_cleanup(monkeypatch, tmp_path):
         sandbox.close()
 
     assert sandbox._container_name == "securebench-stuck"
+
+
+def test_docker_sandbox_waits_for_removal_already_in_progress(monkeypatch, tmp_path):
+    attempts = 0
+
+    def fake_run(command, **kwargs):
+        nonlocal attempts
+        if command[:3] != ["docker", "rm", "-f"]:
+            raise AssertionError(command)
+        attempts += 1
+        if attempts == 1:
+            return SimpleNamespace(
+                returncode=1,
+                stdout="",
+                stderr="removal of container securebench-race is already in progress",
+            )
+        return SimpleNamespace(returncode=1, stdout="", stderr="No such container")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("securebench.sandboxes.docker.time.sleep", lambda _: None)
+    sandbox = DockerSandbox(image="agent-image", root=tmp_path)
+    sandbox._container_name = "securebench-race"
+
+    sandbox.close()
+
+    assert attempts == 2
+    assert sandbox._container_name is None
+
+
+def test_supervised_sandbox_stops_its_owner_on_keyboard_interrupt(monkeypatch, tmp_path):
+    finished = []
+
+    def interrupted_run(self, command, **kwargs):
+        raise KeyboardInterrupt
+
+    def record_finish(supervisor):
+        finished.append(supervisor)
+        return SimpleNamespace()
+
+    monkeypatch.setattr(DockerSandbox, "run", interrupted_run)
+    monkeypatch.setattr(
+        "securebench.sandboxes.docker._DockerSignalSupervisor.finish",
+        record_finish,
+    )
+    sandbox = DockerSandbox(image="agent-image", root=tmp_path, persistent=False)
+
+    with pytest.raises(KeyboardInterrupt):
+        sandbox.run_supervised(
+            ["python", "-V"],
+            signals=(ScheduledContainerSignal("SIGINT", 10),),
+        )
+
+    assert len(finished) == 1
+    assert sandbox._active_supervisor is None
 
 
 def test_docker_sandbox_surfaces_cleanup_failure(monkeypatch, tmp_path):

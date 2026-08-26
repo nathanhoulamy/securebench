@@ -24,14 +24,19 @@ from securebench.verification.oracle import OracleProcessSession, OracleSession
 from securebench.verification.parsers import ParserRegistry, default_parser_registry
 from securebench.verification.protocol import ProtocolCheckRunner
 from securebench.verification.trusted_helpers import (
+    APPEND_ONLY_EVENT_LEDGER_TYPE,
     HTTP_REQUEST_RECORDER_TYPE,
+    PROCESS_SUPERVISOR_TYPE,
+    append_only_event_ledger_contract,
     default_trusted_helper_catalog,
     http_request_recorder_contract,
+    process_supervisor_contract,
 )
 
 __all__ = [
     "AdapterMaximums",
     "AdapterManifestV2",
+    "APPEND_ONLY_EVENT_LEDGER_TYPE",
     "ChallengeEvidence",
     "CheckResultSummary",
     "EvaluationParticipant",
@@ -45,13 +50,16 @@ __all__ = [
     "OutputArtifactEvidence",
     "ParserRegistry",
     "ProtocolCheckRunner",
+    "PROCESS_SUPERVISOR_TYPE",
     "TrustedHelperCatalog",
     "TrustedHelperContract",
     "TrustedHelperEvidence",
     "TrustedHelperUse",
     "VerificationEngine",
     "VerificationResultV2",
+    "append_only_event_ledger_contract",
     "default_parser_registry",
     "default_trusted_helper_catalog",
     "http_request_recorder_contract",
+    "process_supervisor_contract",
 ]

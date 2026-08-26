@@ -25,6 +25,23 @@ def test_stream_progress_reporter_prints_concise_task_progress():
     ]
 
 
+def test_stream_progress_reporter_distinguishes_infrastructure_errors():
+    stream = StringIO()
+    reporter = StreamProgressReporter(stream=stream, color=False)
+
+    reporter.event(
+        "task_done",
+        task_id="task-1",
+        status="infrastructure_error",
+        passed=False,
+        score=0.0,
+    )
+
+    assert stream.getvalue().strip() == (
+        "securebench: INFRASTRUCTURE_ERROR task-1 score=0.0"
+    )
+
+
 def test_stream_progress_reporter_can_show_sandbox_output_when_requested():
     stream = StringIO()
     reporter = StreamProgressReporter(stream=stream, show_command_output=True, color=False)

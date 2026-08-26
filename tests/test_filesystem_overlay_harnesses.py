@@ -18,7 +18,12 @@ from securebench.candidates import (
 )
 from securebench.harnesses import claude_code, codex, command
 from securebench.harnesses.claude_code import ClaudeCodeHarnessProducer, ClaudeCodeOverlay
-from securebench.harnesses.codex import CodexHarnessProducer, CodexOverlay, DockerPlatform
+from securebench.harnesses.codex import (
+    CodexHarnessProducer,
+    CodexOverlay,
+    DockerPlatform,
+    codex_config_args,
+)
 from securebench.harnesses.command import CommandHarnessProducer
 from securebench.harnesses.network import HarnessEgress
 from securebench.harnesses.shared import workspace_dir_name
@@ -84,6 +89,16 @@ def plain_egress(*args, **kwargs):
         env={"HTTP_PROXY": "http://proxy.invalid"},
         allowed_domains=(),
     )
+
+
+def test_codex_config_accepts_no_reasoning_effort():
+    args = codex_config_args(
+        "http://securebench-provider-relay:8081/v1",
+        auth="api_key",
+        reasoning_effort="none",
+    )
+
+    assert "model_reasoning_effort=\"none\"" in args
 
 
 @contextmanager

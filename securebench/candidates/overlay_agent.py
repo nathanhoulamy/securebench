@@ -175,6 +175,7 @@ def run_filesystem_overlay_agent_capture(
             env=env,
             persistent=True,
             network=network,
+            cap_add=("DAC_OVERRIDE",),
             read_only=True,
             tmpfs=OVERLAY_AGENT_TMPFS,
             mounts=public_mounts,

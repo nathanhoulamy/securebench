@@ -25,11 +25,24 @@ def remove_untrusted_tree(path: str | Path, *, image: str) -> None:
     try:
         shutil.rmtree(resolved)
     except PermissionError:
-        _restore_tree_permissions(resolved, image)
+        restore_untrusted_tree_permissions(resolved, image=image)
         try:
             shutil.rmtree(resolved)
         except OSError as exc:
             raise WorkspaceCleanupError("failed to remove untrusted tree after permission repair") from exc
+
+
+def restore_untrusted_tree_permissions(path: str | Path, *, image: str) -> None:
+    """Make a stopped, bounded writable tree traversable by its host owner."""
+    target = Path(path)
+    if target.is_symlink():
+        raise WorkspaceCleanupError("refusing to repair a symlink as an untrusted tree")
+    if not target.exists():
+        return
+    resolved = target.resolve()
+    if resolved == Path(resolved.anchor):
+        raise WorkspaceCleanupError("refusing to repair permissions on a filesystem root")
+    _restore_tree_permissions(resolved, image)
 
 
 def _restore_tree_permissions(path: Path, image: str) -> None:

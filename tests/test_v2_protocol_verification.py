@@ -755,6 +755,7 @@ def test_protocol_cases_use_fresh_evaluation_roots_and_sanitized_results(tmp_pat
             self.mounts = kwargs["mounts"]
             assert kwargs["persistent"] is False
             assert kwargs["network"] == "none"
+            assert kwargs["cap_add"] == ("DAC_OVERRIDE",)
             assert kwargs["read_only"] is True
             roots.append(self.root)
 
@@ -1044,6 +1045,14 @@ def test_protocol_wires_scoped_helper_access_and_correlated_evidence(
                 "HTTP_PROXY": "",
                 "NO_PROXY": "securebench-helper-0",
             }
+
+        def run_evaluation(self, sandbox, command, *, workdir, timeout, stdin):
+            return sandbox.run(
+                command,
+                workdir=workdir,
+                timeout=timeout,
+                stdin=stdin,
+            )
 
         def collect(self):
             lifecycle.append(("collected", self.challenge_id, self.evaluation_id))

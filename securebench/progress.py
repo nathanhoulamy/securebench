@@ -181,6 +181,8 @@ def _format_event(
 
 
 def _status_label(status: object, passed: object, color: bool) -> str:
+    if status == "infrastructure_error":
+        return _yellow("INFRASTRUCTURE_ERROR", color)
     if passed is True:
         return _green("PASS", color)
     if passed is False:

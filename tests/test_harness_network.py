@@ -220,6 +220,8 @@ def test_docker_provider_relay_policy_starts_relay_without_generic_proxy(monkeyp
     upstream_network = relay_run[relay_run.index("--network") + 1]
     assert upstream_network.startswith("securebench-upstream-")
     assert upstream_network != "bridge"
+    user_index = relay_run.index("--user")
+    assert relay_run[user_index + 1].count(":") == 1
     assert ["-e", "OPENAI_API_KEY"] == relay_run[relay_run.index("-e") : relay_run.index("-e") + 2]
     assert "secret" not in relay_run
     assert "SECUREBENCH_PROVIDER=openai" in relay_run

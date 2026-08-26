@@ -47,6 +47,7 @@ from securebench.workspaces.materialization import (
     VisibilityAwareMaterializer,
     docker_resource_mounts,
 )
+from securebench.workspaces.cleanup import restore_untrusted_tree_permissions
 from securebench.sandboxes import DockerSandbox, HostSandbox, Sandbox
 from securebench.schemas.benchmark import FilesystemOverlayCandidate
 from securebench.tasks import BenchmarkTask
@@ -148,6 +149,10 @@ class CommandHarnessProducer(CandidateProducer):
                 )
             finally:
                 close_sandbox(sandbox)
+                restore_untrusted_tree_permissions(
+                    task_workspace,
+                    image=container_image_for_task(task),
+                )
 
     def capture_filesystem_overlay(
         self,
@@ -218,6 +223,7 @@ class CommandHarnessProducer(CandidateProducer):
             env_names=self.env_names,
             env=egress.env,
             network=egress.network,
+            cap_add=("DAC_OVERRIDE",),
             mounts=docker_resource_mounts(plan),
             workspace_mount_target=workspace_mount_target_for_task(task),
         )

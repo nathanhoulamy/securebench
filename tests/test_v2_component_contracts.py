@@ -192,6 +192,40 @@ def test_trusted_helper_catalog_enforces_contract_and_reduced_limits():
     assert error.value.code == "trusted_helper_limits_exceeded"
 
 
+@pytest.mark.parametrize(
+    ("helper_access", "credentials"),
+    [
+        ("http", "none"),
+        ("none", "fresh_per_evaluation"),
+    ],
+)
+def test_trusted_helper_access_and_credential_modes_must_match(
+    helper_access,
+    credentials,
+):
+    with pytest.raises(ValueError, match="credentials"):
+        TrustedHelperContract.model_validate(
+            {
+                "format": "securebench.trusted-helper-contract/v1",
+                "type": "securebench.test-helper/v1",
+                "capabilities": [],
+                "helper_access": helper_access,
+                "settings_schema": {"type": "object"},
+                "limits_schema": {
+                    "type": "object",
+                    "properties": {"maximum": {"type": "integer"}},
+                    "required": ["maximum"],
+                    "max_fields": 1,
+                },
+                "maximum_limits": {"maximum": 1},
+                "evidence_schema": {"type": "object"},
+                "reset": "fresh_per_evaluation",
+                "credentials": credentials,
+            },
+            strict=False,
+        )
+
+
 def test_adapter_contract_maximums_can_only_be_reduced_by_a_protocol_check():
     manifest = adapter_contract(
         maximums={

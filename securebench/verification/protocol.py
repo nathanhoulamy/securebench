@@ -51,6 +51,7 @@ from securebench.verification.passive_files import (
 )
 from securebench.verification.parsers import ParserRegistry
 from securebench.verification.trusted_helpers import (
+    PROCESS_SUPERVISOR_TYPE,
     TrustedHelperEvaluation,
     default_trusted_helper_catalog,
     load_trusted_helper_settings,
@@ -268,6 +269,11 @@ class ProtocolCheckRunner:
                 root=evaluation_root,
                 persistent=False,
                 network=helper_evaluation.network,
+                # The Evaluation root and Candidate replay are owned by the
+                # host orchestrator UID. Linux container root loses ordinary
+                # DAC bypass after --cap-drop ALL, so retain only the narrow
+                # capability needed to traverse those explicit bind mounts.
+                cap_add=("DAC_OVERRIDE",),
                 env=helper_evaluation.evaluation_environment(),
                 read_only=True,
                 mounts=docker_resource_mounts(plan),
@@ -293,7 +299,8 @@ class ProtocolCheckRunner:
                     trusted_helpers=helper_access,
                 )
             )
-            result = sandbox.run(
+            result = helper_evaluation.run_evaluation(
+                sandbox,
                 manifest.command,
                 workdir=task.environment.workdir,
                 timeout=float(check.limits.seconds_per_case),
@@ -541,6 +548,14 @@ def _validate_trusted_helper_contracts(
             "trusted_helper_contract_mismatch",
             "Protocol check Trusted Helpers do not match the adapter contract",
         )
+    if sum(
+        helper.type == PROCESS_SUPERVISOR_TYPE for helper in check.trusted_helpers
+    ) > 1:
+        raise VerificationInfrastructureError(
+            "trusted_helper_contract_invalid",
+            "A protocol check may declare at most one process supervisor",
+            source="trusted_helper",
+        )
     for helper in check.trusted_helpers:
         helper_contract = catalog.validate_declaration(helper)
         catalog.runtime_factory(helper.type)
@@ -551,6 +566,7 @@ def _validate_trusted_helper_contracts(
                 settings,
             )
             catalog.validate_runtime_settings(helper.type, settings)
+            catalog.validate_runtime_declaration(helper, settings)
 
 
 def _validate_output_artifact_contracts(

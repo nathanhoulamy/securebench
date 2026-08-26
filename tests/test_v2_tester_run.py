@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import securebench.execution_profiles as execution_profiles
+from securebench.workspaces import cleanup
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import (
@@ -204,6 +205,16 @@ def test_workspace_cleanup_uses_pinned_image_after_permission_failure(monkeypatc
     ]
     assert calls["docker"][1][:3] == ["docker", "rm", "-f"]
     assert not task_workspace.exists()
+
+
+def test_workspace_permission_repair_rejects_a_symlink(tmp_path):
+    target = tmp_path / "target"
+    target.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(RuntimeError, match="refusing to repair a symlink"):
+        cleanup.restore_untrusted_tree_permissions(link, image="sha256:" + "1" * 64)
 
 
 def test_runner_resume_requires_matching_row_provenance(monkeypatch, tmp_path):

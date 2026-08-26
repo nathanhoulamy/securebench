@@ -168,6 +168,7 @@ def test_direct_agent_capture_stops_before_scanning_and_cleans_everything(tmp_pa
     ]
     assert workspace.closed
     assert sandbox_options["read_only"] is True
+    assert sandbox_options["cap_add"] == ("DAC_OVERRIDE",)
     assert sandbox_options["workspace_read_only"] is True
     assert sandbox_options["workspace_mount_target"] == OVERLAY_AGENT_INPUTS_TARGET
     assert sandbox_options["tmpfs"] == OVERLAY_AGENT_TMPFS

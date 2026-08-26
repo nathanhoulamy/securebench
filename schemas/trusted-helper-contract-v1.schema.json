@@ -120,7 +120,10 @@
       "type": "array"
     },
     "credentials": {
-      "const": "fresh_per_evaluation",
+      "enum": [
+        "fresh_per_evaluation",
+        "none"
+      ],
       "title": "Credentials",
       "type": "string"
     },
@@ -133,7 +136,10 @@
       "type": "string"
     },
     "helper_access": {
-      "const": "http",
+      "enum": [
+        "http",
+        "none"
+      ],
       "title": "Helper Access",
       "type": "string"
     },

@@ -66,7 +66,10 @@ from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
 from securebench.schemas.benchmark import FilesystemOverlayCandidate
 from securebench.tasks import BenchmarkTask
-from securebench.workspaces.cleanup import remove_untrusted_tree
+from securebench.workspaces.cleanup import (
+    remove_untrusted_tree,
+    restore_untrusted_tree_permissions,
+)
 from securebench.workspaces.materialization import (
     VisibilityAwareMaterializer,
     docker_resource_mounts,
@@ -98,6 +101,7 @@ CODEX_PROVIDER_ENV_NAMES = {"OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOK
 CODEX_AUTH_MODES = {"api_key", "subscription"}
 CODEX_DEFAULT_AUTH_MODE = "api_key"
 CODEX_REASONING_EFFORTS = {
+    "none",
     "minimal",
     "low",
     "medium",
@@ -254,6 +258,7 @@ class CodexHarnessProducer(CandidateProducer):
                     env_names=self.env_names,
                     env=codex_agent_env(egress.env, auth=self.auth),
                     network=egress.network,
+                    cap_add=("DAC_OVERRIDE",),
                     read_only=False,
                     mounts=(
                         *docker_resource_mounts(plan),
@@ -341,6 +346,7 @@ class CodexHarnessProducer(CandidateProducer):
                     )
                 finally:
                     close_sandbox(sandbox)
+                    restore_untrusted_tree_permissions(task_workspace, image=image)
         finally:
             if state_root is not None:
                 remove_untrusted_tree(state_root, image=image)

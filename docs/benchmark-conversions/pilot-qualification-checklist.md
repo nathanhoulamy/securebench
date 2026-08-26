@@ -5,6 +5,12 @@ commit. Tick a row only after its real pinned image has run end to end and its
 dossier contains the resulting evidence. Deterministic unit tests are useful,
 but they do not replace Linux/Docker qualification.
 
+Inventory review disposition and runtime qualification are separate. The
+first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
+remain intentionally unchecked; only the three incrementally qualified rows
+below currently have binary admission decisions. Global preflight and final
+pack sign-off therefore also remain unchecked.
+
 ## Run identity and host preflight
 
 - [ ] Branch is `split-verification-v2` and the tested commit SHA is recorded:
@@ -19,11 +25,12 @@ but they do not replace Linux/Docker qualification.
 - [ ] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
   passes.
 - [ ] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all three selected rows.
+  passes with all six selected rows.
 - [ ] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
   passes with all three selected rows.
-- [ ] `.venv/bin/securebench auth codex status` confirms that the isolated
-  harness login is usable.
+- [ ] The selected harness credential mode is usable. For `auth: api_key`, the
+  configured env file must contain `OPENAI_API_KEY`; run `securebench auth
+  codex status` only when `auth: subscription` is selected.
 - [ ] Every task image resolves to the digest declared in its row; no mutable
   tag was substituted.
 
@@ -96,6 +103,101 @@ Evidence/reason: `___________________________________________________________`
 Final status: [ ] Approved  [ ] Excluded
 
 Evidence/reason: `___________________________________________________________`
+
+## Incremental Terminal-Bench conversions
+
+Continue source-ordered Terminal rows one at a time after the first-wave pilot. For the fourth
+Terminal row, resume the first three results and confirm the selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 4 --resume
+```
+
+### `terminal-bench/bn-fit-modify`
+
+- [x] The source verifier and all scoring assertions were mapped to independent artifact evidence.
+- [x] No Trusted Helper or Evaluation Adapter is required; Candidate code never executes during verification.
+- [x] `securebench.strict-csv/v1` has closed finite byte, row, column, cell-count, and cell-size bounds plus malformed-input tests.
+- [x] The unmodified/missing-output state fails through Oracle-owned Candidate-error handling.
+- [x] A deterministic correct DAG, intervention DAG, and 10,000-row sample pass.
+- [x] The known-good reference passes through the real digest-pinned Linux image and stopped-state capture path.
+- [x] Targeted edge, intervention, distribution, row-count, and column mutants fail.
+- [x] Candidate verdict claims cannot affect scoring.
+- [x] Malformed CSV, invalid UTF-8, NULs, duplicate headers, ragged rows, symlinks, directories, and oversized files fail closed.
+- [x] The live Agent run completes with `infrastructure_error: null` and the Oracle correctly rejects its semantically wrong artifacts.
+- [x] The Candidate contains exactly three declared regular files and no input, log, process, or workspace state.
+- [x] No SecureBench container, network, or volume survives the live run.
+- [x] Linux evidence, fidelity notes, and result provenance are recorded in [`bn-fit-modify.md`](TerminalBench/bn-fit-modify.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean passive conversion; qualified on Linux on 2026-08-25. Live execution digest
+`sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
+
+For the fifth Terminal row, resume the first four results and confirm the selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 5 --resume
+```
+
+### `terminal-bench/cancel-async-tasks`
+
+- [x] The complete source verifier and all five semantic scenarios are mapped to independent evidence.
+- [x] The Candidate contains only bounded regular `/app/run.py`; installed state and live processes are excluded.
+- [x] The public Adapter contains task-scenario and signal-forwarding plumbing but no assertions or expected answers.
+- [x] Every case receives a fresh event ledger, credential, process supervisor, Evaluation, and correlation IDs.
+- [x] Missing/base Candidate behavior is rejected by the host Oracle without becoming infrastructure failure.
+- [x] The reviewed reference passes concurrency, one-slot serialization, all cancellation positions, and queued-task cleanup.
+- [x] Sequential, unbounded, signal-ignoring, timeout, and forged-verdict mutants fail.
+- [x] A real closure-introspection credential-forgery exploit fails because Candidate code receives no helper credential.
+- [x] Premature Candidate cancellation is distinguished from trusted signal forwarding and rejected.
+- [x] Symlink, directory, and oversized Candidate shapes fail closed.
+- [x] The full pinned-image Docker matrix passes and leaves no Candidate-controlled verdict path.
+- [x] The cheap-model Agent smoke run completes without infrastructure error and its result provenance is recorded.
+- [x] No SecureBench container, network, or volume survives the model-backed smoke run.
+- [x] Linux implementation, fidelity, and deterministic qualification evidence are recorded in [`cancel-async-tasks.md`](TerminalBench/cancel-async-tasks.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Qualified on Linux on 2026-08-26. The API-key-backed
+`gpt-5.6-luna` smoke passed with score `1.0`, no infrastructure error, Candidate
+digest `sha256:fe2a8afa945641feeb1a5326af7b542cf489f3cf1395e7e0e006578ea649c5e7`,
+and execution digest
+`sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
+The hardened verification digest is
+`sha256:b25489e66468575eaa3967c1429a6c72e81b91537757f72281e4e26f4b26236c`.
+Closure credential exposure, signal-readiness nondeterminism, and interrupted
+container cleanup races found during adversarial qualification were fixed and
+covered by deterministic and live regression tests before approval.
+
+For the sixth Terminal row, resume the first five results and confirm the
+selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 6 --resume
+```
+
+### `terminal-bench/chess-best-move`
+
+- [x] The complete source verifier and its exact `strip().split()` semantics are mapped to host-only artifact scoring.
+- [x] The Candidate contains only bounded regular `/app/move.txt`; the board image and live state are excluded.
+- [x] No Adapter or Trusted Helper is needed, and Candidate content is never imported or executed.
+- [x] The untouched pinned image fails Candidate capture and missing output is scored by the Oracle.
+- [x] Both move orders and varied whitespace pass with the exact `e2e4`/`g2g4` multiset.
+- [x] Missing, extra, duplicate, wrong, case-changed, and forged-verdict tokens fail.
+- [x] Invalid UTF-8, symlink, directory, and oversized artifacts fail closed.
+- [x] The reference passes stopped-Agent capture and host-only replay in the real pinned Linux image.
+- [x] The cheap-model API smoke completes without infrastructure error and its incorrect move is rejected.
+- [x] The one-row and full Terminal configuration audits pass without warnings.
+- [x] Linux evidence, semantic fidelity, and result provenance are recorded in [`chess-best-move.md`](TerminalBench/chess-best-move.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean passive conversion qualified on Linux on 2026-08-26.
+The pinned reference matrix passes `16/16`. The API-key-backed
+`gpt-5.6-luna` smoke produced a semantically incorrect move and was correctly
+rejected without infrastructure error. Execution digest:
+`sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
 
 ## DeepSWE
 
@@ -187,7 +289,7 @@ Evidence/reason: `___________________________________________________________`
 
 ## Final pack sign-off
 
-- [ ] All five converted rows have exactly one binary final status: Approved or
+- [ ] All six converted rows have exactly one binary final status: Approved or
   Excluded. “Pending”, “partial”, and “works locally” are not final statuses.
 - [ ] Every Approved row demonstrates base failure, reference success,
   targeted-mutant rejection, malicious-candidate rejection, isolation, cleanup,

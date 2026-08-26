@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
@@ -12,6 +14,13 @@ from securebench.verification.models import ParserRejected
 ParserInputKind = Literal["bytes", "tree"]
 BytesParser = Callable[[bytes], Any]
 TreeParser = Callable[[dict[str, Any]], Any]
+
+
+MAX_CSV_BYTES = 16 * 1024 * 1024
+MAX_CSV_COLUMNS = 256
+MAX_CSV_ROWS = 100_000
+MAX_CSV_CELLS = 1_000_000
+MAX_CSV_CELL_CHARACTERS = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -58,6 +67,7 @@ def default_parser_registry() -> ParserRegistry:
     registry.register(ParserProfile("securebench.strict-json/v1", "bytes", _strict_json))
     registry.register(ParserProfile("securebench.utf8-text/v1", "bytes", _utf8_text))
     registry.register(ParserProfile("securebench.ics/v1", "bytes", _ics))
+    registry.register(ParserProfile("securebench.strict-csv/v1", "bytes", _strict_csv))
     registry.register(ParserProfile("securebench.tree-manifest/v1", "tree", _tree_manifest))
     return registry
 
@@ -78,6 +88,74 @@ def _utf8_text(content: bytes) -> str:
         return content.decode("utf-8", errors="strict")
     except UnicodeDecodeError as exc:
         raise ParserRejected("invalid_utf8", "artifact is not valid UTF-8") from exc
+
+
+def _strict_csv(content: bytes) -> dict[str, Any]:
+    if len(content) > MAX_CSV_BYTES:
+        raise ParserRejected("csv_too_large", "CSV artifact exceeds the parser byte bound")
+    try:
+        text = content.decode("utf-8-sig", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ParserRejected("invalid_utf8", "artifact is not valid UTF-8") from exc
+    if "\x00" in text:
+        raise ParserRejected("invalid_csv", "CSV artifact contains a NUL byte")
+
+    try:
+        parsed_rows = csv.reader(io.StringIO(text, newline=""), strict=True)
+        header: list[str] | None = None
+        rows: list[list[str]] = []
+        cell_count = 0
+        for parsed in parsed_rows:
+            if not parsed:
+                continue
+            _validate_csv_cells(parsed)
+            if header is None:
+                header = parsed
+                if len(header) > MAX_CSV_COLUMNS:
+                    raise ParserRejected(
+                        "csv_too_many_columns",
+                        "CSV artifact exceeds the parser column bound",
+                    )
+                if any(not name for name in header) or len(set(header)) != len(header):
+                    raise ParserRejected(
+                        "invalid_csv_header",
+                        "CSV header names must be non-empty and unique",
+                    )
+                cell_count = len(header)
+                continue
+            if len(parsed) != len(header):
+                raise ParserRejected(
+                    "invalid_csv_shape",
+                    "CSV rows must contain exactly the header field count",
+                )
+            if len(rows) >= MAX_CSV_ROWS:
+                raise ParserRejected(
+                    "csv_too_many_rows",
+                    "CSV artifact exceeds the parser row bound",
+                )
+            cell_count += len(parsed)
+            if cell_count > MAX_CSV_CELLS:
+                raise ParserRejected(
+                    "csv_too_many_cells",
+                    "CSV artifact exceeds the parser cell bound",
+                )
+            rows.append(parsed)
+    except ParserRejected:
+        raise
+    except (csv.Error, UnicodeError) as exc:
+        raise ParserRejected("invalid_csv", "artifact is not valid CSV") from exc
+
+    if header is None:
+        raise ParserRejected("invalid_csv", "CSV artifact has no header row")
+    return {"header": header, "rows": rows}
+
+
+def _validate_csv_cells(row: list[str]) -> None:
+    if any(len(value) > MAX_CSV_CELL_CHARACTERS for value in row):
+        raise ParserRejected(
+            "csv_cell_too_large",
+            "CSV artifact contains a cell that exceeds the parser bound",
+        )
 
 
 def _ics(content: bytes) -> dict[str, Any]:

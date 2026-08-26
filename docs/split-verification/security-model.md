@@ -76,6 +76,23 @@ public file resources remain read-only mounts. Hidden Challenge context remains 
 the host Oracle. Adapter output must be one finite, duplicate-key-free JSON
 value within the row and Adapter bounds.
 
+Agent and Evaluation containers drop all ambient Linux capabilities and add
+back only `DAC_OVERRIDE`. This is required because their explicit bind-mounted
+workspaces are owned by the host orchestrator UID while benchmark images run as
+container root. The capability does not make absent resources visible or make
+read-only mounts writable; visibility placement, mount flags, and disposable
+container boundaries remain authoritative. The HTTP recorder uses the same
+narrow capability to read its host-created private configuration and write its
+bounded state directory. Provider relays instead run as the host orchestrator
+UID when POSIX IDs are available.
+
+After an Agent container stops, a trusted helper applies `a+rwX` only within
+that row's bounded writable bind root before passive host capture. This repairs
+host traversal when an adversarial root process created restrictive ownership
+or modes without adding execute bits to non-executable files. Candidate formats
+canonicalize retained file modes, and the helper receives no hidden or
+evaluation-only resources.
+
 Parsed artifacts and protocol observations remain internal evidence. Only the
 host Oracle may return correctness, score, check outcomes, and bounded public
 diagnostics. Candidate-production and capture failures are sent to the Oracle
@@ -157,8 +174,13 @@ tester-owned upper bound on actual connectivity.
   hosts, missing loop/mount support, unsupported Docker storage, failed
   `ENOSPC` enforcement, or incomplete cleanup all fail closed before the Agent.
 - Adapter v2, Challenge Evidence, the Trusted Helper Catalog, and bounded
-  Output Artifact collection are implemented. `securebench.http-request-recorder/v1`
-  is the only executable helper type; unregistered helpers still fail preflight.
+  Output Artifact collection are implemented. The executable helper types are
+  `securebench.http-request-recorder/v1`,
+  `securebench.append-only-event-ledger/v1`, and the host-only
+  `securebench.process-supervisor/v1`; unregistered helpers still fail
+  preflight. The process supervisor has no Evaluation-facing credential or
+  control route and delivers only its host-configured, allowlisted signal
+  schedule to the Evaluation container's init process.
 - Pack-local Oracle code is trusted and requires review/admission controls.
 - The reference Oracle runs as a sanitized host subprocess; stronger OS-level
   Oracle confinement remains future hardening.

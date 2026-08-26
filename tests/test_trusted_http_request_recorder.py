@@ -230,6 +230,9 @@ def test_recorder_runtime_uses_internal_network_hardening_and_file_backed_secret
         start_command.index("--network") : start_command.index("--network") + 2
     ]
     assert "--cap-drop" in start_command
+    assert ["--cap-add", "DAC_OVERRIDE"] == start_command[
+        start_command.index("--cap-add") : start_command.index("--cap-add") + 2
+    ]
     assert "--read-only" in start_command
     assert "--security-opt" in start_command
     assert "no-new-privileges:true" in start_command

@@ -1,0 +1,32 @@
+format: securebench.adapter/v2
+protocol: securebench.async-task-scenario/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    nonce_prefix: {type: string, max_utf8_bytes: 64}
+    task_count: {type: integer}
+    max_concurrent: {type: integer}
+    work_ms: {type: integer}
+    cleanup_ms: {type: integer}
+  required: [nonce_prefix, task_count, max_concurrent, work_ms, cleanup_ms]
+  max_fields: 5
+observation_schema:
+  type: object
+  properties:
+    child_started: {type: boolean}
+    child_exit_code: {type: integer}
+    signal_received: {type: boolean}
+    signal_forwarded: {type: boolean}
+    timed_out: {type: boolean}
+  required: [child_started, child_exit_code, signal_received, signal_forwarded, timed_out]
+  max_fields: 5
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+uses_trusted_helpers:
+  - {name: lifecycle, type: securebench.append-only-event-ledger/v1}
+  - {name: process_control, type: securebench.process-supervisor/v1}
+maximums:
+  seconds_per_challenge: 10
+  challenge_bytes: 4096
+  observation_bytes: 4096

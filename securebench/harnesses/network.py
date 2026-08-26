@@ -383,6 +383,14 @@ class DockerProviderRelayPolicy:
         )
 
     def _start_provider_relay(self, relay_log_dir: Path) -> None:
+        user_arguments = []
+        getuid = getattr(os, "getuid", None)
+        getgid = getattr(os, "getgid", None)
+        if getuid is not None and getgid is not None:
+            # The relay writes only to a host-owned bounded log directory and,
+            # for subscription auth, reads the host-owned credential file.
+            # Matching the orchestrator UID avoids granting DAC capabilities.
+            user_arguments = ["--user", f"{getuid()}:{getgid()}"]
         command = [
             "docker",
             "run",
@@ -403,18 +411,13 @@ class DockerProviderRelayPolicy:
             "64",
             "--security-opt",
             "no-new-privileges:true",
+            *user_arguments,
         ]
         if self.spec.credential_kind == "codex-oauth":
             if self.credential_file is None:
                 raise ConfigError("Codex subscription relay requires a credential file")
-            user_arguments = []
-            getuid = getattr(os, "getuid", None)
-            getgid = getattr(os, "getgid", None)
-            if getuid is not None and getgid is not None:
-                user_arguments = ["--user", f"{getuid()}:{getgid()}"]
             command.extend(
                 [
-                    *user_arguments,
                     "-e",
                     (
                         "SECUREBENCH_CREDENTIAL_FILE="
