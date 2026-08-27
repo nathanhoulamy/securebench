@@ -94,16 +94,16 @@ the runner does not invent a benchmark score.
 | Admission qualification pipeline | Not implemented |
 | Result signing | Not implemented |
 
-The executable reference packs currently contain six Terminal-Bench rows and
-three DeepSWE rows. The incremental `bn-fit-modify`, `cancel-async-tasks`, and
-`chess-best-move` conversions are Approved after deterministic, pinned-image,
-stopped-capture, and model-backed qualification. The first-wave control,
-`sqlite-db-truncate`, and `vulnerable-secret` remain qualification-pending in
-their dossiers and checklist; an inventory-level Approved review disposition
-is not a completed runtime qualification. The recommended example documents
-conform to the row schema. The HTTP-recorder pattern used by the DeepSWE target
-example is now supported, while the filesystem-overlay example remains
-intentionally non-executable.
+The executable reference packs currently contain seven Terminal-Bench rows and
+three DeepSWE rows. The incremental `bn-fit-modify`, `cancel-async-tasks`,
+`chess-best-move`, and `circuit-fibsqrt` conversions are Approved after
+deterministic, pinned-image, stopped-capture, and model-backed qualification.
+The first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` remain
+qualification-pending in their dossiers and checklist; an inventory-level
+Approved review disposition is not a completed runtime qualification. The
+recommended example documents conform to the row schema. The HTTP-recorder
+pattern used by the DeepSWE target example is now supported, while the
+filesystem-overlay example remains intentionally non-executable.
 
 ## What is already correct for the schema's purpose
 
@@ -258,7 +258,7 @@ hardening rather than a prerequisite for writing and qualifying the first conver
 
 At this review pass:
 
-- full warning-strict suite: `577 passed, 19 skipped`;
+- full warning-strict suite: `597 passed, 23 skipped`;
 - complete protocol and Trusted Helper suite with Docker integration enabled:
   `54 passed, 1 skipped`, including fresh ordinary/recorder Evaluations,
   clean-repository git-patch replay, authenticated event-ledger traffic, external
@@ -275,6 +275,13 @@ At this review pass:
   image cases pass; its API-key-backed Luna smoke completed without
   infrastructure error and the Oracle correctly rejected the model's lone
   incorrect `d2h6` token;
+- `circuit-fibsqrt` hybrid qualification: `24/24` deterministic and pinned-
+  image cases pass, including the official reference across 32 fresh
+  Evaluations and rejection of constant, identity, and one-line reference
+  mutants plus a real out-of-bounds parser attack; its API-key-backed Luna
+  smoke captured one bounded circuit,
+  completed all 32 cases without infrastructure error, and was correctly
+  rejected for `incorrect_output`;
 - the Docker pass left no Trusted Helper containers, materialization containers, Evaluation
   networks, or overlay volumes behind;
 - built-in robustness audit: 17 passed, 0 failed, 0 warnings;

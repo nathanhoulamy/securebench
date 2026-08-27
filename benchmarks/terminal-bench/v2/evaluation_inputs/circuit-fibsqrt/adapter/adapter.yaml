@@ -1,0 +1,23 @@
+format: securebench.adapter/v2
+protocol: securebench.circuit-simulator/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    input: {type: integer}
+  required: [input]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    exit_code: {type: integer}
+    stdout: {type: string, max_utf8_bytes: 128}
+    stderr: {type: string, max_utf8_bytes: 1024}
+  required: [exit_code, stdout, stderr]
+  max_fields: 3
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 30
+  challenge_bytes: 128
+  observation_bytes: 4096

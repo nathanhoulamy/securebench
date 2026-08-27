@@ -7,28 +7,33 @@ but they do not replace Linux/Docker qualification.
 
 Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; only the three incrementally qualified rows
+remain intentionally unchecked; only the four incrementally qualified rows
 below currently have binary admission decisions. Global preflight and final
 pack sign-off therefore remain incomplete.
 
 ## Run identity and host preflight
 
-- [x] Branch is `split-verification-v2` and the tested implementation commit is
+- [x] Branch is `split-verification-v2`; the prior incremental batch's tested
+  implementation commit is
   `c3958a188db6565afed2a8de311c20bb036d7bdb`.
-- [x] `git status --short` was clean at the tested implementation commit.
-- [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26,
-  Linux `7.0.0-29-generic`, x86_64.
+- [x] `git status --short` was clean at that published implementation commit.
+- [ ] The qualified `circuit-fibsqrt` working tree, based on
+  `549b0a85e86f49f0a0a843c0dd6b19d1caf714e1`, has been committed and
+  rechecked from a clean checkout. This remains pending until publication is
+  requested.
+- [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26 and
+  2026-08-27, Linux `7.0.0-29-generic`, x86_64.
 - [x] `docker version` succeeds and Docker uses Linux/amd64 containers
   (Docker `29.7.2`).
 - [x] Free disk space is sufficient for the pinned benchmark images and run
   output.
 - [ ] The environment is installed with `python -m pip install -e '.[dev]'`.
-- [x] `.venv/bin/pytest -q` passes (`577 passed, 19 skipped`; the stricter
+- [x] `.venv/bin/pytest -q` passes (`597 passed, 23 skipped`; the stricter
   `-W error` run also passes).
 - [x] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
-  passes (`25/25`, no warnings).
+  passes (`29/29`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all six selected rows (`25/25`, no warnings).
+  passes with all seven selected rows (`29/29`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
   passes with all three selected rows (`13/13`, no warnings).
 - [x] The selected harness credential mode is usable. For `auth: api_key`, the
@@ -41,7 +46,10 @@ pack sign-off therefore remain incomplete.
 
 Audit artifacts: `/tmp/securebench-precommit-audit-self`,
 `/tmp/securebench-precommit-terminal-audit`, and
-`/tmp/securebench-precommit-deep-audit`. The workspace filesystem had 188 GiB
+`/tmp/securebench-precommit-deep-audit`; circuit-specific audits are under
+`/tmp/securebench-circuit-final-audit-self-2`,
+`/tmp/securebench-circuit-final-terminal-audit-2`, and
+`/tmp/securebench-circuit-smoke/audit`. The workspace filesystem had 188 GiB
 free at preflight.
 
 ## Terminal-Bench
@@ -205,6 +213,39 @@ Evidence/reason: Clean passive conversion qualified on Linux on 2026-08-26.
 The pinned reference matrix passes `16/16`. The API-key-backed
 `gpt-5.6-luna` smoke produced a semantically incorrect move and was correctly
 rejected without infrastructure error. Execution digest:
+`sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
+
+For the seventh Terminal row, resume the first six results and confirm the
+selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 7 --resume
+```
+
+### `terminal-bench/circuit-fibsqrt`
+
+- [x] The complete source verifier, 28 original cases, line bound, simulator semantics, and expected-value computation are mapped to independent evidence.
+- [x] The Candidate contains only bounded regular `/app/gates.txt`; Candidate binaries, installed state, logs, and processes are excluded.
+- [x] The public Adapter is assertion-free and contains no case corpus, Fibonacci implementation, expected value, threshold, or verdict logic.
+- [x] The hardened simulator preserves valid gate/tick/output behavior while rejecting duplicate, malformed, negative, out-of-range, overlong, NUL-bearing, and executable-looking gate text.
+- [x] Missing/base Candidate behavior is rejected by the host Oracle without becoming infrastructure failure.
+- [x] The pinned upstream reference passes all 28 original and four run-seed-derived private cases in fresh Evaluations.
+- [x] Constant-output, identity, and one-line reference-output-bit mutants fail.
+- [x] Forged verdict text, repeated Evaluation IDs, invalid UTF-8, symlink, directory, oversized, and 32,000-line Candidate shapes fail or cannot affect scoring.
+- [x] The upstream reference's failure at `N=0` and large 32-bit inputs is documented; private cases remain inside the original verifier's demonstrated positive-input/root-at-most-220 envelope.
+- [x] The full pinned-image matrix passes `24/24`, including a real parser attack, and focused circuit/protocol/component/tester tests pass `98 passed, 8 skipped`.
+- [x] The API-key-backed Luna smoke captures one bounded circuit and completes all 32 Evaluations without infrastructure error; its incorrect behavior is rejected.
+- [x] No SecureBench container, network, volume, Evaluation root, or task-specific helper state survives qualification or the model smoke.
+- [x] Linux evidence, semantic fidelity, and result provenance are recorded in [`circuit-fibsqrt.md`](TerminalBench/circuit-fibsqrt.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean protocol conversion qualified on Linux on 2026-08-27.
+The official reference passes 32 fresh cases. The API-key-backed
+`gpt-5.6-luna` smoke is correctly rejected with `incorrect_output`, score
+`0.0`, and no infrastructure error. Candidate digest:
+`sha256:8342730f90969df0de157383bdad78acc18442f744b80eddab2173c61c0413ae`.
+Execution digest:
 `sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
 
 ## DeepSWE
