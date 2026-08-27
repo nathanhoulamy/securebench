@@ -17,10 +17,10 @@ pack sign-off therefore remain incomplete.
   implementation commit is
   `c3958a188db6565afed2a8de311c20bb036d7bdb`.
 - [x] `git status --short` was clean at that published implementation commit.
-- [ ] The qualified `circuit-fibsqrt` working tree, based on
-  `549b0a85e86f49f0a0a843c0dd6b19d1caf714e1`, has been committed and
-  rechecked from a clean checkout. This remains pending until publication is
-  requested.
+- [x] The qualified `circuit-fibsqrt` working tree, based on
+  `549b0a85e86f49f0a0a843c0dd6b19d1caf714e1`, was committed as
+  `f588721e2aacd48a131057de5f5a0a5b40dbeb7a` and rechecked with a clean
+  working tree.
 - [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26 and
   2026-08-27, Linux `7.0.0-29-generic`, x86_64.
 - [x] `docker version` succeeds and Docker uses Linux/amd64 containers
@@ -47,8 +47,8 @@ pack sign-off therefore remain incomplete.
 Audit artifacts: `/tmp/securebench-precommit-audit-self`,
 `/tmp/securebench-precommit-terminal-audit`, and
 `/tmp/securebench-precommit-deep-audit`; circuit-specific audits are under
-`/tmp/securebench-circuit-final-audit-self-2`,
-`/tmp/securebench-circuit-final-terminal-audit-2`, and
+`/tmp/securebench-circuit-precommit-audit-self`,
+`/tmp/securebench-circuit-precommit-terminal-audit`, and
 `/tmp/securebench-circuit-smoke/audit`. The workspace filesystem had 188 GiB
 free at preflight.
 

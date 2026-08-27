@@ -143,7 +143,9 @@ documented benchmark limitation.
   (`linux/amd64`, workdir `/app`).
 - Qualification date and host: 2026-08-27, Linux x86_64 with Docker Linux
   containers. The tested working tree is based on
-  `549b0a85e86f49f0a0a843c0dd6b19d1caf714e1`.
+  `549b0a85e86f49f0a0a843c0dd6b19d1caf714e1`; the unchanged qualified
+  implementation was committed as
+  `f588721e2aacd48a131057de5f5a0a5b40dbeb7a`.
 - Focused warning-strict qualification passes `20` tests with `4` Docker-only
   tests skipped. It covers row compilation/preflight, every gate operation,
   bit ordering, original and seeded case generation, Oracle success and
