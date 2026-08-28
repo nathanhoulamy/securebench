@@ -149,7 +149,9 @@ limitation.
 - Qualification date and host: 2026-08-28, Linux
   `7.0.0-29-generic`, x86_64 with Docker Linux containers. The qualified
   working tree is based on
-  `bea43435c8a844fa64dd6a7128027556bb6d0d6b`.
+  `bea43435c8a844fa64dd6a7128027556bb6d0d6b`; the unchanged qualified
+  implementation was committed as
+  `40d36e15e3aa23a4aa401aa2a8f81b866253da6b`.
 - Focused warning-strict qualification passes `15` tests with `4` Docker-only
   tests skipped. It covers row compilation/preflight, exact source bytes,
   deterministic seeded cases, independent Oracle success, account and

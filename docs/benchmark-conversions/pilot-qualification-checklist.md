@@ -21,10 +21,10 @@ pack sign-off therefore remain incomplete.
   `549b0a85e86f49f0a0a843c0dd6b19d1caf714e1`, was committed as
   `f588721e2aacd48a131057de5f5a0a5b40dbeb7a` and rechecked with a clean
   working tree.
-- [ ] The qualified `cobol-modernization` working tree, based on
-  `bea43435c8a844fa64dd6a7128027556bb6d0d6b`, has been committed and
-  rechecked with a clean working tree. This remains pending until publication
-  is requested.
+- [x] The qualified `cobol-modernization` working tree, based on
+  `bea43435c8a844fa64dd6a7128027556bb6d0d6b`, was committed as
+  `40d36e15e3aa23a4aa401aa2a8f81b866253da6b` and rechecked with a clean
+  working tree.
 - [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26 through
   2026-08-28, Linux `7.0.0-29-generic`, x86_64.
 - [x] `docker version` succeeds and Docker uses Linux/amd64 containers
