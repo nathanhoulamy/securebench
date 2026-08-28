@@ -1,0 +1,44 @@
+format: securebench.adapter/v2
+protocol: securebench.fixed-record-transactions/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    initial_accounts: {type: string, max_utf8_bytes: 16384}
+    initial_books: {type: string, max_utf8_bytes: 16384}
+    initial_transactions: {type: string, max_utf8_bytes: 32768}
+    inputs:
+      type: array
+      items: {type: string, max_utf8_bytes: 128}
+      max_items: 8
+  required: [initial_accounts, initial_books, initial_transactions, inputs]
+  max_fields: 4
+observation_schema:
+  type: object
+  properties:
+    exit_codes:
+      type: array
+      items: {type: integer}
+      max_items: 8
+    timed_out: {type: boolean}
+  required: [exit_codes, timed_out]
+  max_fields: 2
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+output_artifacts:
+  - name: accounts
+    path: data/ACCOUNTS.DAT
+    kind: regular_file
+    maximum_limits: {max_bytes: 65536}
+  - name: books
+    path: data/BOOKS.DAT
+    kind: regular_file
+    maximum_limits: {max_bytes: 65536}
+  - name: transactions
+    path: data/TRANSACTIONS.DAT
+    kind: regular_file
+    maximum_limits: {max_bytes: 131072}
+maximums:
+  seconds_per_challenge: 45
+  challenge_bytes: 131072
+  observation_bytes: 4096

@@ -7,7 +7,7 @@ but they do not replace Linux/Docker qualification.
 
 Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; only the four incrementally qualified rows
+remain intentionally unchecked; only the five incrementally qualified rows
 below currently have binary admission decisions. Global preflight and final
 pack sign-off therefore remain incomplete.
 
@@ -21,19 +21,23 @@ pack sign-off therefore remain incomplete.
   `549b0a85e86f49f0a0a843c0dd6b19d1caf714e1`, was committed as
   `f588721e2aacd48a131057de5f5a0a5b40dbeb7a` and rechecked with a clean
   working tree.
-- [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26 and
-  2026-08-27, Linux `7.0.0-29-generic`, x86_64.
+- [ ] The qualified `cobol-modernization` working tree, based on
+  `bea43435c8a844fa64dd6a7128027556bb6d0d6b`, has been committed and
+  rechecked with a clean working tree. This remains pending until publication
+  is requested.
+- [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26 through
+  2026-08-28, Linux `7.0.0-29-generic`, x86_64.
 - [x] `docker version` succeeds and Docker uses Linux/amd64 containers
   (Docker `29.7.2`).
 - [x] Free disk space is sufficient for the pinned benchmark images and run
   output.
 - [ ] The environment is installed with `python -m pip install -e '.[dev]'`.
-- [x] `.venv/bin/pytest -q` passes (`597 passed, 23 skipped`; the stricter
+- [x] `.venv/bin/pytest -q` passes (`612 passed, 27 skipped`; the stricter
   `-W error` run also passes).
 - [x] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
-  passes (`29/29`, no warnings).
+  passes (`33/33`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all seven selected rows (`29/29`, no warnings).
+  passes with all eight selected rows (`33/33`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
   passes with all three selected rows (`13/13`, no warnings).
 - [x] The selected harness credential mode is usable. For `auth: api_key`, the
@@ -49,8 +53,11 @@ Audit artifacts: `/tmp/securebench-precommit-audit-self`,
 `/tmp/securebench-precommit-deep-audit`; circuit-specific audits are under
 `/tmp/securebench-circuit-precommit-audit-self`,
 `/tmp/securebench-circuit-precommit-terminal-audit`, and
-`/tmp/securebench-circuit-smoke/audit`. The workspace filesystem had 188 GiB
-free at preflight.
+`/tmp/securebench-circuit-smoke/audit`; COBOL-specific audits are under
+`/tmp/securebench-cobol-final-audit-self`,
+`/tmp/securebench-cobol-final-terminal-audit`, and
+`/tmp/securebench-cobol-final-one-row-audit`. The workspace filesystem had
+188 GiB free at preflight.
 
 ## Terminal-Bench
 
@@ -246,6 +253,41 @@ The official reference passes 32 fresh cases. The API-key-backed
 `0.0`, and no infrastructure error. Candidate digest:
 `sha256:8342730f90969df0de157383bdad78acc18442f744b80eddab2173c61c0413ae`.
 Execution digest:
+`sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
+
+For the eighth Terminal row, resume the first seven results and confirm the
+selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 8 --resume
+```
+
+### `terminal-bench/cobol-modernization`
+
+- [x] The complete COBOL program, source verifier, exact original three-step state transition, and expected bytes are mapped to independent evidence.
+- [x] The Candidate contains only bounded regular `/app/program.py`; `.DAT` state, inputs, compiled files, installed packages, logs, and processes are excluded.
+- [x] The public Adapter contains no users, books, balances, cases, expected bytes, assertions, scoring rules, or verdict logic.
+- [x] Each host case runs in a fresh offline Evaluation; each bounded multi-step case safely replaces only the current input and stops Candidate descendants between invocations.
+- [x] Accounts, books, and transactions are collected as bounded, correlated Output Artifacts only after Evaluation execution stops.
+- [x] Missing/base Candidate behavior is rejected by the Oracle without becoming infrastructure failure.
+- [x] The pinned upstream reference passes the exact source case and three run-seed-derived private valid-transaction cases.
+- [x] No-op, published-fixed-output, forged-verdict, account-state, nonzero-exit, and repeated-Evaluation mutants fail or cannot affect scoring.
+- [x] Candidate symlink, directory, oversized, input-path replacement, and Output Artifact symlink attacks fail closed.
+- [x] The source verifier's single-sequence coverage and inability to prove implementation method from black-box outputs are documented as inherited limitations.
+- [x] The final pinned-image matrix passes `19/19`; the complete suite passes `612 passed, 27 skipped`; full Terminal audits pass `33/33` without warnings.
+- [x] The final API-key-backed Luna smoke captures one bounded `program.py`, passes all four fresh Evaluations with score `1.0`, and has no infrastructure error.
+- [x] No SecureBench container, network, volume, Evaluation root, or task-specific helper state survives qualification or the model smoke.
+- [x] Linux evidence, semantic fidelity, and result provenance are recorded in [`cobol-modernization.md`](TerminalBench/cobol-modernization.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean protocol conversion qualified on Linux on 2026-08-28.
+The reference and final API-key-backed `gpt-5.6-luna` smoke both pass all four
+fresh scenarios. The smoke Candidate digest is
+`sha256:c98ee190eaff1a422afc3c096028ffafd88834bbacbe2eeef0baddf1401be5e5`;
+verification digest
+`sha256:fa87477d602589fcc6d8fd71205bcb915cd97b274b7d6f4d5f39c3289c61fcf8`;
+execution digest
 `sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
 
 ## DeepSWE

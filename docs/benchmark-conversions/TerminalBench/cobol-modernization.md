@@ -71,20 +71,111 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 
 ## Questions for our later review
 
-- [ ] Read the complete public instruction.
-- [ ] Walk through the verifier entrypoint line by line.
-- [ ] Identify every candidate-controlled input consumed by the verifier.
-- [ ] Identify every scoring-relevant assertion and expected value.
-- [ ] Decide whether the task's intended behavior is fully represented by its tests.
-- [ ] Design the split-verification conversion.
-- [ ] Record fidelity limitations and the final eligibility decision.
+- [x] Read the complete public instruction.
+- [x] Walk through the verifier entrypoint line by line.
+- [x] Identify every candidate-controlled input consumed by the verifier.
+- [x] Identify every scoring-relevant assertion and expected value.
+- [x] Decide whether the task's intended behavior is fully represented by its tests.
+- [x] Design the split-verification conversion.
+- [x] Record fidelity limitations and the final eligibility decision.
 
 ## Future conversion notes
 
-Clean black-box conversion. Extract only `/app/program.py`; keep the COBOL
-reference, hidden tests, expected states, and scoring outside both VMs. Run
-the candidate in fresh Evaluation VMs against bounded initial-state/input
+Clean black-box conversion. Extract only `/app/program.py`; keep reference
+execution, hidden tests, expected states, and scoring outside both VMs. Run the
+candidate in fresh Evaluation VMs against bounded initial-state/input
 transitions, returning exact bounded bytes for the accounts, books, and
 transactions files. The host Oracle compares those bytes and exit status
 directly. The existing row validates only one fixed three-input sequence, so
 that limitation is part of the recorded benchmark meaning.
+
+## Implemented v2 conversion
+
+Final status: **Approved**. The conversion captures only bounded
+`/app/program.py` and executes it in a fresh offline Evaluation for each
+host-selected multi-step scenario. A public assertion-free Adapter writes the
+current initial state and transaction inputs, invokes the Candidate once per
+input, and returns only bounded exit-status observations. Three declared
+Output Artifacts passively capture the resulting fixed-width files after the
+Evaluation process has stopped. No Trusted Helper is required.
+
+### Behavior and trust mapping
+
+| Source behavior | Independently observed evidence | Host-only Oracle decision |
+|---|---|---|
+| Produce `/app/program.py` | Stopped capture extracts exactly one regular file of at most 256 KiB | Missing, non-regular, symlinked, directory, or oversized Candidates fail closed |
+| Read one fixed-width input per invocation | The current Challenge contains only bounded initial files and at most eight input records; the Adapter safely replaces `src/INPUT.DAT` without following Candidate-created symlinks | The Oracle owns the scenario sequence and expected number of successful invocations |
+| Update accounts and book ownership | After the Adapter exits, `data/ACCOUNTS.DAT` and `data/BOOKS.DAT` are independently collected as bounded UTF-8 Output Artifacts | Exact fixed-width bytes must equal the Oracle's independently computed state |
+| Extend the transaction log | `data/TRANSACTIONS.DAT` is independently collected from the same stopped Evaluation | Existing log bytes must be preserved and each valid transaction appended in book/amount/seller/buyer order |
+| Preserve a multi-transaction lifecycle | One Challenge runs a bounded sequence in one Evaluation; every other Challenge uses a fresh Evaluation and distinct ID | All invocations must return zero, all three artifacts must correlate to the same Challenge/Evaluation, and all four scenarios must pass |
+
+The Candidate excludes source inputs, `.DAT` state, installed packages,
+compiled programs, logs, processes, and all other Agent workspace state. The
+Adapter discards Candidate stdout/stderr, bounds each invocation to five
+seconds, isolates it in a process group, and terminates descendants between
+inputs. Required file replacement uses directory-relative `O_NOFOLLOW` opens;
+Candidate path tampering becomes Candidate failure instead of an Adapter or
+host error. The Docker Evaluation itself is one-shot, so no process survives
+Output Artifact collection or crosses into another case.
+
+The Adapter contains no users, books, balances, transaction cases, expected
+bytes, comparisons, assertions, scoring rules, or verdict logic. The Oracle
+retains the source verifier's exact initial state, three input records, and
+three expected files as its first case. Three run-seed-derived private cases
+exercise one, two, and four valid transactions over the same demonstrated
+three-account/three-book fixed-width domain; the four-transaction case begins
+with a valid existing log entry to check `OPEN EXTEND` behavior. Amounts remain
+small positive integers and every seller is the current owner, avoiding new
+invalid-record, overdraft, overflow, duplicate-ID, or malformed-input
+semantics that the source verifier never established.
+
+The source test covers only one published valid sequence even though the task
+asks for equivalence to the general COBOL program. The seeded cases strengthen
+challenge unpredictability without requiring behavior outside that public
+program and valid-record domain. As with the source verifier, black-box output
+equivalence cannot prove that Candidate code is a stylistically independent
+Python reimplementation rather than a wrapper or embedded interpretation of
+the public COBOL source. SecureBench prevents access to hidden cases and
+host-owned expected states, but this inherited implementation-method gap is
+not robustly enforceable from behavior and remains a documented benchmark
+limitation.
+
+### Qualification evidence
+
+- Source revision: `2fd12b88aafdd04a52c298e3940bcb189f9766d6`.
+- Pinned image:
+  `alexgshaw/cobol-modernization@sha256:593ab9df3d83f771e927888b2d9436b380cdf7ec4d0af2a9f0802d541edebba0`
+  (`linux/amd64`, workdir `/app`).
+- Qualification date and host: 2026-08-28, Linux
+  `7.0.0-29-generic`, x86_64 with Docker Linux containers. The qualified
+  working tree is based on
+  `bea43435c8a844fa64dd6a7128027556bb6d0d6b`.
+- Focused warning-strict qualification passes `15` tests with `4` Docker-only
+  tests skipped. It covers row compilation/preflight, exact source bytes,
+  deterministic seeded cases, independent Oracle success, account and
+  fixed-output mutants, forged claims, repeated Evaluations, missing and
+  nonzero behavior, safe Adapter file replacement, missing Candidates, and
+  symlink, directory, and oversized capture attacks.
+- The final real digest-pinned Docker matrix passes `19/19` in `21.13s`. The
+  untouched image with `program.py` removed fails stopped Candidate capture;
+  the reference Python implementation extracted from the pinned upstream
+  [`solve.sh`](https://github.com/harbor-framework/terminal-bench-2/blob/2fd12b88aafdd04a52c298e3940bcb189f9766d6/cobol-modernization/solution/solve.sh)
+  passes all four fresh Evaluations; no-op, published-fixed-output, and
+  forged-verdict mutants fail; and a real symlinked Output Artifact is owned
+  as Candidate failure rather than infrastructure failure.
+- The one-row audit passes `5/5`; both complete eight-row Terminal audits pass
+  `33/33`, all with no warnings. The complete warning-strict repository suite
+  passes `612 passed, 27 skipped`.
+- The final API-key-backed `gpt-5.6-luna` / `reasoning_effort: none` smoke
+  passes with score `1.0` and no infrastructure error. Stopped capture contains
+  exactly one 2,012-byte, 68-line `program.py`, Candidate digest
+  `sha256:c98ee190eaff1a422afc3c096028ffafd88834bbacbe2eeef0baddf1401be5e5`.
+  The durable result is
+  `runs/terminal-bench-v2-cobol-smoke-final/results.jsonl`, with row digest
+  `sha256:67fff8a56c1bdcf5d8a9d7c1b736cd289a3a8b86afded0c29122d900f7dda096`,
+  verification digest
+  `sha256:fa87477d602589fcc6d8fd71205bcb915cd97b274b7d6f4d5f39c3289c61fcf8`,
+  and execution digest
+  `sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
+- Final teardown inspection found no SecureBench container, network, volume,
+  Evaluation root, or task-specific helper state.
