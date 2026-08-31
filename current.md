@@ -94,17 +94,16 @@ the runner does not invent a benchmark score.
 | Admission qualification pipeline | Not implemented |
 | Result signing | Not implemented |
 
-The executable reference packs currently contain eight Terminal-Bench rows and
-three DeepSWE rows. The incremental `bn-fit-modify`, `cancel-async-tasks`,
-`chess-best-move`, `circuit-fibsqrt`, and `cobol-modernization` conversions are
-Approved after deterministic, pinned-image, stopped-capture, and model-backed
-qualification. The first-wave control, `sqlite-db-truncate`, and
-`vulnerable-secret` remain qualification-pending in their dossiers and
-checklist; an inventory-level Approved review disposition is not a completed
-runtime qualification. The recommended example documents conform to the row
-schema. The HTTP-recorder pattern used by the DeepSWE target example is now
-supported, while the filesystem-overlay example remains intentionally
-non-executable.
+The executable reference packs currently contain thirteen Terminal-Bench rows
+and three DeepSWE rows. The ten incremental conversions from `bn-fit-modify`
+through `distribution-search` are Approved after deterministic, pinned-image,
+stopped-capture, adversarial, teardown, and model-backed qualification. The
+first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` remain
+qualification-pending in their dossiers and checklist; an inventory-level
+Approved review disposition is not a completed runtime qualification. The
+recommended example documents conform to the row schema. The HTTP-recorder
+pattern used by the DeepSWE target example is now supported, while the
+filesystem-overlay example remains intentionally non-executable.
 
 ## What is already correct for the schema's purpose
 
@@ -259,7 +258,7 @@ hardening rather than a prerequisite for writing and qualifying the first conver
 
 At this review pass:
 
-- full warning-strict suite: `612 passed, 27 skipped`;
+- full warning-strict suite: `728 passed, 51 skipped`;
 - complete protocol and Trusted Helper suite with Docker integration enabled:
   `54 passed, 1 skipped`, including fresh ordinary/recorder Evaluations,
   clean-repository git-patch replay, authenticated event-ledger traffic, external
@@ -289,9 +288,27 @@ At this review pass:
   symlink-output Candidates; its API-key-backed Luna smoke produced exactly
   one bounded `program.py` and passed all four host-owned scenarios with score
   `1.0` and no infrastructure error;
+- `code-from-image` passive qualification: `20/20` deterministic and
+  pinned-image cases pass; its Luna smoke produced the exact bounded output and
+  passed with score `1.0`;
+- `count-dataset-tokens` passive qualification: `22/22` deterministic and
+  pinned-image cases pass; the first Agent attempt exposed the missing
+  Hugging Face domains in the Linux tester allowlist, and the corrected retry
+  passed with score `1.0` and no infrastructure error;
+- `crack-7z-hash` passive qualification: `23/23` deterministic and
+  pinned-image cases pass; its Luna smoke produced no Candidate and was
+  correctly rejected without infrastructure error;
+- `db-wal-recovery` passive qualification: `31/31` deterministic and
+  pinned-image cases pass; its Luna smoke produced no Candidate and was
+  correctly rejected without infrastructure error;
+- `distribution-search` passive qualification: `30/30` deterministic and
+  pinned-image cases pass, including the reusable strict NPY parser and
+  KL-axis mutants; its bounded Luna Candidate was correctly rejected for
+  `forward_kl_out_of_tolerance` without infrastructure error;
 - the Docker pass left no Trusted Helper containers, materialization containers, Evaluation
   networks, or overlay volumes behind;
-- built-in robustness audit: 17 passed, 0 failed, 0 warnings;
+- complete Terminal configuration and self-audits: `53/53` passed with no
+  failures or warnings;
 - the generated Trusted Helper contract schema was refreshed for the reviewed
   HTTP and host-only access/credential modes, and its regeneration check passes;
 - compile checks and `git diff --check` passed.

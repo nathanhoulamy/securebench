@@ -81,10 +81,9 @@ limitation rather than presenting the artifact as proof of genuine counting.
 
 ## Implemented v2 conversion
 
-Final status: **Implemented — qualification pending**. The row, host-only
-Oracle, and deterministic qualification matrix are implemented. Real
-digest-pinned Linux/Docker qualification and leak-free teardown remain
-mandatory before Approval.
+Final status: **Approved**. The deterministic and digest-pinned Linux/Docker
+matrices, stopped-Agent capture/replay, teardown inspection, audits, and the
+corrected API-key-backed Agent smoke all pass.
 
 ### Candidate boundary
 
@@ -173,7 +172,7 @@ dataset, tokenizer, and any `trust_remote_code` behavior were also not pinned
 by the original task, so the expected count is a source-snapshot benchmark
 fact rather than a reproducible live-data claim.
 
-### Qualification evidence actually obtained
+### Pre-Linux qualification evidence (historical)
 
 - Source revision:
   `2fd12b88aafdd04a52c298e3940bcb189f9766d6`.
@@ -246,14 +245,33 @@ fact rather than a reproducible live-data claim.
   preflight passed for `terminal-bench/count-dataset-tokens`.
   `git diff --check` also passed.
 
-### Known limitations and remaining work
+### Linux qualification completion
 
-Run the real digest-pinned Linux/Docker matrix: untouched-image failure;
-stopped-Agent reference success; wrong-count and forged-claim rejection;
-preservation of source containment semantics; malicious file-shape rejection;
-exact Candidate replay; correct failure ownership; and leak-free teardown.
-Then repeat the selected-row, complete Terminal, and self-audits plus final
-diff checks on the qualifying revision. An Agent smoke may be attempted at
-most once after deterministic and Docker qualification pass. Until the
-mandatory Docker evidence exists, the status remains
-**Implemented — qualification pending**.
+On 2026-08-31, Linux `7.0.0-29-generic` x86_64 with Docker 29.7.2
+Linux/amd64 and `overlayfs` completed the missing qualification:
+
+- the complete warning-strict pinned-image matrix passes `22/22` in `7.12s`,
+  including untouched-image failure, reference, wrong-count, forged-claim,
+  source-containment, replay, and malicious-shape cases;
+- the first Agent smoke correctly ended as a missing-Candidate benchmark
+  failure, exposing that `tester-linux.yaml` omitted the Hugging Face domains
+  required by the public task; the reviewed fix adds `huggingface.co`,
+  `hf.co`, and `xethub.hf.co` to the Agent allowlist;
+- the configuration retry passes with score `1.0`, no infrastructure error,
+  Candidate digest
+  `sha256:918b025acea05118b642f076363ce95f0c05b72ed31bfd15b8b6088012b2df59`,
+  row digest
+  `sha256:1036285d4f5466fa506c7b1be0bab4c8caeab3fa944504bc244fad7f275a81c2`,
+  verification digest
+  `sha256:3805b07a2e93627e8902208f62bb41b576f854ab15d10e3daf6fc6ffb0ddafa7`,
+  and corrected execution digest
+  `sha256:5d1cfeb94862145b23bf2a40d4fa5769583cffd2b6293808f81cc4ea84d7a3aa`;
+- the complete suite passes `728 passed, 51 skipped`, both complete audits
+  pass `53/53` without warnings, and final Docker residue inspection is empty.
+
+### Final qualification decision
+
+**Approved — Clean conversion / no intelligence impact.** The source
+substring predicate and unpinned remote dataset/tokenizer provenance remain
+documented inherited limitations; the conversion and live execution path are
+qualified.

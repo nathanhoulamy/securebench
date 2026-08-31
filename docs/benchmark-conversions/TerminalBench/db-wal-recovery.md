@@ -111,9 +111,9 @@ re-audit.**
 
 ## Implemented v2 conversion
 
-Final status: **Implemented — qualification pending**. The conversion and
-deterministic qualification matrix are implemented, but mandatory real
-digest-pinned Linux/Docker evidence and leak-free teardown are unavailable.
+Final status: **Approved**. The deterministic and digest-pinned Linux/Docker
+matrices, stopped-Agent capture/replay, teardown inspection, audits, and Agent
+smoke failure ownership are complete.
 
 ### Candidate boundary
 
@@ -212,7 +212,7 @@ The 16,512-byte encrypted WAL has SHA-256
 XOR with `0x42` restores the SQLite WAL magic. Diagnostic replay confirmed
 rows `apple` through `mango`, with values 150, 250, then 300 through 1100.
 
-### Qualification evidence actually obtained
+### Pre-Linux qualification evidence (historical)
 
 - Source revision:
   `2fd12b88aafdd04a52c298e3940bcb189f9766d6`.
@@ -278,12 +278,28 @@ rows `apple` through `mango`, with values 150, 250, then 300 through 1100.
 - Final loading found twelve unique rows and compiled and executable-preflighted
   all twelve, including `terminal-bench/db-wal-recovery`.
 
-### Known limitations and remaining work
+### Linux qualification completion
 
-Run the complete digest-pinned Linux/Docker matrix: untouched-image failure;
-stopped-Agent reference success; semantic-mutant and forged-claim rejection;
-malicious file-shape rejection; exact Candidate replay; correct failure
-ownership; and leak-free teardown. Then repeat selected-row, complete Terminal,
-self-audits, and final diff checks on the qualifying revision. An Agent smoke
-may be attempted at most once only after mandatory Docker qualification passes.
-Until then, the row remains **Implemented — qualification pending**.
+On 2026-08-31, Linux `7.0.0-29-generic` x86_64 with Docker 29.7.2
+Linux/amd64 and `overlayfs` completed the missing qualification:
+
+- the complete warning-strict pinned-image matrix passes `31/31` in `13.07s`,
+  including untouched-image failure, reference, base-only, stale-update,
+  forged-claim, replay, and malicious-shape cases;
+- the API-key-backed `gpt-5.6-luna` smoke completes with no infrastructure
+  error but no `/app/recovered.json`; Candidate capture is correctly rejected
+  with `candidate_capture_rejected`;
+- the smoke records row digest
+  `sha256:7affa234f08c23c48df93af9f485a9a6671d2e1c1dc3f061c3eaefc33922a878`,
+  verification digest
+  `sha256:d873d7e4f8ed859f501bb3d82c141a6521763bb0771e86506d7161caa1e252a8`,
+  and execution digest
+  `sha256:5d1cfeb94862145b23bf2a40d4fa5769583cffd2b6293808f81cc4ea84d7a3aa`;
+- the complete suite passes `728 passed, 51 skipped`, both complete audits
+  pass `53/53`, and final Docker residue inspection is empty.
+
+### Final qualification decision
+
+**Approved — Clean conversion / no intelligence impact.** WAL-repair
+provenance and the original verifier's unchecked-field quirks remain inherited
+limitations, while all scored behavior and runtime boundaries are qualified.

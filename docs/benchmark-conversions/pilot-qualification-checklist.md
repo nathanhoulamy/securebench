@@ -7,9 +7,15 @@ but they do not replace Linux/Docker qualification.
 
 Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; only the five incrementally qualified rows
-below currently have binary admission decisions. Global preflight and final
-pack sign-off therefore remain incomplete.
+remain intentionally unchecked; the ten incrementally qualified rows below
+currently have binary admission decisions. Global preflight and final pack
+sign-off therefore remain incomplete.
+
+Test-layout status is separate from admission: the first five incremental rows
+use the compact shared qualification proof, while the five rows from
+`code-from-image` through `distribution-search` retain equivalent standalone
+scaffolding pending approval of their mechanical migration. No qualification
+case may be removed by that migration.
 
 ## Run identity and host preflight
 
@@ -25,19 +31,23 @@ pack sign-off therefore remain incomplete.
   `bea43435c8a844fa64dd6a7128027556bb6d0d6b`, was committed as
   `40d36e15e3aa23a4aa401aa2a8f81b866253da6b` and rechecked with a clean
   working tree.
+- [x] The five passive rows from `code-from-image` through
+  `distribution-search` are implemented at `ad6b432`; their Linux
+  qualification used that row implementation plus the reviewed
+  `tester-linux.yaml` Hugging Face allowlist correction.
 - [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26 through
-  2026-08-28, Linux `7.0.0-29-generic`, x86_64.
+  2026-08-31, Linux `7.0.0-29-generic`, x86_64.
 - [x] `docker version` succeeds and Docker uses Linux/amd64 containers
   (Docker `29.7.2`).
 - [x] Free disk space is sufficient for the pinned benchmark images and run
   output.
 - [ ] The environment is installed with `python -m pip install -e '.[dev]'`.
-- [x] `.venv/bin/pytest -q` passes (`612 passed, 27 skipped`; the stricter
-  `-W error` run also passes).
+- [x] The full `.venv/bin/python -m pytest -q -W error` suite passes (`728
+  passed, 51 skipped`).
 - [x] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
-  passes (`33/33`, no warnings).
+  passes (`53/53`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all eight selected rows (`33/33`, no warnings).
+  passes with all thirteen selected rows (`53/53`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
   passes with all three selected rows (`13/13`, no warnings).
 - [x] The selected harness credential mode is usable. For `auth: api_key`, the
@@ -56,8 +66,10 @@ Audit artifacts: `/tmp/securebench-precommit-audit-self`,
 `/tmp/securebench-circuit-smoke/audit`; COBOL-specific audits are under
 `/tmp/securebench-cobol-final-audit-self`,
 `/tmp/securebench-cobol-final-terminal-audit`, and
-`/tmp/securebench-cobol-final-one-row-audit`. The workspace filesystem had
-188 GiB free at preflight.
+`/tmp/securebench-cobol-final-one-row-audit`. The thirteen-row final reports
+are under `/tmp/securebench-terminal-13-row-audit.FMImnH` and
+`/tmp/securebench-self-audit.wZO30X`. The workspace filesystem had 186 GiB
+free at the 2026-08-31 qualification pass.
 
 ## Terminal-Bench
 
@@ -318,26 +330,26 @@ selected task ID:
   state.
 - [x] Exact content-addressed replay is deterministic; protocol Evaluation ID,
   credential, and case-state isolation are not applicable to this passive row.
-- [ ] The untouched digest-pinned image fails stopped Candidate capture on
+- [x] The untouched digest-pinned image fails stopped Candidate capture on
   Linux/Docker.
-- [ ] The reference, prefix mutant, forged-verdict, and malicious file-shape
+- [x] The reference, prefix mutant, forged-verdict, and malicious file-shape
   matrix passes through real digest-pinned stopped-Agent capture on Linux.
 - [x] One-row and complete Terminal audits plus the self-audit pass without
   warnings.
-- [ ] Final teardown inspection proves no Agent/Evaluation container, network,
+- [x] Final teardown inspection proves no Agent/Evaluation container, network,
   volume, credential, root, or task-specific temporary state survives.
-- [ ] An Agent smoke is recorded, if performed after mandatory qualification.
+- [x] An API-key-backed Luna Agent smoke is recorded after mandatory
+  qualification; it passes with score `1.0` and no infrastructure error.
 - [x] Deterministic evidence, semantic fidelity, and remaining work are
   recorded in [`code-from-image.md`](TerminalBench/code-from-image.md).
 
-Final status: **Implemented — qualification pending**
+Final status: [x] Approved  [ ] Excluded
 
-Evidence/reason: Deterministic qualification passes `16 passed, 4 skipped` on
-macOS arm64, and focused regressions pass `64 passed, 4 skipped`. The one-row
-audit passes `5/5`; complete Terminal and self-audits pass `37/37`. The registry
-digest resolves, but the single Docker attempt failed before materialization
-because the daemon was unavailable, so no Linux/Docker, leak, or Agent-smoke
-evidence is claimed.
+Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
+2026-08-31. The complete pinned-image matrix passes `20/20`; the Agent smoke
+passes with Candidate digest
+`sha256:3bcb1b46d8c7dfe114541e93c62c19adf62b601d43a252a6413a06539548eccc`
+and no infrastructure error.
 
 For the tenth Terminal row, resume the first nine results and confirm the
 selected task ID:
@@ -366,27 +378,28 @@ selected task ID:
   prove the Candidate boundary fails closed or excludes undeclared state.
 - [x] Exact content-addressed replay is deterministic; protocol Evaluation ID,
   credential, and case-state isolation are not applicable.
-- [ ] The untouched digest-pinned image fails stopped Candidate capture on
+- [x] The untouched digest-pinned image fails stopped Candidate capture on
   Linux/Docker.
-- [ ] The reference, wrong-count, forged-claim, source-containment, and
+- [x] The reference, wrong-count, forged-claim, source-containment, and
   malicious file-shape matrix passes through real stopped-Agent capture.
 - [x] One-row and complete Terminal audits plus the self-audit pass without
   warnings.
-- [ ] Final teardown inspection proves no Agent/Evaluation container, network,
+- [x] Final teardown inspection proves no Agent/Evaluation container, network,
   volume, credential, root, or task-specific temporary state survives.
-- [ ] An Agent smoke is recorded, if performed after mandatory qualification.
+- [x] Agent smoke evidence is recorded. The first attempt exposed a missing
+  Hugging Face allowlist; after correcting the tester configuration, the
+  infrastructure retry passes with score `1.0`.
 - [x] Deterministic evidence, the prompt/verifier gap, semantic fidelity, and
   remaining work are recorded in
   [`count-dataset-tokens.md`](TerminalBench/count-dataset-tokens.md).
 
-Final status: **Implemented — qualification pending**
+Final status: [x] Approved  [ ] Excluded
 
-Evidence/reason: Deterministic qualification passes `17 passed, 5 skipped` on
-macOS arm64, and warning-strict regressions pass `65 passed, 5 skipped`. The
-one-row audit passes `5/5`; complete Terminal and self-audits pass `41/41`. The
-single Docker attempt failed before materialization because the daemon was
-unavailable, so no Linux/Docker, leak-free teardown, or Agent-smoke evidence is
-claimed.
+Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
+2026-08-31. The complete pinned-image matrix passes `22/22`; the corrected
+API-key-backed Luna retry passes with Candidate digest
+`sha256:918b025acea05118b642f076363ce95f0c05b72ed31bfd15b8b6088012b2df59`
+and no infrastructure error.
 
 For the eleventh Terminal row, resume the first ten results and confirm the
 selected task ID:
@@ -414,26 +427,26 @@ selected task ID:
   cases prove the Candidate boundary fails closed or excludes unrelated state.
 - [x] Exact content-addressed replay is deterministic; protocol Evaluation ID,
   credential, and case-state isolation are not applicable.
-- [ ] The untouched digest-pinned image fails stopped Candidate capture on
+- [x] The untouched digest-pinned image fails stopped Candidate capture on
   Linux/Docker.
-- [ ] Reference, semantic-mutant, forged-claim, whitespace, and malicious
+- [x] Reference, semantic-mutant, forged-claim, whitespace, and malicious
   file-shape cases pass through real stopped-Agent capture.
 - [x] One-row and complete Terminal audits plus the self-audit pass without
   warnings.
-- [ ] Final teardown inspection proves no Agent/Evaluation container, network,
+- [x] Final teardown inspection proves no Agent/Evaluation container, network,
   volume, credential, root, or task-specific temporary state survives.
-- [ ] An Agent smoke is recorded, if performed after mandatory qualification.
+- [x] The API-key-backed Luna smoke completes without infrastructure error;
+  its missing Candidate is rejected through Oracle-owned Candidate-error
+  handling.
 - [x] Deterministic evidence, semantic fidelity, and remaining work are
   recorded in [`crack-7z-hash.md`](TerminalBench/crack-7z-hash.md).
 
-Final status: **Implemented — qualification pending**
+Final status: [x] Approved  [ ] Excluded
 
-Evidence/reason: Deterministic qualification passes `18 passed, 5 skipped` on
-macOS arm64, and warning-strict regressions pass `66 passed, 5 skipped`. The
-one-row audit passes `5/5`; complete Terminal and self-audits pass `45/45`. The
-single Docker attempt failed before materialization because the daemon was
-unavailable, so no Linux/Docker, leak-free teardown, or Agent-smoke evidence is
-claimed.
+Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
+2026-08-31. The complete pinned-image matrix passes `23/23`; the Luna smoke is
+correctly rejected for `candidate_capture_rejected` with no infrastructure
+error, and teardown is clean.
 
 For the twelfth Terminal row, resume the first eleven results and confirm the
 selected task ID:
@@ -465,27 +478,27 @@ selected task ID:
   cases prove the Candidate boundary fails closed or excludes undeclared state.
 - [x] Exact content-addressed replay is deterministic; protocol Evaluation ID,
   credential, and case-state isolation are not applicable.
-- [ ] The untouched digest-pinned image fails stopped Candidate capture on
+- [x] The untouched digest-pinned image fails stopped Candidate capture on
   Linux/Docker.
-- [ ] Reference, base-only, stale-update, forged-claim, and malicious file-shape
+- [x] Reference, base-only, stale-update, forged-claim, and malicious file-shape
   cases pass through real stopped-Agent capture.
 - [x] One-row and complete Terminal audits plus the self-audit pass without
   warnings.
-- [ ] Final teardown inspection proves no Agent/Evaluation container, network,
+- [x] Final teardown inspection proves no Agent/Evaluation container, network,
   volume, credential, root, or task-specific temporary state survives.
-- [ ] An Agent smoke is recorded, if performed after mandatory qualification.
+- [x] The API-key-backed Luna smoke completes without infrastructure error;
+  its missing Candidate is rejected through Oracle-owned Candidate-error
+  handling.
 - [x] Deterministic evidence, semantic fidelity, inherited verifier gaps, and
   remaining work are recorded in
   [`db-wal-recovery.md`](TerminalBench/db-wal-recovery.md).
 
-Final status: **Implemented — qualification pending**
+Final status: [x] Approved  [ ] Excluded
 
-Evidence/reason: Deterministic qualification passes `26 passed, 5 skipped` on
-macOS arm64, and warning-strict regressions pass `74 passed, 5 skipped`. The
-one-row audit passes `5/5`; complete Terminal and self-audits pass `49/49`. The
-single Docker attempt failed before materialization because the daemon was
-unavailable, so no Linux/Docker, leak-free teardown, or Agent-smoke evidence is
-claimed.
+Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
+2026-08-31. The complete pinned-image matrix passes `31/31`; the Luna smoke is
+correctly rejected for `candidate_capture_rejected` with no infrastructure
+error, and teardown is clean.
 
 For the thirteenth Terminal row, resume the first twelve results and confirm
 the selected task ID:
@@ -522,27 +535,30 @@ the selected task ID:
 - [x] Parser/capture rejection remains Candidate failure; Adapter and Helper
   failure classes are not applicable.
 - [x] Parser, focused regression, and full warning-strict suites pass.
-- [ ] The untouched digest-pinned image fails stopped Candidate capture on
+- [x] The untouched digest-pinned image fails stopped Candidate capture on
   Linux/Docker.
-- [ ] Float32/float64 reference, semantic-mutant, forged-claim, and malicious
+- [x] Float32/float64 reference, semantic-mutant, forged-claim, and malicious
   file-shape cases pass through real stopped-Agent capture.
 - [x] One-row and complete Terminal audits plus the self-audit pass without
   warnings.
-- [ ] Final teardown proves no Agent/Evaluation container, network, volume,
+- [x] Final teardown proves no Agent/Evaluation container, network, volume,
   credential, root, or task-specific temporary state survives.
-- [ ] An Agent smoke is recorded, if performed after mandatory qualification.
+- [x] The API-key-backed Luna smoke produces one bounded Candidate and is
+  correctly rejected for `forward_kl_out_of_tolerance` with no infrastructure
+  error.
 - [x] Deterministic evidence, parser trust contract, semantic fidelity, and
   remaining work are recorded in
   [`distribution-search.md`](TerminalBench/distribution-search.md).
 
-Final status: **Implemented — qualification pending**
+Final status: [x] Approved  [ ] Excluded
 
-Evidence/reason: Row qualification passes `25 passed, 5 skipped`; focused
-warning-strict regressions pass `103 passed, 5 skipped`; the full
-warning-strict suite passes `727 passed, 51 skipped`. The one-row audit passes
-`5/5`; complete Terminal and self-audits pass `53/53`. The single Docker attempt
-failed before materialization because the daemon was unavailable, so no
-Linux/Docker, leak-free teardown, or Agent-smoke evidence is claimed.
+Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
+2026-08-31. The complete pinned-image matrix passes `30/30`; the Luna smoke
+Candidate digest is
+`sha256:ffa5ffe7a82a4f252be99b163d71a46f386abcb985c741f2d05ea322770f21a6`
+and is correctly rejected for `forward_kl_out_of_tolerance` with no
+infrastructure error. The full warning-strict suite passes `728 passed, 51
+skipped`; both complete audits pass `53/53` without warnings.
 
 ## DeepSWE
 

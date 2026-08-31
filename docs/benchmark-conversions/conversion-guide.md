@@ -285,6 +285,31 @@ Run focused deterministic qualification before an Agent-backed attempt. An Agent
 benchmark; it is not a substitute for proving that the benchmark distinguishes base, correct,
 mutant, and malicious Candidates.
 
+The qualification matrix is a per-row evidence requirement, not a requirement to duplicate test
+scaffolding. The current compacting proof covers the five incremental rows from `bn-fit-modify`
+through `cobol-modernization`: shared task loading, stopped-workspace capture, verification,
+Docker gating, symlink/directory/oversize attacks, missing-Candidate scoring, and base capture live
+in `tests/qualification_support.py` and `tests/test_incremental_row_qualification.py`.
+
+The five newer passive rows from `code-from-image` through `distribution-search` still contain the
+equivalent scaffolding in their focused files. Their Linux qualification is complete, but migration
+to the compact format is deliberately pending review. The proposed migration adds one declarative
+record per row containing only its task ID, Candidate entry IDs, missing-Candidate expectation,
+and optional base-image command. It must preserve the same collected cases and public failure
+ownership. Keep each row's contract assertions, public-asset identity, correct fixture, source
+normalization quirks, semantic mutants, parser-specific malformed inputs, Oracle decisions, and
+exact replay evidence in its focused test file. A generic capture case never substitutes for a
+row-specific malicious behavior that can reach a parser, Adapter, or Oracle.
+
+During conversion, run the focused row file and, once the row is registered, its cases from the
+shared qualification file. Run the row's live-Docker cases after deterministic qualification is
+green. Before an Agent smoke, confirm that the tester allowlist covers every remote service named
+by the public task; a policy omission is configuration failure, not evidence of model inability.
+Run the complete warning-strict suite, schema regeneration check, and one full-pack audit before
+handing off a row or batch, and whenever shared capture, replay, parser, Adapter, Helper,
+Oracle-session, network-policy, or audit code changes. Repeating an unchanged full suite or an
+equivalent full-pack audit after every local fixture edit does not add independent evidence.
+
 ## Linux execution workflow
 
 Use the existing `split-verification-v2` branch. Do not work on or merge into `main` during the
@@ -313,9 +338,14 @@ On the Linux host:
 Useful repository checks after each small batch:
 
 ```bash
+.venv/bin/python -m pytest -q -W error tests/test_<row>_v2.py
+.venv/bin/python -m pytest -q -W error \
+  tests/test_incremental_row_qualification.py -k '<row-name>'
 .venv/bin/python -m pytest -q -W error
 SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error \
-  tests/test_v2_protocol_verification.py
+  tests/test_<row>_v2.py
+SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error \
+  tests/test_incremental_row_qualification.py -k '<row-name>'
 .venv/bin/python -m tools.generate_schemas
 .venv/bin/python -m securebench.cli audit-self --output-dir /tmp/securebench-audit
 git diff --check

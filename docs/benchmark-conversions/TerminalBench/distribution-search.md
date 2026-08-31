@@ -86,10 +86,9 @@ if that procedure is essential, redesign or exclude it.
 
 ## Implemented v2 conversion
 
-Final status: **Implemented — qualification pending**. Implementation,
-deterministic qualification, shared-parser regression, and the full
-warning-strict suite pass, but mandatory real digest-pinned Linux/Docker and
-leak-free Docker teardown evidence are unavailable.
+Final status: **Approved**. Deterministic qualification, shared-parser
+regression, the digest-pinned Linux/Docker matrix, teardown inspection, audits,
+and Agent smoke failure ownership all pass.
 
 ### Candidate boundary
 
@@ -193,7 +192,7 @@ performed numerical search, or used SciPy. A fixed known valid array passes
 both source and v2 checks. This is an inherited provenance limitation, not a
 new conversion gap.
 
-### Qualification evidence actually obtained
+### Pre-Linux qualification evidence (historical)
 
 - Source revision:
   `2fd12b88aafdd04a52c298e3940bcb189f9766d6`.
@@ -273,12 +272,30 @@ new conversion gap.
 - Final loading found thirteen unique rows and compiled and executable-
   preflighted all thirteen, including `terminal-bench/distribution-search`.
 
-### Known limitations and remaining work
+### Linux qualification completion
 
-Run the complete digest-pinned Linux/Docker matrix: untouched-image failure;
-stopped-Agent float32/float64 reference success; normalization and both KL-axis
-mutant rejection; forged/malformed and malicious file-shape rejection; exact
-Candidate replay; correct failure ownership; and leak-free teardown. Repeat
-the audits and final diff checks on that qualifying revision. At most one Agent
-smoke may run only after the mandatory Docker matrix passes. Until then, the
-row remains **Implemented — qualification pending**.
+On 2026-08-31, Linux `7.0.0-29-generic` x86_64 with Docker 29.7.2
+Linux/amd64 and `overlayfs` completed the missing qualification:
+
+- the complete warning-strict pinned-image matrix passes `30/30` in `16.21s`,
+  including untouched-image failure, float64 reference, uniform and
+  forward-only mutants, forged claims, replay, and malicious-shape cases;
+- the API-key-backed `gpt-5.6-luna` smoke captures one bounded `file_bundle`
+  Candidate but is correctly rejected for `forward_kl_out_of_tolerance`, with
+  no infrastructure error and Candidate digest
+  `sha256:ffa5ffe7a82a4f252be99b163d71a46f386abcb985c741f2d05ea322770f21a6`;
+- the smoke records row digest
+  `sha256:c7c89a5beb04e194fc5c2624d02bc4c95f48c20ef0e27bfc27c57fe9d4b3f315`,
+  verification digest
+  `sha256:e525d65f24cd5075486cc79f8375b6577e2a0e3e4ea5dcd275a4d7da59e7fca7`,
+  and execution digest
+  `sha256:5d1cfeb94862145b23bf2a40d4fa5769583cffd2b6293808f81cc4ea84d7a3aa`;
+- the complete suite passes `728 passed, 51 skipped`, both complete audits
+  pass `53/53`, schema regeneration and `git diff --check` pass, and final
+  Docker residue inspection is empty.
+
+### Final qualification decision
+
+**Approved — Clean conversion / no intelligence impact.** The source task's
+fixed-answer/provenance limitation remains inherited; the bounded parser,
+Oracle semantics, and runtime qualification are complete.

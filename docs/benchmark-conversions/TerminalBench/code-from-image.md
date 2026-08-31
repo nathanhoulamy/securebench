@@ -81,11 +81,9 @@ explicit limitation.
 
 ## Implemented v2 conversion
 
-Final status: **Implemented — qualification pending**. The deterministic
-conversion and qualification matrix are complete, but the real digest-pinned
-Linux/Docker matrix has not run because the local Docker daemon was
-unavailable. This row must not be marked Approved until that matrix and final
-leak inspection pass.
+Final status: **Approved**. The deterministic and digest-pinned Linux/Docker
+matrices, stopped-Agent capture/replay, teardown inspection, audits, and an
+API-key-backed Agent smoke all pass.
 
 ### Candidate boundary
 
@@ -183,7 +181,7 @@ the displayed algorithm. It measures one fixed image/output pair and does not
 test general image-to-code behavior. This is an original limitation, not a v2
 semantic change.
 
-### Qualification evidence actually obtained
+### Pre-Linux qualification evidence (historical)
 
 - Source revision:
   `2fd12b88aafdd04a52c298e3940bcb189f9766d6`.
@@ -258,15 +256,30 @@ semantic change.
   binary was not present in the locked local environment, so no Ruff result is
   claimed.
 
-### Known limitations and remaining work
+### Linux qualification completion
 
-Run the complete real digest-pinned Linux/Docker matrix: untouched-image
-failure; stopped-Agent reference success; targeted prefix mutant and forged
-verdict rejection; malicious file-shape rejection through stopped capture;
-exact Candidate replay; failure-ownership checks; and leak-free teardown. Then
-repeat the one-row and complete Terminal configuration audits and self-audit on
-the qualifying Linux revision, then repeat the final diff review. An Agent
-smoke is optional qualification evidence and must be
-attempted at most once after deterministic and Docker qualification pass.
-Until the mandatory Docker evidence exists, the status remains
-**Implemented — qualification pending**.
+On 2026-08-31, Linux `7.0.0-29-generic` x86_64 with Docker 29.7.2
+Linux/amd64 and `overlayfs` completed the missing qualification:
+
+- the complete warning-strict pinned-image matrix passes `20/20` in `6.32s`,
+  including untouched-image failure and reference, prefix-mutant,
+  forged-verdict, replay, and malicious-shape cases;
+- the API-key-backed `gpt-5.6-luna` / `reasoning_effort: none` smoke passes
+  with score `1.0`, no infrastructure error, Candidate digest
+  `sha256:3bcb1b46d8c7dfe114541e93c62c19adf62b601d43a252a6413a06539548eccc`,
+  row digest
+  `sha256:8376c4081d0e9c0d4011136d535446a2e2e6310563b05c2c1149f28d1517fb23`,
+  verification digest
+  `sha256:0f0da81650ce47ac29f0b49702b72d75ae1d46dd4b8b037a796b79f1783a87c9`,
+  and execution digest
+  `sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`;
+- the complete suite passes `728 passed, 51 skipped`, both complete Terminal
+  audits pass `53/53` without warnings, schema regeneration and
+  `git diff --check` pass, and final container/network/volume inspection is
+  empty.
+
+### Final qualification decision
+
+**Approved — Clean conversion / no intelligence impact.** The inherited
+single-image and implementation-provenance limitations remain documented, but
+all mandatory runtime qualification evidence is now complete.

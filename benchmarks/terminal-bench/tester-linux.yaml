@@ -26,6 +26,9 @@ harness:
       - githubusercontent.com
       - pypi.org
       - pythonhosted.org
+      - huggingface.co
+      - hf.co
+      - xethub.hf.co
       - debian.org
       - ubuntu.com
     allow_external_tools: false
