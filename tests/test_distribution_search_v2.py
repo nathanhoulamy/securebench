@@ -1,30 +1,21 @@
 from __future__ import annotations
 
-import math
-import os
 import struct
 from pathlib import Path
 
 import pytest
 
-from securebench.benchmark_compiler import compile_benchmark_pack
-from securebench.benchmark_pack import load_benchmark_pack
-from securebench.candidates import (
-    CandidateCaptureError,
-    CandidateStore,
-    HostWorkspaceFilesystem,
-    capture_file_bundle,
-    capture_production,
-)
 from securebench.execution_profiles import validate_executable_task
-from securebench.harnesses.command import CommandHarnessProducer
 from securebench.schemas.benchmark import ArtifactCheck
 from securebench.verification import VerificationEngine
-from securebench.workspaces.cleanup import remove_untrusted_tree
+from tests.qualification_support import (
+    DOCKER_INTEGRATION,
+    load_terminal_task,
+    verify_command_candidate,
+    verify_workspace,
+)
 
 
-ROOT = Path(__file__).resolve().parents[1]
-PACK = ROOT / "benchmarks" / "terminal-bench"
 TASK_ID = "terminal-bench/distribution-search"
 IMAGE = (
     "alexgshaw/distribution-search@"
@@ -39,8 +30,7 @@ REFERENCE_GROUPS = ((HIGH, HIGH_COUNT), (MIDDLE, 1), (LOW, SIZE - 7))
 
 
 def compiled_task():
-    pack = load_benchmark_pack(PACK / "manifest-v2.yaml", PACK / "tasks-v2.jsonl")
-    return next(task for task in compile_benchmark_pack(pack) if task.id == TASK_ID)
+    return load_terminal_task(TASK_ID)
 
 
 def npy_file(
@@ -87,20 +77,12 @@ def verify_distribution(tmp_path: Path, content: bytes):
     (workspace / "search.py").write_text("excluded", encoding="utf-8")
     (workspace / "optimizer.log").write_text("excluded", encoding="utf-8")
     (workspace / "dist.npy").write_bytes(content)
-    store = CandidateStore(tmp_path / "store")
-    candidate = capture_file_bundle(
-        HostWorkspaceFilesystem(workspace, guest_root="/app"),
-        task.verification.candidate,
-        store,
-        baseline_digest=task.baseline_digest,
-    )
-    result = VerificationEngine().verify(
+    return verify_workspace(
         task,
-        candidate,
-        store,
+        workspace,
+        tmp_path / "store",
         run_seed="distribution-search-qualification",
     )
-    return result, candidate, store
 
 
 def assert_candidate_failure(tmp_path: Path, content: bytes, category: str):
@@ -168,21 +150,6 @@ def test_source_sum_tolerance_is_preserved(tmp_path):
     assert outside.status == "failed", outside
     assert outside.public_diagnostics["failure_categories"] == [
         "distribution_not_normalized"
-    ]
-
-
-def test_missing_candidate_is_scored_by_the_oracle():
-    result = VerificationEngine().verify_candidate_error(
-        compiled_task(),
-        code="candidate_capture_rejected",
-        message="Candidate capture was rejected",
-        run_seed="distribution-search-missing",
-    )
-
-    assert result.status == "failed", result
-    assert result.infrastructure_error is None, result
-    assert result.public_diagnostics["failure_categories"] == [
-        "candidate_capture_rejected"
     ]
 
 
@@ -290,30 +257,6 @@ def test_malformed_ambiguous_and_forged_artifacts_fail(tmp_path, content, catego
     assert_candidate_failure(tmp_path, content, category)
 
 
-@pytest.mark.parametrize("attack", ["symlink", "directory", "oversized"])
-def test_capture_rejects_malicious_artifact_shapes(tmp_path, attack):
-    task = compiled_task()
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    target = workspace / "dist.npy"
-    if attack == "symlink":
-        outside = tmp_path / "outside.npy"
-        outside.write_bytes(npy_file(REFERENCE_GROUPS))
-        target.symlink_to(outside)
-    elif attack == "directory":
-        target.mkdir()
-    else:
-        target.write_bytes(b"x" * (4 * 1024 * 1024 + 1))
-
-    with pytest.raises(CandidateCaptureError):
-        capture_file_bundle(
-            HostWorkspaceFilesystem(workspace, guest_root="/app"),
-            task.verification.candidate,
-            CandidateStore(tmp_path / "store"),
-            baseline_digest=task.baseline_digest,
-        )
-
-
 def test_stored_candidate_replays_exactly_without_cross_run_state(tmp_path):
     first, candidate, store = verify_distribution(tmp_path, npy_file(REFERENCE_GROUPS))
     second = VerificationEngine().verify(
@@ -327,28 +270,7 @@ def test_stored_candidate_replays_exactly_without_cross_run_state(tmp_path):
     assert first.candidate_digest == second.candidate_digest == candidate.digest
 
 
-@pytest.mark.skipif(
-    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
-    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 for pinned-image qualification",
-)
-def test_base_image_fails_stopped_candidate_capture(tmp_path):
-    task = compiled_task()
-    producer = CommandHarnessProducer(
-        command=("true",),
-        workspace_root=tmp_path / "workspaces",
-    )
-    production = producer.produce(task)
-    try:
-        with pytest.raises(CandidateCaptureError):
-            capture_production(task, production, CandidateStore(tmp_path / "store"))
-    finally:
-        remove_untrusted_tree(production.workspace, image=task.environment.image)
-
-
-@pytest.mark.skipif(
-    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
-    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 for pinned-image qualification",
-)
+@DOCKER_INTEGRATION
 @pytest.mark.parametrize(
     ("kind", "expected_status"),
     [
@@ -381,22 +303,12 @@ else:
         p[0] = mass
     np.save('/app/dist.npy', p)
 """
-    producer = CommandHarnessProducer(
+    result, _, _ = verify_command_candidate(
+        task,
+        tmp_path,
         command=("python3", "-c", script, kind),
-        workspace_root=tmp_path / "workspaces",
+        run_seed=f"distribution-search-pinned-{kind}",
     )
-    production = producer.produce(task)
-    try:
-        store = CandidateStore(tmp_path / "store")
-        candidate = capture_production(task, production, store)
-        result = VerificationEngine().verify(
-            task,
-            candidate,
-            store,
-            run_seed=f"distribution-search-pinned-{kind}",
-        )
-    finally:
-        remove_untrusted_tree(production.workspace, image=task.environment.image)
 
     assert result.status == expected_status, result
     assert result.infrastructure_error is None, result

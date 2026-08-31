@@ -2,25 +2,19 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from pathlib import Path
 
 import pytest
 
-from securebench.benchmark_compiler import compile_benchmark_pack
-from securebench.benchmark_pack import load_benchmark_pack
-from securebench.candidates import (
-    CandidateCaptureError,
-    CandidateStore,
-    HostWorkspaceFilesystem,
-    capture_file_bundle,
-    capture_production,
-)
 from securebench.execution_profiles import validate_executable_task
-from securebench.harnesses.command import CommandHarnessProducer
 from securebench.schemas.benchmark import ArtifactCheck
 from securebench.verification import VerificationEngine
-from securebench.workspaces.cleanup import remove_untrusted_tree
+from tests.qualification_support import (
+    DOCKER_INTEGRATION,
+    load_terminal_task,
+    verify_command_candidate,
+    verify_workspace,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,8 +42,7 @@ REFERENCE_ROWS = [
 
 
 def compiled_task():
-    pack = load_benchmark_pack(PACK / "manifest-v2.yaml", PACK / "tasks-v2.jsonl")
-    return next(task for task in compile_benchmark_pack(pack) if task.id == TASK_ID)
+    return load_terminal_task(TASK_ID)
 
 
 def verify_recovery(tmp_path: Path, content: object | bytes):
@@ -64,20 +57,12 @@ def verify_recovery(tmp_path: Path, content: object | bytes):
         target.write_bytes(content)
     else:
         target.write_text(json.dumps(content), encoding="utf-8")
-    store = CandidateStore(tmp_path / "store")
-    candidate = capture_file_bundle(
-        HostWorkspaceFilesystem(workspace, guest_root="/app"),
-        task.verification.candidate,
-        store,
-        baseline_digest=task.baseline_digest,
-    )
-    result = VerificationEngine().verify(
+    return verify_workspace(
         task,
-        candidate,
-        store,
+        workspace,
+        tmp_path / "store",
         run_seed="db-wal-recovery-qualification",
     )
-    return result, candidate, store
 
 
 def assert_candidate_failure(tmp_path: Path, content: object | bytes, category: str):
@@ -152,21 +137,6 @@ def test_source_unscored_fields_and_python_boolean_quirk_are_preserved(tmp_path)
     assert result.status == "passed", result
 
 
-def test_missing_candidate_is_scored_by_the_oracle():
-    result = VerificationEngine().verify_candidate_error(
-        compiled_task(),
-        code="candidate_capture_rejected",
-        message="Candidate capture was rejected",
-        run_seed="db-wal-recovery-missing",
-    )
-
-    assert result.status == "failed", result
-    assert result.infrastructure_error is None, result
-    assert result.public_diagnostics["failure_categories"] == [
-        "candidate_capture_rejected"
-    ]
-
-
 @pytest.mark.parametrize(
     ("mutator", "category"),
     [
@@ -239,30 +209,6 @@ def test_malformed_ambiguous_and_forged_artifacts_fail(tmp_path, content, catego
     assert_candidate_failure(tmp_path, content, category)
 
 
-@pytest.mark.parametrize("attack", ["symlink", "directory", "oversized"])
-def test_capture_rejects_malicious_artifact_shapes(tmp_path, attack):
-    task = compiled_task()
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    target = workspace / "recovered.json"
-    if attack == "symlink":
-        outside = tmp_path / "outside.json"
-        outside.write_text(json.dumps(REFERENCE_ROWS), encoding="utf-8")
-        target.symlink_to(outside)
-    elif attack == "directory":
-        target.mkdir()
-    else:
-        target.write_bytes(b" " * 65537)
-
-    with pytest.raises(CandidateCaptureError):
-        capture_file_bundle(
-            HostWorkspaceFilesystem(workspace, guest_root="/app"),
-            task.verification.candidate,
-            CandidateStore(tmp_path / "store"),
-            baseline_digest=task.baseline_digest,
-        )
-
-
 def test_stored_candidate_replays_exactly_without_cross_run_state(tmp_path):
     first, candidate, store = verify_recovery(tmp_path, REFERENCE_ROWS)
     second = VerificationEngine().verify(
@@ -276,28 +222,7 @@ def test_stored_candidate_replays_exactly_without_cross_run_state(tmp_path):
     assert first.candidate_digest == second.candidate_digest == candidate.digest
 
 
-@pytest.mark.skipif(
-    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
-    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 for pinned-image qualification",
-)
-def test_base_image_fails_stopped_candidate_capture(tmp_path):
-    task = compiled_task()
-    producer = CommandHarnessProducer(
-        command=("true",),
-        workspace_root=tmp_path / "workspaces",
-    )
-    production = producer.produce(task)
-    try:
-        with pytest.raises(CandidateCaptureError):
-            capture_production(task, production, CandidateStore(tmp_path / "store"))
-    finally:
-        remove_untrusted_tree(production.workspace, image=task.environment.image)
-
-
-@pytest.mark.skipif(
-    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
-    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 for pinned-image qualification",
-)
+@DOCKER_INTEGRATION
 @pytest.mark.parametrize(
     ("rows", "expected_status"),
     [
@@ -316,22 +241,12 @@ def test_pinned_agent_capture_and_replay_matrix(tmp_path, rows, expected_status)
         "from pathlib import Path; import sys; Path('/app/recovered.json').write_text(sys.argv[1])",
         content,
     )
-    producer = CommandHarnessProducer(
+    result, _, _ = verify_command_candidate(
+        task,
+        tmp_path,
         command=command,
-        workspace_root=tmp_path / "workspaces",
+        run_seed=f"db-wal-recovery-pinned-{expected_status}",
     )
-    production = producer.produce(task)
-    try:
-        store = CandidateStore(tmp_path / "store")
-        candidate = capture_production(task, production, store)
-        result = VerificationEngine().verify(
-            task,
-            candidate,
-            store,
-            run_seed=f"db-wal-recovery-pinned-{expected_status}",
-        )
-    finally:
-        remove_untrusted_tree(production.workspace, image=task.environment.image)
 
     assert result.status == expected_status, result
     assert result.infrastructure_error is None, result

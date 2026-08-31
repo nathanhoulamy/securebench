@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import os
 from pathlib import Path
+import sys
 from types import ModuleType
 
 import pytest
@@ -20,7 +21,7 @@ from securebench.candidates import (
 from securebench.harnesses.command import CommandHarnessProducer
 from securebench.schemas.benchmark import FileBundleCandidate, RegularFileEntry
 from securebench.tasks import BenchmarkTask
-from securebench.verification import VerificationEngine
+from securebench.verification import VerificationEngine, VerificationResultV2
 from securebench.workspaces.cleanup import remove_untrusted_tree
 
 
@@ -44,7 +45,12 @@ def load_module(path: Path, name: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    previous = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
     return module
 
 
@@ -156,5 +162,32 @@ def assert_base_capture_rejected(
     try:
         with pytest.raises(CandidateCaptureError):
             capture_production(task, production, CandidateStore(tmp_path / "store"))
+    finally:
+        remove_untrusted_tree(production.workspace, image=task.environment.image)
+
+
+def verify_command_candidate(
+    task: BenchmarkTask,
+    tmp_path: Path,
+    *,
+    command: tuple[str, ...],
+    run_seed: str,
+) -> tuple[VerificationResultV2, StoredCandidate, CandidateStore]:
+    """Run a pinned command and verify its captured candidate with safe cleanup."""
+    producer = CommandHarnessProducer(
+        command=command,
+        workspace_root=tmp_path / "workspaces",
+    )
+    production = producer.produce(task)
+    try:
+        store = CandidateStore(tmp_path / "store")
+        candidate = capture_production(task, production, store)
+        result = VerificationEngine().verify(
+            task,
+            candidate,
+            store,
+            run_seed=run_seed,
+        )
+        return result, candidate, store
     finally:
         remove_untrusted_tree(production.workspace, image=task.environment.image)
