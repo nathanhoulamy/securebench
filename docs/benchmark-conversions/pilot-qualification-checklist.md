@@ -7,15 +7,16 @@ but they do not replace Linux/Docker qualification.
 
 Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; the eleven incrementally qualified rows below
+remain intentionally unchecked; the twelve incrementally qualified rows below
 currently have binary admission decisions. Global preflight and final pack
 sign-off therefore remain incomplete.
 
-Test-layout status is separate from admission: all eleven incremental rows use
+Test-layout status is separate from admission: all twelve incremental rows use
 the compact shared `file_bundle` qualification proof. The migration preserved
 all 149 combined cases across the shared matrix and the five newest focused
 files; `dna-assembly` adds one declarative row record while retaining its
-Primer3, semantic, parser, and replay evidence in its focused files.
+Primer3, semantic, parser, and replay evidence in its focused files, and
+`dna-insert` follows the same compact pattern.
 
 ## Run identity and host preflight
 
@@ -37,6 +38,8 @@ Primer3, semantic, parser, and replay evidence in its focused files.
   `tester-linux.yaml` Hugging Face allowlist correction.
 - [x] The compact qualification migration and `dna-assembly` implementation
   are committed at `035094b0d9f59c21221dfc71c1ed4ffd90b81614`.
+- [x] The `dna-insert` implementation is committed at
+  `d46e0480de186b69daff2eae901bb57a4a350319`.
 - [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26 through
   2026-09-01, Linux `7.0.0-29-generic`, x86_64.
 - [x] `docker version` succeeds and Docker uses Linux/amd64 containers
@@ -45,11 +48,11 @@ Primer3, semantic, parser, and replay evidence in its focused files.
   output.
 - [ ] The environment is installed with `python -m pip install -e '.[dev]'`.
 - [x] The full `.venv/bin/python -m pytest -q -W error` suite passes
-  (`773 passed, 56 skipped`).
+  (`801 passed, 61 skipped`).
 - [x] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
-  passes (`57/57`, no warnings).
+  passes (`61/61`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all fourteen selected rows (`57/57`, no warnings).
+  passes with all fifteen selected rows (`61/61`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
   passes with all three selected rows (`13/13`, no warnings).
 - [x] The selected harness credential mode is usable. For `auth: api_key`, the
@@ -619,6 +622,67 @@ pinned-image row matrix passes `35/35`. The Luna Candidate digest is
 `sha256:149b00f41ee30bfb571dd2827e9c429b3c1101f7182cdb1dbc0822a585f36ede`
 and its semantic rejection has no infrastructure error. Complete Terminal and
 self-audits pass `57/57` without warnings.
+
+For the fifteenth Terminal row, resume the first fourteen results and confirm
+the selected task ID, or derive a one-row temporary tasks file for an isolated
+rerun:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 15 --resume
+```
+
+### `terminal-bench/dna-insert`
+
+- [x] The complete prompt, public input/output fixture, source verifier,
+  positional primer concatenation, insertion, overlap, annealing, and Tm
+  predicates were reconstructed.
+- [x] The Candidate contains only bounded regular `/app/primers.fasta`;
+  sequence inputs, scripts, Primer3, logs, caches, processes, and workspace
+  state are excluded.
+- [x] The public and host Oracle sequence fixtures are byte-identical and
+  pinned by size and SHA-256.
+- [x] The Oracle derives the source insertion context from the immutable
+  input/output pair and resolves the repeated-junction ambiguity at the exact
+  source boundary.
+- [x] The approved bounded Primer3-compatible Oracle utility is reused with no
+  new framework component or executable dependency.
+- [x] No Adapter, Output Artifact, Trusted Helper, or Candidate execution is
+  required during verification.
+- [x] Missing Candidate evidence is rejected by the host Oracle without an
+  infrastructure error.
+- [x] References with the insertion wholly in the forward primer and split
+  across both primers pass capture, store, parser, Oracle, original source
+  semantics, and replay.
+- [x] The source's ignored-header, case-folding, trailing-whitespace, and
+  universal-newline behavior is preserved without trusting header claims.
+- [x] Missing insertion, short annealing, incorrect overlap, forward/reverse
+  Tm range, and pair-difference mutants fail with the intended categories.
+- [x] Forged verdicts, malformed lines, non-DNA/NUL sequences, invalid UTF-8,
+  symlink, directory, oversize, and unrelated-workspace changes fail closed or
+  remain outside the Candidate.
+- [x] The untouched digest-pinned image fails stopped Candidate capture on
+  Linux/Docker.
+- [x] Reference, missing-insert, forged-verdict, pair-Tm, missing, symlink,
+  directory, and oversized cases pass through the real pinned Linux path.
+- [x] Complete Terminal and self-audits pass `61/61`; the unchanged DeepSWE
+  audit passes `13/13`, all without warnings.
+- [x] Final teardown proves no Agent/Evaluation container, task image, network,
+  volume, credential, root, or task-specific state survives.
+- [x] The isolated API-key-backed Luna smoke completes without infrastructure
+  error; its missing Candidate is rejected through Oracle-owned Candidate-
+  error handling.
+- [x] Deterministic evidence, source quirks, semantic fidelity, and inherited
+  limitations are recorded in
+  [`dna-insert.md`](TerminalBench/dna-insert.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
+2026-09-01. The focused deterministic suite passes `28 passed, 5 skipped`; the
+pinned-image row matrix passes `33/33`. The Luna smoke is correctly rejected
+for `candidate_capture_rejected` with no infrastructure error. Complete
+Terminal and self-audits pass `61/61` without warnings; the full suite passes
+`801 passed, 61 skipped`.
 
 ## DeepSWE
 

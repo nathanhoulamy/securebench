@@ -294,8 +294,8 @@ benchmark; it is not a substitute for proving that the benchmark distinguishes b
 mutant, and malicious Candidates.
 
 The qualification matrix is a per-row evidence requirement, not a requirement to duplicate test
-scaffolding. The compact shared proof covers the eleven incremental rows from `bn-fit-modify`
-through `dna-assembly`: shared task loading, stopped-workspace capture, verification, Docker
+scaffolding. The compact shared proof covers the twelve incremental rows from `bn-fit-modify`
+through `dna-insert`: shared task loading, stopped-workspace capture, verification, Docker
 gating, symlink/directory/oversize attacks, missing-Candidate scoring, and base capture live in
 `tests/qualification_support.py` and `tests/test_terminal_file_bundle_qualification.py`.
 

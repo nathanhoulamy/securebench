@@ -6,7 +6,7 @@ Implementation baseline reviewed: this branch through Output Artifacts, HTTP
 request/event-ledger/process-supervisor Trusted Helper execution, git-patch
 execution, the locally qualified filesystem-overlay implementation, and the
 subsequent architecture-wide overlay integration review, plus the compact
-qualification matrix and Terminal conversions through `dna-assembly`
+qualification matrix and Terminal conversions through `dna-insert`
 
 Active development branch: `split-verification-v2`
 
@@ -95,11 +95,11 @@ the runner does not invent a benchmark score.
 | Admission qualification pipeline | Not implemented |
 | Result signing | Not implemented |
 
-The executable reference packs currently contain fourteen Terminal-Bench rows
-and three DeepSWE rows. The eleven incremental conversions from `bn-fit-modify`
-through `dna-assembly` are Approved after deterministic, pinned-image,
+The executable reference packs currently contain fifteen Terminal-Bench rows
+and three DeepSWE rows. The twelve incremental conversions from `bn-fit-modify`
+through `dna-insert` are Approved after deterministic, pinned-image,
 stopped-capture, adversarial, teardown, and model-backed qualification. The
-eleven rows share a declarative `file_bundle` capture-qualification matrix while
+twelve rows share a declarative `file_bundle` capture-qualification matrix while
 retaining semantic, parser, asset-identity, and replay evidence in focused row
 tests. The first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` remain
 qualification-pending in their dossiers and checklist; an inventory-level
@@ -261,7 +261,7 @@ hardening rather than a prerequisite for writing and qualifying the first conver
 
 At this review pass:
 
-- full warning-strict suite: `773 passed, 56 skipped`;
+- full warning-strict suite: `801 passed, 61 skipped`;
 - complete protocol and Trusted Helper suite with Docker integration enabled:
   `54 passed, 1 skipped`, including fresh ordinary/recorder Evaluations,
   clean-repository git-patch replay, authenticated event-ledger traffic, external
@@ -314,9 +314,15 @@ At this review pass:
   mutants, stopped capture, and malicious file shapes; its bounded Luna
   Candidate was correctly rejected for `missing_bsai_site` without
   infrastructure error;
+- `dna-insert` passive qualification: the focused deterministic suite passes
+  `28 passed, 5 skipped` and the pinned-image row matrix passes `33/33`,
+  including source-positional quirks, insertion-boundary derivation, Tm and
+  overlap mutants, stopped capture, and malicious file shapes; its Luna smoke
+  produced no Candidate and was correctly rejected without infrastructure
+  error;
 - the Docker pass left no Trusted Helper containers, materialization containers, Evaluation
   networks, or overlay volumes behind;
-- complete Terminal configuration and self-audits: `57/57` passed with no
+- complete Terminal configuration and self-audits: `61/61` passed with no
   failures or warnings;
 - the generated Trusted Helper contract schema was refreshed for the reviewed
   HTTP and host-only access/credential modes, and its regeneration check passes;
