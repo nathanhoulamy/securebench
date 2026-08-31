@@ -7,15 +7,15 @@ but they do not replace Linux/Docker qualification.
 
 Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; the ten incrementally qualified rows below
+remain intentionally unchecked; the eleven incrementally qualified rows below
 currently have binary admission decisions. Global preflight and final pack
 sign-off therefore remain incomplete.
 
-Test-layout status is separate from admission: the first five incremental rows
-use the compact shared qualification proof, while the five rows from
-`code-from-image` through `distribution-search` retain equivalent standalone
-scaffolding pending approval of their mechanical migration. No qualification
-case may be removed by that migration.
+Test-layout status is separate from admission: all eleven incremental rows use
+the compact shared `file_bundle` qualification proof. The migration preserved
+all 149 combined cases across the shared matrix and the five newest focused
+files; `dna-assembly` adds one declarative row record while retaining its
+Primer3, semantic, parser, and replay evidence in its focused files.
 
 ## Run identity and host preflight
 
@@ -35,19 +35,21 @@ case may be removed by that migration.
   `distribution-search` are implemented at `ad6b432`; their Linux
   qualification used that row implementation plus the reviewed
   `tester-linux.yaml` Hugging Face allowlist correction.
+- [x] The compact qualification migration and `dna-assembly` implementation
+  are committed at `035094b0d9f59c21221dfc71c1ed4ffd90b81614`.
 - [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26 through
-  2026-08-31, Linux `7.0.0-29-generic`, x86_64.
+  2026-09-01, Linux `7.0.0-29-generic`, x86_64.
 - [x] `docker version` succeeds and Docker uses Linux/amd64 containers
   (Docker `29.7.2`).
 - [x] Free disk space is sufficient for the pinned benchmark images and run
   output.
 - [ ] The environment is installed with `python -m pip install -e '.[dev]'`.
-- [x] The full `.venv/bin/python -m pytest -q -W error` suite passes (`728
-  passed, 51 skipped`).
+- [x] The full `.venv/bin/python -m pytest -q -W error` suite passes
+  (`773 passed, 56 skipped`).
 - [x] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
-  passes (`53/53`, no warnings).
+  passes (`57/57`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all thirteen selected rows (`53/53`, no warnings).
+  passes with all fourteen selected rows (`57/57`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
   passes with all three selected rows (`13/13`, no warnings).
 - [x] The selected harness credential mode is usable. For `auth: api_key`, the
@@ -560,6 +562,64 @@ and is correctly rejected for `forward_kl_out_of_tolerance` with no
 infrastructure error. The full warning-strict suite passes `728 passed, 51
 skipped`; both complete audits pass `53/53` without warnings.
 
+For the fourteenth Terminal row, resume the first thirteen results and confirm
+the selected task ID, or derive a one-row temporary tasks file for an isolated
+rerun:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 14 --resume
+```
+
+### `terminal-bench/dna-assembly`
+
+- [x] The complete prompt, public sequence fixture, verifier entrypoint,
+  BsaI parsing offsets, annealing/Tm logic, junction constraints, and circular
+  assembly assertion were reconstructed.
+- [x] The Candidate contains only bounded regular `/app/primers.fasta`;
+  sequence inputs, scripts, installed Primer3, logs, caches, processes, and
+  workspace state are excluded.
+- [x] The public sequence asset, source image fixture, and host Oracle fixture
+  are byte-identical and pinned by size and SHA-256.
+- [x] The mutable source `oligotm` subprocess was replaced by a bounded
+  pure-Python host Oracle utility fixed to the public flags and conformance-
+  tested against Primer3 2.6.1.
+- [x] No Adapter, Output Artifact, Trusted Helper, or Candidate execution is
+  required during verification.
+- [x] Missing Candidate evidence is rejected by the host Oracle without an
+  infrastructure error.
+- [x] The reviewed eight-primer reference passes real stopped capture, store,
+  UTF-8 parser, Oracle, original fragment semantics, and exact replay.
+- [x] Missing site/clamp, incomplete primer, missing/short binding, Tm range and
+  pair-difference, junction mismatch/duplication, and wrong-assembly mutants
+  fail with the intended categories.
+- [x] Forged verdict/header claims, malformed lines, non-DNA/NUL/invalid-UTF-8
+  text, symlink, directory, oversize, and unrelated-workspace changes fail
+  closed or remain outside the Candidate.
+- [x] The untouched digest-pinned image fails stopped Candidate capture on
+  Linux/Docker.
+- [x] Reference, missing-site, forged-verdict, wrong-assembly, missing,
+  symlink, directory, and oversized cases pass through the real pinned Linux
+  capture path.
+- [x] Complete Terminal and self-audits pass `57/57`; the unchanged DeepSWE
+  audit passes `13/13`, all without warnings.
+- [x] Final teardown proves no Agent/Evaluation container, task image, network,
+  volume, credential, root, or task-specific helper state survives.
+- [x] The isolated API-key-backed Luna smoke captures one bounded Candidate
+  and is correctly rejected for `missing_bsai_site` with no infrastructure
+  error.
+- [x] Deterministic evidence, utility trust contract, semantic fidelity, and
+  inherited source limitations are recorded in
+  [`dna-assembly.md`](TerminalBench/dna-assembly.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
+2026-09-01. The focused deterministic suite passes `45 passed, 5 skipped`; the
+pinned-image row matrix passes `35/35`. The Luna Candidate digest is
+`sha256:149b00f41ee30bfb571dd2827e9c429b3c1101f7182cdb1dbc0822a585f36ede`
+and its semantic rejection has no infrastructure error. Complete Terminal and
+self-audits pass `57/57` without warnings.
+
 ## DeepSWE
 
 The tasks are ordered so these commands start exactly one new row at a time:
@@ -650,7 +710,7 @@ Evidence/reason: `___________________________________________________________`
 
 ## Final pack sign-off
 
-- [ ] All six converted rows have exactly one binary final status: Approved or
+- [ ] Every selected converted row has exactly one binary final status: Approved or
   Excluded. “Pending”, “partial”, and “works locally” are not final statuses.
 - [ ] Every Approved row demonstrates base failure, reference success,
   targeted-mutant rejection, malicious-candidate rejection, isolation, cleanup,

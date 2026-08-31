@@ -81,14 +81,166 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 
 ## Questions for our later review
 
-- [ ] Read the complete public instruction.
-- [ ] Walk through the verifier entrypoint line by line.
-- [ ] Identify every candidate-controlled input consumed by the verifier.
-- [ ] Identify every scoring-relevant assertion and expected value.
-- [ ] Decide whether the task's intended behavior is fully represented by its tests.
-- [ ] Design the split-verification conversion.
-- [ ] Record fidelity limitations and the final eligibility decision.
+- [x] Read the complete public instruction.
+- [x] Walk through the verifier entrypoint line by line.
+- [x] Identify every candidate-controlled input consumed by the verifier.
+- [x] Identify every scoring-relevant assertion and expected value.
+- [x] Decide whether the task's intended behavior is fully represented by its tests.
+- [x] Design the split-verification conversion.
+- [x] Record fidelity limitations and the final eligibility decision.
 
 ## Future conversion notes
 
 Use passive artifact verification. Extract a bounded `/app/primers.fasta` candidate and have the host-side Oracle independently parse the eight primer pairs, validate BsaI sites, clamps, overhangs, binding sites, annealing lengths, and `oligotm` Tm constraints, then verify overhang chaining and the assembled sequence against host-held reference sequences. No candidate-controlled code executes during evaluation; hidden tests, expected answers, and scoring logic remain outside both VMs. Strictly bound and sanitize primer text before any parser or `oligotm` invocation. Verdict: clean conversion.
+
+## Implemented v2 conversion
+
+Final status: **Approved**. Deterministic qualification, Primer3 conformance,
+the digest-pinned Linux/Docker matrix, teardown inspection, complete audits,
+and an API-key-backed Agent smoke are complete.
+
+### Candidate boundary
+
+The Candidate contains exactly one bounded regular file:
+
+| Entry | Exact path | Kind | Per-file limit |
+|---|---|---|---:|
+| `primers` | `/app/primers.fasta` | regular file | 65,536 bytes |
+
+The aggregate maximum is one file and 65,536 bytes. Capture occurs only after
+the Agent container stops. The public sequence fixture, scripts, installed
+tools, logs, caches, credentials, processes, connections, mounts, and all
+other workspace state are excluded. Missing, symlinked, directory, or
+oversized output fails during trusted capture.
+
+### Verification design and behavior/trust mapping
+
+The single `primers_artifact` check passively decodes bounded Candidate bytes
+with `securebench.utf8-text/v1` and sends the text to the host-only Oracle. No
+Candidate code is imported or executed, and there is no Adapter, protocol
+Challenge, Evaluation VM, Output Artifact, or Trusted Helper.
+
+| Public/source requirement | Independently observed evidence | Host-only Oracle decision |
+|---|---|---|
+| Write `/app/primers.fasta` with eight named primer pairs and no blank lines | One stopped-state regular file; exactly 16 universally newline-normalized, right-stripped lines | Require the eight exact source-verifier names, header markers, and DNA-only sequences |
+| Put a clamp, BsaI site, padding, four-base overhang, and binding tract in each primer | Bounded primer strings | Parse the first `ggtctc` with the source verifier's exact offsets and reject incomplete structures |
+| Amplify the circular input and three linear inserts | Parsed forward and reverse binding strings | Find forward binding and downstream reverse complement in the corresponding public template, doubling only the circular input |
+| Use 15–45 annealing bases, including a matching overhang suffix | Template positions and bounded overlap calculation | Reproduce the source length calculation for both primers |
+| Keep Tm in 58–72 °C and pair difference at most 5 °C | Annealing tract only | Compute the reviewed fixed Primer3 `oligotm` function and apply the public inclusive bounds |
+| Form four unique compatible Golden Gate junctions | Four left/right overhang pairs | Check reverse-complement chaining, closure, and uniqueness |
+| Produce the declared circular output | Reconstructed fragment interiors and overhangs | Require the assembled sequence to occur in the doubled public output sequence |
+
+The Oracle validates the check and artifact IDs and alone owns comparisons,
+failure categories, score, and final verdict. Candidate claims, file headers,
+stdout, and guest test results cannot issue a verdict.
+
+### Bounded Primer3-compatible Oracle utility
+
+The source verifier shells out to the mutable `oligotm` executable after the
+Agent has run. The conversion instead uses the pure-Python
+`securebench.verification.oligotm.primer3_oligotm_v1` function in the host
+Oracle. Its interface is deliberately fixed to the public flags
+`-tp 1 -sc 1 -mv 50 -dv 2 -n 0.8 -d 500`; Candidate text cannot select an
+executable, flags, algorithm, or resource path. It accepts only 2–64 bases of
+unambiguous DNA, while this Oracle calls it only for already-enforced
+15–45-base annealing tracts.
+
+The implementation follows Primer3 2.6.1's SantaLucia thermodynamic and
+salt-correction path. Seven mixed, symmetric, terminal-AT, terminal-GC,
+lowercase, in-range, and 45-base vectors agree with the pinned Ubuntu
+`oligotm` output within `5e-7` °C. Invalid length, ambiguity, whitespace, NUL,
+non-ASCII, and non-text inputs fail closed. No subprocess, external package,
+Candidate-controlled import, or mutable host executable is involved.
+
+### Resource visibility and security properties
+
+- Public: the full prompt, the digest-pinned solving image, and read-only
+  `/app/sequences.fasta`. The checked-in public asset is byte-identical to the
+  source image fixture and contains the input, insert, and desired-output
+  sequences named by the prompt. The Agent retains the source row's internet
+  access.
+- Evaluation-only: none. This passive row never starts Candidate-controlled
+  code during verification.
+- Host-only: `dna-assembly/oracle/oracle.yaml`, `oracle.py`, an immutable copy
+  of the reviewed sequence fixture, constraint/scoring logic, and
+  qualification expectations.
+
+The three checked-in source/public/Oracle sequence lanes are pinned to 7,712
+bytes and SHA-256
+`ebdc361b5fba28eb0a2c7a8a8a444ccb12cc842c8cbc6df5a2c24254f130736f`.
+The original hidden pytest verifier is used only as host-side qualification
+evidence; it is never copied, mounted, imported, or executed in either VM.
+Qualification imports suppress bytecode writes so source directories remain
+clean.
+
+### Semantic fidelity
+
+The Oracle preserves the source verifier's actual behavior, including
+case-insensitive primer sequences, `rstrip()` on every text-mode line,
+universal newline handling, first-site parsing, the one-base post-site offset,
+overhang/template overlap, downstream reverse-primer search, inclusive Tm and
+length bounds, four-way overhang uniqueness, and rotation-insensitive circular
+assembly. The reference is also run through the original fragment and assembly
+functions with only `calc_tm` replaced by the conformance-tested pure utility.
+
+The public wording says the header must have an exact name. The source accepts
+any header beginning with `>` and then requires all eight names among exactly
+eight pairs, which is equivalent except for duplicate-key overwrite cases that
+necessarily leave a required name absent. The source does not prove primer
+minimality beyond requiring exactly four pairs, nor that the Agent consulted
+NEB documentation. Those are inherited limitations. Strict UTF-8 decoding and
+regular-file/no-follow capture reject encodings and filesystem shapes outside
+the public FASTA contract, with no expected intelligence impact.
+
+### Qualification evidence
+
+- Tested implementation commit:
+  `035094b0d9f59c21221dfc71c1ed4ffd90b81614`.
+- Qualification host: 2026-09-01, Linux `7.0.0-29-generic` x86_64, Docker
+  29.7.2 Linux/amd64 with `overlayfs`.
+- Pinned image:
+  `alexgshaw/dna-assembly@sha256:d1adf6835f1dd91205ba70e452c699d0aea601010038e5617f370716efb50569`.
+- Compiled digests: manifest
+  `sha256:b149ce25262dcd9111dda2460d6f5439c9576595995249570cd872fbe240d7a0`,
+  row
+  `sha256:6f399959df9a53b2b6237e0f542296764fc14c62d706202a839ef41f294ecb0c`,
+  baseline
+  `sha256:0e5ceb30bc42a42f498942431313865b0fe7b624af68b67494385badebf79348`,
+  verification
+  `sha256:f32bfc2d36c0b47845ae4c486dc31592d84646058ee62dbbd12134deb35ef7df`,
+  and execution
+  `sha256:5d1cfeb94862145b23bf2a40d4fa5769583cffd2b6293808f81cc4ea84d7a3aa`.
+  The reviewed reference Candidate digest is
+  `sha256:18eef5135697bd1f70871a01ca2a1f8316e9a2f476788ac739a69f2541540c03`.
+- Focused deterministic command:
+  `.venv/bin/python -m pytest -q -W error tests/test_oligotm.py tests/test_dna_assembly_v2.py tests/test_terminal_file_bundle_qualification.py -k 'oligotm or dna-assembly or dna_assembly'`.
+  Result: `45 passed, 5 skipped, 48 deselected`; skips are Docker-gated.
+- Digest-pinned Linux command:
+  `SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error tests/test_dna_assembly_v2.py tests/test_terminal_file_bundle_qualification.py -k 'dna-assembly or dna_assembly'`.
+  Result: `35 passed, 48 deselected`.
+- Base failure: the untouched image does not contain the declared Candidate,
+  so stopped-state capture fails closed.
+- Reference success: the reviewed eight-pair reference passes capture,
+  content-addressed storage, UTF-8 parsing, host Oracle, original source
+  fragment semantics, and exact replay.
+- Targeted-mutant rejection covers missing BsaI site/clamp, incomplete primer,
+  absent or short binding sites, out-of-range and pair-mismatched Tm, junction
+  mismatch, duplicate junction, and a compatible-looking but wrong assembly.
+- Malicious-candidate rejection covers forged verdict/header claims, malformed
+  line counts, non-DNA/NUL/invalid-UTF-8 text, symlink, directory, oversize,
+  missing Candidate, and unrelated modification of the public input path.
+- Complete Terminal and self-audits pass `57/57`; the unchanged DeepSWE audit
+  passes `13/13`, all without warnings.
+- The isolated API-key-backed `gpt-5.6-luna` smoke with
+  `reasoning_effort: none` captured one 1,564-byte Candidate and completed
+  verification without infrastructure error. It was correctly rejected for
+  `missing_bsai_site`; Candidate digest
+  `sha256:149b00f41ee30bfb571dd2827e9c429b3c1101f7182cdb1dbc0822a585f36ede`.
+- Final Docker inspection found no surviving row image or SecureBench
+  container. The host had 184 GiB free after qualification.
+
+### Final qualification decision
+
+**Approved — Clean conversion / no intelligence impact.** The bounded passive
+artifact path preserves the source verifier's substantive acceptance behavior
+without executing Candidate code or depending on a mutable Primer3 executable.

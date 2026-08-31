@@ -68,7 +68,8 @@ The pilot may use:
 
 - `terminal_task` with `file_bundle`;
 - `repo_patch` with `git_patch`;
-- passive JSON, UTF-8 text, ICS, strict CSV, and tree-manifest parsers;
+- passive JSON, UTF-8 text, ICS, strict CSV, strict bounded NPY float-summary,
+  and tree-manifest parsers;
 - `securebench.adapter/v2` protocol checks;
 - regular-file and directory-tree Output Artifacts;
 - `securebench.http-request-recorder/v1` for bounded HTTP request evidence;
@@ -230,6 +231,13 @@ The host Oracle uses `securebench.oracle/v1`: initialize, consume artifact evide
 one Challenge at a time, and finalize. Keep opaque expected context in the host process. Parse every
 Candidate-originated value as hostile bounded data and return only bounded public diagnostics.
 
+When a source verifier delegates a deterministic calculation to a mutable CLI, first decide whether
+the calculation belongs in the Oracle rather than a new Adapter or Trusted Helper. A host-side pure
+utility is appropriate only when its algorithm and parameters are fixed, its input is tightly
+bounded and non-executable, and representative and boundary vectors are conformance-tested against
+the pinned source version. Do not let Candidate text choose an executable, flags, imports, paths, or
+algorithm. Document the retained numerical tolerance and any semantic difference in the dossier.
+
 ### 5. Write and preflight the v2 row
 
 Start from the executable example, not an old row. Preserve the original public instruction unless
@@ -286,20 +294,19 @@ benchmark; it is not a substitute for proving that the benchmark distinguishes b
 mutant, and malicious Candidates.
 
 The qualification matrix is a per-row evidence requirement, not a requirement to duplicate test
-scaffolding. The current compacting proof covers the five incremental rows from `bn-fit-modify`
-through `cobol-modernization`: shared task loading, stopped-workspace capture, verification,
-Docker gating, symlink/directory/oversize attacks, missing-Candidate scoring, and base capture live
-in `tests/qualification_support.py` and `tests/test_incremental_row_qualification.py`.
+scaffolding. The compact shared proof covers the eleven incremental rows from `bn-fit-modify`
+through `dna-assembly`: shared task loading, stopped-workspace capture, verification, Docker
+gating, symlink/directory/oversize attacks, missing-Candidate scoring, and base capture live in
+`tests/qualification_support.py` and `tests/test_terminal_file_bundle_qualification.py`.
 
-The five newer passive rows from `code-from-image` through `distribution-search` still contain the
-equivalent scaffolding in their focused files. Their Linux qualification is complete, but migration
-to the compact format is deliberately pending review. The proposed migration adds one declarative
-record per row containing only its task ID, Candidate entry IDs, missing-Candidate expectation,
-and optional base-image command. It must preserve the same collected cases and public failure
-ownership. Keep each row's contract assertions, public-asset identity, correct fixture, source
-normalization quirks, semantic mutants, parser-specific malformed inputs, Oracle decisions, and
-exact replay evidence in its focused test file. A generic capture case never substitutes for a
-row-specific malicious behavior that can reach a parser, Adapter, or Oracle.
+For a compatible `file_bundle` row, add one `RowCaptureContract` record containing its task ID,
+Candidate target ID, any distinct oversize target, missing-Candidate expectation, and optional
+base-image command. Keep the row's contract assertions, public-asset identity, correct fixture,
+source normalization quirks, semantic mutants, parser-specific malformed inputs, Oracle decisions,
+and exact replay evidence in its focused test file. Use `verify_workspace` for host-constructed
+artifacts and `verify_command_candidate` for cleanup-safe pinned-command capture and verification.
+A generic capture case never substitutes for a row-specific malicious behavior that can reach a
+parser, Adapter, or Oracle.
 
 During conversion, run the focused row file and, once the row is registered, its cases from the
 shared qualification file. Run the row's live-Docker cases after deterministic qualification is
@@ -340,12 +347,12 @@ Useful repository checks after each small batch:
 ```bash
 .venv/bin/python -m pytest -q -W error tests/test_<row>_v2.py
 .venv/bin/python -m pytest -q -W error \
-  tests/test_incremental_row_qualification.py -k '<row-name>'
+  tests/test_terminal_file_bundle_qualification.py -k '<row-name>'
 .venv/bin/python -m pytest -q -W error
 SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error \
   tests/test_<row>_v2.py
 SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error \
-  tests/test_incremental_row_qualification.py -k '<row-name>'
+  tests/test_terminal_file_bundle_qualification.py -k '<row-name>'
 .venv/bin/python -m tools.generate_schemas
 .venv/bin/python -m securebench.cli audit-self --output-dir /tmp/securebench-audit
 git diff --check
