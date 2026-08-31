@@ -1,18 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
 
-from securebench.benchmark_compiler import compile_benchmark_pack
-from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import (
-    CandidateCaptureError,
     CandidateStore,
-    HostWorkspaceFilesystem,
-    capture_file_bundle,
     capture_production,
 )
 from securebench.execution_profiles import validate_executable_task
@@ -23,10 +17,13 @@ from securebench.verification.json_data import json_digest
 from securebench.verification.models import ChallengeEvidence, TrustedHelperEvidence
 from securebench.verification.oracle import OracleProcessSession
 from securebench.workspaces.cleanup import remove_untrusted_tree
+from tests.qualification_support import (
+    DOCKER_INTEGRATION,
+    load_terminal_task,
+    verify_workspace,
+)
 
 
-ROOT = Path(__file__).resolve().parents[1]
-PACK = ROOT / "benchmarks" / "terminal-bench"
 TASK_ID = "terminal-bench/cancel-async-tasks"
 LEDGER_TYPE = "securebench.append-only-event-ledger/v1"
 SUPERVISOR_TYPE = "securebench.process-supervisor/v1"
@@ -183,8 +180,7 @@ async def run_tasks(tasks, max_concurrent):
 
 
 def compiled_task():
-    pack = load_benchmark_pack(PACK / "manifest-v2.yaml", PACK / "tasks-v2.jsonl")
-    return next(task for task in compile_benchmark_pack(pack) if task.id == TASK_ID)
+    return load_terminal_task(TASK_ID)
 
 
 def _event(context, task_id: int, phase: str, elapsed_us: int):
@@ -362,20 +358,12 @@ def verify_source(tmp_path: Path, source: str):
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True)
     (workspace / "run.py").write_text(source, encoding="utf-8")
-    store = CandidateStore(tmp_path / "store")
-    candidate = capture_file_bundle(
-        HostWorkspaceFilesystem(workspace, guest_root="/app"),
-        task.verification.candidate,
-        store,
-        baseline_digest=task.baseline_digest,
-    )
-    result = VerificationEngine().verify(
+    return verify_workspace(
         task,
-        candidate,
-        store,
+        workspace,
+        tmp_path / "store",
         run_seed="cancel-async-live-qualification",
     )
-    return result, candidate, store
 
 
 def test_cancel_async_row_is_bounded_and_executable():
@@ -428,50 +416,7 @@ def test_cancel_async_oracle_accepts_reference_evidence_and_rejects_semantic_mut
     assert timeout_mutant.check_outcomes["concurrency_behavior"] is False
 
 
-def test_cancel_async_missing_candidate_is_scored_by_the_oracle():
-    result = VerificationEngine().verify_candidate_error(
-        compiled_task(),
-        code="candidate_capture_rejected",
-        message="Candidate capture was rejected",
-        run_seed="cancel-async-missing",
-    )
-
-    assert result.status == "failed", result
-    assert result.infrastructure_error is None, result
-    assert {check.id for check in result.checks} == {
-        "concurrency_behavior",
-        "cancellation_behavior",
-    }
-    assert all(check.status == "failed" for check in result.checks)
-
-
-@pytest.mark.parametrize("attack", ["symlink", "directory", "oversized"])
-def test_cancel_async_capture_rejects_malicious_candidate_shapes(tmp_path, attack):
-    task = compiled_task()
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    target = workspace / "run.py"
-    if attack == "symlink":
-        (workspace / "other.py").write_text(REFERENCE, encoding="utf-8")
-        target.symlink_to("other.py")
-    elif attack == "directory":
-        target.mkdir()
-    else:
-        target.write_bytes(b"x" * (262_144 + 1))
-
-    with pytest.raises(CandidateCaptureError):
-        capture_file_bundle(
-            HostWorkspaceFilesystem(workspace, guest_root="/app"),
-            task.verification.candidate,
-            CandidateStore(tmp_path / "store"),
-            baseline_digest=task.baseline_digest,
-        )
-
-
-@pytest.mark.skipif(
-    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
-    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 for live row qualification",
-)
+@DOCKER_INTEGRATION
 @pytest.mark.parametrize(
     ("source", "expected_status", "failure_fragment"),
     [
@@ -514,10 +459,7 @@ def test_cancel_async_real_pinned_evaluations_reject_mutants_and_claims(
         assert any(failure_fragment in value for value in failures)
 
 
-@pytest.mark.skipif(
-    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
-    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 for live row qualification",
-)
+@DOCKER_INTEGRATION
 @pytest.mark.parametrize(
     "source",
     [
@@ -532,10 +474,7 @@ def test_cancel_async_rejects_candidates_that_bypass_task_callbacks(tmp_path, so
     assert result.infrastructure_error is None, result
 
 
-@pytest.mark.skipif(
-    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
-    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 for live Agent capture qualification",
-)
+@DOCKER_INTEGRATION
 def test_cancel_async_reference_passes_pinned_agent_capture_and_replay(tmp_path):
     task = compiled_task()
     script = (

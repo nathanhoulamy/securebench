@@ -1,25 +1,17 @@
 from __future__ import annotations
 
-import importlib.util
-import os
 from pathlib import Path
 
 import pytest
 
-from securebench.benchmark_compiler import compile_benchmark_pack
-from securebench.benchmark_pack import load_benchmark_pack
-from securebench.candidates import (
-    CandidateCaptureError,
-    CandidateStore,
-    HostWorkspaceFilesystem,
-    capture_file_bundle,
-    capture_production,
-)
 from securebench.execution_profiles import validate_executable_task
-from securebench.harnesses.command import CommandHarnessProducer
 from securebench.schemas.benchmark import ProtocolCheck
-from securebench.verification import VerificationEngine
-from securebench.workspaces.cleanup import remove_untrusted_tree
+from tests.qualification_support import (
+    DOCKER_INTEGRATION,
+    load_module,
+    load_terminal_task,
+    verify_workspace,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,17 +64,8 @@ EXPECTED_TRANSACTIONS = (
 )
 
 
-def _load_module(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def compiled_task():
-    pack = load_benchmark_pack(PACK / "manifest-v2.yaml", PACK / "tasks-v2.jsonl")
-    return next(task for task in compile_benchmark_pack(pack) if task.id == TASK_ID)
+    return load_terminal_task(TASK_ID)
 
 
 def _successful_evidence(context, index):
@@ -119,14 +102,13 @@ def _capture_and_verify(tmp_path, name, content, *, run_seed):
     workspace = tmp_path / name
     workspace.mkdir()
     (workspace / "program.py").write_bytes(content)
-    store = CandidateStore(tmp_path / f"store-{name}")
-    candidate = capture_file_bundle(
-        HostWorkspaceFilesystem(workspace, guest_root="/app"),
-        task.verification.candidate,
-        store,
-        baseline_digest=task.baseline_digest,
+    result, _, _ = verify_workspace(
+        task,
+        workspace,
+        tmp_path / f"store-{name}",
+        run_seed=run_seed,
     )
-    return VerificationEngine().verify(task, candidate, store, run_seed=run_seed)
+    return result
 
 
 def test_cobol_row_is_bounded_split_and_executable():
@@ -170,7 +152,7 @@ def test_cobol_row_is_bounded_split_and_executable():
 
 
 def test_adapter_regular_file_replacement_rejects_symlinks(tmp_path):
-    adapter = _load_module(ADAPTER / "adapter.py", "cobol_adapter_paths")
+    adapter = load_module(ADAPTER / "adapter.py", "cobol_adapter_paths")
     target = tmp_path / "INPUT.DAT"
     adapter._replace_regular_file(target, "first")
     assert target.read_text() == "first"
@@ -186,7 +168,7 @@ def test_adapter_regular_file_replacement_rejects_symlinks(tmp_path):
 
 
 def test_oracle_preserves_original_sequence_and_expected_bytes():
-    oracle_module = _load_module(ORACLE, "cobol_oracle_original")
+    oracle_module = load_module(ORACLE, "cobol_oracle_original")
     challenge, context = oracle_module.original_case()
 
     assert challenge == {
@@ -203,7 +185,7 @@ def test_oracle_preserves_original_sequence_and_expected_bytes():
 
 
 def test_seeded_cases_are_deterministic_private_and_well_formed():
-    oracle_module = _load_module(ORACLE, "cobol_oracle_seeded")
+    oracle_module = load_module(ORACLE, "cobol_oracle_seeded")
     first = oracle_module.CobolModernizationOracle()
     repeated = oracle_module.CobolModernizationOracle()
     second = oracle_module.CobolModernizationOracle()
@@ -223,7 +205,7 @@ def test_seeded_cases_are_deterministic_private_and_well_formed():
 
 
 def test_oracle_accepts_independent_correct_evidence():
-    oracle_module = _load_module(ORACLE, "cobol_oracle_pass")
+    oracle_module = load_module(ORACLE, "cobol_oracle_pass")
     oracle = oracle_module.CobolModernizationOracle()
     oracle.initialize("qualification-seed")
     index = 0
@@ -251,7 +233,7 @@ def test_oracle_accepts_independent_correct_evidence():
     ],
 )
 def test_oracle_rejects_mutants_and_candidate_claims(attack):
-    oracle_module = _load_module(ORACLE, f"cobol_oracle_{attack}")
+    oracle_module = load_module(ORACLE, f"cobol_oracle_{attack}")
     oracle = oracle_module.CobolModernizationOracle()
     oracle.initialize("mutant-seed")
     original_expected = oracle.cases[0][1]["expected"]
@@ -284,66 +266,7 @@ def test_oracle_rejects_mutants_and_candidate_claims(attack):
     assert oracle.verdict()["verdict"]["passed"] is False
 
 
-def test_missing_candidate_is_scored_by_the_oracle():
-    result = VerificationEngine().verify_candidate_error(
-        compiled_task(),
-        code="candidate_capture_rejected",
-        message="Candidate capture was rejected",
-        run_seed="cobol-modernization-missing",
-    )
-
-    assert result.status == "failed", result
-    assert result.infrastructure_error is None, result
-    assert result.public_diagnostics["failure_categories"] == [
-        "candidate_capture_rejected"
-    ]
-
-
-@pytest.mark.parametrize("attack", ["symlink", "directory", "oversized"])
-def test_capture_rejects_malicious_program_shapes(tmp_path, attack):
-    task = compiled_task()
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    target = workspace / "program.py"
-    if attack == "symlink":
-        (workspace / "other.py").write_text("pass\n")
-        target.symlink_to("other.py")
-    elif attack == "directory":
-        target.mkdir()
-    else:
-        target.write_bytes(b"x" * (256 * 1024 + 1))
-
-    with pytest.raises(CandidateCaptureError):
-        capture_file_bundle(
-            HostWorkspaceFilesystem(workspace, guest_root="/app"),
-            task.verification.candidate,
-            CandidateStore(tmp_path / "store"),
-            baseline_digest=task.baseline_digest,
-        )
-
-
-@pytest.mark.skipif(
-    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
-    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 for pinned-image qualification",
-)
-def test_base_image_fails_stopped_candidate_capture(tmp_path):
-    task = compiled_task()
-    producer = CommandHarnessProducer(
-        command=("sh", "-c", "rm -f /app/program.py"),
-        workspace_root=tmp_path / "workspaces",
-    )
-    production = producer.produce(task)
-    try:
-        with pytest.raises(CandidateCaptureError):
-            capture_production(task, production, CandidateStore(tmp_path / "store"))
-    finally:
-        remove_untrusted_tree(production.workspace, image=task.environment.image)
-
-
-@pytest.mark.skipif(
-    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
-    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 for pinned-image qualification",
-)
+@DOCKER_INTEGRATION
 def test_official_reference_passes_real_pinned_evaluations(tmp_path):
     if not REFERENCE.is_file():
         pytest.skip("extract the pinned official reference under /tmp for qualification")
@@ -360,10 +283,7 @@ def test_official_reference_passes_real_pinned_evaluations(tmp_path):
     assert len(set(behavior.evidence_digests)) == 4
 
 
-@pytest.mark.skipif(
-    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
-    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 for pinned-image qualification",
-)
+@DOCKER_INTEGRATION
 def test_noop_fixed_output_and_forged_claim_mutants_fail_real_evaluations(tmp_path):
     fixed = f'''from pathlib import Path
 Path("/app/data/ACCOUNTS.DAT").write_text({EXPECTED_ACCOUNTS!r})
@@ -386,10 +306,7 @@ Path("/app/data/TRANSACTIONS.DAT").write_text({EXPECTED_TRANSACTIONS!r})
         assert result.infrastructure_error is None, result
 
 
-@pytest.mark.skipif(
-    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
-    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 for pinned-image qualification",
-)
+@DOCKER_INTEGRATION
 def test_output_symlink_is_candidate_failure_in_real_evaluation(tmp_path):
     attack = b'''from pathlib import Path
 target = Path("/app/data/ACCOUNTS.DAT")

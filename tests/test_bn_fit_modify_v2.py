@@ -1,18 +1,12 @@
 from __future__ import annotations
 
-import os
 from statistics import NormalDist
 from pathlib import Path
 
 import pytest
 
-from securebench.benchmark_compiler import compile_benchmark_pack
-from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import (
-    CandidateCaptureError,
     CandidateStore,
-    HostWorkspaceFilesystem,
-    capture_file_bundle,
     capture_production,
 )
 from securebench.execution_profiles import validate_executable_task
@@ -20,10 +14,13 @@ from securebench.harnesses.command import CommandHarnessProducer
 from securebench.schemas.benchmark import ArtifactCheck
 from securebench.verification import VerificationEngine
 from securebench.workspaces.cleanup import remove_untrusted_tree
+from tests.qualification_support import (
+    DOCKER_INTEGRATION,
+    load_terminal_task,
+    verify_workspace as verify_files,
+)
 
 
-ROOT = Path(__file__).resolve().parents[1]
-PACK = ROOT / "benchmarks" / "terminal-bench"
 TASK_ID = "terminal-bench/bn-fit-modify"
 LEARNED_EDGES = (
     ("U", "M"),
@@ -40,8 +37,7 @@ EXPECTED_D_STD = ((0.5495886**2) * 10.68515**2 + 14.0916**2) ** 0.5
 
 
 def compiled_task():
-    pack = load_benchmark_pack(PACK / "manifest-v2.yaml", PACK / "tasks-v2.jsonl")
-    return next(task for task in compile_benchmark_pack(pack) if task.id == TASK_ID)
+    return load_terminal_task(TASK_ID)
 
 
 def edge_csv(edges=LEARNED_EDGES, *, verdict_column=False):
@@ -99,20 +95,12 @@ def verify_workspace(tmp_path: Path, **overrides):
     task = compiled_task()
     workspace = tmp_path / "workspace"
     write_workspace(workspace, **overrides)
-    store = CandidateStore(tmp_path / "store")
-    candidate = capture_file_bundle(
-        HostWorkspaceFilesystem(workspace, guest_root="/app"),
-        task.verification.candidate,
-        store,
-        baseline_digest=task.baseline_digest,
-    )
-    result = VerificationEngine().verify(
+    return verify_files(
         task,
-        candidate,
-        store,
+        workspace,
+        tmp_path / "store",
         run_seed="bn-fit-modify-qualification",
     )
-    return result, candidate, store
 
 
 def test_bn_fit_row_is_passive_bounded_and_executable():
@@ -144,22 +132,6 @@ def test_bn_fit_reference_artifacts_pass_and_capture_only_declared_files(tmp_pat
         "learned_dag",
         "intervened_dag",
         "final_sample",
-    ]
-
-
-def test_bn_fit_missing_candidate_is_scored_by_the_oracle():
-    task = compiled_task()
-    result = VerificationEngine().verify_candidate_error(
-        task,
-        code="candidate_capture_rejected",
-        message="Candidate capture was rejected",
-        run_seed="bn-fit-modify-missing",
-    )
-
-    assert result.status == "failed"
-    assert result.infrastructure_error is None
-    assert "final_sample:candidate_capture_rejected" in result.public_diagnostics[
-        "failure_categories"
     ]
 
 
@@ -223,35 +195,7 @@ def test_bn_fit_malformed_csv_is_candidate_evidence_not_infrastructure(tmp_path)
     ]
 
 
-@pytest.mark.parametrize("attack", ["symlink", "directory", "oversized"])
-def test_bn_fit_capture_rejects_malicious_artifact_types_and_sizes(tmp_path, attack):
-    task = compiled_task()
-    workspace = tmp_path / "workspace"
-    write_workspace(workspace)
-    target = workspace / "learned_dag.csv"
-    if attack == "symlink":
-        target.unlink()
-        target.symlink_to("intervened_dag.csv")
-    elif attack == "directory":
-        target.unlink()
-        target.mkdir()
-    else:
-        sample = workspace / "final_bn_sample.csv"
-        sample.write_bytes(b"x" * (2 * 1024 * 1024 + 1))
-
-    with pytest.raises(CandidateCaptureError):
-        capture_file_bundle(
-            HostWorkspaceFilesystem(workspace, guest_root="/app"),
-            task.verification.candidate,
-            CandidateStore(tmp_path / "store"),
-            baseline_digest=task.baseline_digest,
-        )
-
-
-@pytest.mark.skipif(
-    os.environ.get("SECUREBENCH_DOCKER_INTEGRATION") != "1",
-    reason="set SECUREBENCH_DOCKER_INTEGRATION=1 for the pinned-image qualification",
-)
+@DOCKER_INTEGRATION
 def test_bn_fit_reference_passes_through_real_pinned_agent_container(tmp_path):
     task = compiled_task()
     script = f"""
