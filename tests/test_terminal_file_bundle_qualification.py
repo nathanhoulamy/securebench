@@ -95,6 +95,11 @@ ROWS = (
         target_id="primers",
         base_command=("true",),
     ),
+    RowCaptureContract(
+        task_id="terminal-bench/dna-insert",
+        target_id="primers",
+        base_command=("true",),
+    ),
 )
 
 
