@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import os
 import shutil
+import struct
 import subprocess
 import time
 from dataclasses import replace
@@ -29,13 +31,73 @@ from securebench.verification import (
     OracleSession,
     OracleVerdict,
 )
-from securebench.verification.models import VerificationInfrastructureError
+from securebench.verification.models import ParserRejected, VerificationInfrastructureError
 from securebench.verification.oracle import OracleProcessSession
 from securebench.verification.artifacts import _candidate_artifact
 from securebench.verification.json_data import json_digest
+from securebench.verification.parsers import default_parser_registry
 
 
 DIGEST = "sha256:" + "c" * 64
+
+
+def npy_float_file(
+    values,
+    *,
+    descr="<f8",
+    shape=None,
+    version=(1, 0),
+    header_source=None,
+    trailing=b"",
+):
+    shape = (len(values),) if shape is None else shape
+    if header_source is None:
+        header_source = repr(
+            {"descr": descr, "fortran_order": False, "shape": shape}
+        )
+    length_size = 2 if version == (1, 0) else 4
+    encoding = "utf-8" if version == (3, 0) else "latin-1"
+    preamble_size = 8 + length_size
+    encoded_header = header_source.encode(encoding)
+    padding = (-(preamble_size + len(encoded_header) + 1)) % 64
+    header = encoded_header + b" " * padding + b"\n"
+    byte_order = ">" if descr.startswith(">") else "<"
+    item_size = int(descr.lstrip("<>=")[1:])
+    if item_size == 16:
+        payload = b"".join(_x87_float(value, byte_order) for value in values)
+    else:
+        code = {2: "e", 4: "f", 8: "d"}[item_size]
+        payload = b"".join(struct.pack(byte_order + code, value) for value in values)
+    return (
+        b"\x93NUMPY"
+        + bytes(version)
+        + len(header).to_bytes(length_size, "little")
+        + header
+        + payload
+        + trailing
+    )
+
+
+def _x87_float(value, byte_order):
+    if value == 0.0:
+        exponent = 0
+        significand = 0
+    else:
+        fraction, power = math.frexp(abs(value))
+        exponent = power - 1 + 16383
+        significand = round(fraction * 2 * (1 << 63))
+    sign_and_exponent = exponent | (0x8000 if value < 0 else 0)
+    if byte_order == "<":
+        return (
+            significand.to_bytes(8, "little")
+            + sign_and_exponent.to_bytes(2, "little")
+            + b"\x00" * 6
+        )
+    return (
+        sign_and_exponent.to_bytes(2, "big")
+        + significand.to_bytes(8, "big")
+        + b"\x00" * 6
+    )
 
 
 class RecordingOracle(OracleSession):
@@ -586,6 +648,134 @@ def test_strict_json_parser_rejects_ambiguous_or_non_finite_artifacts(tmp_path, 
     assert result.status == "failed"
     assert oracle.evidence[0].status == "candidate_error"
     assert oracle.evidence[0].error_code == "invalid_json"
+
+
+@pytest.mark.parametrize(
+    ("descr", "values"),
+    [
+        ("<f2", [0.25, 0.75]),
+        (">f4", [0.25, 0.75]),
+        ("<f8", [0.25, 0.75]),
+        ("<f16", [0.25, 0.75]),
+    ],
+)
+def test_strict_npy_float_summary_parser_observes_generic_statistics(descr, values):
+    parsed = default_parser_registry().parse_bytes(
+        "securebench.strict-npy-float-summary/v1",
+        npy_float_file(values, descr=descr),
+    )
+
+    assert parsed["format"] == "npy"
+    assert parsed["dtype"] == descr
+    assert parsed["shape"] == [2]
+    assert parsed["count"] == 2
+    assert parsed["statistics"]["all_finite"] is True
+    assert parsed["statistics"]["all_positive"] is True
+    assert parsed["statistics"]["minimum"] == pytest.approx(0.25)
+    assert parsed["statistics"]["maximum"] == pytest.approx(0.75)
+    assert parsed["statistics"]["sum"] == pytest.approx(1.0)
+
+
+def test_strict_npy_parser_returns_json_safe_flags_for_nonfinite_values():
+    parsed = default_parser_registry().parse_bytes(
+        "securebench.strict-npy-float-summary/v1",
+        npy_float_file([float("nan"), float("inf")]),
+    )
+
+    assert parsed["statistics"] == {
+        "all_finite": False,
+        "all_positive": False,
+        "minimum": None,
+        "maximum": None,
+        "sum": None,
+        "sum_log": None,
+        "sum_x_log_x": None,
+    }
+
+
+def test_strict_npy_parser_preserves_x87_log_below_binary64_range():
+    content = npy_float_file([0.25], descr="<f16")
+    tiny_x87 = (
+        (1 << 63).to_bytes(8, "little")
+        + (10_000).to_bytes(2, "little")
+        + b"\x00" * 6
+    )
+
+    parsed = default_parser_registry().parse_bytes(
+        "securebench.strict-npy-float-summary/v1",
+        content[:-16] + tiny_x87,
+    )
+
+    assert parsed["statistics"]["all_finite"] is True
+    assert parsed["statistics"]["all_positive"] is True
+    assert parsed["statistics"]["sum"] == 0.0
+    assert parsed["statistics"]["sum_log"] < -4000.0
+
+
+@pytest.mark.parametrize(
+    ("content", "error_code"),
+    [
+        (b"not-npy", "invalid_npy"),
+        (npy_float_file([1.0])[:-1], "invalid_npy"),
+        (npy_float_file([1.0], trailing=b"x"), "invalid_npy"),
+        (npy_float_file([1.0], version=(9, 0)), "invalid_npy"),
+        (
+            npy_float_file(
+                [1.0],
+                header_source=(
+                    "{'descr':'<f8','descr':'>f8',"
+                    "'fortran_order':False,'shape':(1,)}"
+                ),
+            ),
+            "invalid_npy",
+        ),
+        (
+            npy_float_file(
+                [1.0],
+                header_source=(
+                    "{'descr':'<i8','fortran_order':False,'shape':(1,)}"
+                ),
+            ),
+            "unsupported_npy_dtype",
+        ),
+        (
+            npy_float_file(
+                [1.0],
+                shape=(1_000_001,),
+            ),
+            "npy_too_many_elements",
+        ),
+    ],
+)
+def test_strict_npy_parser_rejects_malformed_ambiguous_or_excessive_arrays(
+    content,
+    error_code,
+):
+    with pytest.raises(ParserRejected) as error:
+        default_parser_registry().parse_bytes(
+            "securebench.strict-npy-float-summary/v1",
+            content,
+        )
+
+    assert getattr(error.value, "code", None) == error_code
+
+
+def test_strict_npy_header_cannot_execute_candidate_expression(tmp_path):
+    marker = tmp_path / "executed"
+    source = (
+        "{'descr':__import__('pathlib').Path(%r).write_text('bad'),"
+        "'fortran_order':False,'shape':(1,)}" % str(marker)
+    )
+    content = npy_float_file([1.0], header_source=source)
+
+    with pytest.raises(ParserRejected) as error:
+        default_parser_registry().parse_bytes(
+            "securebench.strict-npy-float-summary/v1",
+            content,
+        )
+
+    assert getattr(error.value, "code", None) == "invalid_npy"
+    assert not marker.exists()
 
 
 @pytest.mark.parametrize(

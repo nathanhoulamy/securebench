@@ -78,7 +78,7 @@ the runner does not invent a benchmark score.
 | `filesystem_overlay` candidate | Capture, transactional storage, fresh replay, and normal harness integration implemented; native execution remains qualification-gated |
 | Passive artifact check using `source.entry` | Implemented for `file_bundle` |
 | Artifact check using `source.path` | Implemented for bounded repository-relative `git_patch` paths and absolute paths mapped through fresh overlay roots |
-| Registered passive parsers | JSON, UTF-8 text, ICS, strict CSV, and tree-manifest profiles exist |
+| Registered passive parsers | JSON, UTF-8 text, ICS, strict CSV, bounded scalar-float NPY summaries, and tree-manifest profiles exist |
 | Basic protocol check | Implemented with finite JSON, bounded I/O, and a fresh offline container per Challenge |
 | Adapter v2 contract | The only supported Adapter format; implemented with typed Challenge/Observation schemas, Evaluation Participants, Trusted Helper requirements, Output Artifacts, and reduced maximums |
 | Challenge Evidence | Implemented with host Challenge/Evaluation IDs, correlation checks, and explicit failure source |

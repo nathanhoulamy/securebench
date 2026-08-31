@@ -62,13 +62,13 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 
 ## Questions for our later review
 
-- [ ] Read the complete public instruction.
-- [ ] Walk through the verifier entrypoint line by line.
-- [ ] Identify every candidate-controlled input consumed by the verifier.
-- [ ] Identify every scoring-relevant assertion and expected value.
-- [ ] Decide whether the task's intended behavior is fully represented by its tests.
-- [ ] Design the split-verification conversion.
-- [ ] Record fidelity limitations and the final eligibility decision.
+- [x] Read the complete public instruction.
+- [x] Walk through the verifier entrypoint line by line.
+- [x] Identify every candidate-controlled input consumed by the verifier.
+- [x] Identify every scoring-relevant assertion and expected value.
+- [x] Decide whether the task's intended behavior is fully represented by its tests.
+- [x] Design the split-verification conversion.
+- [x] Record fidelity limitations and the current qualification status.
 
 ## Future conversion notes
 
@@ -81,3 +81,170 @@ plaintext. No hidden test, expected answer, threshold, or scoring logic enters
 either VM. John the Ripper usage and cracking provenance remain unobservable,
 but the original verifier does not score them. **Manually approved after the
 feasibility re-audit.**
+
+## Implemented v2 conversion
+
+Final status: **Implemented — qualification pending**. The conversion and
+deterministic qualification matrix are implemented, but mandatory real
+digest-pinned Linux/Docker evidence and leak-free teardown are unavailable.
+
+### Candidate boundary
+
+The Candidate is one bounded `file_bundle` entry:
+
+| Entry | Exact path | Kind | Per-file limit |
+|---|---|---|---:|
+| `solution` | `/app/solution.txt` | regular file | 4,096 bytes |
+
+The aggregate maximum is one file and 4,096 bytes. Capture occurs only after
+the Agent environment stops. `/app/secrets.7z`, the John the Ripper source and
+build, extracted `secret_file.txt`, password/hash files, logs, caches,
+credentials, installed state, processes, connections, mounts, and all other
+workspace paths are intentionally excluded. The public prompt declares only
+`/app/solution.txt` as a deliverable, so the boundary preserves every valid
+solution without capturing cracking state or the full workspace.
+
+### Verification design and behavior/trust mapping
+
+The single `solution_artifact` check passively reads the declared regular file
+with `securebench.utf8-text/v1` under the same 4,096-byte limit. Candidate bytes
+are strictly decoded as UTF-8 and never imported, executed, deserialized as a
+language object, or passed to a shell. There is no Adapter, protocol Challenge,
+Output Artifact, Trusted Helper, or Evaluation ID.
+
+| Public requirement | Independently observed evidence | Host-only Oracle decision |
+|---|---|---|
+| Create `/app/solution.txt` | Stopped-state capture extracts exactly one declared regular file | Missing, symlinked, non-regular, or oversized output fails closed |
+| Put the word from the archived file in the solution | The bounded parser returns the complete UTF-8 text | Apply source `strip()` semantics and require exact equality with the trusted plaintext |
+| Do not accept Candidate claims as verdicts | Only parsed file bytes reach the Oracle | Extra text, wrong words, and verdict claims fail; Candidate scores have no authority |
+
+The host-only Oracle validates the check and artifact IDs, retains the expected
+plaintext, normalizes and compares the text, and alone emits the score, check
+outcome, diagnostics, and final verdict.
+
+### Resource visibility
+
+- Public: the complete instruction and digest-pinned image baseline containing
+  `/app/secrets.7z` and the source task's John the Ripper build. The solving
+  phase retains the original row's internet access.
+- Evaluation-only: none. A passive artifact check does not create a
+  Candidate-execution environment or verification-time network channel.
+- Host-only: `crack-7z-hash/oracle/oracle.yaml`, `oracle.py`, the expected
+  plaintext, comparison logic, scoring, and qualification expectations.
+
+The original hidden pytest verifier is not copied, mounted, imported, or
+executed in either candidate-controlled environment.
+
+### Security design
+
+Row bounds reduce framework capacity to one regular file and 4,096 bytes.
+Executable preflight requires the entry below `/app`, rejects overlap with
+framework materialization paths or public mounts, and binds capture to the
+compiled baseline digest. Stopped-state capture uses no-follow regular-file
+handling and rejects missing paths, symlinks, directories, special files,
+oversize, and replacement races. The content-addressed Candidate manifest is
+revalidated before passive replay.
+
+The UTF-8 parser rejects malformed bytes. NUL-bearing valid UTF-8 remains inert
+text and fails exact comparison. Candidate stdout, metadata, guest tests,
+alternate files, extracted plaintext files, cracking logs, and claimed verdicts
+never enter the decision path. Oracle comparison uses only a bounded string and
+does not construct paths, commands, or executable objects from Candidate data.
+
+### Semantic fidelity
+
+The source verifier checks that `/app/solution.txt` exists, reads the complete
+file with text mode, applies Python `strip()`, and compares it exactly with the
+trusted plaintext. The v2 conversion preserves those semantics for valid
+UTF-8. Missing, invalid-UTF-8, and other read failures remain Candidate
+failures. The new 4,096-byte bound is far above a valid answer and has no
+intelligence impact.
+
+The verifier does not observe whether the Agent used John the Ripper, cracked
+the archive, extracted `secret_file.txt`, or supplied a fixed known answer.
+The v2 conversion preserves that inherited limitation rather than claiming
+provenance that cannot be independently observed. The checked-in public
+archive is 215 bytes, begins with the 7z signature, and has SHA-256
+`a2e13fcbb4c2c8e92b1bf9d78ec91376705d1f5631d5bd4de64f82aa0553b773`.
+
+### Qualification evidence actually obtained
+
+- Source revision:
+  `2fd12b88aafdd04a52c298e3940bcb189f9766d6`.
+- Working-tree base:
+  `4159685e147ea77d51e5a776989ae4d492f5d6cc`; no implementation commit was
+  created. The working tree also contains the preceding uncommitted
+  `code-from-image` and `count-dataset-tokens` conversions.
+- Registry-resolved image:
+  `alexgshaw/crack-7z-hash@sha256:0f4453abd774c5a3d3d7e66ba28fae88ec2e49ada3a993b324ebc16c348666d3`.
+  `docker buildx imagetools inspect` resolved the manifest; the image has not
+  run locally.
+- Compiled digests: manifest
+  `sha256:b149ce25262dcd9111dda2460d6f5439c9576595995249570cd872fbe240d7a0`,
+  row
+  `sha256:f9fa9b555c5ac369ff0d7bc98204ddb689cfc68f131806b97695a0a5dd82fab6`,
+  baseline
+  `sha256:6cfb67e9df42b1e159849c29293b49baef15c45cdafd02d5af9d0fc67c81e4d3`,
+  and verification
+  `sha256:a0a7c2891cb75240987e7f8fbad79e3d471f8a0fb39b08aea3677ce7d72a75d1`.
+  The exact-reference replay Candidate digest is
+  `sha256:16cdd27a56d7408114f568e7b1d6f6ec6d4e867d036305b087d9b865159973f3`.
+  No execution digest exists because no end-to-end run completed.
+- Deterministic host: 2026-08-31, macOS 26.6.2 (Darwin 25.6.0), arm64,
+  Python 3.13.5.
+- Focused command:
+  `uv run --no-sync --with pytest python -m pytest -q tests/test_crack_7z_hash_v2.py`.
+  Result: `18 passed, 5 skipped` in 0.57 seconds; all skips are Docker-gated.
+- Warning-strict focused regression command:
+  `uv run --no-sync --with pytest python -m pytest -q -W error tests/test_crack_7z_hash_v2.py tests/test_v2_artifact_verification.py tests/test_v2_candidates.py`.
+  Result: `66 passed, 5 skipped` in 3.63 seconds.
+- Base/missing failure: missing Candidate evidence is rejected by the host
+  Oracle without an infrastructure error. The untouched-image test is written
+  but has not run.
+- Reference success: exact plaintext and varied outer whitespace pass through
+  real bounded capture, storage, UTF-8 parsing, and the host Oracle.
+- Targeted-mutant rejection: truncated, extended, case-changed, and
+  space-inserted plaintext fail.
+- Malicious-Candidate handling: extra text, forged/structured verdict claims,
+  a NUL suffix, and invalid UTF-8 fail; symlink, directory, and 4,097-byte files
+  fail capture; undeclared extracted plaintext and cracking-log files are
+  absent from the stored Candidate.
+- Replay/isolation: the same content-addressed Candidate verifies twice with
+  the same digest and no writable verification state. Protocol Evaluation,
+  case, and credential freshness are not applicable to this passive row.
+- Failure ownership: malformed and missing Candidate outputs produce benchmark
+  failure without infrastructure error. Adapter and Trusted Helper failure
+  classes are not applicable.
+- The Docker-gated command was attempted once with
+  `SECUREBENCH_DOCKER_INTEGRATION=1`; all 18 deterministic cases passed, while
+  all five Docker cases failed before image materialization with
+  `failed to remove image materialization container` because the Docker daemon
+  was unavailable. This is infrastructure unavailability, not Candidate
+  qualification evidence.
+- The selected-row audit passes `5/5`. The complete eleven-row Terminal audit
+  and self-audit each pass `45/45` with no failures or warnings. Reports are
+  under `/tmp/securebench-crack-7z-hash-terminal-audit` and
+  `/tmp/securebench-crack-7z-hash-self-audit`.
+- Host teardown inspection found no running SecureBench or task process. The
+  failed setup left five empty task workspaces inside pytest's 252-KiB session
+  directory; that exact generated `pytest-9` directory was moved to the macOS
+  Trash and no longer exists at its original path. Docker container, network,
+  and volume inspection could not connect to the daemon, so leak-free Docker
+  teardown is not established.
+- No full repository suite or Agent smoke was run. No full-suite run is
+  required because no shared framework code changed; the relevant regression
+  suite passed with `-W error`.
+- Final loading found eleven unique rows, compiled all eleven, and executable
+  preflight passed for `terminal-bench/crack-7z-hash`. `git diff --check` also
+  passed.
+
+### Known limitations and remaining work
+
+Run the complete digest-pinned Linux/Docker matrix: untouched-image failure;
+stopped-Agent reference success; semantic-mutant and forged-claim rejection;
+whitespace fidelity; malicious file-shape rejection; exact Candidate replay;
+correct failure ownership; and leak-free teardown. Then run selected-row,
+complete Terminal, and self-audits plus final diff checks on the qualifying
+revision. An Agent smoke may be attempted at most once only after mandatory
+Docker qualification passes. Until then, the row remains
+**Implemented — qualification pending**.

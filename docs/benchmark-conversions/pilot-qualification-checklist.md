@@ -290,6 +290,260 @@ verification digest
 execution digest
 `sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
 
+For the ninth Terminal row, resume the first eight results and confirm the
+selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 9 --resume
+```
+
+### `terminal-bench/code-from-image`
+
+- [x] The complete prompt, public image, verifier entrypoint, and both source
+  assertions were reconstructed; the prefix assertion is redundant with exact
+  equality.
+- [x] The Candidate contains only bounded regular `/app/output.txt`; image,
+  implementation, installed state, logs, processes, and workspace state are
+  excluded.
+- [x] No Adapter, Output Artifact, Trusted Helper, or Candidate execution is
+  required during verification.
+- [x] Missing Candidate evidence is rejected by the host Oracle without an
+  infrastructure error.
+- [x] The exact reference and outer-whitespace variants pass the real bounded
+  capture, store, parser, and Oracle path deterministically.
+- [x] Prefix-only, wrong-nibble, case-changed, forged-verdict, structured-claim,
+  NUL, and invalid-UTF-8 mutants fail.
+- [x] Symlink, directory, oversized output, and unrelated-workspace-file cases
+  prove the declared Candidate boundary fails closed or excludes undeclared
+  state.
+- [x] Exact content-addressed replay is deterministic; protocol Evaluation ID,
+  credential, and case-state isolation are not applicable to this passive row.
+- [ ] The untouched digest-pinned image fails stopped Candidate capture on
+  Linux/Docker.
+- [ ] The reference, prefix mutant, forged-verdict, and malicious file-shape
+  matrix passes through real digest-pinned stopped-Agent capture on Linux.
+- [x] One-row and complete Terminal audits plus the self-audit pass without
+  warnings.
+- [ ] Final teardown inspection proves no Agent/Evaluation container, network,
+  volume, credential, root, or task-specific temporary state survives.
+- [ ] An Agent smoke is recorded, if performed after mandatory qualification.
+- [x] Deterministic evidence, semantic fidelity, and remaining work are
+  recorded in [`code-from-image.md`](TerminalBench/code-from-image.md).
+
+Final status: **Implemented — qualification pending**
+
+Evidence/reason: Deterministic qualification passes `16 passed, 4 skipped` on
+macOS arm64, and focused regressions pass `64 passed, 4 skipped`. The one-row
+audit passes `5/5`; complete Terminal and self-audits pass `37/37`. The registry
+digest resolves, but the single Docker attempt failed before materialization
+because the daemon was unavailable, so no Linux/Docker, leak, or Agent-smoke
+evidence is claimed.
+
+For the tenth Terminal row, resume the first nine results and confirm the
+selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 10 --resume
+```
+
+### `terminal-bench/count-dataset-tokens`
+
+- [x] The complete prompt and verifier were reconstructed; the source checks
+  substring containment rather than the prompt's requested bare-integer form.
+- [x] The Candidate contains only bounded regular `/app/answer.txt`; datasets,
+  tokenizer/model caches, scripts, logs, processes, and workspace state are
+  excluded.
+- [x] No Adapter, Output Artifact, Trusted Helper, or Candidate execution is
+  required during verification.
+- [x] Missing Candidate evidence is rejected by the host Oracle without an
+  infrastructure error.
+- [x] Bare, surrounding-text, embedded-digit, and valid-NUL forms containing
+  `79586` pass the real deterministic capture, store, parser, and Oracle path,
+  preserving the source predicate.
+- [x] Off-by-one, transposed, comma-separated, space-separated, forged-verdict,
+  structured-claim, and invalid-UTF-8 mutants fail.
+- [x] Symlink, directory, oversized output, and unrelated cache-file cases
+  prove the Candidate boundary fails closed or excludes undeclared state.
+- [x] Exact content-addressed replay is deterministic; protocol Evaluation ID,
+  credential, and case-state isolation are not applicable.
+- [ ] The untouched digest-pinned image fails stopped Candidate capture on
+  Linux/Docker.
+- [ ] The reference, wrong-count, forged-claim, source-containment, and
+  malicious file-shape matrix passes through real stopped-Agent capture.
+- [x] One-row and complete Terminal audits plus the self-audit pass without
+  warnings.
+- [ ] Final teardown inspection proves no Agent/Evaluation container, network,
+  volume, credential, root, or task-specific temporary state survives.
+- [ ] An Agent smoke is recorded, if performed after mandatory qualification.
+- [x] Deterministic evidence, the prompt/verifier gap, semantic fidelity, and
+  remaining work are recorded in
+  [`count-dataset-tokens.md`](TerminalBench/count-dataset-tokens.md).
+
+Final status: **Implemented — qualification pending**
+
+Evidence/reason: Deterministic qualification passes `17 passed, 5 skipped` on
+macOS arm64, and warning-strict regressions pass `65 passed, 5 skipped`. The
+one-row audit passes `5/5`; complete Terminal and self-audits pass `41/41`. The
+single Docker attempt failed before materialization because the daemon was
+unavailable, so no Linux/Docker, leak-free teardown, or Agent-smoke evidence is
+claimed.
+
+For the eleventh Terminal row, resume the first ten results and confirm the
+selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 11 --resume
+```
+
+### `terminal-bench/crack-7z-hash`
+
+- [x] The complete prompt, public archive identity, verifier entrypoint, and
+  exact `strip()` comparison were reconstructed.
+- [x] The Candidate contains only bounded regular `/app/solution.txt`; archive,
+  extracted data, John build, logs, caches, processes, and workspace state are
+  excluded.
+- [x] No Adapter, Output Artifact, Trusted Helper, or Candidate execution is
+  required during verification.
+- [x] Missing Candidate evidence is rejected by the host Oracle without an
+  infrastructure error.
+- [x] Exact plaintext and outer-whitespace variants pass the real deterministic
+  capture, store, parser, and Oracle path.
+- [x] Truncated, extended, case-changed, space-inserted, extra-text,
+  forged-verdict, structured-claim, NUL, and invalid-UTF-8 mutants fail.
+- [x] Symlink, directory, oversized output, and undeclared extracted/log-file
+  cases prove the Candidate boundary fails closed or excludes unrelated state.
+- [x] Exact content-addressed replay is deterministic; protocol Evaluation ID,
+  credential, and case-state isolation are not applicable.
+- [ ] The untouched digest-pinned image fails stopped Candidate capture on
+  Linux/Docker.
+- [ ] Reference, semantic-mutant, forged-claim, whitespace, and malicious
+  file-shape cases pass through real stopped-Agent capture.
+- [x] One-row and complete Terminal audits plus the self-audit pass without
+  warnings.
+- [ ] Final teardown inspection proves no Agent/Evaluation container, network,
+  volume, credential, root, or task-specific temporary state survives.
+- [ ] An Agent smoke is recorded, if performed after mandatory qualification.
+- [x] Deterministic evidence, semantic fidelity, and remaining work are
+  recorded in [`crack-7z-hash.md`](TerminalBench/crack-7z-hash.md).
+
+Final status: **Implemented — qualification pending**
+
+Evidence/reason: Deterministic qualification passes `18 passed, 5 skipped` on
+macOS arm64, and warning-strict regressions pass `66 passed, 5 skipped`. The
+one-row audit passes `5/5`; complete Terminal and self-audits pass `45/45`. The
+single Docker attempt failed before materialization because the daemon was
+unavailable, so no Linux/Docker, leak-free teardown, or Agent-smoke evidence is
+claimed.
+
+For the twelfth Terminal row, resume the first eleven results and confirm the
+selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 12 --resume
+```
+
+### `terminal-bench/db-wal-recovery`
+
+- [x] The complete prompt, source verifier, checked-in database/WAL identity,
+  XOR recovery, and every scoring-relevant assertion were reconstructed.
+- [x] The Candidate contains only bounded regular `/app/recovered.json`;
+  databases, WAL/SQLite sidecars, scripts, logs, caches, processes, and
+  workspace state are excluded.
+- [x] No Adapter, Output Artifact, Trusted Helper, or Candidate execution is
+  required during verification.
+- [x] Missing Candidate evidence and a five-row base-only recovery are rejected
+  by the host Oracle without an infrastructure error.
+- [x] The reviewed 11-row reference passes the real deterministic capture,
+  content store, strict JSON parser, and Oracle path.
+- [x] Ordering, duplicate/missing-ID, stale-WAL-value, wrong-name, wrong-type,
+  and missing-field mutants fail.
+- [x] The source's unchecked fields, extra keys, and Python boolean-as-integer
+  quirk remain accepted and are explicitly documented.
+- [x] Forged verdict objects, malformed and ambiguous JSON, duplicate keys,
+  invalid UTF-8, and NUL suffixes fail.
+- [x] Symlink, directory, oversized output, and unrelated database/WAL/log-file
+  cases prove the Candidate boundary fails closed or excludes undeclared state.
+- [x] Exact content-addressed replay is deterministic; protocol Evaluation ID,
+  credential, and case-state isolation are not applicable.
+- [ ] The untouched digest-pinned image fails stopped Candidate capture on
+  Linux/Docker.
+- [ ] Reference, base-only, stale-update, forged-claim, and malicious file-shape
+  cases pass through real stopped-Agent capture.
+- [x] One-row and complete Terminal audits plus the self-audit pass without
+  warnings.
+- [ ] Final teardown inspection proves no Agent/Evaluation container, network,
+  volume, credential, root, or task-specific temporary state survives.
+- [ ] An Agent smoke is recorded, if performed after mandatory qualification.
+- [x] Deterministic evidence, semantic fidelity, inherited verifier gaps, and
+  remaining work are recorded in
+  [`db-wal-recovery.md`](TerminalBench/db-wal-recovery.md).
+
+Final status: **Implemented — qualification pending**
+
+Evidence/reason: Deterministic qualification passes `26 passed, 5 skipped` on
+macOS arm64, and warning-strict regressions pass `74 passed, 5 skipped`. The
+one-row audit passes `5/5`; complete Terminal and self-audits pass `49/49`. The
+single Docker attempt failed before materialization because the daemon was
+unavailable, so no Linux/Docker, leak-free teardown, or Agent-smoke evidence is
+claimed.
+
+For the thirteenth Terminal row, resume the first twelve results and confirm
+the selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 13 --resume
+```
+
+### `terminal-bench/distribution-search`
+
+- [x] The complete prompt, source verifier, NumPy reference behavior, and every
+  scoring-relevant shape, validity, normalization, and KL assertion were
+  reconstructed.
+- [x] The Candidate contains only bounded regular `/app/dist.npy`; scripts,
+  packages, optimizer state, notebooks, logs, caches, processes, and workspace
+  state are excluded.
+- [x] A reusable bounded NPY float-summary parser was contracted, registered,
+  adversarially tested, and kept free of row expectations and thresholds.
+- [x] No Adapter, Output Artifact, Trusted Helper, or Candidate execution is
+  required during verification.
+- [x] Missing Candidate evidence is rejected by the host Oracle without an
+  infrastructure error.
+- [x] Independently solved float32 and float64 references pass the real capture,
+  store, parser, and Oracle path and agree with direct NumPy calculations.
+- [x] Uniform, forward-only, backward-only, wrong-count, two-dimensional,
+  nonpositive, nonfinite, above-one, and normalization mutants fail.
+- [x] The source's strict normalization boundary is exercised with passing
+  just-inside and failing just-outside candidates.
+- [x] Forged verdicts, malformed/truncated/trailing NPY, duplicate header keys,
+  object/pickle dtypes, code-like header expressions, shape bombs, unsupported
+  dtypes/versions, symlinks, directories, and oversize output fail closed.
+- [x] Exact content-addressed replay is deterministic; protocol Evaluation ID,
+  credential, and case-state isolation are not applicable.
+- [x] Parser/capture rejection remains Candidate failure; Adapter and Helper
+  failure classes are not applicable.
+- [x] Parser, focused regression, and full warning-strict suites pass.
+- [ ] The untouched digest-pinned image fails stopped Candidate capture on
+  Linux/Docker.
+- [ ] Float32/float64 reference, semantic-mutant, forged-claim, and malicious
+  file-shape cases pass through real stopped-Agent capture.
+- [x] One-row and complete Terminal audits plus the self-audit pass without
+  warnings.
+- [ ] Final teardown proves no Agent/Evaluation container, network, volume,
+  credential, root, or task-specific temporary state survives.
+- [ ] An Agent smoke is recorded, if performed after mandatory qualification.
+- [x] Deterministic evidence, parser trust contract, semantic fidelity, and
+  remaining work are recorded in
+  [`distribution-search.md`](TerminalBench/distribution-search.md).
+
+Final status: **Implemented — qualification pending**
+
+Evidence/reason: Row qualification passes `25 passed, 5 skipped`; focused
+warning-strict regressions pass `103 passed, 5 skipped`; the full
+warning-strict suite passes `727 passed, 51 skipped`. The one-row audit passes
+`5/5`; complete Terminal and self-audits pass `53/53`. The single Docker attempt
+failed before materialization because the daemon was unavailable, so no
+Linux/Docker, leak-free teardown, or Agent-smoke evidence is claimed.
+
 ## DeepSWE
 
 The tasks are ordered so these commands start exactly one new row at a time:
