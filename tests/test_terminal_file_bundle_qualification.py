@@ -121,6 +121,14 @@ ROWS = (
         exact_missing_categories=("invoices_tree:candidate_capture_rejected",),
         base_command=("true",),
     ),
+    RowCaptureContract(
+        task_id="terminal-bench/fix-code-vulnerability",
+        target_id="bottle_source",
+        oversized_target="vulnerability_report",
+        exact_missing_categories=None,
+        missing_check_ids=("candidate_artifacts", "header_validation_behavior"),
+        base_command=("true",),
+    ),
 )
 
 

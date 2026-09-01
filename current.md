@@ -7,7 +7,7 @@ request/event-ledger/process-supervisor Trusted Helper execution, git-patch
 execution, the locally qualified filesystem-overlay implementation, and the
 subsequent architecture-wide overlay integration review, plus the compact
 qualification matrix and Terminal conversions through
-`financial-document-processor`
+`fix-code-vulnerability`
 
 Active development branch: `split-verification-v2`
 
@@ -96,14 +96,16 @@ the runner does not invent a benchmark score.
 | Admission qualification pipeline | Not implemented |
 | Result signing | Not implemented |
 
-The executable reference packs currently contain nineteen Terminal-Bench rows
-and three DeepSWE rows. The sixteen incremental conversions from `bn-fit-modify`
-through `financial-document-processor` are Approved after deterministic,
+The executable reference packs currently contain twenty Terminal-Bench rows
+and three DeepSWE rows. The seventeen incremental conversions from `bn-fit-modify`
+through `fix-code-vulnerability` are Approved after deterministic,
 pinned-image, stopped-capture, adversarial, teardown, and model-backed
-qualification. The sixteen rows share a declarative `file_bundle`
+qualification. The seventeen rows share a declarative `file_bundle`
 capture-qualification matrix while retaining semantic, parser, asset-identity,
 and replay evidence in focused row tests; the financial row extends that proof
-to bounded directory entries and passive nested-file selection. The intervening
+to bounded directory entries and passive nested-file selection, while the
+fix-code row adds a two-file artifact/protocol Candidate without new framework
+code. The intervening
 `feal-differential-cryptanalysis` and `filter-js-from-html` entries remain
 Excluded because faithful adaptive Oracle interaction and trusted dynamic
 browser verdicts, respectively, are unavailable. The first-wave control,
@@ -267,7 +269,7 @@ hardening rather than a prerequisite for writing and qualifying the first conver
 
 At this review pass:
 
-- full warning-strict suite: `906 passed, 88 skipped`;
+- full warning-strict suite: `941 passed, 99 skipped`;
 - complete protocol and Trusted Helper suite with Docker integration enabled:
   `54 passed, 1 skipped`, including fresh ordinary/recorder Evaluations,
   clean-repository git-patch replay, authenticated event-ledger traffic, external
@@ -347,16 +349,25 @@ At this review pass:
   is correctly rejected without infrastructure error;
 - `financial-document-processor` passive qualification: the generic nested
   directory-file selector passes `93/93` focused framework tests, the focused
-  row suite passes `31 passed, 6 skipped`, and its pinned-image matrix passes
-  `37/37`; exact source document identities and values, directory placement,
+  row suite passes `37 passed, 6 skipped`, and its pinned-image matrix passes
+  `43/43`; exact source document identities and values, pandas 2.3.2 default-NA
+  VAT behavior, directory placement,
   source-accepted set/CSV quirks, numeric/path mutants, stopped directory
   capture, passive nested summary parsing, and malicious tree shapes are
   covered; its bounded Luna Candidate reaches all four artifacts and is
   correctly rejected for `incorrect_invoice_placement` without infrastructure
   error;
+- `fix-code-vulnerability` hybrid qualification: the focused deterministic
+  suite passes `29 passed, 11 skipped`, and its pinned Linux matrix passes
+  `40/40`; the untouched vulnerable source fails with a correct report, the
+  reference passes all five fresh Evaluations and exact replay, and the
+  original upstream-plus-hidden verifier passes `373/373`; its Luna smoke
+  captures both bounded files and passes all five protocol cases without
+  infrastructure error; the host correctly rejects its unrelated source edit
+  and incorrect report;
 - the Docker pass left no Trusted Helper containers, materialization containers, Evaluation
   networks, or overlay volumes behind;
-- complete Terminal configuration and self-audits: `77/77` passed with no
+- complete Terminal configuration and self-audits: `81/81` passed with no
   failures or warnings;
 - the generated Trusted Helper contract schema was refreshed for the reviewed
   HTTP and host-only access/credential modes, and its regeneration check passes;

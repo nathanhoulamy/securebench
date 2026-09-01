@@ -151,7 +151,8 @@ and other content identities are compared as sets, so duplicate copies do not
 change a verdict; nested files and directories are ignored; and only immediate
 regular files make `documents/` non-empty. Summary text receives Python
 text-mode newline normalization, exact three-column header and 11-row checks,
-blank VAT normalization to zero, and the source predicate
+the exact pandas 2.3.2 default NA vocabulary for VAT normalization to zero,
+and the source predicate
 `abs(float(actual) - expected) < 0.01`.
 
 ### Resource visibility and security properties
@@ -178,8 +179,9 @@ has no expected intelligence impact.
 ### Semantic fidelity and inherited limitations
 
 The conversion preserves the source's observed placement sets, CSV header and
-row count, file-identity lookup, amount/VAT table, blank VAT behavior, and
-strict floating-point tolerance. It also preserves important weak behaviors:
+row count, file-identity lookup, amount/VAT table, pandas default-NA VAT
+behavior, and strict floating-point tolerance. It also preserves important
+weak behaviors:
 duplicate document copies pass because placement uses sets; extra invoice
 `.json` files and nested files are ignored; summary rows may be reordered; and
 11 identical correct `total` rows pass even though they do not describe the
@@ -193,18 +195,23 @@ filenames otherwise remain unconstrained and randomized names are preserved.
 
 ### Qualification evidence
 
-- Qualification base: commit `217e47c` on branch `split-verification-v2`;
-  this row remains with `extract-elf`, `extract-moves-from-video`, and
-  `feal-linear-cryptanalysis` in the requested uncommitted conversion batch.
+- The row, generic nested-file selector, and initial qualification are committed
+  at `fa23d3969b9cc61aefac8a2ff3a4a2c969e94d71` on branch
+  `split-verification-v2`; the final pandas-NA fidelity refinement and refreshed
+  evidence are based on that commit in the current working tree.
 - Host: 2026-09-01, Linux `7.0.0-29-generic` x86_64, Docker 29.7.2,
   Linux/amd64 image.
 - Generic selector qualification passes `93/93` focused schema, artifact, and
   execution-preflight tests.
 - Focused deterministic row command:
   `.venv/bin/python -m pytest -q -W error tests/test_financial_document_processor_v2.py tests/test_terminal_file_bundle_qualification.py -k 'financial-document-processor or financial_document_processor'`.
-  Result: `31 passed, 6 skipped, 73 deselected`; skips are Docker-gated.
+  Result: `37 passed, 6 skipped, 73 deselected`; skips are Docker-gated.
 - Digest-pinned Linux command: the same command with
-  `SECUREBENCH_DOCKER_INTEGRATION=1`. Result: `37 passed, 73 deselected`.
+  `SECUREBENCH_DOCKER_INTEGRATION=1`. Result: `43 passed, 73 deselected`.
+- The unmodified source verifier passes all seven tests against the
+  reconstructed reference state using its exact pytest 8.4.1 and pandas 2.3.2
+  dependencies. A direct pandas 2.3.2 inspection confirms the Oracle's complete
+  20-token default NA vocabulary.
 - Base failure and capture hardening cover the untouched image, missing roots,
   root symlinks, wrong root types, and oversized trees. Nested summary tests
   cover missing, directory, invalid-UTF-8, traversal, and malformed content.
@@ -213,20 +220,21 @@ filenames otherwise remain unconstrained and randomized names are preserved.
   nested files, reordered CRLF rows, 11 duplicate total rows, changed bytes,
   misplacement, non-empty source, header/count/amount/VAT errors, unknown
   filenames, and exact Candidate replay.
-- The complete warning-strict suite passes `906 passed, 88 skipped`. Schema
+- The complete warning-strict suite passes `912 passed, 88 skipped`. Schema
   regeneration and `git diff --check` pass. Terminal and self audits pass
   `77/77`; unchanged DeepSWE passes `13/13`; the isolated one-row audit passes
   `5/5`, all without warnings.
 - The final isolated API-key-backed `gpt-5.6-luna` smoke uses
   `reasoning_effort: none`, captures a bounded three-directory Candidate, and
   reaches all four artifacts without infrastructure error. The Oracle rejects
-  its incorrect classification as `incorrect_invoice_placement`. Candidate
+  its incomplete/incorrect classification as `incorrect_invoice_placement`.
+  Candidate
   digest:
-  `sha256:0fdaeb0b9dfefe75c419da8dd8b1dd4ad478f732fee6cf4027c5667b97e32593`;
+  `sha256:26f4299278984e7b939f6501ad2704ced802cbc3f94fc1fda4cfe4451834ca7e`;
   row digest:
   `sha256:de20210d04995b59aeb19075907a558edd14882b032bc71da405f624c62414d8`;
   verification digest:
-  `sha256:85994669329d49fe951e590b0bc91ec57cdc7a53d04ceefff93629a8d8d6446c`;
+  `sha256:8c62a870d62219dc5da5ff38aacc3a690ad953d77c61460190e405a173eaf745`;
   execution digest:
   `sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
 - Harness teardown prunes the benchmark image and leaves no row container,

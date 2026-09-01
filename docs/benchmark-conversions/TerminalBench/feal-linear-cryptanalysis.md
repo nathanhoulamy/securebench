@@ -149,9 +149,9 @@ shapes into bounded Candidate failures, with no expected intelligence impact.
 
 ### Qualification evidence
 
-- Qualification base: commit `217e47c` on branch `split-verification-v2`;
-  `extract-elf`, `extract-moves-from-video`, and this row remain together in
-  the requested uncommitted conversion batch.
+- The implementation and qualification are committed with the combined row
+  batch at `fa23d3969b9cc61aefac8a2ff3a4a2c969e94d71` on branch
+  `split-verification-v2`.
 - Host: 2026-09-01, Linux `7.0.0-29-generic` x86_64, Docker 29.7.2,
   Linux/amd64 image.
 - Focused deterministic command:

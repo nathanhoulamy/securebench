@@ -7,19 +7,20 @@ but they do not replace Linux/Docker qualification.
 
 Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; the sixteen incrementally qualified rows below
+remain intentionally unchecked; the seventeen incrementally qualified rows below
 currently have binary admission decisions. The intervening
 `feal-differential-cryptanalysis` row retains its manually approved Excluded
 decision, and `filter-js-from-html` remains Excluded under the current browser
 trust model. Global preflight and final pack sign-off therefore remain
 incomplete.
 
-Test-layout status is separate from admission: all sixteen incremental rows
+Test-layout status is separate from admission: all seventeen incremental rows
 use the compact shared `file_bundle` qualification proof. `dna-assembly`,
 `dna-insert`, `extract-elf`, `extract-moves-from-video`, and
 `feal-linear-cryptanalysis` each add one declarative row record;
 `financial-document-processor` extends the same matrix to bounded directory
-trees. All retain row-specific semantic, parser/Adapter, Oracle,
+trees, and `fix-code-vulnerability` adds a two-file artifact/protocol row. All
+retain row-specific semantic, parser/Adapter, Oracle,
 malicious-Candidate, and replay evidence in focused files.
 
 ## Run identity and host preflight
@@ -44,14 +45,13 @@ malicious-Candidate, and replay evidence in focused files.
   are committed at `035094b0d9f59c21221dfc71c1ed4ffd90b81614`.
 - [x] The `dna-insert` implementation is committed at
   `d46e0480de186b69daff2eae901bb57a4a350319`.
-- [x] The `extract-elf` implementation and qualification working tree are
-  based on `217e47c` and retained for the requested combined conversion commit.
-- [x] The `extract-moves-from-video` implementation and qualification working
-  tree share that uncommitted batch.
-- [x] The `feal-linear-cryptanalysis` implementation and qualification working
-  tree share that uncommitted batch.
-- [x] The `financial-document-processor` implementation, generic nested-file
-  selector, and qualification working tree share that uncommitted batch.
+- [x] The `extract-elf`, `extract-moves-from-video`,
+  `feal-linear-cryptanalysis`, and `financial-document-processor`
+  implementations and the generic nested-file selector are committed at
+  `fa23d3969b9cc61aefac8a2ff3a4a2c969e94d71`.
+- [x] The final pandas-NA fidelity refinement, refreshed financial-row
+  qualification, and `fix-code-vulnerability` conversion are based on that
+  commit in the current working tree.
 - [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26 through
   2026-09-01, Linux `7.0.0-29-generic`, x86_64.
 - [x] `docker version` succeeds and Docker uses Linux/amd64 containers
@@ -60,11 +60,11 @@ malicious-Candidate, and replay evidence in focused files.
   output.
 - [ ] The environment is installed with `python -m pip install -e '.[dev]'`.
 - [x] The full `.venv/bin/python -m pytest -q -W error` suite passes
-  (`906 passed, 88 skipped`).
+  (`941 passed, 99 skipped`).
 - [x] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
   passes (`77/77`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all nineteen selected rows (`77/77`, no warnings).
+  passes with all twenty selected rows (`81/81`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
   passes with all three selected rows (`13/13`, no warnings).
 - [x] The selected harness credential mode is usable. For `auth: api_key`, the
@@ -100,11 +100,15 @@ under `/tmp/securebench-extract-moves-terminal-audit`,
 `/tmp/securebench-feal-linear-terminal-audit`,
 `/tmp/securebench-feal-linear-self-audit`,
 `/tmp/securebench-feal-linear-deep-audit`, and
-`/tmp/securebench-feal-linear-one-row-audit`. The financial-document reports
-are under `/tmp/securebench-financial-terminal-audit`,
-`/tmp/securebench-financial-self-audit`,
-`/tmp/securebench-financial-deep-audit`, and
-`/tmp/securebench-financial-one-row-audit-final`.
+`/tmp/securebench-feal-linear-one-row-audit`. The final financial-document
+reports are under `/tmp/securebench-financial-exact-terminal-audit`,
+`/tmp/securebench-financial-exact-audit-self`,
+`/tmp/securebench-financial-exact-deep-audit`, and
+`/tmp/securebench-financial-exact-one-row-audit`. The final fix-code reports
+are under `/tmp/securebench-fix-code-final-terminal-audit`,
+`/tmp/securebench-fix-code-final-audit-self`,
+`/tmp/securebench-fix-code-final-deep-audit`, and
+`/tmp/securebench-fix-code-final-one-row-audit`.
 
 ## Terminal-Bench
 
@@ -978,13 +982,18 @@ eighteen executable rows and confirm the selected task ID:
   amount/VAT, unknown-file, invalid-UTF-8, missing/wrong-type summary, and
   forged/path-traversal mutants fail or cannot affect scoring.
 - [x] The source `< 0.01` numeric test is reproduced with Python floats,
-  including adjacent tolerance cases; blank VAT maps to zero.
+  including adjacent tolerance cases; pandas 2.3.2's exact default NA tokens
+  map to zero for VAT, as in the source verifier, and those tokens are rejected
+  as filenames because pandas does not preserve them as strings.
 - [x] Exact Candidate replay is stable, while root symlink, wrong root type,
   oversized tree, and missing Candidate attacks fail through the compact
   shared directory-capable `file_bundle` matrix.
 - [x] Generic selector qualification passes `93/93`; the pinned Linux row
-  matrix passes `37/37`; the complete warning-strict suite passes
-  `906 passed, 88 skipped`.
+  matrix passes `43/43`; the complete warning-strict suite passes
+  `912 passed, 88 skipped`.
+- [x] The original source verifier passes all seven tests against the
+  reconstructed reference state with its exact pytest 8.4.1 and pandas 2.3.2
+  dependencies.
 - [x] Terminal and self audits pass `77/77`; DeepSWE remains `13/13`; the
   isolated one-row audit passes `5/5`, all without warnings.
 - [x] The pinned Linux/amd64 image digest is used for reference, base, mutant,
@@ -1002,13 +1011,76 @@ Final status: [x] Approved  [ ] Excluded
 
 Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
 2026-09-01. Final Luna Candidate digest
-`sha256:0fdaeb0b9dfefe75c419da8dd8b1dd4ad478f732fee6cf4027c5667b97e32593`
+`sha256:26f4299278984e7b939f6501ad2704ced802cbc3f94fc1fda4cfe4451834ca7e`
 is correctly rejected for `incorrect_invoice_placement` with no infrastructure
 error; row digest
 `sha256:de20210d04995b59aeb19075907a558edd14882b032bc71da405f624c62414d8`,
 verification digest
-`sha256:85994669329d49fe951e590b0bc91ec57cdc7a53d04ceefff93629a8d8d6446c`,
+`sha256:8c62a870d62219dc5da5ff38aacc3a690ad953d77c61460190e405a173eaf745`,
 execution digest
+`sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
+
+For the twentieth executable Terminal row, derive a one-row temporary tasks
+file for an isolated rerun, or resume a result set containing the first
+nineteen executable rows and confirm the selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 20 --resume
+```
+
+### `terminal-bench/fix-code-vulnerability`
+
+- [x] The complete prompt, image mutation, six added source tests, 367 upstream
+  Bottle regressions, report aggregation, and `_hkey`/`_hval` behavior were
+  reconstructed.
+- [x] The Candidate contains only bounded stopped `/app/bottle.py` and
+  `/app/report.jsonl` regular files; repository metadata, tests, packages,
+  processes, connections, and unrelated workspace state are excluded.
+- [x] The pinned vulnerable and reference files are 175,565 bytes with reviewed
+  SHA-256 identities, and the protected non-target source digest is pinned.
+- [x] Passive verification accepts edits only inside the exact indented
+  `_hkey`/`_hval` bodies and independently reproduces the source JSONL report
+  semantics without importing Candidate code on the host.
+- [x] The public assertion-free Adapter exposes only a closed bounded call
+  surface and returns load, result-type/value, exception-type, and genuine
+  pre-import built-in `ValueError` identity observations; it contains no
+  expected answers or verdict logic.
+- [x] Five host-selected cases cover all 21 direct source calls, 24 direct
+  control guards, 96 `HeaderDict` calls, 72 `BaseResponse` calls, and 24
+  deterministic run-seeded unseen normalizations in fresh Evaluation VMs.
+- [x] The untouched vulnerable source with a correct report fails, while the
+  exact upstream reference passes all five cases and exact Candidate replay.
+- [x] `_hkey`-only, wrong-exception, forged same-name `ValueError`,
+  unrelated-edit, wrong-report, and malformed mutants fail through the real
+  pinned artifact/protocol path.
+- [x] Both Candidate files reject missing, symlink, directory, oversized, and
+  invalid-UTF-8 forms; forged outcomes, load claims, Challenge correlation, and
+  reused Evaluation IDs cannot score.
+- [x] Focused deterministic qualification passes `29 passed, 11 skipped`; the
+  consolidated pinned Linux matrix passes `40/40`; the source verifier passes
+  `373/373` against the reconstructed reference.
+- [x] The complete warning-strict suite passes `941 passed, 99 skipped`;
+  Terminal and self audits pass `81/81`; DeepSWE passes `13/13`; and the
+  isolated row audit passes `5/5`, all without warnings.
+- [x] The final API-key-backed Luna smoke uses `reasoning_effort: none`,
+  captures both bounded files, passes all five fresh protocol cases without
+  infrastructure error, and is correctly rejected for an unrelated source edit
+  and incorrect report.
+- [x] Harness teardown prunes the task image and leaves no row container,
+  Evaluation network, volume, Agent, or task-specific process.
+- [x] Fidelity hardening and limitations are recorded in
+  [`fix-code-vulnerability.md`](TerminalBench/fix-code-vulnerability.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean hybrid conversion qualified on Linux x86_64 on
+2026-09-01. Final Luna Candidate digest
+`sha256:e3d27c66c26a485b614a4b648bf8f3981b23ca0f3c9e443a6ddfbee9438a541e`
+is correctly rejected with row digest
+`sha256:813003970f82d0bb3e9fbcd5d74587e9b1dcd1c707543098d5b7073d7497f16e`,
+verification digest
+`sha256:75e4fa0daa1a13cea3c2e1d34b0bb881f48317fc0facd21ce2b0d9c71e1a204d`,
+and execution digest
 `sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
 
 ## DeepSWE

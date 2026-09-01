@@ -21,6 +21,29 @@ ARTIFACT_IDS = {
 }
 EXPECTED_SHA256 = "ca1802441451ea1e2e9b0fba77766ee45604777a254925c26a532c4932aef351"
 TOLERANCE = 0.01
+PANDAS_2_3_2_DEFAULT_NA_VALUES = frozenset(
+    {
+        "",
+        "#N/A",
+        "#N/A N/A",
+        "#NA",
+        "-1.#IND",
+        "-1.#QNAN",
+        "-NaN",
+        "-nan",
+        "1.#IND",
+        "1.#QNAN",
+        "<NA>",
+        "N/A",
+        "NA",
+        "NULL",
+        "NaN",
+        "None",
+        "n/a",
+        "nan",
+        "null",
+    }
+)
 
 
 def load_expected() -> dict[str, Any]:
@@ -57,6 +80,7 @@ def safe_invoice_name(value: str) -> bool:
     path = PurePosixPath(value)
     return (
         bool(value)
+        and value not in PANDAS_2_3_2_DEFAULT_NA_VALUES
         and not path.is_absolute()
         and len(path.parts) == 1
         and path.name == value
@@ -71,7 +95,7 @@ def source_number_matches(
     *,
     blank_is_zero: bool = False,
 ) -> bool:
-    if blank_is_zero and value == "":
+    if blank_is_zero and value in PANDAS_2_3_2_DEFAULT_NA_VALUES:
         value = "0"
     try:
         actual_number = float(value)

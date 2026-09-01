@@ -193,22 +193,57 @@ def test_host_expectations_are_derived_from_source_verifier_and_public_documents
 
 
 @pytest.mark.parametrize(
-    ("actual", "expected"),
+    ("actual", "expected", "blank_is_zero", "source_result"),
     [
-        ("81315.20", "81315.20"),
-        ("81315.209", "81315.20"),
-        ("81315.21", "81315.20"),
-        ("6204.199", "6204.19"),
-        ("6204.20", "6204.19"),
-        ("nan", "6204.19"),
-        ("inf", "6204.19"),
+        ("81315.20", "81315.20", False, True),
+        ("81315.209", "81315.20", False, True),
+        ("81315.21", "81315.20", False, False),
+        ("6204.199", "6204.19", False, True),
+        ("6204.20", "6204.19", False, False),
+        ("nan", "6204.19", False, False),
+        ("inf", "6204.19", False, False),
+        ("", "0", True, True),
+        ("NA", "0", True, True),
+        ("<NA>", "0", True, True),
+        ("NULL", "0", True, True),
     ],
 )
-def test_oracle_numeric_tolerance_uses_the_source_float_predicate(actual, expected):
+def test_oracle_numeric_tolerance_uses_source_pandas_and_float_predicates(
+    actual, expected, blank_is_zero, source_result
+):
     oracle = load_module(ORACLE_ROOT / "oracle.py", "financial_oracle_numbers")
-    source_result = abs(float(actual) - float(expected)) < 0.01
 
-    assert oracle.source_number_matches(actual, expected) is source_result
+    assert oracle.source_number_matches(
+        actual,
+        expected,
+        blank_is_zero=blank_is_zero,
+    ) is source_result
+
+
+def test_oracle_pins_the_exact_pandas_2_3_2_default_na_vocabulary():
+    oracle = load_module(ORACLE_ROOT / "oracle.py", "financial_oracle_na_values")
+
+    assert oracle.PANDAS_2_3_2_DEFAULT_NA_VALUES == {
+        "",
+        "#N/A",
+        "#N/A N/A",
+        "#NA",
+        "-1.#IND",
+        "-1.#QNAN",
+        "-NaN",
+        "-nan",
+        "1.#IND",
+        "1.#QNAN",
+        "<NA>",
+        "N/A",
+        "NA",
+        "NULL",
+        "NaN",
+        "None",
+        "n/a",
+        "nan",
+        "null",
+    }
 
 
 def test_reference_state_passes_and_excludes_unrelated_workspace_files(tmp_path):
@@ -282,6 +317,7 @@ def test_source_accepted_final_state_quirks_pass(tmp_path, mutation):
         ("wrong_vat", "incorrect_vat_amount"),
         ("unknown_file", "unexpected_summary_file"),
         ("path_traversal", "unsafe_summary_filename"),
+        ("pandas_na_filename", "unsafe_summary_filename"),
     ],
 )
 def test_targeted_state_and_summary_mutants_fail(tmp_path, mutation, failure):
@@ -314,6 +350,9 @@ def test_targeted_state_and_summary_mutants_fail(tmp_path, mutation, failure):
                     1,
                 )
             )
+        elif mutation == "pandas_na_filename":
+            (invoices / first_name).rename(invoices / "NA")
+            summary.write_text(summary.read_text().replace(first_name, "NA", 1))
         else:
             raise AssertionError(mutation)
 

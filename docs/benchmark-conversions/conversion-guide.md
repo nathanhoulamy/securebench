@@ -294,8 +294,8 @@ benchmark; it is not a substitute for proving that the benchmark distinguishes b
 mutant, and malicious Candidates.
 
 The qualification matrix is a per-row evidence requirement, not a requirement to duplicate test
-scaffolding. The compact shared proof covers the sixteen incremental rows from
-`bn-fit-modify` through `financial-document-processor`: shared task loading,
+scaffolding. The compact shared proof covers the seventeen incremental rows from
+`bn-fit-modify` through `fix-code-vulnerability`: shared task loading,
 stopped-workspace capture, verification, Docker gating,
 symlink/directory/oversize attacks, missing-Candidate scoring, and base capture
 live in `tests/qualification_support.py` and
@@ -309,6 +309,12 @@ and exact replay evidence in its focused test file. Use `verify_workspace` for h
 artifacts and `verify_command_candidate` for cleanup-safe pinned-command capture and verification.
 A generic capture case never substitutes for a row-specific malicious behavior that can reach a
 parser, Adapter, or Oracle.
+
+For a protocol-capable `file_bundle` row, the same declarative record still
+covers stopped capture, missing files, malicious filesystem shapes, and base
+capture. Keep fresh-Evaluation behavior, Challenge correlation, bounded Adapter
+observations, semantic mutants, and exact replay in the focused row file;
+shared capture qualification does not replace those protocol proofs.
 
 When a `file_bundle` directory tree contains one file that needs a byte parser,
 use `source.entry` plus a canonical relative `source.subpath`; do not declare an
