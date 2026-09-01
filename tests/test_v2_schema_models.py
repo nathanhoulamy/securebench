@@ -9,6 +9,7 @@ import yaml
 from pydantic import ValidationError
 
 from securebench.schemas.benchmark import (
+    ArtifactSource,
     BenchmarkPackManifestV2,
     BenchmarkRowDocumentV2,
     EnvironmentDefaults,
@@ -350,6 +351,58 @@ def test_candidate_entry_reference_must_resolve():
     row["verification"]["checks"][0]["artifacts"][0]["source"] = {"entry": "missing"}
     with pytest.raises(ValidationError, match="unknown candidate entry"):
         BenchmarkRowDocumentV2.model_validate(row)
+
+
+def test_directory_tree_artifact_subpath_is_relative_and_byte_bounded():
+    row = passive_row_data()
+    row["verification"]["candidate"] = {
+        "type": "file_bundle",
+        "max_total_files": 4,
+        "max_total_bytes": 4096,
+        "files": [
+            {
+                "id": "results",
+                "path": "/app/results",
+                "kind": "directory_tree",
+                "max_files": 4,
+                "max_total_bytes": 4096,
+            }
+        ],
+    }
+    artifact = row["verification"]["checks"][0]["artifacts"][0]
+    artifact["source"] = {"entry": "results", "subpath": "nested/summary.csv"}
+    artifact["parser"] = "securebench.strict-csv/v1"
+    artifact["limits"] = {"max_bytes": 1024}
+
+    document = BenchmarkRowDocumentV2.model_validate(row)
+    source = document.verification.checks[0].artifacts[0].source
+    assert source.subpath == "nested/summary.csv"
+
+    artifact["limits"] = {"max_files": 4, "max_total_bytes": 4096}
+    with pytest.raises(ValidationError, match="regular-file byte limits"):
+        BenchmarkRowDocumentV2.model_validate(row)
+
+
+@pytest.mark.parametrize(
+    "subpath",
+    ["../summary.csv", "/summary.csv", "nested//summary.csv", "."],
+)
+def test_artifact_subpath_rejects_unsafe_or_noncanonical_paths(subpath):
+    with pytest.raises(ValidationError, match="subpath"):
+        ArtifactSource(entry="results", subpath=subpath)
+
+
+def test_artifact_subpath_requires_a_directory_tree_entry():
+    row = passive_row_data()
+    row["verification"]["checks"][0]["artifacts"][0]["source"] = {
+        "entry": "result",
+        "subpath": "nested.json",
+    }
+    with pytest.raises(ValidationError, match="directory-tree entry"):
+        BenchmarkRowDocumentV2.model_validate(row)
+
+    with pytest.raises(ValidationError, match="file-bundle entry"):
+        ArtifactSource(path="result.json", subpath="nested.json")
 
 
 def test_runtime_and_host_references_are_lane_specific():

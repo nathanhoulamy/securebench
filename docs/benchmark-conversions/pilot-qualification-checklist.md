@@ -7,16 +7,20 @@ but they do not replace Linux/Docker qualification.
 
 Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; the twelve incrementally qualified rows below
-currently have binary admission decisions. Global preflight and final pack
-sign-off therefore remain incomplete.
+remain intentionally unchecked; the sixteen incrementally qualified rows below
+currently have binary admission decisions. The intervening
+`feal-differential-cryptanalysis` row retains its manually approved Excluded
+decision, and `filter-js-from-html` remains Excluded under the current browser
+trust model. Global preflight and final pack sign-off therefore remain
+incomplete.
 
-Test-layout status is separate from admission: all twelve incremental rows use
-the compact shared `file_bundle` qualification proof. The migration preserved
-all 149 combined cases across the shared matrix and the five newest focused
-files; `dna-assembly` adds one declarative row record while retaining its
-Primer3, semantic, parser, and replay evidence in its focused files, and
-`dna-insert` follows the same compact pattern.
+Test-layout status is separate from admission: all sixteen incremental rows
+use the compact shared `file_bundle` qualification proof. `dna-assembly`,
+`dna-insert`, `extract-elf`, `extract-moves-from-video`, and
+`feal-linear-cryptanalysis` each add one declarative row record;
+`financial-document-processor` extends the same matrix to bounded directory
+trees. All retain row-specific semantic, parser/Adapter, Oracle,
+malicious-Candidate, and replay evidence in focused files.
 
 ## Run identity and host preflight
 
@@ -40,6 +44,14 @@ Primer3, semantic, parser, and replay evidence in its focused files, and
   are committed at `035094b0d9f59c21221dfc71c1ed4ffd90b81614`.
 - [x] The `dna-insert` implementation is committed at
   `d46e0480de186b69daff2eae901bb57a4a350319`.
+- [x] The `extract-elf` implementation and qualification working tree are
+  based on `217e47c` and retained for the requested combined conversion commit.
+- [x] The `extract-moves-from-video` implementation and qualification working
+  tree share that uncommitted batch.
+- [x] The `feal-linear-cryptanalysis` implementation and qualification working
+  tree share that uncommitted batch.
+- [x] The `financial-document-processor` implementation, generic nested-file
+  selector, and qualification working tree share that uncommitted batch.
 - [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26 through
   2026-09-01, Linux `7.0.0-29-generic`, x86_64.
 - [x] `docker version` succeeds and Docker uses Linux/amd64 containers
@@ -48,11 +60,11 @@ Primer3, semantic, parser, and replay evidence in its focused files, and
   output.
 - [ ] The environment is installed with `python -m pip install -e '.[dev]'`.
 - [x] The full `.venv/bin/python -m pytest -q -W error` suite passes
-  (`801 passed, 61 skipped`).
+  (`906 passed, 88 skipped`).
 - [x] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
-  passes (`61/61`, no warnings).
+  passes (`77/77`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all fifteen selected rows (`61/61`, no warnings).
+  passes with all nineteen selected rows (`77/77`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
   passes with all three selected rows (`13/13`, no warnings).
 - [x] The selected harness credential mode is usable. For `auth: api_key`, the
@@ -74,7 +86,25 @@ Audit artifacts: `/tmp/securebench-precommit-audit-self`,
 `/tmp/securebench-cobol-final-one-row-audit`. The thirteen-row final reports
 are under `/tmp/securebench-terminal-13-row-audit.FMImnH` and
 `/tmp/securebench-self-audit.wZO30X`. The workspace filesystem had 186 GiB
-free at the 2026-08-31 qualification pass.
+free at the 2026-08-31 qualification pass. The `extract-elf` reports are under
+`/tmp/securebench-extract-elf-terminal-audit`,
+`/tmp/securebench-extract-elf-self-audit`,
+`/tmp/securebench-extract-elf-deep-audit`, and
+`/tmp/securebench-extract-elf-smoke/audit`; the workspace had 184 GiB free at
+its 2026-09-01 qualification pass. The `extract-moves-from-video` reports are
+under `/tmp/securebench-extract-moves-terminal-audit`,
+`/tmp/securebench-extract-moves-self-audit`,
+`/tmp/securebench-extract-moves-deep-audit`, and
+`/tmp/securebench-extract-moves-smoke/audit`. The
+`feal-linear-cryptanalysis` reports are under
+`/tmp/securebench-feal-linear-terminal-audit`,
+`/tmp/securebench-feal-linear-self-audit`,
+`/tmp/securebench-feal-linear-deep-audit`, and
+`/tmp/securebench-feal-linear-one-row-audit`. The financial-document reports
+are under `/tmp/securebench-financial-terminal-audit`,
+`/tmp/securebench-financial-self-audit`,
+`/tmp/securebench-financial-deep-audit`, and
+`/tmp/securebench-financial-one-row-audit-final`.
 
 ## Terminal-Bench
 
@@ -683,6 +713,303 @@ pinned-image row matrix passes `33/33`. The Luna smoke is correctly rejected
 for `candidate_capture_rejected` with no infrastructure error. Complete
 Terminal and self-audits pass `61/61` without warnings; the full suite passes
 `801 passed, 61 skipped`.
+
+For the sixteenth Terminal row, derive a one-row temporary tasks file for an
+isolated rerun, or resume a result set that already contains the first fifteen
+rows and confirm the selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 16 --resume
+```
+
+### `terminal-bench/extract-elf`
+
+- [x] The complete prompt, source verifier, generated C case, JavaScript
+  reference, section-selection order, word decoding, known-value rule, and 75%
+  coverage threshold were reconstructed.
+- [x] The Candidate contains only bounded regular `/app/extract.js`; ELF
+  inputs, output JSON, compiled files, scripts, caches, logs, processes, and
+  workspace state are excluded.
+- [x] The public Adapter releases only the current bounded ELF, invokes Node,
+  drains bounded stdout/stderr, stops the process group, and contains no case,
+  parser, expected mapping, threshold, assertion, score, or verdict.
+- [x] Four pinned host-only ELF64 LSB cases and their C provenance are checked
+  by size/SHA-256 and never mounted as a corpus into either VM.
+- [x] The pure host Oracle independently parses the ELF section table and
+  derives scored words without executing Candidate or reference code.
+- [x] Challenge digest/index/check correlation and distinct Evaluation IDs are
+  revalidated; every protocol case reconstructs the exact Candidate in a fresh
+  Evaluation.
+- [x] Missing/base Candidate behavior is rejected by the Oracle without
+  becoming an infrastructure error.
+- [x] The exact source JavaScript reference passes all four cases and exact
+  Candidate replay through real digest-pinned Evaluations.
+- [x] Half-coverage and wrong-known-word mutants fail; the exact 75% boundary
+  and ignored unknown-key source behavior remain accepted.
+- [x] String/non-integer values, malformed JSON, forged verdicts, corrupted
+  correlation, repeated Evaluation IDs, and a bounded stdout-flood attack fail
+  or cannot affect scoring.
+- [x] Symlink, directory, oversized, and missing Candidate shapes fail closed
+  through the compact shared `file_bundle` matrix.
+- [x] The final pinned Linux matrix passes `20/20`; the sole skip is a
+  redundant host-Node conformance check covered by the real reference run.
+- [x] The complete warning-strict suite passes `815 passed, 68 skipped`;
+  Terminal and self audits pass `65/65`, and DeepSWE passes `13/13`, without
+  warnings.
+- [x] Final teardown proves no SecureBench container, network, volume,
+  Agent/Evaluation process, or row-specific process survives, and the task
+  image is pruned.
+- [x] The final isolated API-key-backed Luna smoke uses `reasoning_effort:
+  none`, captures one bounded Candidate, and passes all four fresh cases with
+  no infrastructure error.
+- [x] Deterministic evidence, visibility, bounds, source quirks, semantic
+  fidelity, and result provenance are recorded in
+  [`extract-elf.md`](TerminalBench/extract-elf.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean black-box conversion qualified on Linux x86_64 on
+2026-09-01. Candidate digest
+`sha256:41df9448610504eab67d1a937b6d2fd1c6e661438f3dc2dfb4f29f3108935b18`
+passes four fresh Evaluations with score `1.0`; verification digest
+`sha256:46e26f225db07fcad43171efa789c82660f6828957373075ebb6985f40e42dc6`,
+execution digest
+`sha256:5d1cfeb94862145b23bf2a40d4fa5769583cffd2b6293808f81cc4ea84d7a3aa`.
+
+For the seventeenth Terminal row, derive a one-row temporary tasks file for an
+isolated rerun, or resume a result set containing the first sixteen rows and
+confirm the selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 17 --resume
+```
+
+### `terminal-bench/extract-moves-from-video`
+
+- [x] The complete prompt, source verifier, expected transcript, text-mode
+  newline behavior, Levenshtein recurrence, normalization denominator, and
+  inclusive 90% threshold were reconstructed.
+- [x] The Candidate contains only bounded regular `/app/solution.txt`;
+  downloaded video, OCR/transcription code, packages, caches, logs, processes,
+  connections, and other workspace state are excluded.
+- [x] The host transcript is exactly 1,346 bytes/characters, 280 lines, and is
+  byte-pinned to the source verifier's `SOLUTION` by SHA-256.
+- [x] No Adapter, Trusted Helper, Output Artifact, or Candidate execution is
+  needed during verification; the host Oracle alone owns expected text,
+  threshold, scoring, and verdict.
+- [x] Strict UTF-8 parsing and an exact 16 KiB file bound keep passive parsing
+  finite without excluding a plausible transcript.
+- [x] Missing/base Candidate behavior is rejected by the Oracle without
+  becoming an infrastructure error.
+- [x] Exact, CRLF, 149-character append, 134-character deletion, and small NUL
+  variants accepted by the source pass the real artifact path.
+- [x] The adjacent 150-character append and 135-character deletion fail,
+  proving both sides of the exact source threshold.
+- [x] Lost line breaks, changed case, reordered moves, empty text, invalid
+  UTF-8, and forged verdict text fail or cannot affect scoring.
+- [x] Exact Candidate replay is stable; unrelated video bytes are excluded
+  from the stored Candidate.
+- [x] Symlink, directory, oversized, and missing Candidate shapes fail closed
+  through the compact shared `file_bundle` matrix.
+- [x] The pinned Linux row matrix passes `37/37`; the complete warning-strict
+  suite passes `845 passed, 75 skipped`.
+- [x] Terminal and self audits pass `69/69`; DeepSWE remains `13/13`; the
+  isolated one-row audit passes `5/5`, all without warnings.
+- [x] The Linux tester includes the YouTube, Google Video, and image domains
+  required by the public task, matching the production Codex tester policy.
+- [x] Final teardown proves no SecureBench container, network, volume, Agent,
+  downloader, or row-specific process survives, and the task image is pruned.
+- [x] The isolated API-key-backed Luna smoke uses `reasoning_effort: none` and
+  completes without infrastructure error; its missing Candidate is correctly
+  rejected through Oracle-owned Candidate-error handling.
+- [x] Deterministic evidence, source-metric limitations, semantic fidelity,
+  and result provenance are recorded in
+  [`extract-moves-from-video.md`](TerminalBench/extract-moves-from-video.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
+2026-09-01. The Luna smoke is correctly rejected for
+`candidate_capture_rejected` with no infrastructure error or Candidate digest;
+row digest
+`sha256:e305443dcf2ec5ed9cc5b6dd540c78828034bf374e7ac0252885652bf752c9ae`,
+verification digest
+`sha256:f4d8439bb6e77f274cb6d53d51e49ab2dd9265fe09298bdf940bb073ed4c0583`,
+execution digest
+`sha256:d76fbf3a86c6007492e78df23761b40be47573214126b2eb7c53bf4464379c24`.
+
+### `terminal-bench/feal-differential-cryptanalysis`
+
+- [x] The complete prompt and adaptive chosen-plaintext attack contract were
+  reconstructed during portfolio review.
+- [x] A faithful conversion requires a reusable supervisor-owned stateful
+  bidirectional Oracle channel that is not currently implemented.
+- [x] Fixed-query batching was rejected because it is not semantically
+  equivalent to the source's adaptive interaction.
+- [x] The row therefore has no executable v2 task, Candidate, live run, or
+  qualification claim under the present framework.
+- [x] The exclusion rationale and reconsideration condition are recorded in
+  [`feal-differential-cryptanalysis.md`](TerminalBench/feal-differential-cryptanalysis.md).
+
+Final status: [ ] Approved  [x] Excluded
+
+Evidence/reason: Exclusion was manually approved after feasibility re-audit.
+Reconsider only after a bounded adaptive host-to-Evaluation Oracle primitive is
+implemented and qualified.
+
+For the eighteenth executable Terminal row, derive a one-row temporary tasks
+file for an isolated rerun, or resume a result set containing the first
+seventeen executable rows and confirm the selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 18 --resume
+```
+
+### `terminal-bench/feal-linear-cryptanalysis`
+
+- [x] The complete prompt, image build, deterministic public inputs, source
+  verifier, expected corpus, text-mode read, and 100 independent substring
+  assertions were reconstructed.
+- [x] The Candidate contains only bounded regular `/app/plaintexts.txt`;
+  attack code, compiled tools, packages, logs, caches, processes, connections,
+  and other workspace state are excluded.
+- [x] The host corpus contains the exact 100 ordered, unique ASCII decimal
+  strings from `soln.split()`, in a 2,047-byte canonical file pinned by
+  SHA-256.
+- [x] No Adapter, Trusted Helper, Output Artifact, or Candidate execution is
+  needed; the host Oracle alone owns expected values, assertions, scoring, and
+  verdict.
+- [x] Strict UTF-8 parsing and a 16 KiB Candidate/artifact bound keep passive
+  hostile input finite without excluding a plausible answer.
+- [x] The untouched base image and a missing Candidate fail closed without an
+  infrastructure error.
+- [x] Canonical lines, delimiter-free concatenation, reversed comma-separated
+  values, extra/NUL text, and duplicates pass both the source predicate and the
+  real artifact path.
+- [x] Missing-one, changed-one, hexadecimal, empty, invalid-UTF-8, and forged
+  verdict Candidates fail or cannot affect scoring.
+- [x] Exact Candidate replay is stable, and unrelated `attack.py` content is
+  absent from the stored Candidate.
+- [x] Symlink, directory, oversized, and missing Candidate shapes fail closed
+  through the compact shared `file_bundle` matrix.
+- [x] The pinned Linux row matrix passes `26/26`; the complete warning-strict
+  suite passes `864 passed, 82 skipped`.
+- [x] Terminal and self audits pass `73/73`; DeepSWE remains `13/13`; the
+  isolated one-row audit passes `5/5`, all without warnings.
+- [x] The pinned image is Linux/amd64; public `pairs.txt` and
+  `ciphertexts.txt` are deterministic, and the declared digest is used for
+  capture qualification and the live run.
+- [x] Harness teardown prunes the task image and leaves no row container,
+  network, volume, Agent, or task-specific process.
+- [x] The isolated API-key-backed Luna smoke uses `reasoning_effort: none`,
+  completes without infrastructure error, and correctly rejects its missing
+  Candidate through Oracle-owned Candidate-error handling.
+- [x] Deterministic evidence, inherited verifier weaknesses, semantic
+  fidelity, and result provenance are recorded in
+  [`feal-linear-cryptanalysis.md`](TerminalBench/feal-linear-cryptanalysis.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
+2026-09-01. The Luna smoke is correctly rejected for
+`candidate_capture_rejected` with no infrastructure error or Candidate digest;
+row digest
+`sha256:6dcf862d1898be6220a1e29b0253dcd2e29f90f1a6acc699b1b9b09a26f21abf`,
+verification digest
+`sha256:a8dd4b8f1ebf03ca0f4504ef63bb120e54d6397829d77c185cebfe9e703809f3`,
+execution digest
+`sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
+
+### `terminal-bench/filter-js-from-html`
+
+- [x] The portfolio review reconstructed the dynamic Chromium alert check and
+  clean-HTML byte-preservation requirement.
+- [x] Running Candidate-filtered hostile HTML on the host would violate the
+  Oracle trust boundary; an Evaluation browser result would remain an
+  untrusted observation rather than a verdict.
+- [x] Static inspection cannot faithfully replace browser execution, and a
+  safe non-executing XSS specification would materially change the benchmark.
+- [x] The row therefore has no executable v2 task, Candidate, live run, or
+  qualification claim under the current framework.
+- [x] The rationale is recorded in
+  [`filter-js-from-html.md`](TerminalBench/filter-js-from-html.md).
+
+Final status: [ ] Approved  [x] Excluded
+
+Evidence/reason: Retain the authoritative portfolio Exclusion until a safe,
+trusted browser-evidence design exists or the task receives a materially
+different static security specification.
+
+For the nineteenth executable Terminal row, derive a one-row temporary tasks
+file for an isolated rerun, or resume a result set containing the first
+eighteen executable rows and confirm the selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 19 --resume
+```
+
+### `terminal-bench/financial-document-processor`
+
+- [x] The complete prompt, randomized-name image build, all 17 public document
+  identities, seven source tests, expected placement sets, amount table,
+  newline/CSV behavior, and float tolerance were reconstructed.
+- [x] The Candidate contains only bounded stopped directory trees for
+  `/app/invoices`, `/app/other`, and `/app/documents`; OCR code, packages,
+  caches, logs, processes, connections, and unrelated workspace files are
+  excluded.
+- [x] The approved generic `source.subpath` capability selects one bounded
+  regular file inside a directory-tree Candidate only after validating the
+  entire stored tree and all blobs under Candidate limits.
+- [x] Schema and runtime tests reject absolute/traversing/non-canonical
+  subpaths, wrong parent entries, tree limits, missing files, directories,
+  symlinks, oversized files, and corrupted blob state.
+- [x] The host expected corpus is pinned at 4,426 bytes and maps all source
+  SHA-512 identities to the exact content-addressed SHA-256 blobs, values, and
+  totals.
+- [x] No Adapter, Trusted Helper, Output Artifact, Evaluation VM, or Candidate
+  execution is needed; the host Oracle alone owns labels, expected values,
+  assertions, scoring, and verdict.
+- [x] The untouched image and missing output roots fail stopped Candidate
+  capture without becoming infrastructure errors.
+- [x] The exact reference state and source-accepted duplicate hashes, ignored
+  invoice JSON, nested files, reordered CRLF rows, and 11 duplicate total rows
+  pass the real passive path.
+- [x] Misplacement, modified bytes, a non-empty source directory, header/count,
+  amount/VAT, unknown-file, invalid-UTF-8, missing/wrong-type summary, and
+  forged/path-traversal mutants fail or cannot affect scoring.
+- [x] The source `< 0.01` numeric test is reproduced with Python floats,
+  including adjacent tolerance cases; blank VAT maps to zero.
+- [x] Exact Candidate replay is stable, while root symlink, wrong root type,
+  oversized tree, and missing Candidate attacks fail through the compact
+  shared directory-capable `file_bundle` matrix.
+- [x] Generic selector qualification passes `93/93`; the pinned Linux row
+  matrix passes `37/37`; the complete warning-strict suite passes
+  `906 passed, 88 skipped`.
+- [x] Terminal and self audits pass `77/77`; DeepSWE remains `13/13`; the
+  isolated one-row audit passes `5/5`, all without warnings.
+- [x] The pinned Linux/amd64 image digest is used for reference, base, mutant,
+  and live qualification; the 17 public files total 4,002,650 bytes.
+- [x] The final API-key-backed Luna smoke uses `reasoning_effort: none`,
+  captures all three bounded directory entries, reaches all four passive
+  artifacts without infrastructure error, and is correctly rejected for
+  `incorrect_invoice_placement`.
+- [x] Harness teardown prunes the task image and leaves no row container,
+  network, volume, Agent, or task-specific process.
+- [x] Security hardening and inherited verifier weaknesses are recorded in
+  [`financial-document-processor.md`](TerminalBench/financial-document-processor.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
+2026-09-01. Final Luna Candidate digest
+`sha256:0fdaeb0b9dfefe75c419da8dd8b1dd4ad478f732fee6cf4027c5667b97e32593`
+is correctly rejected for `incorrect_invoice_placement` with no infrastructure
+error; row digest
+`sha256:de20210d04995b59aeb19075907a558edd14882b032bc71da405f624c62414d8`,
+verification digest
+`sha256:85994669329d49fe951e590b0bc91ec57cdc7a53d04ceefff93629a8d8d6446c`,
+execution digest
+`sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
 
 ## DeepSWE
 

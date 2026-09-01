@@ -294,10 +294,12 @@ benchmark; it is not a substitute for proving that the benchmark distinguishes b
 mutant, and malicious Candidates.
 
 The qualification matrix is a per-row evidence requirement, not a requirement to duplicate test
-scaffolding. The compact shared proof covers the twelve incremental rows from `bn-fit-modify`
-through `dna-insert`: shared task loading, stopped-workspace capture, verification, Docker
-gating, symlink/directory/oversize attacks, missing-Candidate scoring, and base capture live in
-`tests/qualification_support.py` and `tests/test_terminal_file_bundle_qualification.py`.
+scaffolding. The compact shared proof covers the sixteen incremental rows from
+`bn-fit-modify` through `financial-document-processor`: shared task loading,
+stopped-workspace capture, verification, Docker gating,
+symlink/directory/oversize attacks, missing-Candidate scoring, and base capture
+live in `tests/qualification_support.py` and
+`tests/test_terminal_file_bundle_qualification.py`.
 
 For a compatible `file_bundle` row, add one `RowCaptureContract` record containing its task ID,
 Candidate target ID, any distinct oversize target, missing-Candidate expectation, and optional
@@ -307,6 +309,13 @@ and exact replay evidence in its focused test file. Use `verify_workspace` for h
 artifacts and `verify_command_candidate` for cleanup-safe pinned-command capture and verification.
 A generic capture case never substitutes for a row-specific malicious behavior that can reach a
 parser, Adapter, or Oracle.
+
+When a `file_bundle` directory tree contains one file that needs a byte parser,
+use `source.entry` plus a canonical relative `source.subpath`; do not declare an
+overlapping regular-file Candidate entry. The selector validates the complete
+stored tree first and rejects missing, symlink, directory, traversal, malformed,
+or oversized targets before parsing the selected blob. Keep whole-tree placement
+evidence as a separate artifact correlated to the same check.
 
 During conversion, run the focused row file and, once the row is registered, its cases from the
 shared qualification file. Run the row's live-Docker cases after deterministic qualification is

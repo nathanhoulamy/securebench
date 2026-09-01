@@ -19,7 +19,11 @@ from securebench.candidates import (
     capture_production,
 )
 from securebench.harnesses.command import CommandHarnessProducer
-from securebench.schemas.benchmark import FileBundleCandidate, RegularFileEntry
+from securebench.schemas.benchmark import (
+    DirectoryTreeEntry,
+    FileBundleCandidate,
+    RegularFileEntry,
+)
 from securebench.tasks import BenchmarkTask
 from securebench.verification import VerificationEngine, VerificationResultV2
 from securebench.workspaces.cleanup import remove_untrusted_tree
@@ -121,26 +125,43 @@ def assert_file_bundle_capture_rejected(
     assert isinstance(candidate_spec, FileBundleCandidate)
     entries = {entry.id: entry for entry in candidate_spec.files}
     target_entry = entries[target_id]
-    assert isinstance(target_entry, RegularFileEntry)
 
     workspace = tmp_path / "workspace"
     for entry in candidate_spec.files:
-        assert isinstance(entry, RegularFileEntry)
         target = workspace / Path(entry.path).relative_to("/app")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(b"x")
+        if isinstance(entry, RegularFileEntry):
+            target.write_bytes(b"x")
+        else:
+            assert isinstance(entry, DirectoryTreeEntry)
+            target.mkdir()
 
     target = workspace / Path(target_entry.path).relative_to("/app")
     if attack == "symlink":
-        target.unlink()
+        if target.is_file():
+            target.unlink()
+        else:
+            target.rmdir()
         payload = target.with_name(f"{target.name}.payload")
-        payload.write_bytes(b"x")
+        if isinstance(target_entry, RegularFileEntry):
+            payload.write_bytes(b"x")
+        else:
+            payload.mkdir()
         target.symlink_to(payload.name)
     elif attack == "directory":
-        target.unlink()
-        target.mkdir()
+        if isinstance(target_entry, RegularFileEntry):
+            target.unlink()
+            target.mkdir()
+        else:
+            target.rmdir()
+            target.write_bytes(b"x")
     elif attack == "oversized":
-        target.write_bytes(b"x" * (target_entry.max_bytes + 1))
+        if isinstance(target_entry, RegularFileEntry):
+            target.write_bytes(b"x" * (target_entry.max_bytes + 1))
+        else:
+            (target / "oversized.bin").write_bytes(
+                b"x" * (target_entry.max_total_bytes + 1)
+            )
     else:
         raise AssertionError(f"unknown malicious candidate attack: {attack}")
 

@@ -31,7 +31,11 @@ from securebench.verification import (
     OracleSession,
     OracleVerdict,
 )
-from securebench.verification.models import ParserRejected, VerificationInfrastructureError
+from securebench.verification.models import (
+    CandidateObservationError,
+    ParserRejected,
+    VerificationInfrastructureError,
+)
 from securebench.verification.oracle import OracleProcessSession
 from securebench.verification.artifacts import _candidate_artifact
 from securebench.verification.json_data import json_digest
@@ -377,6 +381,74 @@ def test_file_bundle_tree_evidence_uses_its_own_digest_and_requires_all_blobs(tm
     (store.blobs_root / hexadecimal[:2] / hexadecimal).unlink()
     with pytest.raises(VerificationInfrastructureError, match="blob is invalid"):
         _candidate_artifact(object(), candidate, store, artifact)
+
+
+@pytest.mark.parametrize(
+    ("subpath", "maximum", "expected_code"),
+    [
+        ("summary.csv", 64, None),
+        ("missing.csv", 64, "artifact_missing"),
+        ("nested", 64, "artifact_wrong_type"),
+        ("summary.csv", 4, "artifact_too_large"),
+        ("summary-link.csv", 64, "artifact_wrong_type"),
+    ],
+)
+def test_file_bundle_tree_subpath_selects_only_a_bounded_regular_file(
+    tmp_path, subpath, maximum, expected_code
+):
+    from types import SimpleNamespace
+
+    workspace = tmp_path / "workspace"
+    tree = workspace / "tree"
+    (tree / "nested").mkdir(parents=True)
+    (tree / "summary.csv").write_text("name,value\ntotal,42\n")
+    (tree / "unrelated.bin").write_bytes(b"untrusted")
+    (tree / "summary-link.csv").symlink_to("summary.csv")
+    spec = FileBundleCandidate.model_validate(
+        {
+            "type": "file_bundle",
+            "max_total_files": 8,
+            "max_total_bytes": 1024,
+            "files": [
+                {
+                    "id": "tree",
+                    "path": "/app/tree",
+                    "kind": "directory_tree",
+                    "max_files": 8,
+                    "max_total_bytes": 1024,
+                    "allow_internal_symlinks": True,
+                }
+            ],
+        }
+    )
+    store = CandidateStore(tmp_path / "store")
+    candidate = capture_file_bundle(
+        HostWorkspaceFilesystem(workspace, guest_root="/app"),
+        spec,
+        store,
+        baseline_digest=DIGEST,
+    )
+    artifact = ArtifactSpec.model_validate(
+        {
+            "id": "summary",
+            "source": {"entry": "tree", "subpath": subpath},
+            "parser": "securebench.utf8-text/v1",
+            "limits": {"max_bytes": maximum},
+        }
+    )
+    task = SimpleNamespace(verification=SimpleNamespace(candidate=spec))
+
+    if expected_code is not None:
+        with pytest.raises(CandidateObservationError) as raised:
+            _candidate_artifact(task, candidate, store, artifact)
+        assert raised.value.code == expected_code
+        return
+
+    kind, digest, size, content = _candidate_artifact(task, candidate, store, artifact)
+    assert kind == "regular_file"
+    assert digest.startswith("sha256:")
+    assert size == len(content)
+    assert content == b"name,value\ntotal,42\n"
 
 
 def write_repo_artifact_pack(root: Path, *, base_commit: str):

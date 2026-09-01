@@ -31,4 +31,7 @@ harness:
       - xethub.hf.co
       - debian.org
       - ubuntu.com
+      - youtube.com
+      - googlevideo.com
+      - ytimg.com
     allow_external_tools: false

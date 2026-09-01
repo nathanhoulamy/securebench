@@ -394,8 +394,19 @@ source:
 
 Exactly one of `source.entry` or `source.path` is required. `source.entry`
 references either a regular-file or directory-tree entry in a `file_bundle`.
-For a directory tree, parser limits use both `max_files` and
-`max_total_bytes`. For `git_patch`, `source.path` is repository-relative and
+For a whole directory tree, parser limits use both `max_files` and
+`max_total_bytes`. A directory-tree entry may instead select one nested regular
+file with a canonical relative `source.subpath` and regular-file `max_bytes`:
+
+~~~yaml
+source:
+  entry: results
+  subpath: nested/summary.csv
+~~~
+
+The complete stored tree is integrity- and Candidate-bound-validated before
+the selected blob is read; missing, directory, or symlink targets fail as
+Candidate evidence. For `git_patch`, `source.path` is repository-relative and
 observation happens passively after replay onto a fresh clean baseline. For
 `filesystem_overlay`, `source.path` is absolute and must be contained by one
 declared include root. Observation happens after integrity-checked replay into
@@ -693,6 +704,7 @@ evidence, while the other sources are infrastructure failures.
 | `check.type` | yes | `artifact` or `protocol`. |
 | `artifact.artifacts` | Artifact check only | Non-empty list of artifact sources and parser profiles. |
 | `artifact.source.entry` | conditional | References a regular-file or directory-tree `file_bundle` entry ID. |
+| `artifact.source.subpath` | no | Canonical relative regular-file path inside a directory-tree `source.entry`; requires byte limits and cannot select a directory or symlink. |
 | `artifact.source.path` | conditional | References a bounded materialized path; repository-relative for `git_patch`, absolute within an include root for overlays. |
 | `artifact.parser` | yes | Registered parser profile. |
 | `artifact.limits` | yes | Either `max_bytes` for a regular file or `max_files` (all filesystem entries) plus `max_total_bytes` for a tree. |

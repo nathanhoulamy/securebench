@@ -107,6 +107,18 @@
           ],
           "default": null,
           "title": "Path"
+        },
+        "subpath": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subpath"
         }
       },
       "title": "ArtifactSource",

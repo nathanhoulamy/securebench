@@ -12,7 +12,13 @@ from securebench.candidates.overlay_replay import OverlayReplayBackend, overlay_
 from securebench.candidates.replay import replay_candidate
 from securebench.candidates.store import CandidateStore
 from securebench.errors import ConfigError
-from securebench.schemas.benchmark import ArtifactCheck, ArtifactSpec, ProtocolCheck
+from securebench.schemas.benchmark import (
+    ArtifactCheck,
+    ArtifactSpec,
+    DirectoryTreeEntry,
+    FileBundleCandidate,
+    ProtocolCheck,
+)
 from securebench.tasks import BenchmarkTask
 from securebench.verification.json_data import canonical_json_bytes, json_digest
 from securebench.verification.models import (
@@ -333,6 +339,14 @@ def _candidate_artifact(
             "artifact_missing", f"Candidate artifact entry {source_entry!r} is missing"
         )
     kind = entry.get("kind")
+    if artifact.source.subpath is not None:
+        return _file_bundle_tree_file(
+            task,
+            store,
+            artifact,
+            source_entry=source_entry,
+            entry=entry,
+        )
     if kind == "regular_file":
         blob = entry.get("blob")
         size = entry.get("size")
@@ -369,6 +383,70 @@ def _candidate_artifact(
     raise VerificationInfrastructureError(
         "candidate_manifest_invalid", "Stored candidate entry kind is invalid"
     )
+
+
+def _file_bundle_tree_file(
+    task: BenchmarkTask,
+    store: CandidateStore,
+    artifact: ArtifactSpec,
+    *,
+    source_entry: str,
+    entry: dict[str, Any],
+) -> tuple[str, str, int, bytes]:
+    candidate_spec = task.verification.candidate
+    if not isinstance(candidate_spec, FileBundleCandidate):
+        raise VerificationInfrastructureError(
+            "artifact_source_invalid",
+            "Nested Candidate artifacts require a file-bundle Candidate",
+        )
+    declared = next(
+        (item for item in candidate_spec.files if item.id == source_entry),
+        None,
+    )
+    if not isinstance(declared, DirectoryTreeEntry) or entry.get("kind") != "directory_tree":
+        raise VerificationInfrastructureError(
+            "artifact_source_invalid",
+            "Nested Candidate artifacts require a stored directory-tree entry",
+        )
+    nodes = entry.get("nodes")
+    if not isinstance(nodes, list) or len(nodes) > declared.max_files:
+        raise VerificationInfrastructureError(
+            "candidate_manifest_invalid",
+            "Stored directory-tree entry exceeds its Candidate bounds",
+        )
+    _validate_stored_tree(
+        nodes,
+        store,
+        maximum_bytes=declared.max_total_bytes,
+        artifact_id=artifact.id,
+    )
+    subpath = artifact.source.subpath
+    assert subpath is not None
+    node = next((item for item in nodes if item.get("path") == subpath), None)
+    if node is None:
+        raise CandidateObservationError(
+            "artifact_missing",
+            f"Candidate artifact subpath {subpath!r} is missing",
+        )
+    if node.get("kind") != "regular_file":
+        raise CandidateObservationError(
+            "artifact_wrong_type",
+            f"Candidate artifact subpath {subpath!r} is not a regular file",
+        )
+    size = node.get("size")
+    blob = node.get("blob")
+    maximum = artifact.limits.max_bytes
+    if not isinstance(size, int) or not isinstance(blob, str) or maximum is None:
+        raise VerificationInfrastructureError(
+            "candidate_manifest_invalid",
+            "Stored nested regular-file entry is invalid",
+        )
+    if size > maximum:
+        raise CandidateObservationError(
+            "artifact_too_large",
+            f"Candidate artifact {artifact.id!r} exceeds its parser bound",
+        )
+    return "regular_file", blob, size, store.read_blob(blob, expected_size=size)
 
 
 def _filesystem_overlay_artifact(
@@ -433,7 +511,16 @@ def _validate_stored_tree(
             )
         path = node.get("path")
         kind = node.get("kind")
-        if not isinstance(path, str) or not path or path in paths:
+        candidate_path = PurePosixPath(path) if isinstance(path, str) else None
+        if (
+            not isinstance(path, str)
+            or not path
+            or path in paths
+            or candidate_path is None
+            or candidate_path.is_absolute()
+            or ".." in candidate_path.parts
+            or str(candidate_path) != path
+        ):
             raise VerificationInfrastructureError(
                 "candidate_manifest_invalid", "Stored directory-tree path is invalid"
             )

@@ -1,0 +1,24 @@
+format: securebench.adapter/v2
+protocol: securebench.elf-extractor/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    elf_base64: {type: string, max_utf8_bytes: 90000}
+    elf_sha256: {type: string, max_utf8_bytes: 71}
+  required: [elf_base64, elf_sha256]
+  max_fields: 2
+observation_schema:
+  type: object
+  properties:
+    exit_code: {type: integer}
+    stdout: {type: string, max_utf8_bytes: 65536}
+    stderr: {type: string, max_utf8_bytes: 4096}
+  required: [exit_code, stdout, stderr]
+  max_fields: 3
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 20
+  challenge_bytes: 131072
+  observation_bytes: 524288

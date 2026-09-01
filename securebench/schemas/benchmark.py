@@ -335,6 +335,7 @@ CandidateSpec = Annotated[
 class ArtifactSource(StrictModel):
     entry: ComponentId | None = None
     path: str | None = None
+    subpath: str | None = None
 
     @field_validator("path")
     @classmethod
@@ -348,10 +349,26 @@ class ArtifactSource(StrictModel):
             raise ValueError("artifact source path may not contain '..' or resolve to '.'")
         return str(path)
 
+    @field_validator("subpath")
+    @classmethod
+    def validate_subpath(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value or "\\" in value or "\x00" in value:
+            raise ValueError("artifact source subpath must be a non-empty POSIX path")
+        path = PurePosixPath(value)
+        if path.is_absolute() or ".." in path.parts or str(path) in ("", "."):
+            raise ValueError("artifact source subpath must be relative and may not contain '..'")
+        if value != str(path):
+            raise ValueError("artifact source subpath must use canonical POSIX spelling")
+        return value
+
     @model_validator(mode="after")
     def exactly_one_source(self) -> "ArtifactSource":
         if (self.entry is None) == (self.path is None):
             raise ValueError("artifact source requires exactly one of entry or path")
+        if self.subpath is not None and self.entry is None:
+            raise ValueError("artifact source subpath requires a file-bundle entry")
         return self
 
 
@@ -492,6 +509,16 @@ class VerificationSpec(StrictModel):
                 raise ValueError(
                     f"artifact {artifact.id!r} references unknown candidate entry {source.entry!r}"
                 )
+            if source.subpath is not None:
+                if not isinstance(entry, DirectoryTreeEntry):
+                    raise ValueError(
+                        f"artifact {artifact.id!r} subpath requires a directory-tree entry"
+                    )
+                if artifact.limits.max_bytes is None:
+                    raise ValueError(
+                        f"artifact {artifact.id!r} subpath requires regular-file byte limits"
+                    )
+                return
             if isinstance(entry, RegularFileEntry) and artifact.limits.max_bytes is None:
                 raise ValueError(f"artifact {artifact.id!r} requires byte limits for a regular file")
             if isinstance(entry, DirectoryTreeEntry) and artifact.limits.max_files is None:

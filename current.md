@@ -6,7 +6,8 @@ Implementation baseline reviewed: this branch through Output Artifacts, HTTP
 request/event-ledger/process-supervisor Trusted Helper execution, git-patch
 execution, the locally qualified filesystem-overlay implementation, and the
 subsequent architecture-wide overlay integration review, plus the compact
-qualification matrix and Terminal conversions through `dna-insert`
+qualification matrix and Terminal conversions through
+`financial-document-processor`
 
 Active development branch: `split-verification-v2`
 
@@ -77,7 +78,7 @@ the runner does not invent a benchmark score.
 | `file_bundle` candidate | Implemented end to end, including bounded directory trees |
 | `git_patch` candidate | Implemented end to end with exact clean-commit baselines and canonical stopped-state capture |
 | `filesystem_overlay` candidate | Capture, transactional storage, fresh replay, and normal harness integration implemented; native execution remains qualification-gated |
-| Passive artifact check using `source.entry` | Implemented for `file_bundle` |
+| Passive artifact check using `source.entry` | Implemented for whole `file_bundle` entries and bounded regular-file `source.subpath` selection inside directory trees |
 | Artifact check using `source.path` | Implemented for bounded repository-relative `git_patch` paths and absolute paths mapped through fresh overlay roots |
 | Registered passive parsers | JSON, UTF-8 text, ICS, strict CSV, bounded scalar-float NPY summaries, and tree-manifest profiles exist |
 | Basic protocol check | Implemented with finite JSON, bounded I/O, and a fresh offline container per Challenge |
@@ -95,13 +96,18 @@ the runner does not invent a benchmark score.
 | Admission qualification pipeline | Not implemented |
 | Result signing | Not implemented |
 
-The executable reference packs currently contain fifteen Terminal-Bench rows
-and three DeepSWE rows. The twelve incremental conversions from `bn-fit-modify`
-through `dna-insert` are Approved after deterministic, pinned-image,
-stopped-capture, adversarial, teardown, and model-backed qualification. The
-twelve rows share a declarative `file_bundle` capture-qualification matrix while
-retaining semantic, parser, asset-identity, and replay evidence in focused row
-tests. The first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` remain
+The executable reference packs currently contain nineteen Terminal-Bench rows
+and three DeepSWE rows. The sixteen incremental conversions from `bn-fit-modify`
+through `financial-document-processor` are Approved after deterministic,
+pinned-image, stopped-capture, adversarial, teardown, and model-backed
+qualification. The sixteen rows share a declarative `file_bundle`
+capture-qualification matrix while retaining semantic, parser, asset-identity,
+and replay evidence in focused row tests; the financial row extends that proof
+to bounded directory entries and passive nested-file selection. The intervening
+`feal-differential-cryptanalysis` and `filter-js-from-html` entries remain
+Excluded because faithful adaptive Oracle interaction and trusted dynamic
+browser verdicts, respectively, are unavailable. The first-wave control,
+`sqlite-db-truncate`, and `vulnerable-secret` remain
 qualification-pending in their dossiers and checklist; an inventory-level
 Approved review disposition is not a completed runtime qualification. The
 recommended example documents conform to the row schema. The HTTP-recorder
@@ -261,7 +267,7 @@ hardening rather than a prerequisite for writing and qualifying the first conver
 
 At this review pass:
 
-- full warning-strict suite: `801 passed, 61 skipped`;
+- full warning-strict suite: `906 passed, 88 skipped`;
 - complete protocol and Trusted Helper suite with Docker integration enabled:
   `54 passed, 1 skipped`, including fresh ordinary/recorder Evaluations,
   clean-repository git-patch replay, authenticated event-ledger traffic, external
@@ -320,9 +326,37 @@ At this review pass:
   overlap mutants, stopped capture, and malicious file shapes; its Luna smoke
   produced no Candidate and was correctly rejected without infrastructure
   error;
+- `extract-elf` protocol qualification: the focused deterministic suite passes
+  `14 passed, 7 skipped` and the pinned-image row matrix passes `20 passed, 1
+  skipped`, including the exact source reference across four fresh
+  Evaluations, 75%-coverage and wrong-word mutants, forged output, stdout
+  flooding, stopped capture, and malicious file shapes; its API-key-backed
+  Luna smoke passed all four cases with score `1.0` and no infrastructure
+  error;
+- `extract-moves-from-video` passive qualification: the focused deterministic
+  suite passes `30 passed, 7 skipped` and the pinned-image row matrix passes
+  `37/37`, including exact source-transcript identity, universal-newline
+  behavior, both adjacent edit-distance threshold boundaries, semantic
+  mutants, stopped capture, and malicious file shapes; its Luna smoke produces
+  no Candidate and is correctly rejected without infrastructure error;
+- `feal-linear-cryptanalysis` passive qualification: the focused deterministic
+  suite passes `19 passed, 7 skipped` and the pinned-image row matrix passes
+  `26/26`, including exact source-token identity, delimiter-free and reordered
+  source-accepted outputs, missing/changed/hexadecimal mutants, stopped
+  capture, and malicious file shapes; its Luna smoke produces no Candidate and
+  is correctly rejected without infrastructure error;
+- `financial-document-processor` passive qualification: the generic nested
+  directory-file selector passes `93/93` focused framework tests, the focused
+  row suite passes `31 passed, 6 skipped`, and its pinned-image matrix passes
+  `37/37`; exact source document identities and values, directory placement,
+  source-accepted set/CSV quirks, numeric/path mutants, stopped directory
+  capture, passive nested summary parsing, and malicious tree shapes are
+  covered; its bounded Luna Candidate reaches all four artifacts and is
+  correctly rejected for `incorrect_invoice_placement` without infrastructure
+  error;
 - the Docker pass left no Trusted Helper containers, materialization containers, Evaluation
   networks, or overlay volumes behind;
-- complete Terminal configuration and self-audits: `61/61` passed with no
+- complete Terminal configuration and self-audits: `77/77` passed with no
   failures or warnings;
 - the generated Trusted Helper contract schema was refreshed for the reviewed
   HTTP and host-only access/credential modes, and its regeneration check passes;

@@ -245,10 +245,16 @@ def _validate_parsers(task: BenchmarkTask) -> None:
             if isinstance(candidate, FileBundleCandidate):
                 assert artifact.source.entry is not None
                 entry = entries[artifact.source.entry]
-                expected = "bytes" if isinstance(entry, RegularFileEntry) else "tree"
-                source_kind = (
-                    "regular_file" if isinstance(entry, RegularFileEntry) else "directory_tree"
-                )
+                if artifact.source.subpath is not None:
+                    expected = "bytes"
+                    source_kind = "nested regular file"
+                else:
+                    expected = "bytes" if isinstance(entry, RegularFileEntry) else "tree"
+                    source_kind = (
+                        "regular_file"
+                        if isinstance(entry, RegularFileEntry)
+                        else "directory_tree"
+                    )
             else:
                 assert artifact.source.path is not None
                 path = PurePosixPath(artifact.source.path)

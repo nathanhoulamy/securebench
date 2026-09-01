@@ -100,6 +100,27 @@ ROWS = (
         target_id="primers",
         base_command=("true",),
     ),
+    RowCaptureContract(
+        task_id="terminal-bench/extract-elf",
+        target_id="extractor",
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/extract-moves-from-video",
+        target_id="solution",
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/feal-linear-cryptanalysis",
+        target_id="plaintexts",
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/financial-document-processor",
+        target_id="invoices",
+        exact_missing_categories=("invoices_tree:candidate_capture_rejected",),
+        base_command=("true",),
+    ),
 )
 
 
