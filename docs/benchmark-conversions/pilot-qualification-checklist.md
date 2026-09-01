@@ -7,20 +7,25 @@ but they do not replace Linux/Docker qualification.
 
 Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; the seventeen incrementally qualified rows below
+remain intentionally unchecked; the twenty incrementally qualified rows below
 currently have binary admission decisions. The intervening
 `feal-differential-cryptanalysis` row retains its manually approved Excluded
 decision, and `filter-js-from-html` remains Excluded under the current browser
-trust model. Global preflight and final pack sign-off therefore remain
-incomplete.
+trust model. `fix-ocaml-gc` is likewise Excluded until an independent bounded
+compiler/runtime scenario runner exists. Global preflight and final pack
+sign-off therefore remain incomplete.
 
-Test-layout status is separate from admission: all seventeen incremental rows
+Test-layout status is separate from admission: all twenty incremental rows
 use the compact shared `file_bundle` qualification proof. `dna-assembly`,
 `dna-insert`, `extract-elf`, `extract-moves-from-video`, and
 `feal-linear-cryptanalysis` each add one declarative row record;
 `financial-document-processor` extends the same matrix to bounded directory
-trees, and `fix-code-vulnerability` adds a two-file artifact/protocol row. All
-retain row-specific semantic, parser/Adapter, Oracle,
+trees, `fix-code-vulnerability` adds a two-file artifact/protocol row, and
+`fix-git` adds a masked two-file passive row plus exact-path Git compatibility.
+`gcode-to-text` returns to the declarative one-file passive pattern;
+`git-leak-recovery` adds a bounded stored-tree Git parser and exact declared
+nested-repository ownership compatibility.
+All retain row-specific semantic, parser/Adapter, Oracle,
 malicious-Candidate, and replay evidence in focused files.
 
 ## Run identity and host preflight
@@ -50,8 +55,9 @@ malicious-Candidate, and replay evidence in focused files.
   implementations and the generic nested-file selector are committed at
   `fa23d3969b9cc61aefac8a2ff3a4a2c969e94d71`.
 - [x] The final pandas-NA fidelity refinement, refreshed financial-row
-  qualification, and `fix-code-vulnerability` conversion are based on that
-  commit in the current working tree.
+  qualification, `fix-code-vulnerability`, the read-only sibling mount and Git
+  ownership compatibility, and `fix-git` conversion are based on that commit
+  in the current working tree.
 - [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26 through
   2026-09-01, Linux `7.0.0-29-generic`, x86_64.
 - [x] `docker version` succeeds and Docker uses Linux/amd64 containers
@@ -60,11 +66,11 @@ malicious-Candidate, and replay evidence in focused files.
   output.
 - [ ] The environment is installed with `python -m pip install -e '.[dev]'`.
 - [x] The full `.venv/bin/python -m pytest -q -W error` suite passes
-  (`941 passed, 99 skipped`).
+  (`1013 passed, 113 skipped`).
 - [x] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
-  passes (`77/77`, no warnings).
+  passes (`93/93`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all twenty selected rows (`81/81`, no warnings).
+  passes with all twenty-three selected rows (`93/93`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
   passes with all three selected rows (`13/13`, no warnings).
 - [x] The selected harness credential mode is usable. For `auth: api_key`, the
@@ -108,7 +114,19 @@ reports are under `/tmp/securebench-financial-exact-terminal-audit`,
 are under `/tmp/securebench-fix-code-final-terminal-audit`,
 `/tmp/securebench-fix-code-final-audit-self`,
 `/tmp/securebench-fix-code-final-deep-audit`, and
-`/tmp/securebench-fix-code-final-one-row-audit`.
+`/tmp/securebench-fix-code-final-one-row-audit`. The final fix-git reports are
+under `/tmp/securebench-fix-git-final2-terminal-audit`,
+`/tmp/securebench-fix-git-final2-audit-self`,
+`/tmp/securebench-fix-git-final2-deep-audit`, and
+`/tmp/securebench-fix-git-final2-one-row-audit`. The final gcode reports are
+under `/tmp/securebench-gcode-final-terminal-audit`,
+`/tmp/securebench-gcode-final-audit-self`,
+`/tmp/securebench-gcode-final-deep-audit`, and
+`/tmp/securebench-gcode-final-one-row-audit`. The final Git leak reports are
+under `/tmp/securebench-git-leak-final-terminal-audit`,
+`/tmp/securebench-git-leak-final-audit-self`,
+`/tmp/securebench-git-leak-final-deep-audit`, and
+`/tmp/securebench-git-leak-final-one-row-audit`.
 
 ## Terminal-Bench
 
@@ -1059,8 +1077,8 @@ nineteen executable rows and confirm the selected task ID:
 - [x] Focused deterministic qualification passes `29 passed, 11 skipped`; the
   consolidated pinned Linux matrix passes `40/40`; the source verifier passes
   `373/373` against the reconstructed reference.
-- [x] The complete warning-strict suite passes `941 passed, 99 skipped`;
-  Terminal and self audits pass `81/81`; DeepSWE passes `13/13`; and the
+- [x] The complete warning-strict suite passes `997 passed, 109 skipped`;
+  Terminal and self audits pass `89/89`; DeepSWE passes `13/13`; and the
   isolated row audit passes `5/5`, all without warnings.
 - [x] The final API-key-backed Luna smoke uses `reasoning_effort: none`,
   captures both bounded files, passes all five fresh protocol cases without
@@ -1082,6 +1100,196 @@ verification digest
 `sha256:75e4fa0daa1a13cea3c2e1d34b0bb881f48317fc0facd21ce2b0d9c71e1a204d`,
 and execution digest
 `sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
+
+For the twenty-first executable Terminal row, derive a one-row temporary tasks
+file for an isolated rerun, or resume a result set containing the first twenty
+executable rows and confirm the selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 21 --resume
+```
+
+### `terminal-bench/fix-git`
+
+- [x] The complete prompt, setup script, detached lost commit, reflog, merge
+  conflict, two source assertions, and binary edge-whitespace semantics were
+  reconstructed.
+- [x] The Agent starts in the original `/app/personal-site` repository, while a
+  reviewed read-only public mount masks the image's separate gold-copy
+  directory and exposes no expected bytes.
+- [x] The stopped Candidate contains only the bounded `about.md` and
+  `default.html` regular files; Git metadata, reflogs, branches, resources,
+  processes, connections, and credentials are excluded.
+- [x] Read-only sibling mounts under a nested `/app` workdir are supported and
+  tested; writable sibling mounts fail closed.
+- [x] All Agent harnesses provide exact-path Git `safe.directory` entries for
+  the configured workdir and declared directory-tree Candidate roots, preserve
+  existing bounded configuration, reject ambiguous forms, and never use the
+  unsafe wildcard.
+- [x] The host-only Oracle reproduces source `bytes.strip()` behavior with
+  hidden reviewed SHA-256 identities; it imports or executes no Candidate code.
+- [x] The untouched master files fail, while reflog recovery, merge-conflict
+  resolution from the lost commit, stopped capture, and exact replay pass. The
+  original source verifier's two assertions pass against the same reference.
+- [x] Partial about-only/layout-only, changed content, forged claims,
+  Unicode-whitespace, invalid-UTF-8, duplicate/uncorrelated evidence, missing,
+  symlink, directory, and oversized Candidates fail or cannot affect scoring.
+- [x] Focused warning-strict qualification passes `36 passed, 5 skipped`; the
+  consolidated exact-image Linux matrix passes `41/41`.
+- [x] The complete warning-strict suite passes `997 passed, 109 skipped`;
+  Terminal and self audits pass `89/89`; DeepSWE passes `13/13`; and the
+  isolated row audit passes `5/5`, all without warnings.
+- [x] The API-key-backed Luna smoke uses `reasoning_effort: none`, captures
+  both bounded unchanged files without infrastructure error, and is correctly
+  rejected for `incorrect_about_file` and `incorrect_layout_file`.
+- [x] Harness teardown prunes the task image and leaves no row container,
+  network, volume, Agent, or task-specific process.
+- [x] Fidelity hardening and limitations are recorded in
+  [`fix-git.md`](TerminalBench/fix-git.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
+2026-09-01. Final Luna Candidate digest
+`sha256:b5f2a8faf4305db55a89ccb0cf515152940faeb03803971746c761bed0ea61fd`
+is correctly rejected with row digest
+`sha256:fc5f40de7b8f75f77c7c0cb8e95311c27f5517a0c0c3ca183052daa16a47e2fb`,
+verification digest
+`sha256:04713fdb4c73bec9e1652ff69484a5bdaee18fc98689795893c643dcb54a48c4`,
+and execution digest
+`sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
+
+### `terminal-bench/fix-ocaml-gc`
+
+- [x] The complete prompt, source setup, bootstrap build, basic testsuite run,
+  and marker-based source assertion were reconstructed.
+- [x] The source image has no canonical Git baseline, so a bounded replayable
+  `git_patch` cannot currently be derived.
+- [x] Capturing the Candidate-controlled compiler/build tree or trusting its
+  generated `tests.txt` marker would not provide independent evidence.
+- [x] A faithful conversion requires a reusable bounded compiler/runtime
+  scenario runner and host-owned cases for the basic-suite behaviors; that
+  capability is not implemented and is too broad to disguise as a row adapter.
+- [x] The exclusion and requirements for a future redesign are recorded in
+  [`fix-ocaml-gc.md`](TerminalBench/fix-ocaml-gc.md).
+
+Final status: [ ] Approved  [x] Excluded
+
+Evidence/reason: No approved executable pattern in the current framework. No
+v2 row or live Agent run was added; the previously approved feasibility
+exclusion was reconfirmed against the current architecture on 2026-09-01.
+
+For the twenty-second executable Terminal row, derive a one-row temporary tasks
+file for an isolated rerun, or resume a result set containing the first
+twenty-one executable rows and confirm the selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 22 --resume
+```
+
+### `terminal-bench/gcode-to-text`
+
+- [x] The complete prompt, public G-code, source entrypoint, existence check,
+  exact expected text, and `Path.read_text().strip()` behavior were
+  reconstructed.
+- [x] The pinned 1,661,422-byte public input has its reviewed SHA-256 identity;
+  no separate expected output or verifier fixture enters the Agent.
+- [x] The stopped Candidate contains only bounded `/app/out.txt`; input,
+  scripts, renderings, caches, processes, connections, and credentials are
+  excluded.
+- [x] The host-only Oracle reproduces universal-newline and Unicode `strip()`
+  semantics and imports or executes no Candidate code.
+- [x] The absent baseline output fails capture, while the reviewed reference
+  passes both original assertions, stopped capture, host verification, and
+  exact replay.
+- [x] Wrong-case, internal-substitution, explanatory-prefix/suffix, empty,
+  forged-verdict, invalid-UTF-8, duplicate/uncorrelated, missing, symlink,
+  directory, and oversized Candidates fail or cannot affect scoring.
+- [x] Focused warning-strict qualification passes `20 passed, 5 skipped`; the
+  consolidated exact-image Linux matrix passes `25/25`.
+- [x] The complete warning-strict suite passes `997 passed, 109 skipped`;
+  Terminal and self audits pass `89/89`; DeepSWE passes `13/13`; and the
+  isolated row audit passes `5/5`, all without warnings.
+- [x] The API-key-backed Luna smoke uses `reasoning_effort: none`, captures one
+  bounded ten-byte `SHAPE-BOX` output without infrastructure error, and is
+  correctly rejected for `incorrect_decoded_text`.
+- [x] Harness teardown prunes the task image and leaves no row container,
+  network, volume, Agent, or task-specific process.
+- [x] Fidelity and limitations are recorded in
+  [`gcode-to-text.md`](TerminalBench/gcode-to-text.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
+2026-09-01. Final Luna Candidate digest
+`sha256:23bbd89a0fa21af9532cbdcf44e081c6f30f41dc6dba823e3a0bf942e8eabf05`
+is correctly rejected with row digest
+`sha256:100452e8ddb6859566a635257062c2b87b2be715093ac6f653dbdee00dfa7a9c`,
+verification digest
+`sha256:d664720f4d09c313a79a5f07170ab79d973434ab4d6446200e73e967e5425d2f`,
+and execution digest
+`sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
+
+For the twenty-third executable Terminal row, derive a one-row temporary tasks
+file for an isolated rerun, or resume a result set containing the first
+twenty-two executable rows and confirm the selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 23 --resume
+```
+
+### `terminal-bench/git-leak-recovery`
+
+- [x] The complete prompt, setup script, unreachable commit/tree/blob,
+  pseudo-ref and reflogs, all five source assertions, and visible-worktree
+  checksum behavior were reconstructed.
+- [x] The image is pinned by immutable Linux/amd64 digest; no hidden test,
+  expected secret, assertion, or scoring rule enters the Agent.
+- [x] The stopped Candidate contains only a repository tree bounded to 128
+  entries/1 MiB and one 4 KiB regular `/app/secret.txt`; live Git processes,
+  configuration, credentials, connections, and external object stores are not
+  captured.
+- [x] The stored-tree parser is generic and assertion-free. It replaces
+  candidate configuration, disables replacement objects, rejects symlinks,
+  alternates, HTTP alternates, grafts and common object directories, and bounds
+  Git object counts/sizes, command time/output, and returned evidence.
+- [x] Exact `safe.directory` entries support the nested `/app/repo` repository
+  on Linux without wildcard trust; existing bounded environment configuration
+  is preserved and malformed forms fail closed.
+- [x] The host-only Oracle reproduces secret output normalization, scans loose
+  and packed object observations, requires the legitimate reachable commit,
+  and independently checks visible worktree identity.
+- [x] The absent output fails capture. The reference recovers the unreachable
+  blob, expires reflogs, removes the pseudo-ref, packs/prunes the repository,
+  and passes stopped capture, host verification, and exact replay.
+- [x] Dirty history, forged/wrong output, changed worktree, removed required
+  history, hostile Git configuration, external alternates,
+  duplicate/uncorrelated evidence, missing artifacts, and
+  symlink/directory/oversized Candidates fail or cannot affect scoring.
+- [x] Focused warning-strict qualification passes `27 passed, 4 skipped`; the
+  consolidated exact-image Linux matrix passes `31/31`.
+- [x] The complete warning-strict suite passes `1013 passed, 113 skipped`;
+  Terminal and self audits pass `93/93`; DeepSWE passes `13/13`; and the
+  isolated row audit passes `5/5`, all without warnings.
+- [x] The API-key-backed Luna smoke uses `reasoning_effort: none`, captures the
+  two bounded artifacts, and passes with score `1.0` and no infrastructure
+  error. The Oracle, not the model or guest Git output, issues the verdict.
+- [x] Harness teardown prunes the task image and leaves no row container,
+  network, volume, Agent, helper, or task-specific process.
+- [x] Fidelity and fail-closed limitations are recorded in
+  [`git-leak-recovery.md`](TerminalBench/git-leak-recovery.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean passive conversion qualified on Linux x86_64 on
+2026-09-01. Final Luna Candidate digest
+`sha256:14f97dfa461a8050a829974f6d396e503133cf293f555192356ffc73f4d03177`
+passes with row digest
+`sha256:1e217f34a4aece03be196abd3363b14c024d1fcfa58ed9bd74127154cdb4590d`,
+verification digest
+`sha256:c003f49abb85926aa345fd064ebd3d1eb16690d1f11c43842caf9a9ad8efe260`,
+and execution digest
+`sha256:dd0a026795dfbd3532192bbc450eea876824072db56eee75bc04f3cfed12f59b`.
 
 ## DeepSWE
 

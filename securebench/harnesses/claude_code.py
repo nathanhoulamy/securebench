@@ -31,6 +31,7 @@ from securebench.harnesses.codex import (
     shell_quote,
 )
 from securebench.harnesses.shared import (
+    agent_workspace_git_env,
     agent_task_json,
     close_sandbox,
     container_image_for_task,
@@ -208,11 +209,14 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                     image=image,
                     root=task_workspace,
                     env_names=self.env_names,
-                    env=claude_code_agent_env(
-                        egress.env,
-                        egress.provider_base_url,
-                        self.env_names,
-                        auth=self.auth,
+                    env=agent_workspace_git_env(
+                        task,
+                        claude_code_agent_env(
+                            egress.env,
+                            egress.provider_base_url,
+                            self.env_names,
+                            auth=self.auth,
+                        ),
                     ),
                     network=egress.network,
                     cap_add=("DAC_OVERRIDE",),
@@ -371,11 +375,14 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                 capacity_bytes=capacity_bytes,
                 trusted_inputs_root=task_workspace,
                 timeout=timeout,
-                env=claude_code_agent_env(
-                    egress.env,
-                    egress.provider_base_url,
-                    self.env_names,
-                    auth=self.auth,
+                env=agent_workspace_git_env(
+                    task,
+                    claude_code_agent_env(
+                        egress.env,
+                        egress.provider_base_url,
+                        self.env_names,
+                        auth=self.auth,
+                    ),
                 ),
                 env_names=self.env_names,
                 network=egress.network,

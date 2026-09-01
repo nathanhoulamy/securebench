@@ -241,13 +241,25 @@ class VerificationEngine:
                 assert isinstance(value, bytes)
                 parsed = self.parsers.parse_bytes(artifact.parser, value)
             else:
-                if profile.input_kind != "tree":
+                if profile.input_kind not in {"tree", "stored_tree"}:
                     raise VerificationInfrastructureError(
                         "parser_contract_mismatch",
                         "Registered parser input kind does not match artifact",
                     )
                 assert isinstance(value, dict)
-                parsed = self.parsers.parse_tree(artifact.parser, value)
+                if profile.input_kind == "stored_tree":
+                    if candidate.type != "file_bundle":
+                        raise VerificationInfrastructureError(
+                            "parser_contract_mismatch",
+                            "Stored-tree parsers require a file-bundle directory entry",
+                        )
+                    parsed = self.parsers.parse_stored_tree(
+                        artifact.parser,
+                        value,
+                        store.read_blob,
+                    )
+                else:
+                    parsed = self.parsers.parse_tree(artifact.parser, value)
             return ArtifactEvidence(
                 check_id=check.id,
                 artifact_id=artifact.id,

@@ -758,7 +758,11 @@ def _docker_bind_mount_args(
         if not source_path.is_file() and not source_path.is_dir():
             raise ValueError("Docker bind mount source must be an existing file or directory")
         source = str(source_path)
-        target = _docker_bind_mount_target(mount.target, workspace_mount_target=workspace_mount_target)
+        target = _docker_bind_mount_target(
+            mount.target,
+            workspace_mount_target=workspace_mount_target,
+            allow_read_only_app_sibling=mount.read_only,
+        )
         target_path = PurePosixPath(target)
         if any(portable_paths_overlap(target_path, existing) for existing in targets):
             raise ValueError(f"Docker bind mount targets overlap at: {target}")
@@ -774,6 +778,7 @@ def _docker_bind_mount_target(
     path: str,
     *,
     allow_workspace_root: bool = False,
+    allow_read_only_app_sibling: bool = False,
     workspace_mount_target: str = "/workspace",
 ) -> str:
     if not isinstance(path, str) or not path or "\x00" in path:
@@ -813,10 +818,21 @@ def _docker_bind_mount_target(
                     return str(workspace_root)
                 raise ValueError("Docker bind mount target must not be the workspace root")
             return str(workspace_root / relative)
+        app_root = PurePosixPath("/app")
+        if (
+            allow_read_only_app_sibling
+            and workspace_root != app_root
+            and workspace_root.is_relative_to(app_root)
+            and candidate != app_root
+            and candidate.is_relative_to(app_root)
+            and ".." not in candidate.parts
+        ):
+            return str(candidate)
         if not any(candidate == root or candidate.is_relative_to(root) for root in allowed_external_roots):
             raise ValueError(
                 "Docker bind mount target must be under the configured workspace, "
-                f"/opt/securebench, /securebench-workspace, or /tmp: {path!r}"
+                "a read-only sibling below /app, /opt/securebench, "
+                f"/securebench-workspace, or /tmp: {path!r}"
             )
         relative = candidate
     else:

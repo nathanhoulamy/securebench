@@ -69,7 +69,7 @@ The pilot may use:
 - `terminal_task` with `file_bundle`;
 - `repo_patch` with `git_patch`;
 - passive JSON, UTF-8 text, ICS, strict CSV, strict bounded NPY float-summary,
-  and tree-manifest parsers;
+  tree-manifest, and configuration-sanitized bounded Git-repository parsers;
 - `securebench.adapter/v2` protocol checks;
 - regular-file and directory-tree Output Artifacts;
 - `securebench.http-request-recorder/v1` for bounded HTTP request evidence;
@@ -200,6 +200,13 @@ The current Challenge is released one at a time by the Oracle. Do not mount the 
 corpus into Evaluation. Original hidden tests and `test.patch` may inform conversion and
 qualification, but must never be executed or mounted as the v2 verifier.
 
+Inspect the pinned image itself for verifier inputs or gold copies. When a source image embeds an
+answer outside the intended challenge state, mask the narrowest leaked path with a reviewed
+read-only public directory containing no answer material; do not change the starting workdir or
+prompt merely to work around the leak. A nested `/app` workdir may use a read-only sibling mount
+under the same `/app` root, while writable siblings remain unsupported. Assert the mask contents
+and prove the leaked path is absent in a pinned Agent command.
+
 ### 4. Implement checks and components
 
 For an artifact row:
@@ -294,8 +301,8 @@ benchmark; it is not a substitute for proving that the benchmark distinguishes b
 mutant, and malicious Candidates.
 
 The qualification matrix is a per-row evidence requirement, not a requirement to duplicate test
-scaffolding. The compact shared proof covers the seventeen incremental rows from
-`bn-fit-modify` through `fix-code-vulnerability`: shared task loading,
+scaffolding. The compact shared proof covers the twenty incremental rows from
+`bn-fit-modify` through `git-leak-recovery`: shared task loading,
 stopped-workspace capture, verification, Docker gating,
 symlink/directory/oversize attacks, missing-Candidate scoring, and base capture
 live in `tests/qualification_support.py` and
@@ -327,6 +334,11 @@ During conversion, run the focused row file and, once the row is registered, its
 shared qualification file. Run the row's live-Docker cases after deterministic qualification is
 green. Before an Agent smoke, confirm that the tester allowlist covers every remote service named
 by the public task; a policy omission is configuration failure, not evidence of model inability.
+For image repositories materialized onto the Linux host, SecureBench supplies
+Git with process-local `safe.directory` entries for the exact configured
+workdir and declared directory-tree Candidate roots. Never use the wildcard
+`safe.directory=*`; test that existing bounded Git configuration is preserved
+and ambiguous configuration fails closed.
 Run the complete warning-strict suite, schema regeneration check, and one full-pack audit before
 handing off a row or batch, and whenever shared capture, replay, parser, Adapter, Helper,
 Oracle-session, network-policy, or audit code changes. Repeating an unchanged full suite or an

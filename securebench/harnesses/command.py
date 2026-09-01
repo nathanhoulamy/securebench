@@ -20,6 +20,7 @@ from securebench.candidates.store import CandidateStore
 from securebench.errors import ConfigError
 from securebench.execution_profiles import validate_executable_task
 from securebench.harnesses.shared import (
+    agent_workspace_git_env,
     agent_task_json,
     close_sandbox,
     container_image_for_task,
@@ -203,7 +204,7 @@ class CommandHarnessProducer(CandidateProducer):
                 capacity_bytes=capacity_bytes,
                 trusted_inputs_root=task_workspace,
                 timeout=timeout,
-                env=egress.env,
+                env=agent_workspace_git_env(task, egress.env),
                 env_names=self.env_names,
                 network=egress.network,
                 public_mounts=docker_resource_mounts(plan),
@@ -221,7 +222,7 @@ class CommandHarnessProducer(CandidateProducer):
             image=image,
             root=task_workspace,
             env_names=self.env_names,
-            env=egress.env,
+            env=agent_workspace_git_env(task, egress.env),
             network=egress.network,
             cap_add=("DAC_OVERRIDE",),
             mounts=docker_resource_mounts(plan),

@@ -10,15 +10,22 @@ import re
 import struct
 import sys
 from dataclasses import dataclass
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, Protocol
 
 from securebench.data_formats import strict_json_loads
 from securebench.verification.models import ParserRejected
 
 
-ParserInputKind = Literal["bytes", "tree"]
+ParserInputKind = Literal["bytes", "tree", "stored_tree"]
 BytesParser = Callable[[bytes], Any]
 TreeParser = Callable[[dict[str, Any]], Any]
+
+
+class BlobReader(Protocol):
+    def __call__(self, digest: str, *, expected_size: int | None = None) -> bytes: ...
+
+
+StoredTreeParser = Callable[[dict[str, Any], BlobReader], Any]
 
 
 MAX_CSV_BYTES = 16 * 1024 * 1024
@@ -39,7 +46,7 @@ NPY_FLOAT_DESCR = re.compile(r"^(?P<byteorder>[<>=])?f(?P<size>2|4|8|16)$")
 class ParserProfile:
     id: str
     input_kind: ParserInputKind
-    implementation: BytesParser | TreeParser
+    implementation: BytesParser | TreeParser | StoredTreeParser
 
 
 class ParserRegistry:
@@ -73,6 +80,17 @@ class ParserRegistry:
             raise TypeError(f"parser {identifier!r} does not accept tree artifacts")
         return profile.implementation(tree)
 
+    def parse_stored_tree(
+        self,
+        identifier: str,
+        tree: dict[str, Any],
+        read_blob: BlobReader,
+    ) -> Any:
+        profile = self.profile(identifier)
+        if profile.input_kind != "stored_tree":
+            raise TypeError(f"parser {identifier!r} does not accept stored tree artifacts")
+        return profile.implementation(tree, read_blob)
+
 
 def default_parser_registry() -> ParserRegistry:
     registry = ParserRegistry()
@@ -84,6 +102,15 @@ def default_parser_registry() -> ParserRegistry:
         ParserProfile("securebench.strict-npy-float-summary/v1", "bytes", _strict_npy_float_summary)
     )
     registry.register(ParserProfile("securebench.tree-manifest/v1", "tree", _tree_manifest))
+    from securebench.verification.git_repository import git_repository_observation
+
+    registry.register(
+        ParserProfile(
+            "securebench.git-repository/v1",
+            "stored_tree",
+            git_repository_observation,
+        )
+    )
     return registry
 
 

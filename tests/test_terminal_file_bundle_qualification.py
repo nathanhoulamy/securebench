@@ -129,6 +129,29 @@ ROWS = (
         missing_check_ids=("candidate_artifacts", "header_validation_behavior"),
         base_command=("true",),
     ),
+    RowCaptureContract(
+        task_id="terminal-bench/fix-git",
+        target_id="about",
+        oversized_target="layout",
+        exact_missing_categories=None,
+        missing_check_ids=("recovered_files_artifact",),
+        base_command=None,
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/gcode-to-text",
+        target_id="decoded_text",
+        oversized_target=None,
+        exact_missing_categories=("candidate_capture_rejected",),
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/git-leak-recovery",
+        target_id="repository",
+        oversized_target="recovered_secret",
+        exact_missing_categories=None,
+        missing_check_ids=("git_recovery_artifact",),
+        base_command=None,
+    ),
 )
 
 

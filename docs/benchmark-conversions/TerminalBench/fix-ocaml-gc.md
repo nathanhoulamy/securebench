@@ -65,23 +65,48 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 
 ## Questions for our later review
 
-- [ ] Read the complete public instruction.
-- [ ] Walk through the verifier entrypoint line by line.
-- [ ] Identify every candidate-controlled input consumed by the verifier.
-- [ ] Identify every scoring-relevant assertion and expected value.
-- [ ] Decide whether the task's intended behavior is fully represented by its tests.
-- [ ] Design the split-verification conversion.
-- [ ] Record fidelity limitations and the final eligibility decision.
+- [x] Read the complete public instruction.
+- [x] Walk through the verifier entrypoint line by line.
+- [x] Identify every candidate-controlled input consumed by the verifier.
+- [x] Identify every scoring-relevant assertion and expected value.
+- [x] Decide whether the task's intended behavior is fully represented by its tests.
+- [x] Design the split-verification conversion.
+- [x] Record fidelity limitations and the final eligibility decision.
 
-## Future conversion notes
+## Split-verification assessment
 
-Exclude for the current conversion pass because of implementation cost, not a
-fundamental split-verification barrier. A sound redesign would apply the source
-patch and bootstrap OCaml only in the Evaluation VM, then replace the
-candidate-controlled `tests.txt` marker with a reusable assertion-free
-compiler/runtime scenario runner. Preserving the basic-suite coverage requires
-translating roughly 40 tests into host-owned expected outcomes plus per-case
-program, module-tree, option, and allocation challenges, alongside a pinned
-OCaml bootstrap toolchain and differential validation. Reconsider the row when
-SecureBench has a reusable compiler-language runner. **Exclusion manually
-approved after the feasibility re-audit.**
+The source verifier replaces the repository's testsuite from a fresh clone,
+rebuilds the compiler inside the same Candidate-controlled tree, runs the basic
+suite, and accepts a guest-generated `tests.txt` file containing the phrase
+`40 tests passed`. The source image removes `.git`, so the current pack has no
+canonical baseline from which SecureBench can derive a bounded `git_patch`.
+
+Capturing the whole tree as a `file_bundle` or overlay would also capture
+Candidate-controlled build scripts, compiler launchers, and output-producing
+machinery. An assertion-free Adapter that merely ran those components and
+returned their exit status or marker text would not provide independent
+evidence: the Candidate could manufacture the observation. Moving the original
+assertion-bearing tests into Evaluation and trusting their summary would violate
+the repository's host-Oracle requirement.
+
+A sound future conversion needs:
+
+- an immutable, identity-pinned OCaml source baseline and bounded patch capture;
+- a reusable assertion-free compiler/runtime scenario runner in Evaluation;
+- host-owned programs, module trees, compiler options, allocation workloads,
+  expected outcomes, and verdict logic for roughly 40 basic-suite behaviors;
+- base failure, reference success, targeted GC mutants, malicious build/output
+  forgery rejection, and differential validation against the source verifier;
+  and
+- a pinned bootstrap toolchain with bounded build time, output, and cleanup.
+
+This is implementation cost rather than a fundamental theoretical barrier, but
+the required runner does not exist in the current framework. Adding it is too
+large and too family-specific to treat as a row adapter.
+
+## Final qualification decision
+
+**Excluded — no approved executable pattern in the current framework.** This
+binary exclusion was manually approved during the feasibility review and is
+reconfirmed against the current split-verification architecture. No v2 row or
+live Agent run is added.

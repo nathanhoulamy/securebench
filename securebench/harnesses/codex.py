@@ -29,6 +29,7 @@ from securebench.candidates.store import CandidateStore
 from securebench.errors import ConfigError
 from securebench.execution_profiles import validate_executable_task
 from securebench.harnesses.shared import (
+    agent_workspace_git_env,
     agent_task_json,
     close_sandbox,
     container_workspace_path,
@@ -256,7 +257,10 @@ class CodexHarnessProducer(CandidateProducer):
                     image=image,
                     root=task_workspace,
                     env_names=self.env_names,
-                    env=codex_agent_env(egress.env, auth=self.auth),
+                    env=agent_workspace_git_env(
+                        task,
+                        codex_agent_env(egress.env, auth=self.auth),
+                    ),
                     network=egress.network,
                     cap_add=("DAC_OVERRIDE",),
                     read_only=False,
@@ -449,7 +453,10 @@ class CodexHarnessProducer(CandidateProducer):
                 capacity_bytes=capacity_bytes,
                 trusted_inputs_root=task_workspace,
                 timeout=timeout,
-                env=codex_agent_env(egress.env, auth=self.auth),
+                env=agent_workspace_git_env(
+                    task,
+                    codex_agent_env(egress.env, auth=self.auth),
+                ),
                 env_names=self.env_names,
                 network=egress.network,
                 public_mounts=(

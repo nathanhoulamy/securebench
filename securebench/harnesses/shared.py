@@ -46,6 +46,42 @@ def task_workdir(task: BenchmarkTask) -> str:
     return task.environment.workdir
 
 
+def agent_workspace_git_env(
+    task: BenchmarkTask,
+    env: dict[str, str],
+) -> dict[str, str]:
+    """Trust exact host-materialized Agent and declared directory roots for Git."""
+
+    result = dict(env)
+    raw_count = result.get("GIT_CONFIG_COUNT", "0")
+    if not raw_count.isascii() or not raw_count.isdecimal():
+        raise ConfigError("Agent GIT_CONFIG_COUNT must be a non-negative integer")
+    count = int(raw_count)
+    trusted_paths = [task.environment.workdir]
+    candidate = getattr(getattr(task, "verification", None), "candidate", None)
+    for entry in getattr(candidate, "files", ()):
+        if getattr(entry, "kind", None) == "directory_tree":
+            trusted_paths.append(entry.path)
+    trusted_paths = list(dict.fromkeys(trusted_paths))
+    if count + len(trusted_paths) > 128:
+        raise ConfigError("Agent GIT_CONFIG_COUNT exceeds the supported bound")
+    for index in range(count):
+        if (
+            f"GIT_CONFIG_KEY_{index}" not in result
+            or f"GIT_CONFIG_VALUE_{index}" not in result
+        ):
+            raise ConfigError("Agent Git configuration contains an incomplete entry")
+    for name in result:
+        match = re.fullmatch(r"GIT_CONFIG_(?:KEY|VALUE)_(\d+)", name)
+        if match is not None and int(match.group(1)) >= count:
+            raise ConfigError("Agent Git configuration contains an ambiguous trailing entry")
+    result["GIT_CONFIG_COUNT"] = str(count + len(trusted_paths))
+    for offset, value in enumerate(trusted_paths):
+        result[f"GIT_CONFIG_KEY_{count + offset}"] = "safe.directory"
+        result[f"GIT_CONFIG_VALUE_{count + offset}"] = value
+    return result
+
+
 def task_timeout_seconds(task: BenchmarkTask) -> float:
     return float(task.environment.timeout_seconds)
 

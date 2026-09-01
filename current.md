@@ -7,7 +7,7 @@ request/event-ledger/process-supervisor Trusted Helper execution, git-patch
 execution, the locally qualified filesystem-overlay implementation, and the
 subsequent architecture-wide overlay integration review, plus the compact
 qualification matrix and Terminal conversions through
-`fix-code-vulnerability`
+`git-leak-recovery`
 
 Active development branch: `split-verification-v2`
 
@@ -80,7 +80,7 @@ the runner does not invent a benchmark score.
 | `filesystem_overlay` candidate | Capture, transactional storage, fresh replay, and normal harness integration implemented; native execution remains qualification-gated |
 | Passive artifact check using `source.entry` | Implemented for whole `file_bundle` entries and bounded regular-file `source.subpath` selection inside directory trees |
 | Artifact check using `source.path` | Implemented for bounded repository-relative `git_patch` paths and absolute paths mapped through fresh overlay roots |
-| Registered passive parsers | JSON, UTF-8 text, ICS, strict CSV, bounded scalar-float NPY summaries, and tree-manifest profiles exist |
+| Registered passive parsers | JSON, UTF-8 text, ICS, strict CSV, bounded scalar-float NPY summaries, tree-manifest, and hook-free bounded Git-repository profiles exist |
 | Basic protocol check | Implemented with finite JSON, bounded I/O, and a fresh offline container per Challenge |
 | Adapter v2 contract | The only supported Adapter format; implemented with typed Challenge/Observation schemas, Evaluation Participants, Trusted Helper requirements, Output Artifacts, and reduced maximums |
 | Challenge Evidence | Implemented with host Challenge/Evaluation IDs, correlation checks, and explicit failure source |
@@ -96,19 +96,25 @@ the runner does not invent a benchmark score.
 | Admission qualification pipeline | Not implemented |
 | Result signing | Not implemented |
 
-The executable reference packs currently contain twenty Terminal-Bench rows
-and three DeepSWE rows. The seventeen incremental conversions from `bn-fit-modify`
-through `fix-code-vulnerability` are Approved after deterministic,
+The executable reference packs currently contain twenty-three Terminal-Bench rows
+and three DeepSWE rows. The twenty incremental conversions from `bn-fit-modify`
+through `git-leak-recovery` are Approved after deterministic,
 pinned-image, stopped-capture, adversarial, teardown, and model-backed
-qualification. The seventeen rows share a declarative `file_bundle`
+qualification. The twenty rows share a declarative `file_bundle`
 capture-qualification matrix while retaining semantic, parser, asset-identity,
 and replay evidence in focused row tests; the financial row extends that proof
-to bounded directory entries and passive nested-file selection, while the
-fix-code row adds a two-file artifact/protocol Candidate without new framework
-code. The intervening
-`feal-differential-cryptanalysis` and `filter-js-from-html` entries remain
-Excluded because faithful adaptive Oracle interaction and trusted dynamic
-browser verdicts, respectively, are unavailable. The first-wave control,
+to bounded directory entries and passive nested-file selection. The fix-code
+row adds a two-file artifact/protocol Candidate, while `fix-git` masks
+an image-bundled answer leak and adds exact-path Git ownership compatibility.
+The `gcode-to-text` row returns to the one-file passive pattern with exact
+source text normalization. `git-leak-recovery` adds passive, bounded,
+configuration-sanitized inspection of loose and packed Git objects plus exact
+declared nested-repository ownership compatibility. The intervening `feal-differential-cryptanalysis`,
+`filter-js-from-html`, and
+`fix-ocaml-gc` entries remain Excluded because faithful adaptive Oracle
+interaction, trusted dynamic browser verdicts, and an independent bounded
+compiler/runtime scenario runner, respectively, are unavailable. The first-wave
+control,
 `sqlite-db-truncate`, and `vulnerable-secret` remain
 qualification-pending in their dossiers and checklist; an inventory-level
 Approved review disposition is not a completed runtime qualification. The
@@ -124,6 +130,13 @@ filesystem-overlay example remains intentionally non-executable.
   runtime; Oracle gets public plus hidden; results get no live resources.
 - Public assets use their declared read-only mounts in both Agent and relevant Evaluation
   runtimes. Runtime resources never enter the Agent container.
+- A nested `/app` workdir may use a reviewed read-only public sibling mount to
+  mask image-bundled answer material; writable sibling mounts and parent
+  traversal remain rejected.
+- Agent harnesses add process-local Git `safe.directory` entries only for the
+  exact configured workdir and declared directory-tree Candidate roots,
+  preserving bounded existing entries and rejecting ambiguous configuration
+  rather than using a wildcard.
 - Candidate capture is stopped-state, bounded, content-addressed, and baseline-bound.
 - Filesystem-overlay public assets mounted below captured roots must select an existing baseline
   node with the same file/directory kind. Capture proves the underlying target subtree and required
@@ -269,7 +282,7 @@ hardening rather than a prerequisite for writing and qualifying the first conver
 
 At this review pass:
 
-- full warning-strict suite: `941 passed, 99 skipped`;
+- full warning-strict suite: `1013 passed, 113 skipped`;
 - complete protocol and Trusted Helper suite with Docker integration enabled:
   `54 passed, 1 skipped`, including fresh ordinary/recorder Evaluations,
   clean-repository git-patch replay, authenticated event-ledger traffic, external
@@ -365,9 +378,28 @@ At this review pass:
   captures both bounded files and passes all five protocol cases without
   infrastructure error; the host correctly rejects its unrelated source edit
   and incorrect report;
+- `fix-git` passive qualification: the focused warning-strict suite passes
+  `36 passed, 5 skipped` and its pinned Linux matrix passes `41/41`; the gold
+  directory is masked from the Agent, the untouched branch fails, and the real
+  reflog recovery plus merge-conflict resolution passes the original two
+  assertions and exact replay. Partial, forged, Unicode-whitespace, invalid-
+  UTF-8, and malicious-shape Candidates fail; its Luna smoke captures both
+  unchanged files without infrastructure error and is correctly rejected;
+- `gcode-to-text` passive qualification: the focused warning-strict suite
+  passes `20 passed, 5 skipped` and its pinned Linux matrix passes `25/25`;
+  the 1,661,422-byte public input identity, source Unicode-whitespace and
+  universal-newline behavior, exact reference replay, semantic mutants, and
+  malicious file shapes are covered. Its Luna smoke produces bounded
+  `SHAPE-BOX` output without infrastructure error and is correctly rejected;
+- `git-leak-recovery` passive qualification: the focused warning-strict suite
+  passes `27 passed, 4 skipped` and its pinned Linux matrix passes `31/31`;
+  loose and packed objects, reachability, preserved history and worktree
+  identity, hostile Git configuration, alternates, stopped replay, and
+  malicious capture shapes are covered. Its API-key-backed Luna smoke passes
+  both bounded artifacts with score `1.0` and no infrastructure error;
 - the Docker pass left no Trusted Helper containers, materialization containers, Evaluation
   networks, or overlay volumes behind;
-- complete Terminal configuration and self-audits: `81/81` passed with no
+- complete Terminal configuration and self-audits: `93/93` passed with no
   failures or warnings;
 - the generated Trusted Helper contract schema was refreshed for the reviewed
   HTTP and host-only access/credential modes, and its regeneration check passes;

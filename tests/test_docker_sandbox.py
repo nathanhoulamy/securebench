@@ -602,6 +602,70 @@ def test_docker_sandbox_rejects_overlapping_extra_mounts_before_start(tmp_path):
         sandbox.run(["true"])
 
 
+def test_docker_sandbox_accepts_read_only_app_sibling_for_nested_workspace(
+    monkeypatch, tmp_path
+):
+    seen = {}
+    source = tmp_path / "masked-resources"
+    source.mkdir()
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path / "workspace",
+        persistent=False,
+        mounts=(DockerBindMount(source, "/app/resources", read_only=True),),
+        workspace_mount_target="/app/personal-site",
+    )
+
+    sandbox.run(["true"], workdir="/app/personal-site")
+
+    option = seen["command"][seen["command"].index("--mount") + 1]
+    assert f"source={source}" in option
+    assert "target=/app/resources" in option
+    assert option.endswith(",readonly")
+
+
+def test_docker_sandbox_rejects_writable_app_sibling_for_nested_workspace(tmp_path):
+    source = tmp_path / "resources"
+    source.mkdir()
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path / "workspace",
+        persistent=False,
+        mounts=(DockerBindMount(source, "/app/resources", read_only=False),),
+        workspace_mount_target="/app/personal-site",
+    )
+
+    with pytest.raises(ValueError, match="read-only sibling below /app"):
+        sandbox.run(["true"])
+
+
+def test_docker_sandbox_rejects_parent_traversal_in_read_only_app_sibling(tmp_path):
+    source = tmp_path / "resources"
+    source.mkdir()
+    sandbox = DockerSandbox(
+        image="agent-image",
+        root=tmp_path / "workspace",
+        persistent=False,
+        mounts=(
+            DockerBindMount(
+                source,
+                "/app/personal-site/../resources",
+                read_only=True,
+            ),
+        ),
+        workspace_mount_target="/app/personal-site",
+    )
+
+    with pytest.raises(ValueError, match="may not contain '..'"):
+        sandbox.run(["true"])
+
+
 def test_docker_sandbox_rejects_case_aliased_extra_mounts(tmp_path):
     first = tmp_path / "first"
     second = tmp_path / "second"

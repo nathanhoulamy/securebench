@@ -264,7 +264,10 @@ def _validate_parsers(task: BenchmarkTask) -> None:
                     )
                 expected = "bytes" if artifact.limits.max_bytes is not None else "tree"
                 source_kind = "repository file" if expected == "bytes" else "repository tree"
-            if profile.input_kind != expected:
+            accepted_input_kinds = {expected}
+            if expected == "tree" and isinstance(candidate, FileBundleCandidate):
+                accepted_input_kinds.add("stored_tree")
+            if profile.input_kind not in accepted_input_kinds:
                 raise ConfigError(
                     f"Artifact {artifact.id!r} parser {artifact.parser!r} does not accept "
                     f"candidate source kind {source_kind!r}"
