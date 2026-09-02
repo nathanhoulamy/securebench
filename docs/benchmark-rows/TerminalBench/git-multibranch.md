@@ -2,6 +2,11 @@
 
 > Review status: **Reviewed with the SecureBench team**.
 
+> Current runtime decision (2026-09-02): **Excluded**. The single-participant
+> runtime cannot safely capture and replay the required system account/service
+> state or isolate a pristine Git/HTTPS client from it. See the
+> [current conversion dossier](../../benchmark-conversions/TerminalBench/git-multibranch.md).
+
 ## Source facts
 
 | Field | Value |

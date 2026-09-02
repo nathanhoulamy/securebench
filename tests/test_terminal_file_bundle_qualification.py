@@ -152,6 +152,11 @@ ROWS = (
         missing_check_ids=("git_recovery_artifact",),
         base_command=None,
     ),
+    RowCaptureContract(
+        task_id="terminal-bench/gpt2-codegolf",
+        target_id="implementation",
+        base_command=("true",),
+    ),
 )
 
 

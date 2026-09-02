@@ -1,6 +1,6 @@
 # Conversion action queue
 
-This focused register contains all 31 rows that are excluded from conversion,
+This focused register contains all 32 rows that are excluded from conversion,
 plus eight approved rows that still require a major redesign. Approved clean and
 semantic-change designs remain in [`inventory.csv`](inventory.csv) without being
 duplicated here.
@@ -49,7 +49,7 @@ duplicated here.
 | Terminal-Bench 2.0 | [`tune-mjcf`](TerminalBench/tune-mjcf.md) | Black-box challenge/response | Not separately rated | Approved — Major redesign |
 
 
-## Excluded — TerminalBench (15)
+## Excluded — TerminalBench (16)
 
 | Benchmark | Task | Pattern | Impact | Final verdict |
 |---|---|---|---|---|
@@ -59,6 +59,7 @@ duplicated here.
 | Terminal-Bench 2.0 | [`feal-differential-cryptanalysis`](TerminalBench/feal-differential-cryptanalysis.md) | No approved pattern (excluded) | Not separately rated | Excluded — No conversion |
 | Terminal-Bench 2.0 | [`filter-js-from-html`](TerminalBench/filter-js-from-html.md) | No approved pattern (excluded) | Not separately rated | Excluded — No conversion |
 | Terminal-Bench 2.0 | [`fix-ocaml-gc`](TerminalBench/fix-ocaml-gc.md) | No approved pattern (excluded) | Not separately rated | Excluded — No conversion |
+| Terminal-Bench 2.0 | [`git-multibranch`](TerminalBench/git-multibranch.md) | Multi-participant service redesign required | Not separately rated | Excluded — Current runtime unsupported |
 | Terminal-Bench 2.0 | [`mcmc-sampling-stan`](TerminalBench/mcmc-sampling-stan.md) | No approved pattern (excluded) | Not separately rated | Excluded — No conversion |
 | Terminal-Bench 2.0 | [`model-extraction-relu-logits`](TerminalBench/model-extraction-relu-logits.md) | No approved pattern (excluded) | Not separately rated | Excluded — No conversion |
 | Terminal-Bench 2.0 | [`portfolio-optimization`](TerminalBench/portfolio-optimization.md) | No approved pattern (excluded) | Not separately rated | Excluded — No conversion |

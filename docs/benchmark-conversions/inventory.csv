@@ -145,7 +145,7 @@ DeepSWE,"vulture-persistent-analysis-cache",Excluded,"Major redesign","Major red
 "Terminal-Bench 2.0",fix-ocaml-gc,Excluded,Exclude,Excluded,"No approved pattern (excluded)",Not separately rated,"TerminalBench/fix-ocaml-gc.md"
 "Terminal-Bench 2.0",gcode-to-text,Approved,"Clean conversion","Clean conversion","Passive artifact verification",Not separately rated,"TerminalBench/gcode-to-text.md"
 "Terminal-Bench 2.0",git-leak-recovery,Approved,"Clean conversion","Clean conversion","Passive artifact verification",Not separately rated,"TerminalBench/git-leak-recovery.md"
-"Terminal-Bench 2.0","git-multibranch",Approved,"Clean conversion","Clean conversion","Black-box challenge/response",Not separately rated,"TerminalBench/git-multibranch.md"
+"Terminal-Bench 2.0","git-multibranch",Excluded,"No approved pattern in the current runtime","Excluded","No approved pattern (multi-participant service redesign required)",Not separately rated,"TerminalBench/git-multibranch.md"
 "Terminal-Bench 2.0",gpt2-codegolf,Approved,"Clean conversion","Clean conversion","Black-box challenge/response",Not separately rated,"TerminalBench/gpt2-codegolf.md"
 "Terminal-Bench 2.0","headless-terminal",Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Not separately rated,"TerminalBench/headless-terminal.md"
 "Terminal-Bench 2.0","hf-model-inference",Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Not separately rated,"TerminalBench/hf-model-inference.md"

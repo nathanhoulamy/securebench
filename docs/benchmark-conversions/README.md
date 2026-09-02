@@ -15,12 +15,12 @@ The first-wave Linux admission record is the
 | Benchmark | Rows | Approved | Excluded |
 |---|---:|---:|---:|
 | DeepSWE | 113 | 97 | 16 |
-| TerminalBench 2.0 | 89 | 74 | 15 |
-| **Total** | **202** | **171** | **31** |
+| TerminalBench 2.0 | 89 | 73 | 16 |
+| **Total** | **202** | **170** | **32** |
 
-Of these, 163 rows have an approved clean or semantic-change conversion design
-and eight have an approved major-redesign direction. The other 31 are excluded:
-16 DeepSWE rows still need a stronger decision or design, and 15 TerminalBench
+Of these, 162 rows have an approved clean or semantic-change conversion design
+and eight have an approved major-redesign direction. The other 32 are excluded:
+16 DeepSWE rows still need a stronger decision or design, and 16 TerminalBench
 rows have an explicit no-conversion decision.
 Approval does not imply that the required runtime capabilities are implemented
 yet.
@@ -30,8 +30,8 @@ The design disposition is tracked separately from approval status:
 | Benchmark | Clean | Semantic change | Major redesign | No conversion | Total |
 |---|---:|---:|---:|---:|---:|
 | DeepSWE | 32 | 64 | 17 | 0 | 113 |
-| TerminalBench 2.0 | 53 | 15 | 6 | 15 | 89 |
-| **Total** | **85** | **79** | **23** | **15** | **202** |
+| TerminalBench 2.0 | 52 | 15 | 6 | 16 | 89 |
+| **Total** | **84** | **79** | **23** | **16** | **202** |
 
 The authoritative per-row status is [`inventory.csv`](inventory.csv). Dossier
 headers deliberately defer to that inventory so status cannot drift between two
@@ -90,7 +90,7 @@ The complete contract is documented in the
   model. The detailed disposition remains in the inventory so the reason is not
   lost.
 
-The focused [`action queue`](action-queue.md) contains all 31 excluded rows
+The focused [`action queue`](action-queue.md) contains all 32 excluded rows
 plus the eight approved major-redesign rows. Clean and semantic-change rows
 remain queryable in `inventory.csv`.
 

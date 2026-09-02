@@ -1,13 +1,12 @@
 # Current SecureBench v2 state
 
-Last reviewed: 2026-09-01
+Last reviewed: 2026-09-02
 
 Implementation baseline reviewed: this branch through Output Artifacts, HTTP
 request/event-ledger/process-supervisor Trusted Helper execution, git-patch
 execution, the locally qualified filesystem-overlay implementation, and the
 subsequent architecture-wide overlay integration review, plus the compact
-qualification matrix and Terminal conversions through
-`git-leak-recovery`
+qualification matrix and Terminal conversions through `gpt2-codegolf`
 
 Active development branch: `split-verification-v2`
 
@@ -96,11 +95,11 @@ the runner does not invent a benchmark score.
 | Admission qualification pipeline | Not implemented |
 | Result signing | Not implemented |
 
-The executable reference packs currently contain twenty-three Terminal-Bench rows
-and three DeepSWE rows. The twenty incremental conversions from `bn-fit-modify`
-through `git-leak-recovery` are Approved after deterministic,
+The executable reference packs currently contain twenty-four Terminal-Bench rows
+and three DeepSWE rows. The twenty-one incremental conversions from `bn-fit-modify`
+through `gpt2-codegolf` are Approved after deterministic,
 pinned-image, stopped-capture, adversarial, teardown, and model-backed
-qualification. The twenty rows share a declarative `file_bundle`
+qualification. The twenty-one rows share a declarative `file_bundle`
 capture-qualification matrix while retaining semantic, parser, asset-identity,
 and replay evidence in focused row tests; the financial row extends that proof
 to bounded directory entries and passive nested-file selection. The fix-code
@@ -110,11 +109,13 @@ The `gcode-to-text` row returns to the one-file passive pattern with exact
 source text normalization. `git-leak-recovery` adds passive, bounded,
 configuration-sanitized inspection of loose and packed Git objects plus exact
 declared nested-repository ownership compatibility. The intervening `feal-differential-cryptanalysis`,
-`filter-js-from-html`, and
-`fix-ocaml-gc` entries remain Excluded because faithful adaptive Oracle
-interaction, trusted dynamic browser verdicts, and an independent bounded
-compiler/runtime scenario runner, respectively, are unavailable. The first-wave
-control,
+`filter-js-from-html`, `fix-ocaml-gc`, and `git-multibranch` entries remain
+Excluded because faithful adaptive Oracle interaction, trusted dynamic browser
+verdicts, an independent bounded compiler/runtime scenario runner, and isolated
+multi-participant system-service verification, respectively, are unavailable.
+`gpt2-codegolf` adds bounded C compilation and two-case GPT-2 continuation
+execution, including a private guard against the source verifier's fixed-output
+shortcut. The first-wave control,
 `sqlite-db-truncate`, and `vulnerable-secret` remain
 qualification-pending in their dossiers and checklist; an inventory-level
 Approved review disposition is not a completed runtime qualification. The
@@ -282,7 +283,7 @@ hardening rather than a prerequisite for writing and qualifying the first conver
 
 At this review pass:
 
-- full warning-strict suite: `1013 passed, 113 skipped`;
+- full warning-strict suite: `1028 passed, 116 skipped`;
 - complete protocol and Trusted Helper suite with Docker integration enabled:
   `54 passed, 1 skipped`, including fresh ordinary/recorder Evaluations,
   clean-repository git-patch replay, authenticated event-ledger traffic, external
@@ -397,9 +398,14 @@ At this review pass:
   identity, hostile Git configuration, alternates, stopped replay, and
   malicious capture shapes are covered. Its API-key-backed Luna smoke passes
   both bounded artifacts with score `1.0` and no infrastructure error;
+- `gpt2-codegolf` protocol qualification: all 18 focused deterministic and
+  pinned-Linux tests pass, including the upstream reference, two fresh model
+  cases, fixed-output, compiler/runtime, output-flood, forked-pipe-holder, and
+  malicious capture/observation cases. Its API-key-backed Luna smoke completes
+  without infrastructure error and is correctly rejected for incorrect output;
 - the Docker pass left no Trusted Helper containers, materialization containers, Evaluation
   networks, or overlay volumes behind;
-- complete Terminal configuration and self-audits: `93/93` passed with no
+- complete Terminal configuration and self-audits: `97/97` passed with no
   failures or warnings;
 - the generated Trusted Helper contract schema was refreshed for the reviewed
   HTTP and host-only access/credential modes, and its regeneration check passes;

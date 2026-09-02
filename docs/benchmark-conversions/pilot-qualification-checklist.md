@@ -7,15 +7,17 @@ but they do not replace Linux/Docker qualification.
 
 Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; the twenty incrementally qualified rows below
+remain intentionally unchecked; the twenty-one incrementally qualified rows below
 currently have binary admission decisions. The intervening
 `feal-differential-cryptanalysis` row retains its manually approved Excluded
 decision, and `filter-js-from-html` remains Excluded under the current browser
 trust model. `fix-ocaml-gc` is likewise Excluded until an independent bounded
-compiler/runtime scenario runner exists. Global preflight and final pack
+compiler/runtime scenario runner exists. `git-multibranch` is Excluded until
+bounded system-state capture and an isolated multi-participant service/client
+runner exist. Global preflight and final pack
 sign-off therefore remain incomplete.
 
-Test-layout status is separate from admission: all twenty incremental rows
+Test-layout status is separate from admission: all twenty-one incremental rows
 use the compact shared `file_bundle` qualification proof. `dna-assembly`,
 `dna-insert`, `extract-elf`, `extract-moves-from-video`, and
 `feal-linear-cryptanalysis` each add one declarative row record;
@@ -24,7 +26,8 @@ trees, `fix-code-vulnerability` adds a two-file artifact/protocol row, and
 `fix-git` adds a masked two-file passive row plus exact-path Git compatibility.
 `gcode-to-text` returns to the declarative one-file passive pattern;
 `git-leak-recovery` adds a bounded stored-tree Git parser and exact declared
-nested-repository ownership compatibility.
+nested-repository ownership compatibility; and `gpt2-codegolf` adds a bounded
+compile/run protocol with two fresh model evaluations.
 All retain row-specific semantic, parser/Adapter, Oracle,
 malicious-Candidate, and replay evidence in focused files.
 
@@ -59,18 +62,18 @@ malicious-Candidate, and replay evidence in focused files.
   ownership compatibility, and `fix-git` conversion are based on that commit
   in the current working tree.
 - [x] Host, date, OS, kernel, and architecture are recorded: 2026-08-26 through
-  2026-09-01, Linux `7.0.0-29-generic`, x86_64.
+  2026-09-02, Linux `7.0.0-29-generic`, x86_64.
 - [x] `docker version` succeeds and Docker uses Linux/amd64 containers
   (Docker `29.7.2`).
 - [x] Free disk space is sufficient for the pinned benchmark images and run
   output.
 - [ ] The environment is installed with `python -m pip install -e '.[dev]'`.
 - [x] The full `.venv/bin/python -m pytest -q -W error` suite passes
-  (`1013 passed, 113 skipped`).
+  (`1028 passed, 116 skipped`).
 - [x] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
-  passes (`93/93`, no warnings).
+  passes (`97/97`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all twenty-three selected rows (`93/93`, no warnings).
+  passes with all twenty-four selected rows (`97/97`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
   passes with all three selected rows (`13/13`, no warnings).
 - [x] The selected harness credential mode is usable. For `auth: api_key`, the
@@ -1290,6 +1293,68 @@ verification digest
 `sha256:c003f49abb85926aa345fd064ebd3d1eb16690d1f11c43842caf9a9ad8efe260`,
 and execution digest
 `sha256:dd0a026795dfbd3532192bbc450eea876824072db56eee75bc04f3cfed12f59b`.
+
+### `terminal-bench/git-multibranch`
+
+- [x] The complete prompt, source verifier, reference service setup, SSH clone
+  and pushes, HTTPS retries, and marker-based final assertion were reconstructed.
+- [x] Valid source solutions require durable account, SSH, Git, Nginx, and web
+  state outside `/app`; the current bounded `file_bundle` cannot capture it.
+- [x] Native `filesystem_overlay` admission is incomplete and protected account
+  databases cannot be captured under its current security contract.
+- [x] The current single-participant protocol runtime cannot isolate a pristine
+  trusted client from broad Candidate-controlled system configuration.
+- [x] The required bounded system-state Candidate, candidate-service
+  participant, pristine client participant, allowlisted service lifecycle, and
+  native-Linux adversarial qualification are documented in
+  [`git-multibranch.md`](TerminalBench/git-multibranch.md).
+
+Final status: [ ] Approved  [x] Excluded
+
+Evidence/reason: No approved executable pattern in the current framework. The
+earlier first-pass clean assumption depended on unimplemented participant and
+system-state isolation. Exclusion was explicitly approved on 2026-09-02; no v2
+row or live Agent run was added.
+
+### `terminal-bench/gpt2-codegolf`
+
+- [x] The complete prompt, source file/size checks, exact compiler command,
+  fixed prompt, 90-second execution, and expected-substring assertion were
+  reconstructed.
+- [x] The image, 497,759,232-byte checkpoint, 456,318-byte vocabulary, and GCC
+  runtime are pinned and their relevant identities recorded.
+- [x] The stopped Candidate contains only `/app/gpt2.c`, with an exact
+  4,999-byte maximum; model files, binaries, caches, processes, connections,
+  and credentials cannot cross the boundary.
+- [x] The public assertion-free shell Adapter bounds compiler/runtime streams,
+  compiles with `gcc -O3 ... -lm`, runs offline, and returns only base64 process
+  observations to the host Oracle.
+- [x] The Oracle retains the source case and adds one private continuation case
+  to reject the source verifier's fixed-output shortcut while preserving the
+  public arbitrary-input contract.
+- [x] Missing/base, symlink, directory, oversized, fixed-output, compile-error,
+  output-flood, forked-pipe-holder, wrong-output, forged-verdict, runtime-error, malformed/oversized
+  observation, and reused-Evaluation-ID cases fail or cannot affect scoring.
+- [x] The whitespace-normalized upstream reference passes two distinct fresh
+  pinned Evaluations; the consolidated deterministic and Linux matrix passes
+  all 18 selected tests.
+- [x] The API-key-backed Luna smoke uses `reasoning_effort: none`, captures one
+  bounded 1,475-byte Candidate, executes two fresh cases without infrastructure
+  error, and is correctly rejected for `incorrect_output`.
+- [x] Linux x86_64 `7.0.0-29-generic`, Docker `29.7.2`, 2026-09-02, provenance,
+  fidelity, failure ownership, and teardown evidence are recorded in
+  [`gpt2-codegolf.md`](TerminalBench/gpt2-codegolf.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Clean protocol conversion. Luna Candidate digest
+`sha256:0da4bd11e5ab53d49ff226085d49197aeb4e7b734a51f18b5f739077638ef8ac`
+is correctly rejected with row digest
+`sha256:46eac0badb8472291504496e77c039d4dae3cef26d3b75926bafe547f83229f0`,
+verification digest
+`sha256:d4bf16e6647abb3e5ab24ed2e2b3ad1b1af34f1c3146689f974d044444d3a257`,
+and execution digest
+`sha256:700313133e262a867b2955d3dbad4da199f15548afebda8c40326efe52e37ddb`.
 
 ## DeepSWE
 

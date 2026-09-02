@@ -25,23 +25,23 @@ Non-clean decisions: [`Terminal-Bench semantic-change, redesign, and exclusion r
 
 All 89 rows have a recorded full split-verification decision:
 
-- 53 clean conversions;
+- 52 clean conversions;
 - 15 conversions with a recorded semantic change;
 - 6 major redesigns;
-- 15 exclusions.
+- 16 exclusions.
 
-Among the 74 rows retaining a conversion design, the approved verification architecture is:
+Among the 73 rows retaining a conversion design, the approved verification architecture is:
 
 | Pattern | Clean | Semantic change | Major redesign | Total |
 |---|---:|---:|---:|---:|
 | Passive artifact verification | 28 | 1 | 0 | 29 |
-| Black-box challenge/response | 18 | 10 | 3 | 31 |
+| Black-box challenge/response | 17 | 10 | 3 | 30 |
 | Passive artifact verification + black-box challenge/response | 5 | 4 | 2 | 11 |
 | Black-box challenge/response + trusted external state | 1 | 0 | 1 | 2 |
 | All three approved patterns | 1 | 0 | 0 | 1 |
-| **Total convertible/redesignable** | **53** | **15** | **6** | **74** |
+| **Total convertible/redesignable** | **52** | **15** | **6** | **73** |
 
-The remaining 15 rows are excluded because no approved pattern preserves their essential scored behavior at acceptable trust or implementation cost. No Terminal-Bench row requires a fourth verification pattern.
+The remaining 16 rows are excluded because no currently approved executable pattern preserves their essential scored behavior at acceptable trust or implementation cost. No Terminal-Bench row requires a third core check type.
 
 ### Reviewed / approved — 89
 
@@ -80,7 +80,7 @@ The remaining 15 rows are excluded because no approved pattern preserves their e
 | [`fix-ocaml-gc`](TerminalBench/fix-ocaml-gc.md) | Redesign or exclude | Approved — Exclude |
 | [`gcode-to-text`](TerminalBench/gcode-to-text.md) | Passive artifact verification | Approved — Clean conversion |
 | [`git-leak-recovery`](TerminalBench/git-leak-recovery.md) | Passive artifact verification | Approved — Clean conversion |
-| [`git-multibranch`](TerminalBench/git-multibranch.md) | Black-box challenge/response | Approved — Clean conversion |
+| [`git-multibranch`](TerminalBench/git-multibranch.md) | Multi-participant service redesign required | Excluded — current runtime unsupported |
 | [`gpt2-codegolf`](TerminalBench/gpt2-codegolf.md) | Black-box challenge/response | Approved — Clean conversion |
 | [`headless-terminal`](TerminalBench/headless-terminal.md) | Black-box challenge/response | Approved — Conversion with semantic change |
 | [`hf-model-inference`](TerminalBench/hf-model-inference.md) | Black-box challenge/response | Approved — Conversion with semantic change |

@@ -59,25 +59,72 @@ Terminal-Bench starts the task environment, allows the agent to work in it, and 
 
 These messages are an inventory aid, not a substitute for reading the verifier. Assertions constructed dynamically, checks performed by external programs, and shell exit-code checks may not have a literal message.
 
-## Questions for our later review
+## Questions for our review
 
-- [ ] Read the complete public instruction.
-- [ ] Walk through the verifier entrypoint line by line.
-- [ ] Identify every candidate-controlled input consumed by the verifier.
-- [ ] Identify every scoring-relevant assertion and expected value.
-- [ ] Decide whether the task's intended behavior is fully represented by its tests.
-- [ ] Design the split-verification conversion.
-- [ ] Record fidelity limitations and the final eligibility decision.
+- [x] Read the complete public instruction.
+- [x] Walk through the verifier entrypoint line by line.
+- [x] Identify every candidate-controlled input consumed by the verifier.
+- [x] Identify every scoring-relevant assertion and expected value.
+- [x] Decide whether the task's intended behavior is fully represented by its tests.
+- [x] Design the split-verification boundary and identify missing capabilities.
+- [x] Record fidelity limitations and the final eligibility decision.
 
-## Future conversion notes
+## Current split-verification assessment
 
-Use black-box challenge/response; no separate client-observer pattern is
-required. Run the candidate Git/SSH/HTTPS service only in the Evaluation VM.
-A disposable, secret-free, assertion-free Git/HTTPS client sends per-case
-main/dev branch contents and captures bounded protocol status, response bodies,
-errors, and timing. The host Oracle correlates those observations with its
-challenges and ignores the in-VM `TEST PASSED` report. Client isolation is
-defensive protocol-processing infrastructure, not trusted external state or a
-source of the verdict. The original checker does not establish hook causality,
-Nginx identity, certificate self-signedness, or a strict three-second deadline.
-Verdict: clean conversion; auto-approved under the first-pass policy.
+The original verifier runs after the Agent in the same live container. It
+installs a Git/SSH client, clones `git@localhost:/git/project` using the public
+password, pushes fixed `main` and `dev` commits, waits and retries, then uses
+certificate-verification-disabled HTTPS requests against port 8443. Its only
+Python assertion searches the candidate-controlled script output for `TEST
+PASSED`. It does not independently establish post-receive-hook causality,
+Nginx identity, self-signed certificate identity, or a strict three-second
+deadline.
+
+A faithful SecureBench conversion must stop the Agent before verification and
+capture the durable system configuration that makes the service work. The
+current Candidate types cannot safely do that:
+
+- `file_bundle` captures only declared paths below `/app`, while valid source
+  solutions modify Git repositories, account databases, SSH/Nginx
+  configuration, deployment trees, and other system paths;
+- `filesystem_overlay` remains native-qualification-gated and intentionally
+  excludes `/etc/passwd`, `/etc/group`, `/etc/shadow`, and related protected
+  identity state; and
+- live SSH/Nginx processes, sockets, and credentials may never cross the Agent
+  boundary.
+
+The current protocol runtime also executes the trusted Adapter inside the one
+candidate Evaluation participant. Letting a Candidate control broad `/etc`
+state in that same participant could subvert the Adapter through loader,
+runtime, or process configuration. The existing implementation explicitly
+supports exactly one Candidate participant and has no pristine client
+participant isolated from the candidate service.
+
+## Required redesign
+
+A future clean conversion requires a reusable multi-participant service
+verification slice:
+
+1. a bounded system-state Candidate that can safely represent the necessary
+   account and service configuration without preserving live state;
+2. replay only in a disposable candidate-service Evaluation VM;
+3. allowlisted launch of pinned SSH and HTTPS service binaries with narrowly
+   scoped capabilities;
+4. a separate pristine, assertion-free Git/SSH/HTTPS client participant on a
+   fresh internal-only network;
+5. bounded push status, TLS facts, response bodies, timing, and error evidence
+   returned to the host Oracle; and
+6. native Linux qualification covering base failure, reference success,
+   branch/deployment/authentication mutants, malicious loader/configuration
+   attempts, isolation, and teardown.
+
+This is an architectural addition rather than a row-specific Adapter. Treating
+the verifier's `TEST PASSED` text, a guest checksum, or a Candidate-owned
+client as trusted evidence would violate the split-verification model.
+
+## Final qualification decision
+
+**Excluded — no approved executable pattern in the current framework.** The
+earlier first-pass clean disposition assumed service/client isolation that the
+runtime does not implement. The exclusion and redesign above were explicitly
+approved on 2026-09-02. No v2 row or live Agent run is added.

@@ -1,0 +1,32 @@
+format: securebench.adapter/v2
+protocol: securebench.gpt2-codegolf/v1
+command: ["sh", "./adapter.sh"]
+challenge_schema:
+  type: object
+  properties:
+    prompt_base64: {type: string, max_utf8_bytes: 4096}
+  required: [prompt_base64]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    compile_exit: {type: integer}
+    compile_stdout_base64: {type: string, max_utf8_bytes: 90000}
+    compile_stderr_base64: {type: string, max_utf8_bytes: 90000}
+    run_exit: {type: integer}
+    stdout_base64: {type: string, max_utf8_bytes: 90000}
+    stderr_base64: {type: string, max_utf8_bytes: 90000}
+  required:
+    - compile_exit
+    - compile_stdout_base64
+    - compile_stderr_base64
+    - run_exit
+    - stdout_base64
+    - stderr_base64
+  max_fields: 6
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 115
+  challenge_bytes: 8192
+  observation_bytes: 524288

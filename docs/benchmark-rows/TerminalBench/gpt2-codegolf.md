@@ -2,6 +2,10 @@
 
 > Review status: **Reviewed with the SecureBench team**.
 
+> Implemented and Linux-qualified on 2026-09-02 as a bounded two-case protocol
+> conversion. See the
+> [current conversion dossier](../../benchmark-conversions/TerminalBench/gpt2-codegolf.md).
+
 ## Source facts
 
 | Field | Value |
