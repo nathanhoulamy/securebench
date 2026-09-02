@@ -157,6 +157,12 @@ ROWS = (
         target_id="implementation",
         base_command=("true",),
     ),
+    RowCaptureContract(
+        task_id="terminal-bench/headless-terminal",
+        target_id="implementation",
+        oversized_target="dependencies",
+        base_command=("true",),
+    ),
 )
 
 

@@ -1,0 +1,62 @@
+format: securebench.adapter/v2
+protocol: securebench.headless-terminal/v1
+command: ["python", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    startup_base64: {type: string, max_utf8_bytes: 4096}
+    server_body_base64: {type: string, max_utf8_bytes: 8192}
+    steps:
+      type: array
+      max_items: 16
+      items:
+        type: object
+        properties:
+          keys_base64: {type: string, max_utf8_bytes: 8192}
+          wait_ms: {type: integer}
+        required: [keys_base64, wait_ms]
+        max_fields: 2
+    file_path: {type: string, max_utf8_bytes: 256}
+    http_port: {type: integer}
+    http_path: {type: string, max_utf8_bytes: 256}
+  required:
+    - startup_base64
+    - server_body_base64
+    - steps
+    - file_path
+    - http_port
+    - http_path
+  max_fields: 6
+observation_schema:
+  type: object
+  properties:
+    driver_exit: {type: integer}
+    driver_stdout_base64: {type: string, max_utf8_bytes: 12000}
+    driver_stderr_base64: {type: string, max_utf8_bytes: 12000}
+    file_exists: {type: boolean}
+    file_too_large: {type: boolean}
+    file_base64: {type: string, max_utf8_bytes: 6000}
+    http_attempted: {type: boolean}
+    http_status: {type: integer}
+    http_too_large: {type: boolean}
+    http_body_base64: {type: string, max_utf8_bytes: 6000}
+    http_error: {type: string, max_utf8_bytes: 512}
+  required:
+    - driver_exit
+    - driver_stdout_base64
+    - driver_stderr_base64
+    - file_exists
+    - file_too_large
+    - file_base64
+    - http_attempted
+    - http_status
+    - http_too_large
+    - http_body_base64
+    - http_error
+  max_fields: 11
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 35
+  challenge_bytes: 65536
+  observation_bytes: 65536

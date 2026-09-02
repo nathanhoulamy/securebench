@@ -7,7 +7,7 @@ but they do not replace Linux/Docker qualification.
 
 Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; the twenty-one incrementally qualified rows below
+remain intentionally unchecked; the twenty-two incrementally qualified rows below
 currently have binary admission decisions. The intervening
 `feal-differential-cryptanalysis` row retains its manually approved Excluded
 decision, and `filter-js-from-html` remains Excluded under the current browser
@@ -17,7 +17,7 @@ bounded system-state capture and an isolated multi-participant service/client
 runner exist. Global preflight and final pack
 sign-off therefore remain incomplete.
 
-Test-layout status is separate from admission: all twenty-one incremental rows
+Test-layout status is separate from admission: all twenty-two incremental rows
 use the compact shared `file_bundle` qualification proof. `dna-assembly`,
 `dna-insert`, `extract-elf`, `extract-moves-from-video`, and
 `feal-linear-cryptanalysis` each add one declarative row record;
@@ -26,8 +26,9 @@ trees, `fix-code-vulnerability` adds a two-file artifact/protocol row, and
 `fix-git` adds a masked two-file passive row plus exact-path Git compatibility.
 `gcode-to-text` returns to the declarative one-file passive pattern;
 `git-leak-recovery` adds a bounded stored-tree Git parser and exact declared
-nested-repository ownership compatibility; and `gpt2-codegolf` adds a bounded
-compile/run protocol with two fresh model evaluations.
+nested-repository ownership compatibility; `gpt2-codegolf` adds a bounded
+compile/run protocol with two fresh model evaluations; and `headless-terminal`
+adds a bounded persistent-terminal protocol and replayable dependency tree.
 All retain row-specific semantic, parser/Adapter, Oracle,
 malicious-Candidate, and replay evidence in focused files.
 
@@ -69,11 +70,11 @@ malicious-Candidate, and replay evidence in focused files.
   output.
 - [ ] The environment is installed with `python -m pip install -e '.[dev]'`.
 - [x] The full `.venv/bin/python -m pytest -q -W error` suite passes
-  (`1028 passed, 116 skipped`).
+  (`1046 passed, 119 skipped`).
 - [x] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
-  passes (`97/97`, no warnings).
+  passes (`101/101`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all twenty-four selected rows (`97/97`, no warnings).
+  passes with all twenty-five selected rows (`101/101`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
   passes with all three selected rows (`13/13`, no warnings).
 - [x] The selected harness credential mode is usable. For `auth: api_key`, the
@@ -1355,6 +1356,60 @@ verification digest
 `sha256:d4bf16e6647abb3e5ab24ed2e2b3ad1b1af34f1c3146689f974d044444d3a257`,
 and execution digest
 `sha256:700313133e262a867b2955d3dbad4da199f15548afebda8c40326efe52e37ddb`.
+
+For the twenty-fifth executable Terminal row, derive a one-row temporary tasks
+file for an isolated rerun, or resume a result set containing the first
+twenty-four executable rows and confirm the selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 25 --resume
+```
+
+### `terminal-bench/headless-terminal`
+
+- [x] The complete prompt and all seven source tests were reconstructed,
+  including multi-call shell state, modifier keys, startup files, interactive
+  programs, cancellation, and a background HTTP server.
+- [x] The pinned source image's missing Vim and the upstream reference's
+  `.bashrc` login-shell mismatch are recorded as source-row defects.
+- [x] The stopped Candidate contains only bounded
+  `/app/headless_terminal.py` and a bounded replayable dependency directory;
+  installed packages, processes, sessions, connections, and credentials do not
+  cross the boundary.
+- [x] The public assertion-free parent Adapter validates challenges, launches
+  Candidate code in a bounded child process group, and independently observes
+  no-follow regular files and optional loopback HTTP responses.
+- [x] The host-only Oracle owns six seeded nonce cases and checks command
+  execution, persistent state, Python-REPL interaction, control-C, `.bashrc`,
+  and background service behavior across six fresh Evaluations.
+- [x] The reviewed tmux reference passes all six pinned Linux Evaluations;
+  stateless-shell, forged-verdict, true output-flood, ignored-control-C,
+  malformed evidence, reused-ID, and malicious capture cases fail or cannot
+  affect scoring.
+- [x] Focused warning-strict qualification passes `18 passed, 3 skipped`; the
+  consolidated pinned Linux matrix passes `21/21`; the complete suite passes
+  `1046 passed, 119 skipped`.
+- [x] Terminal and self audits pass `101/101`; the isolated row audit passes
+  `5/5`, all without warnings.
+- [x] The explicitly authorized API-key-backed Luna smoke captures a bounded
+  4,032-byte/two-entry Candidate, completes all six fresh cases without
+  infrastructure error, and is correctly rejected for interactive-program and
+  background-service behavior.
+- [x] Dependency packaging, Python-REPL substitution, startup-shell correction,
+  cancellation strengthening, and their low intelligence impact are recorded
+  in [`headless-terminal.md`](TerminalBench/headless-terminal.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Protocol conversion with documented semantic changes,
+qualified on pinned Linux Evaluations on 2026-09-02. Luna Candidate digest
+`sha256:5099e04c58f1bed3c1c167c135192c76682a3b62581453f3dc85f6dcc996fc67`
+is correctly rejected with row digest
+`sha256:3ac9f1a3ba57d6828fe1e482cdeda2904d28dc8d08462cd822d2a588ac5508d4`,
+verification digest
+`sha256:4b2c555f07f406ccd0a3dd05d2eabcc2ffde56ad42c855e613737b3e71422e54`,
+and execution digest
+`sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
 
 ## DeepSWE
 

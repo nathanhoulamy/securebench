@@ -6,7 +6,7 @@ Implementation baseline reviewed: this branch through Output Artifacts, HTTP
 request/event-ledger/process-supervisor Trusted Helper execution, git-patch
 execution, the locally qualified filesystem-overlay implementation, and the
 subsequent architecture-wide overlay integration review, plus the compact
-qualification matrix and Terminal conversions through `gpt2-codegolf`
+qualification matrix and Terminal conversions through `headless-terminal`
 
 Active development branch: `split-verification-v2`
 
@@ -95,11 +95,11 @@ the runner does not invent a benchmark score.
 | Admission qualification pipeline | Not implemented |
 | Result signing | Not implemented |
 
-The executable reference packs currently contain twenty-four Terminal-Bench rows
-and three DeepSWE rows. The twenty-one incremental conversions from `bn-fit-modify`
-through `gpt2-codegolf` are Approved after deterministic,
+The executable reference packs currently contain twenty-five Terminal-Bench rows
+and three DeepSWE rows. The twenty-two incremental conversions from `bn-fit-modify`
+through `headless-terminal` are Approved after deterministic,
 pinned-image, stopped-capture, adversarial, teardown, and model-backed
-qualification. The twenty-one rows share a declarative `file_bundle`
+qualification. The twenty-two rows share a declarative `file_bundle`
 capture-qualification matrix while retaining semantic, parser, asset-identity,
 and replay evidence in focused row tests; the financial row extends that proof
 to bounded directory entries and passive nested-file selection. The fix-code
@@ -115,7 +115,10 @@ verdicts, an independent bounded compiler/runtime scenario runner, and isolated
 multi-participant system-service verification, respectively, are unavailable.
 `gpt2-codegolf` adds bounded C compilation and two-case GPT-2 continuation
 execution, including a private guard against the source verifier's fixed-output
-shortcut. The first-wave control,
+shortcut. `headless-terminal` adds a bounded six-case persistent interactive
+shell protocol and a replayable dependency directory; its documented semantic
+changes replace the unavailable Vim case and non-replayable system installs.
+The first-wave control,
 `sqlite-db-truncate`, and `vulnerable-secret` remain
 qualification-pending in their dossiers and checklist; an inventory-level
 Approved review disposition is not a completed runtime qualification. The
@@ -283,7 +286,7 @@ hardening rather than a prerequisite for writing and qualifying the first conver
 
 At this review pass:
 
-- full warning-strict suite: `1028 passed, 116 skipped`;
+- full warning-strict suite: `1046 passed, 119 skipped`;
 - complete protocol and Trusted Helper suite with Docker integration enabled:
   `54 passed, 1 skipped`, including fresh ordinary/recorder Evaluations,
   clean-repository git-patch replay, authenticated event-ledger traffic, external
@@ -403,9 +406,17 @@ At this review pass:
   cases, fixed-output, compiler/runtime, output-flood, forked-pipe-holder, and
   malicious capture/observation cases. Its API-key-backed Luna smoke completes
   without infrastructure error and is correctly rejected for incorrect output;
+- `headless-terminal` protocol qualification: the focused warning-strict suite
+  passes `18 passed, 3 skipped` and its pinned Linux matrix passes `21/21`.
+  The reviewed tmux reference passes six fresh Evaluations; stateless-shell,
+  forged-verdict, output-flood, ignored-control-C, and malicious dependency-
+  capture Candidates fail without infrastructure errors. The explicitly
+  authorized API-key-backed Luna smoke captures two bounded entries, completes
+  all six cases without infrastructure error, and is correctly rejected for
+  interactive-program and background-service behavior;
 - the Docker pass left no Trusted Helper containers, materialization containers, Evaluation
   networks, or overlay volumes behind;
-- complete Terminal configuration and self-audits: `97/97` passed with no
+- complete Terminal configuration and self-audits: `101/101` passed with no
   failures or warnings;
 - the generated Trusted Helper contract schema was refreshed for the reviewed
   HTTP and host-only access/credential modes, and its regeneration check passes;
