@@ -1,0 +1,58 @@
+format: securebench.adapter/v2
+protocol: securebench.hf-sentiment-service/v1
+command: ["python", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    requests:
+      type: array
+      max_items: 8
+      items:
+        type: object
+        properties:
+          body_base64: {type: string, max_utf8_bytes: 4096}
+        required: [body_base64]
+        max_fields: 1
+  required: [requests]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    server_started: {type: boolean}
+    process_running: {type: boolean}
+    process_exit: {type: integer}
+    listen_ipv4:
+      type: array
+      max_items: 8
+      items: {type: string, max_utf8_bytes: 64}
+    output_too_large: {type: boolean}
+    stdout_base64: {type: string, max_utf8_bytes: 46000}
+    stderr_base64: {type: string, max_utf8_bytes: 46000}
+    responses:
+      type: array
+      max_items: 8
+      items:
+        type: object
+        properties:
+          status: {type: integer}
+          body_base64: {type: string, max_utf8_bytes: 24000}
+          body_too_large: {type: boolean}
+          error: {type: string, max_utf8_bytes: 512}
+        required: [status, body_base64, body_too_large, error]
+        max_fields: 4
+  required:
+    - server_started
+    - process_running
+    - process_exit
+    - listen_ipv4
+    - output_too_large
+    - stdout_base64
+    - stderr_base64
+    - responses
+  max_fields: 8
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 45
+  challenge_bytes: 32768
+  observation_bytes: 262144

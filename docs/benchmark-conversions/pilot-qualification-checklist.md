@@ -7,7 +7,7 @@ but they do not replace Linux/Docker qualification.
 
 Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; the twenty-two incrementally qualified rows below
+remain intentionally unchecked; the twenty-three incrementally qualified rows below
 currently have binary admission decisions. The intervening
 `feal-differential-cryptanalysis` row retains its manually approved Excluded
 decision, and `filter-js-from-html` remains Excluded under the current browser
@@ -17,7 +17,7 @@ bounded system-state capture and an isolated multi-participant service/client
 runner exist. Global preflight and final pack
 sign-off therefore remain incomplete.
 
-Test-layout status is separate from admission: all twenty-two incremental rows
+Test-layout status is separate from admission: all twenty-three incremental rows
 use the compact shared `file_bundle` qualification proof. `dna-assembly`,
 `dna-insert`, `extract-elf`, `extract-moves-from-video`, and
 `feal-linear-cryptanalysis` each add one declarative row record;
@@ -29,6 +29,7 @@ trees, `fix-code-vulnerability` adds a two-file artifact/protocol row, and
 nested-repository ownership compatibility; `gpt2-codegolf` adds a bounded
 compile/run protocol with two fresh model evaluations; and `headless-terminal`
 adds a bounded persistent-terminal protocol and replayable dependency tree.
+`hf-model-inference` adds a bounded restartable model-service protocol.
 All retain row-specific semantic, parser/Adapter, Oracle,
 malicious-Candidate, and replay evidence in focused files.
 
@@ -70,11 +71,11 @@ malicious-Candidate, and replay evidence in focused files.
   output.
 - [ ] The environment is installed with `python -m pip install -e '.[dev]'`.
 - [x] The full `.venv/bin/python -m pytest -q -W error` suite passes
-  (`1046 passed, 119 skipped`).
+  (`1068 passed, 122 skipped`).
 - [x] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
-  passes (`101/101`, no warnings).
+  passes (`105/105`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all twenty-five selected rows (`101/101`, no warnings).
+  passes with all twenty-six selected rows (`105/105`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
   passes with all three selected rows (`13/13`, no warnings).
 - [x] The selected harness credential mode is usable. For `auth: api_key`, the
@@ -1410,6 +1411,60 @@ verification digest
 `sha256:4b2c555f07f406ccd0a3dd05d2eabcc2ffde56ad42c855e613737b3e71422e54`,
 and execution digest
 `sha256:074fb4d6fdae8b6b252c823498a4332343de4fb6e524f521ee73fbdbe9ffd7d2`.
+
+For the twenty-sixth executable Terminal row, derive a one-row temporary tasks
+file for an isolated rerun, or resume a result set containing the first
+twenty-five executable rows and confirm the selected task ID:
+
+```bash
+.venv/bin/securebench run --config benchmarks/terminal-bench/tester-linux.yaml --limit 26 --resume
+```
+
+### `terminal-bench/hf-model-inference`
+
+- [x] The complete prompt, image, reference, model-loading check, service probe,
+  six sentiment examples, response assertions, and malformed request were
+  reconstructed from source revision `2fd12b8`.
+- [x] The image and public DistilBERT model revision are pinned; the default
+  export's 342,098-byte limit overrun and the four-file minimal offline export
+  are measured and documented.
+- [x] The stopped Candidate contains only bounded `/app/app.py`, model, and
+  pure-Python dependency roots. Live processes, sockets, credentials, package
+  installations, and unrelated caches cannot cross the boundary.
+- [x] The public assertion-free Adapter launches the service offline, bounds
+  startup, requests, response/output bytes, records port-5000 listening
+  addresses, and tears down the service process group.
+- [x] The host Oracle retains all six source labels, adds a host-selected
+  positive/negative pair, checks strict finite JSON, float types/ranges and
+  ordering, all-host binding, error semantics, and fresh Evaluation IDs.
+- [x] The reviewed four-file Flask/DistilBERT reference passes three fresh
+  pinned networkless Evaluations. Fixed-positive, loopback-only, stopped,
+  forged-output, output-flood, malformed/duplicate response, confidence, HTTP,
+  ID-reuse, and malicious capture mutants fail or cannot affect scoring.
+- [x] Focused warning-strict qualification passes `22 passed, 3 skipped`; the
+  consolidated pinned Linux matrix passes `25/25`; the complete suite passes
+  `1068 passed, 122 skipped`.
+- [x] Terminal and self audits pass `105/105`; the isolated row audit passes
+  `5/5`, all without warnings.
+- [x] The explicitly authorized API-key-backed Luna smoke creates a plausible
+  1,329-byte Flask app but its optional-model-file cleanup command is denied;
+  no Candidate is published, and the Oracle correctly rejects all three cases
+  as `candidate_capture_rejected` without infrastructure error.
+- [x] Restartable lifecycle, bounded model packaging, stronger public-schema
+  checks, host-only generalization, and their low intelligence impact are
+  recorded in
+  [`hf-model-inference.md`](TerminalBench/hf-model-inference.md).
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Protocol conversion with documented semantic changes,
+qualified on pinned Linux Evaluations on 2026-09-02. The Luna attempt produces
+no Candidate and is correctly rejected with row digest
+`sha256:1d7da7a904e093e74fc660b5bd6507f7046aa16a29773892236a005689388021`,
+verification digest
+`sha256:f5b012dc6b08a4d893d0169957c851689622d29283ab71930effcf8cb1c33749`,
+and execution digest
+`sha256:eb5e20890f584f3a346ebb27964d4cbe29b6f8cff0c106011e1225f7ecaea5c6`.
 
 ## DeepSWE
 

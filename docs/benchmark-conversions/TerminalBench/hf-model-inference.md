@@ -73,16 +73,116 @@ Terminal-Bench starts the task environment, allows the agent to work in it, and 
 
 These messages are an inventory aid, not a substitute for reading the verifier. Assertions constructed dynamically, checks performed by external programs, and shell exit-code checks may not have a literal message.
 
-## Questions for our later review
+## Completed review
 
-- [ ] Read the complete public instruction.
-- [ ] Walk through the verifier entrypoint line by line.
-- [ ] Identify every candidate-controlled input consumed by the verifier.
-- [ ] Identify every scoring-relevant assertion and expected value.
-- [ ] Decide whether the task's intended behavior is fully represented by its tests.
-- [ ] Design the split-verification conversion.
-- [ ] Record fidelity limitations and the final eligibility decision.
+- [x] Read the complete public instruction.
+- [x] Walk through the verifier entrypoint line by line.
+- [x] Identify every candidate-controlled input consumed by the verifier.
+- [x] Identify every scoring-relevant assertion and expected value.
+- [x] Decide whether the task's intended behavior is fully represented by its tests.
+- [x] Design and implement the split-verification conversion.
+- [x] Record fidelity limitations and the final eligibility decision.
 
-## Future conversion notes
+The source verifier first loads both the model and tokenizer from the requested
+directory. It then checks that some service accepts a connection through
+`0.0.0.0:5000`, sends six fixed JSON requests to `/sentiment`, validates the
+response shape and Python float types, checks confidence ordering and the six
+expected labels, and finally requires status 400 plus an `error` field for one
+missing-text request. It does not pin model bytes, constrain response sizes,
+check confidence ranges, prove all-interface binding, or distinguish the
+requested service from an unrelated process already using port 5000.
 
-Use black-box challenge/response with a recorded semantic change. Extract a bounded model cache, service files, dependency lock or bundle, and explicit launcher; the original already-running process and agent-installed Python environment do not survive a file-only handoff. Start and load the candidate service only in the Evaluation VM. The host-side Oracle sends the original bounded sentiment and malformed-request cases and independently validates reachability, HTTP status, JSON schema, score types, confidence ordering, and expected labels. Tests, labels, scoring logic, and reference material remain host-side, and model loading is attempted only by a pinned public runtime in the Evaluation VM. Requiring a restartable packaged service changes the original live-process submission contract. Verdict: conversion with semantic change; manually approved in the final clean-conversion audit.
+## Implemented v2 conversion
+
+The executable row is `terminal-bench/hf-model-inference` in
+`benchmarks/terminal-bench/tasks-v2.jsonl`.
+
+| Public requirement | Independent evidence | Host-only decision |
+|---|---|---|
+| Save the requested model and tokenizer locally | bounded stopped model directory is replayed with network disabled; the Candidate service must load it and answer requests | all service cases must start and answer correctly offline |
+| Implement `POST /sentiment` | public Adapter sends bounded JSON bodies over loopback | host Oracle parses bounded response bytes and requires status 200 |
+| Return positive/negative floats in `[0,1]` | Adapter returns raw status and base64 body only | Oracle checks strict finite JSON, exact label, float types, ranges, and confidence ordering |
+| Handle malformed request | one fresh case sends the source missing-text shape | Oracle requires status 400 and a nonempty string `error` |
+| Listen on port 5000 on all interfaces | Adapter independently translates the port-5000 LISTEN entries from `/proc/net/tcp` | Oracle requires IPv4 `0.0.0.0` |
+| Generalize beyond the public examples | a fresh case selects one positive and one negative sentence from host-only pools | Oracle owns the labels and comparisons |
+
+The stopped Candidate contains only `/app/app.py`, the requested model
+directory, and `/app/hf_service_dependencies`. Aggregate capture is bounded to
+81 entries and 268,331,072 bytes, below the framework's 256 MiB ceiling.
+Processes, sockets, credentials, package installations, caches outside the
+declared roots, and other Agent state do not cross the boundary.
+
+The public protocol is `securebench.hf-sentiment-service/v1`. For every case,
+the Adapter launches `/app/app.py` with the pinned system Python, dependency
+path, and Hugging Face offline flags. It bounds startup and request time,
+service output and response bytes, probes only loopback, records the raw HTTP
+observations and listening address, terminates the service process group, and
+contains no label, expected score, assertion, or verdict. The host Oracle owns
+all three cases. SecureBench reconstructs the same immutable Candidate in a
+fresh networkless Evaluation for each case.
+
+The image is pinned as
+`alexgshaw/hf-model-inference@sha256:f96dd7d3c85c7257b404fd63ba8d24ced2478cd90232c20e297c372f953fa607`
+(Linux/amd64, Python 3.13.7, Transformers 4.56.0, Torch 2.7.1+cu126, Flask
+3.1.1).
+
+## Fidelity decision
+
+This is an approved conversion with semantic changes. The original submission
+contract relies on a live background process and mutable system-wide package
+installation, neither of which is durable or replayable. SecureBench instead
+requires a foreground-restartable `/app/app.py`, a bounded pure-Python
+dependency directory, and the model itself. Each service instance starts only
+inside its disposable Evaluation.
+
+The standard six-file `save_pretrained` output is 268,777,554 bytes—342,098
+bytes above the framework ceiling. The public packaging note therefore omits
+the optional 711,396-byte `tokenizer.json` and 125-byte
+`special_tokens_map.json`. The resulting four-file, 268,066,033-byte export
+loads and infers offline with the slow tokenizer. SecureBench also enforces the
+public confidence range and all-interface requirement and adds a host-only
+generalization pair. These changes preserve the intended model/service
+capability while changing lifecycle and packaging details. Intelligence
+impact: **low**.
+
+## Qualification record
+
+- Source snapshot: `2fd12b88aafdd04a52c298e3940bcb189f9766d6`.
+- Model revision used by the reviewed reference:
+  `714eb0fa89d2f80546fda750413ed43d93601a13`.
+- The base image has no Candidate files and fails stopped capture. Missing,
+  symlink, wrong-kind, and oversized Candidate shapes fail or are scored as
+  Candidate errors.
+- The reviewed Flask/DistilBERT reference loads the four-file model with all
+  network disabled and passes all three fresh pinned Evaluations.
+- Fixed-positive, loopback-only, forged-verdict, output-flood, stopped-service,
+  wrong-count/status/label, integer/out-of-range/reversed confidence,
+  malformed/duplicate JSON, bad-error, and reused-Evaluation-ID mutants fail or
+  cannot affect scoring.
+- Focused warning-strict qualification passes `22 passed, 3 skipped`; the
+  consolidated pinned Linux matrix passes `25/25`.
+- The complete warning-strict suite passes `1068 passed, 122 skipped`.
+  Terminal and self audits pass `105/105`; the isolated row audit passes
+  `5/5`, all without warnings.
+- Qualified on Linux x86_64, kernel `7.0.0-29-generic`, Docker `29.7.2`, on
+  2026-09-02. Audit reports are under
+  `/tmp/securebench-hf-model-{audit-self,terminal-audit,one-row-audit}`.
+- The explicitly authorized API-key-backed `gpt-5.6-luna` smoke uses
+  `reasoning_effort: none`. It writes a plausible 1,329-byte restartable Flask app,
+  but its combined optional-model-file cleanup command is rejected by the
+  Agent command policy; the default model export consequently remains outside
+  the bounded submission contract and no Candidate manifest is published.
+  The Oracle scores all three cases through Candidate-error evidence and
+  correctly rejects the attempt for `candidate_capture_rejected`, with score
+  `0.0` and no infrastructure error. Row digest:
+  `sha256:1d7da7a904e093e74fc660b5bd6507f7046aa16a29773892236a005689388021`;
+  verification digest:
+  `sha256:f5b012dc6b08a4d893d0169957c851689622d29283ab71930effcf8cb1c33749`;
+  execution digest:
+  `sha256:eb5e20890f584f3a346ebb27964d4cbe29b6f8cff0c106011e1225f7ecaea5c6`.
+- The failed publication retains one bounded 1,329-byte unreferenced blob in
+  the run-local store, matching the repository's documented non-transactional
+  `file_bundle` hardening debt. It is not a replayable Candidate. Agent and
+  Evaluation workspaces are removed and the pinned image is pruned.
+
+Final status: **Approved — Conversion with semantic change**.

@@ -163,6 +163,12 @@ ROWS = (
         oversized_target="dependencies",
         base_command=("true",),
     ),
+    RowCaptureContract(
+        task_id="terminal-bench/hf-model-inference",
+        target_id="model_cache",
+        oversized_target="application",
+        base_command=("true",),
+    ),
 )
 
 

@@ -6,7 +6,7 @@ Implementation baseline reviewed: this branch through Output Artifacts, HTTP
 request/event-ledger/process-supervisor Trusted Helper execution, git-patch
 execution, the locally qualified filesystem-overlay implementation, and the
 subsequent architecture-wide overlay integration review, plus the compact
-qualification matrix and Terminal conversions through `headless-terminal`
+qualification matrix and Terminal conversions through `hf-model-inference`
 
 Active development branch: `split-verification-v2`
 
@@ -95,11 +95,11 @@ the runner does not invent a benchmark score.
 | Admission qualification pipeline | Not implemented |
 | Result signing | Not implemented |
 
-The executable reference packs currently contain twenty-five Terminal-Bench rows
-and three DeepSWE rows. The twenty-two incremental conversions from `bn-fit-modify`
-through `headless-terminal` are Approved after deterministic,
+The executable reference packs currently contain twenty-six Terminal-Bench rows
+and three DeepSWE rows. The twenty-three incremental conversions from `bn-fit-modify`
+through `hf-model-inference` are Approved after deterministic,
 pinned-image, stopped-capture, adversarial, teardown, and model-backed
-qualification. The twenty-two rows share a declarative `file_bundle`
+qualification. The twenty-three rows share a declarative `file_bundle`
 capture-qualification matrix while retaining semantic, parser, asset-identity,
 and replay evidence in focused row tests; the financial row extends that proof
 to bounded directory entries and passive nested-file selection. The fix-code
@@ -118,6 +118,8 @@ execution, including a private guard against the source verifier's fixed-output
 shortcut. `headless-terminal` adds a bounded six-case persistent interactive
 shell protocol and a replayable dependency directory; its documented semantic
 changes replace the unavailable Vim case and non-replayable system installs.
+`hf-model-inference` adds a three-case restartable Flask/DistilBERT protocol,
+including a bounded offline model and host-only generalization cases.
 The first-wave control,
 `sqlite-db-truncate`, and `vulnerable-secret` remain
 qualification-pending in their dossiers and checklist; an inventory-level
@@ -286,7 +288,7 @@ hardening rather than a prerequisite for writing and qualifying the first conver
 
 At this review pass:
 
-- full warning-strict suite: `1046 passed, 119 skipped`;
+- full warning-strict suite: `1068 passed, 122 skipped`;
 - complete protocol and Trusted Helper suite with Docker integration enabled:
   `54 passed, 1 skipped`, including fresh ordinary/recorder Evaluations,
   clean-repository git-patch replay, authenticated event-ledger traffic, external
@@ -414,9 +416,17 @@ At this review pass:
   authorized API-key-backed Luna smoke captures two bounded entries, completes
   all six cases without infrastructure error, and is correctly rejected for
   interactive-program and background-service behavior;
+- `hf-model-inference` protocol qualification: the focused warning-strict
+  suite passes `22 passed, 3 skipped` and its pinned Linux matrix passes
+  `25/25`. The four-file 268,066,033-byte model loads offline, the reviewed
+  reference passes three fresh Evaluations, and fixed-label, loopback-only,
+  malformed-response, forged-output, output-flood, and capture mutants fail
+  without infrastructure errors. Its explicitly authorized API-key-backed Luna
+  smoke is correctly rejected at bounded Candidate capture after the Agent's
+  optional-model-file cleanup command is denied; no infrastructure error occurs;
 - the Docker pass left no Trusted Helper containers, materialization containers, Evaluation
   networks, or overlay volumes behind;
-- complete Terminal configuration and self-audits: `101/101` passed with no
+- complete Terminal configuration and self-audits: `105/105` passed with no
   failures or warnings;
 - the generated Trusted Helper contract schema was refreshed for the reviewed
   HTTP and host-only access/credential modes, and its regeneration check passes;
