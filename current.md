@@ -1,12 +1,12 @@
 # Current SecureBench v2 state
 
-Last reviewed: 2026-09-02
+Last reviewed: 2026-09-04
 
 Implementation baseline reviewed: this branch through Output Artifacts, HTTP
 request/event-ledger/process-supervisor Trusted Helper execution, git-patch
 execution, the locally qualified filesystem-overlay implementation, and the
 subsequent architecture-wide overlay integration review, plus the compact
-qualification matrix and Terminal conversions through `hf-model-inference`
+qualification matrix and Terminal conversions through `install-windows-3.11`
 
 Active development branch: `split-verification-v2`
 
@@ -95,11 +95,11 @@ the runner does not invent a benchmark score.
 | Admission qualification pipeline | Not implemented |
 | Result signing | Not implemented |
 
-The executable reference packs currently contain twenty-six Terminal-Bench rows
-and three DeepSWE rows. The twenty-three incremental conversions from `bn-fit-modify`
-through `hf-model-inference` are Approved after deterministic,
+The executable reference packs currently contain twenty-seven Terminal-Bench rows
+and three DeepSWE rows. The twenty-four incremental conversions from `bn-fit-modify`
+through `install-windows-3.11` are Approved after deterministic,
 pinned-image, stopped-capture, adversarial, teardown, and model-backed
-qualification. The twenty-three rows share a declarative `file_bundle`
+qualification. The twenty-four rows share a declarative `file_bundle`
 capture-qualification matrix while retaining semantic, parser, asset-identity,
 and replay evidence in focused row tests; the financial row extends that proof
 to bounded directory entries and passive nested-file selection. The fix-code
@@ -120,6 +120,12 @@ shell protocol and a replayable dependency directory; its documented semantic
 changes replace the unavailable Vim case and non-replayable system installs.
 `hf-model-inference` adds a three-case restartable Flask/DistilBERT protocol,
 including a bounded offline model and host-only generalization cases.
+`install-windows-3.11` adds a one-case restartable QEMU 5.2 protocol with a
+15.6 MB stopped runtime, exact immutable-disk identity, VNC framebuffer and
+monitor-key interaction, HTTP reachability, and host-supervised Evaluation
+lifecycle; its documented semantic changes replace live process handoff and
+host-attested child arguments with bounded restart and combined black-box
+evidence.
 The first-wave control,
 `sqlite-db-truncate`, and `vulnerable-secret` remain
 qualification-pending in their dossiers and checklist; an inventory-level
@@ -424,9 +430,20 @@ At this review pass:
   without infrastructure errors. Its explicitly authorized API-key-backed Luna
   smoke is correctly rejected at bounded Candidate capture after the Agent's
   optional-model-file cleanup command is denied; no infrastructure error occurs;
+- `install-windows-3.11` protocol qualification: focused warning-strict
+  deterministic qualification passes `18 passed, 2 skipped`; its consolidated
+  pinned Linux matrix passes `25/25` in 193.78 seconds. The seven-file,
+  15,619,596-byte QEMU 5.2 reference boots the exact 268,435,456-byte disk in a
+  fresh offline Evaluation, serves VNC and HTTP, accepts five monitor keys,
+  produces the retained framebuffer delta, and leaves the disk digest
+  unchanged. Configuration, service, monitor, framebuffer, output, helper,
+  live non-runtime, and malicious capture mutants are rejected without
+  infrastructure errors. Its explicitly authorized API-key-backed Luna smoke
+  captures a 1,277-byte launcher/config Candidate with no QEMU runtime files and is
+  correctly rejected after one fresh Evaluation, with no infrastructure error;
 - the Docker pass left no Trusted Helper containers, materialization containers, Evaluation
   networks, or overlay volumes behind;
-- complete Terminal configuration and self-audits: `105/105` passed with no
+- complete Terminal configuration and self-audits: `109/109` passed with no
   failures or warnings;
 - the generated Trusted Helper contract schema was refreshed for the reviewed
   HTTP and host-only access/credential modes, and its regeneration check passes;

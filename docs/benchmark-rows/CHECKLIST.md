@@ -84,7 +84,7 @@ The remaining 16 rows are excluded because no currently approved executable patt
 | [`gpt2-codegolf`](TerminalBench/gpt2-codegolf.md) | Black-box challenge/response | Approved — Clean conversion |
 | [`headless-terminal`](TerminalBench/headless-terminal.md) | Black-box challenge/response | Approved — Conversion with semantic change |
 | [`hf-model-inference`](TerminalBench/hf-model-inference.md) | Black-box challenge/response | Approved — Conversion with semantic change |
-| [`install-windows-3.11`](TerminalBench/install-windows-3.11.md) | Passive artifact verification + black-box challenge/response + trusted external state | Approved — Clean conversion |
+| [`install-windows-3.11`](TerminalBench/install-windows-3.11.md) | Black-box challenge/response + trusted external state | Approved — Conversion with semantic change |
 | [`kv-store-grpc`](TerminalBench/kv-store-grpc.md) | Black-box challenge/response | Approved — Conversion with semantic change |
 | [`large-scale-text-editing`](TerminalBench/large-scale-text-editing.md) | Black-box challenge/response | Approved — Clean conversion |
 | [`largest-eigenval`](TerminalBench/largest-eigenval.md) | Black-box challenge/response | Approved — Major redesign |

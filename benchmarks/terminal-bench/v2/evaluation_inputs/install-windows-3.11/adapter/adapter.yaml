@@ -1,0 +1,114 @@
+format: securebench.adapter/v2
+protocol: securebench.windows-qemu/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    keys:
+      type: array
+      max_items: 5
+      items: {type: string, max_utf8_bytes: 16}
+  required: [keys]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    launcher_exit: {type: integer}
+    launcher_timed_out: {type: boolean}
+    qemu_processes:
+      type: array
+      max_items: 4
+      items:
+        type: object
+        properties:
+          pid: {type: integer}
+          executable: {type: string, max_utf8_bytes: 2048}
+          arguments:
+            type: array
+            max_items: 64
+            items: {type: string, max_utf8_bytes: 2048}
+        required: [pid, executable, arguments]
+        max_fields: 3
+    listen_ports:
+      type: array
+      max_items: 2
+      items: {type: integer}
+    disk_sha256_before: {type: string, max_utf8_bytes: 64}
+    disk_sha256_after: {type: string, max_utf8_bytes: 64}
+    disk_size_before: {type: integer}
+    disk_size_after: {type: integer}
+    http:
+      type: object
+      properties:
+        status: {type: integer}
+        body_base64: {type: string, max_utf8_bytes: 5500}
+        body_too_large: {type: boolean}
+        error: {type: string, max_utf8_bytes: 384}
+      required: [status, body_base64, body_too_large, error]
+      max_fields: 4
+    monitor_base64: {type: string, max_utf8_bytes: 11000}
+    monitor_error: {type: string, max_utf8_bytes: 384}
+    baseline:
+      type: object
+      properties:
+        width: {type: integer}
+        height: {type: integer}
+        capture_error: {type: string, max_utf8_bytes: 384}
+        sha256: {type: string, max_utf8_bytes: 64}
+      required: [width, height, capture_error, sha256]
+      max_fields: 4
+    frames:
+      type: array
+      max_items: 5
+      items:
+        type: object
+        properties:
+          key: {type: string, max_utf8_bytes: 16}
+          width: {type: integer}
+          height: {type: integer}
+          different_components: {type: integer}
+          total_components: {type: integer}
+          sha256: {type: string, max_utf8_bytes: 64}
+          monitor_base64: {type: string, max_utf8_bytes: 11000}
+          monitor_error: {type: string, max_utf8_bytes: 384}
+          capture_error: {type: string, max_utf8_bytes: 384}
+        required:
+          - key
+          - width
+          - height
+          - different_components
+          - total_components
+          - sha256
+          - monitor_base64
+          - monitor_error
+          - capture_error
+        max_fields: 9
+    output_too_large: {type: boolean}
+    stdout_base64: {type: string, max_utf8_bytes: 22000}
+    stderr_base64: {type: string, max_utf8_bytes: 22000}
+  required:
+    - launcher_exit
+    - launcher_timed_out
+    - qemu_processes
+    - listen_ports
+    - disk_sha256_before
+    - disk_sha256_after
+    - disk_size_before
+    - disk_size_after
+    - http
+    - monitor_base64
+    - monitor_error
+    - baseline
+    - frames
+    - output_too_large
+    - stdout_base64
+    - stderr_base64
+  max_fields: 16
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+uses_trusted_helpers:
+  - {name: process_control, type: securebench.process-supervisor/v1}
+maximums:
+  seconds_per_challenge: 90
+  challenge_bytes: 4096
+  observation_bytes: 131072

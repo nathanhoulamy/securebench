@@ -7,7 +7,7 @@ but they do not replace Linux/Docker qualification.
 
 Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; the twenty-three incrementally qualified rows below
+remain intentionally unchecked; the twenty-four incrementally qualified rows below
 currently have binary admission decisions. The intervening
 `feal-differential-cryptanalysis` row retains its manually approved Excluded
 decision, and `filter-js-from-html` remains Excluded under the current browser
@@ -17,7 +17,7 @@ bounded system-state capture and an isolated multi-participant service/client
 runner exist. Global preflight and final pack
 sign-off therefore remain incomplete.
 
-Test-layout status is separate from admission: all twenty-three incremental rows
+Test-layout status is separate from admission: all twenty-four incremental rows
 use the compact shared `file_bundle` qualification proof. `dna-assembly`,
 `dna-insert`, `extract-elf`, `extract-moves-from-video`, and
 `feal-linear-cryptanalysis` each add one declarative row record;
@@ -29,7 +29,9 @@ trees, `fix-code-vulnerability` adds a two-file artifact/protocol row, and
 nested-repository ownership compatibility; `gpt2-codegolf` adds a bounded
 compile/run protocol with two fresh model evaluations; and `headless-terminal`
 adds a bounded persistent-terminal protocol and replayable dependency tree.
-`hf-model-inference` adds a bounded restartable model-service protocol.
+`hf-model-inference` adds a bounded restartable model-service protocol;
+`install-windows-3.11` adds a bounded restartable QEMU/VNC/HTTP protocol with
+host-supervised Evaluation lifecycle.
 All retain row-specific semantic, parser/Adapter, Oracle,
 malicious-Candidate, and replay evidence in focused files.
 
@@ -1465,6 +1467,56 @@ verification digest
 `sha256:f5b012dc6b08a4d893d0169957c851689622d29283ab71930effcf8cb1c33749`,
 and execution digest
 `sha256:eb5e20890f584f3a346ebb27964d4cbe29b6f8cff0c106011e1225f7ecaea5c6`.
+
+### `terminal-bench/install-windows-3.11`
+
+- [x] The complete prompt, pinned image, reference build, network/process
+  checks, full-disk and core-file checks, monitor commands, screenshots, and
+  ten-percent visual threshold were reconstructed from source revision
+  `2fd12b8`.
+- [x] The stopped Candidate contains only bounded launcher, nginx config, and
+  QEMU runtime entries. The supplied 268,435,456-byte image remains part of the
+  pinned baseline; processes, sockets, mounts, credentials, and snapshot state
+  cannot cross the boundary.
+- [x] The public assertion-free Adapter bounds launcher execution, process
+  arguments, TCP ports, HTTP and monitor bytes, output, VNC dimensions, and
+  five framebuffer deltas in one fresh offline Evaluation.
+- [x] The host Oracle owns the exact disk digest and visual threshold, checks
+  snapshot/image/memory/VGA/VNC/monitor arguments, ports 5901/80, HTTP content,
+  keyboard effects, fresh identity, and correlated host lifecycle evidence.
+- [x] The reviewed seven-file QEMU 5.2 reference is built from a SHA-pinned
+  upstream archive and passes the complete networkless Linux Evaluation. A
+  live non-runtime Candidate and launcher, disk, process-argument, service,
+  monitor, framebuffer, output-flood, forged-claim, helper, and malicious
+  capture mutants fail or cannot influence scoring.
+- [x] Focused warning-strict deterministic qualification passes `18 passed, 2
+  skipped`; the consolidated pinned Linux matrix passes `25/25` in 193.78
+  seconds.
+- [x] The complete warning-strict suite passes `1090 passed, 125 skipped`;
+  Terminal and self audits pass `109/109` without failures or warnings.
+- [x] Restartable lifecycle, Evaluation-observed child arguments, redundant
+  core-file extraction, RGB-component normalization, and their low
+  intelligence impact are recorded in
+  [`install-windows-3.11.md`](TerminalBench/install-windows-3.11.md).
+- [x] The explicitly authorized API-key-backed Luna/no-reasoning smoke captures
+  a bounded 1,277-byte launcher/config Candidate with no QEMU runtime files on
+  2026-09-04.
+  The one fresh Evaluation completes without infrastructure error and the
+  Oracle correctly rejects the absent runtime behavior with score `0.0`.
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Protocol plus trusted-external-lifecycle conversion with
+documented semantic changes, qualified on pinned Linux Evaluations on
+2026-09-03. The model-backed smoke is correctly rejected without infrastructure
+error, with Candidate digest
+`sha256:0303f7a86d220bd16bd5870b84f4425507126030a949d45b6399664dc7327d60`,
+row digest
+`sha256:6d22edcf42127fcf8670d5d630705bead6665bf4d46b1fa40e93e671efb0506a`,
+verification digest
+`sha256:26ea89a333b4322eb15c8657831e5657f3fa93c800f8963c248ce1e2138ac190`,
+and execution digest
+`sha256:d76fbf3a86c6007492e78df23761b40be47573214126b2eb7c53bf4464379c24`.
 
 ## DeepSWE
 

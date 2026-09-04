@@ -149,7 +149,7 @@ DeepSWE,"vulture-persistent-analysis-cache",Excluded,"Major redesign","Major red
 "Terminal-Bench 2.0",gpt2-codegolf,Approved,"Clean conversion","Clean conversion","Black-box challenge/response",Not separately rated,"TerminalBench/gpt2-codegolf.md"
 "Terminal-Bench 2.0","headless-terminal",Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Not separately rated,"TerminalBench/headless-terminal.md"
 "Terminal-Bench 2.0","hf-model-inference",Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Not separately rated,"TerminalBench/hf-model-inference.md"
-"Terminal-Bench 2.0","install-windows-3.11",Approved,"Clean conversion","Clean conversion","Black-box challenge/response + passive artifact verification + trusted external state",Not separately rated,"TerminalBench/install-windows-3.11.md"
+"Terminal-Bench 2.0","install-windows-3.11",Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response + trusted external state",Not separately rated,"TerminalBench/install-windows-3.11.md"
 "Terminal-Bench 2.0",kv-store-grpc,Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Not separately rated,"TerminalBench/kv-store-grpc.md"
 "Terminal-Bench 2.0","large-scale-text-editing",Approved,"Clean conversion","Clean conversion","Black-box challenge/response",Not separately rated,"TerminalBench/large-scale-text-editing.md"
 "Terminal-Bench 2.0","largest-eigenval",Approved,"Major redesign","Major redesign","Black-box challenge/response",Not separately rated,"TerminalBench/largest-eigenval.md"

@@ -169,6 +169,12 @@ ROWS = (
         oversized_target="application",
         base_command=("true",),
     ),
+    RowCaptureContract(
+        task_id="terminal-bench/install-windows-3.11",
+        target_id="launcher",
+        oversized_target="qemu_runtime",
+        base_command=("true",),
+    ),
 )
 
 
