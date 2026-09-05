@@ -7,7 +7,7 @@ but they do not replace Linux/Docker qualification.
 
 Inventory review disposition and runtime qualification are separate. The
 first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; the twenty-four incrementally qualified rows below
+remain intentionally unchecked; the twenty-five incrementally qualified rows below
 currently have binary admission decisions. The intervening
 `feal-differential-cryptanalysis` row retains its manually approved Excluded
 decision, and `filter-js-from-html` remains Excluded under the current browser
@@ -17,7 +17,7 @@ bounded system-state capture and an isolated multi-participant service/client
 runner exist. Global preflight and final pack
 sign-off therefore remain incomplete.
 
-Test-layout status is separate from admission: all twenty-four incremental rows
+Test-layout status is separate from admission: all twenty-five incremental rows
 use the compact shared `file_bundle` qualification proof. `dna-assembly`,
 `dna-insert`, `extract-elf`, `extract-moves-from-video`, and
 `feal-linear-cryptanalysis` each add one declarative row record;
@@ -31,7 +31,8 @@ compile/run protocol with two fresh model evaluations; and `headless-terminal`
 adds a bounded persistent-terminal protocol and replayable dependency tree.
 `hf-model-inference` adds a bounded restartable model-service protocol;
 `install-windows-3.11` adds a bounded restartable QEMU/VNC/HTTP protocol with
-host-supervised Evaluation lifecycle.
+host-supervised Evaluation lifecycle; and `kv-store-grpc` adds a restartable
+gRPC service protocol with a trusted standard-library wire client.
 All retain row-specific semantic, parser/Adapter, Oracle,
 malicious-Candidate, and replay evidence in focused files.
 
@@ -73,11 +74,11 @@ malicious-Candidate, and replay evidence in focused files.
   output.
 - [ ] The environment is installed with `python -m pip install -e '.[dev]'`.
 - [x] The full `.venv/bin/python -m pytest -q -W error` suite passes
-  (`1068 passed, 122 skipped`).
+  (`1113 passed, 128 skipped`).
 - [x] `.venv/bin/securebench audit-self --output-dir /tmp/securebench-audit-self`
-  passes (`105/105`, no warnings).
+  passes (`113/113`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/terminal-bench/tester-linux.yaml --output-dir /tmp/terminal-bench-v2-audit`
-  passes with all twenty-six selected rows (`105/105`, no warnings).
+  passes with all twenty-eight selected rows (`113/113`, no warnings).
 - [x] `.venv/bin/securebench audit --config benchmarks/deep-swe/tester-linux.yaml --output-dir /tmp/deep-swe-v2-audit`
   passes with all three selected rows (`13/13`, no warnings).
 - [x] The selected harness credential mode is usable. For `auth: api_key`, the
@@ -1515,6 +1516,54 @@ row digest
 `sha256:6d22edcf42127fcf8670d5d630705bead6665bf4d46b1fa40e93e671efb0506a`,
 verification digest
 `sha256:26ea89a333b4322eb15c8657831e5657f3fa93c800f8963c248ce1e2138ac190`,
+and execution digest
+`sha256:d76fbf3a86c6007492e78df23761b40be47573214126b2eb7c53bf4464379c24`.
+
+### `terminal-bench/kv-store-grpc`
+
+- [x] The complete prompt, proto contract, pinned package versions, reference,
+  verifier entrypoint, artifact checks, handshake, and state transitions were
+  reconstructed from source revision `2fd12b8`.
+- [x] The stopped Candidate contains only the bounded proto, two generated
+  bindings, server, and dependency tree. Processes, sockets, credentials, and
+  system-wide package mutations cannot cross the boundary.
+- [x] The public assertion-free Adapter starts the server with a Candidate-only
+  dependency path, speaks bounded unary HTTP/2/gRPC using only the standard
+  library, records raw results and lifecycle, and tears down the process group.
+- [x] The host Oracle owns seeded values and expected state, checks the full
+  public proto contract, set/get/update behavior, independent keys, zero and
+  negative values, UTF-8 keys, Challenge correlation, and fresh Evaluation IDs.
+- [x] The reviewed reference passes three fresh pinned networkless Evaluations.
+  Proto, state, key-collapse, plain-TCP, stopped-service, response, output,
+  forged-claim, correlation, identity, artifact, and capture mutants fail or
+  cannot affect scoring.
+- [x] Focused deterministic qualification passes `23 passed, 3 skipped`; its
+  full Docker run passes `21/21`; the compact shared Docker cases pass `5/5`.
+- [x] The complete warning-strict suite passes `1113 passed, 128 skipped`;
+  Terminal and self audits pass `113/113` without failures or warnings.
+- [x] Restartable lifecycle, dependency packaging, independent trusted gRPC
+  client behavior, and their low intelligence impact are recorded in
+  [`kv-store-grpc.md`](TerminalBench/kv-store-grpc.md).
+- [x] The explicitly authorized API-key-backed `gpt-5.6-luna`/no-reasoning
+  smoke produces a bounded 974-entry, 31,043,862-byte Candidate. Artifact
+  verification and all three fresh gRPC Evaluations pass with score `1.0` and
+  no infrastructure error.
+
+Final status: [x] Approved  [ ] Excluded
+
+Evidence/reason: Artifact plus protocol conversion with documented semantic
+changes, qualified on pinned Linux Evaluations on 2026-09-04 through
+2026-09-05. The reviewed reference Candidate contains 781 entries and
+28,044,611 bytes. Candidate digest
+`sha256:171dcdde5f44b7a32b840c45243312f73ae2718575811445ae55dbe7e1872b34`,
+row digest
+`sha256:488135fe7aa259df0111c973aa12cc399c41480cc7378b0e3491e21e8c67600c`,
+and verification digest
+`sha256:976c9b5b4476eb6694de98f39bc94fd9371668cf66359a060ff19360def61bc7`.
+The model smoke Candidate digest is
+`sha256:834565e9cfd10236138fb6c4f437e789be30a61621fab93ca167005e1a4f4130`,
+with verification digest
+`sha256:be945a3897947ba91f74357d3dfa36539db7561433c3c937adfaf43706f87430`
 and execution digest
 `sha256:d76fbf3a86c6007492e78df23761b40be47573214126b2eb7c53bf4464379c24`.
 

@@ -1,0 +1,54 @@
+format: securebench.adapter/v2
+protocol: securebench.kv-store-grpc/v1
+command: ["python", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    operations:
+      type: array
+      max_items: 8
+      items:
+        type: object
+        properties:
+          rpc: {type: string, max_utf8_bytes: 8}
+          key: {type: string, max_utf8_bytes: 256}
+          value: {type: integer}
+        required: [rpc, key]
+        max_fields: 3
+  required: [operations]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    server_started: {type: boolean}
+    process_running: {type: boolean}
+    process_exit: {type: integer}
+    output_too_large: {type: boolean}
+    stdout_base64: {type: string, max_utf8_bytes: 46000}
+    stderr_base64: {type: string, max_utf8_bytes: 46000}
+    responses:
+      type: array
+      max_items: 8
+      items:
+        type: object
+        properties:
+          status: {type: string, max_utf8_bytes: 16}
+          val: {type: integer}
+          error: {type: string, max_utf8_bytes: 512}
+        required: [status, val, error]
+        max_fields: 3
+  required:
+    - server_started
+    - process_running
+    - process_exit
+    - output_too_large
+    - stdout_base64
+    - stderr_base64
+    - responses
+  max_fields: 7
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 60
+  challenge_bytes: 16384
+  observation_bytes: 131072

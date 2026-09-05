@@ -175,6 +175,14 @@ ROWS = (
         oversized_target="qemu_runtime",
         base_command=("true",),
     ),
+    RowCaptureContract(
+        task_id="terminal-bench/kv-store-grpc",
+        target_id="proto",
+        oversized_target="dependencies",
+        exact_missing_categories=None,
+        missing_check_ids=("kv_store_artifacts", "kv_store_behavior"),
+        base_command=("true",),
+    ),
 )
 
 
