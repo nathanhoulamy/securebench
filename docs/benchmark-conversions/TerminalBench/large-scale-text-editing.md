@@ -91,3 +91,117 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 ## Future conversion notes
 
 Use black-box challenge/response. Extract a bounded `apply_macros.vim`, validate its allowed-command and macro-size structure externally, execute it only in the Evaluation VM against a freshly generated million-row input, and have the Oracle independently generate the expected bytes and compare hashes. Keep expected output and scoring outside both VMs; do not trust Vim-generated helper files. Verdict: clean conversion; auto-approved under the first-pass policy.
+
+## Implementation plan — 2026-09-08
+
+Source review confirms that the submission is a single Vim script, while the
+source verifier executes that script twice: once to transform the CSV and once
+to populate registers and write their normalized contents and keystroke counts.
+Those latter files are Candidate-controlled evidence. The source command
+validator also uses partial regular-expression matches rather than parsing
+complete literal `setreg` calls. Neither mechanism can serve as the trusted
+measurement of the public macro restrictions.
+
+The existing artifact and protocol contracts cover capture and execution. The
+additional component proposed for approval is a bounded, passive host utility
+for Vim string literals and key notation; it is not a new Trusted Helper,
+execution profile, or check type.
+
+### Proposed passive utility
+
+- Input: at most 16 KiB of UTF-8 script text and at most 256 logical lines.
+  Parse complete allowed commands, including the optional leading colon on
+  `call setreg`, comments, literal strings, the three permitted macro execution
+  commands, and exit commands. Reject expressions, concatenation, trailing
+  commands, malformed quoting, and unsupported syntax with bounded errors.
+- Decode single-quoted and double-quoted Vim string literals without invoking
+  Vim. Handle escapes and supported special-key notation with explicitly
+  defined semantics. Return the final definitions for registers a/b/c and
+  their normalized key sequences/counts. The Oracle decides nonemptiness,
+  distinctness, the strict total below 200, and command-policy compliance.
+- Prove decoding/counting compatibility against the pinned Vim runtime using
+  trusted conformance fixtures, including CR/Esc, escaped backslashes, literal
+  angle brackets, control characters, numeric escapes, Unicode, duplicate
+  definitions, and malformed/adversarial strings. These conformance checks
+  execute only qualification fixtures in Docker; submitted code is never
+  executed on the host.
+- Do not claim full Vimscript interpretation. If faithful handling of a
+  prompt-permitted construction requires narrowing the public contract,
+  document the semantic change before treating the conversion as qualified.
+  The source's `keytrans` plus substitution-based count needs particular care:
+  counting source characters alone is not equivalent.
+
+### Row design and qualification
+
+Capture only `/app/apply_macros.vim` as a regular-file Candidate bounded to
+16 KiB. Feed its bytes through the existing UTF-8 artifact parser into the
+host Oracle and passive utility. A public adapter invokes pinned headless Vim
+inside each fresh Evaluation, records bounded exit/output evidence, and hashes
+the bounded transformed CSV independently of Candidate-generated reports.
+The Oracle owns the expected output digest and compares it with that evidence.
+
+The source image supplies both `input.csv` and `expected.csv` to the Agent.
+Inspect the image before deciding the narrow masks and fixture layout: the
+public example pair explains the task, but the current Evaluation must not
+contain its expected answer or an expected-output generator. Fresh challenges
+must preserve the million-row transformation requirement, use only public input
+generation in Evaluation, and keep every expected-output calculation on the
+host. No new network service or credential is needed for verification.
+
+Qualification will cover missing/base failure, the upstream reference,
+whitespace/reversal/case/delimiter/suffix mutants, macro distinctness and
+keystroke boundary cases, syntax and forged-count attacks, bounded files and
+observations, at least two fresh Evaluation identities, and exact Candidate
+replay. Register one record in the compact capture matrix. After deterministic
+and Linux Docker qualification, run the already authorized API-backed
+Luna/no-reasoning smoke, update this dossier and the checklist with measured
+results, and commit the completed conversion.
+
+The portfolio's Approved review disposition is unchanged; this plan is not a
+completion record. Utility implementation evidence follows below.
+
+### Passive utility implemented — 2026-09-08
+
+`v2/hidden/large-scale-text-editing/oracle/vim_literals.py` now provides bounded
+literal parsing and register normalization without importing or executing
+Candidate code. Complete command parsing rejects expressions, concatenation,
+extra arguments, trailing commands, malformed strings, ambiguous whitespace,
+and oversized input. It retains ordered definitions, executions, and exits;
+the final-definition map alone must not be used to infer runtime order. The
+utility supplies measurements, not macro-policy approval or a verdict.
+
+`tests/test_large_scale_vim_literals.py` passes **19 tests**, including **153
+trusted conformance expressions** against Linux Vim in
+`alexgshaw/large-scale-text-editing@sha256:719adca3f1388220546ce6a155eee56eff3c4fe318183100320606a210f6b59c`.
+The expressions include every non-NUL ASCII byte, literal/numeric escapes,
+supported key aliases, UTF-8, NUL truncation, and the three upstream reference
+macros. Normalization retains Vim's trailing-CR behavior: default `setreg()`
+makes that register linewise and `getreg()` appends NL. Literal DEL is also
+distinct from Vim's encoded `<Del>` key. Reference measurements satisfy the
+three distinct, nonempty registers and strict total below 200.
+
+Reproduction:
+
+```bash
+SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error \
+  tests/test_large_scale_vim_literals.py
+```
+
+Conformance executes only fixed test-owned expressions in a networkless,
+read-only disposable Docker container with a bounded temporary filesystem.
+It never evaluates submitted script expressions on the host.
+
+**Remaining fidelity boundary:** the text-only utility raises
+`UnsupportedLiteral` for encoded keys such as `<BS>`, `<Del>`, `<C-@>`, function
+keys/modifiers, non-UTF-8 bytes, and unqualified nonprintable Unicode. Unknown
+key notation is not guessed: for example, Vim does not interpret `<Escape>` as
+an alias of `<Esc>`. These are explicitly unimplemented constructions, not
+proof that a submission violates the public task. Before row admission, either
+extend and qualify the representation for required forms or explicitly review
+and document a narrowed public contract. Do not silently score unsupported
+forms as ordinary incorrect answers.
+
+No v2 row, execution Adapter, or scoring Oracle is registered yet. Million-row
+reference/mutant replay, fresh-Evaluation isolation, image leak review, and API
+smoke remain outstanding. This utility milestone does not increase the converted
+row count and does not constitute runtime approval of the row.
