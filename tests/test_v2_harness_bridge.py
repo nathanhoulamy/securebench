@@ -8,6 +8,12 @@ import pytest
 
 from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
+from securebench.candidates.extraction import (
+    CandidateProductionError,
+    CandidateProductionTimeout,
+    default_extraction_spec,
+    extract_candidate,
+)
 from securebench.errors import ConfigError
 from securebench.harnesses.command import CommandHarnessProducer
 from securebench.harnesses.shared import (
@@ -256,3 +262,30 @@ def test_git_patch_harness_rejects_framework_paths_in_baseline(tmp_path):
 
     with pytest.raises(ConfigError, match="framework-owned path: task.json"):
         reject_git_patch_framework_collisions(task, workspace, task_file="task.json")
+
+
+@pytest.mark.parametrize("candidate_type", ["git_patch", "file_bundle", "filesystem_overlay"])
+def test_extraction_preserves_workspace_metadata_and_rejects_failed_runs(candidate_type):
+    task = SimpleNamespace(
+        environment=SimpleNamespace(workdir="/app"),
+        verification=SimpleNamespace(candidate=SimpleNamespace(type=candidate_type)),
+    )
+    spec = default_extraction_spec(task)
+    sandbox = SimpleNamespace(root="/stopped/workspace")
+    production = extract_candidate(sandbox, CommandResult(("agent",), 0, "log"), spec)
+    assert production.workspace == "/stopped/workspace"
+    assert production.stdout == "log"
+    assert production.metadata["candidate_type"] == candidate_type
+    assert production.metadata["candidate_workdir"] == "/app"
+    assert spec.mode == ("git_patch" if candidate_type == "git_patch" else "workspace")
+    with pytest.raises(CandidateProductionError, match="exit code 1"):
+        extract_candidate(sandbox, CommandResult(("agent",), 1), spec)
+    with pytest.raises(CandidateProductionTimeout):
+        extract_candidate(sandbox, CommandResult(("agent",), 124, timed_out=True), spec)
+    with pytest.raises(ConfigError, match="requires sandbox.root"):
+        extract_candidate(SimpleNamespace(), CommandResult(("agent",), 0), spec)
+    task.verification.candidate.type = "unsupported"
+    with pytest.raises(ConfigError, match="Unsupported candidate type"):
+        default_extraction_spec(task)
+    with pytest.raises(ConfigError, match="Unsupported candidate extraction mode"):
+        extract_candidate(sandbox, CommandResult(("agent",), 0), spec.__class__("unsupported", candidate_type))

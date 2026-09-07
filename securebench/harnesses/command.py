@@ -23,7 +23,6 @@ from securebench.harnesses.shared import (
     agent_workspace_git_env,
     agent_task_json,
     close_sandbox,
-    container_image_for_task,
     materialize_image_workdir,
     optional_positive_number,
     prepare_overlay_agent_inputs,
@@ -32,7 +31,6 @@ from securebench.harnesses.shared import (
     reject_unknown_fields,
     run_timeout_seconds,
     task_allowed_domains,
-    task_workdir,
     workspace_path,
     workspace_mount_target_for_task,
     workspace_root,
@@ -125,7 +123,7 @@ class CommandHarnessProducer(CandidateProducer):
                 )
                 result = sandbox.run(
                     self.command,
-                    workdir=task_workdir(task),
+                    workdir=task.environment.workdir,
                     timeout=timeout,
                 )
                 extraction = default_extraction_spec(task)
@@ -133,7 +131,6 @@ class CommandHarnessProducer(CandidateProducer):
                     sandbox,
                     result,
                     extraction,
-                    timeout=timeout,
                 )
                 return CandidateProduction(
                     workspace=candidate.workspace,
@@ -152,7 +149,7 @@ class CommandHarnessProducer(CandidateProducer):
                 close_sandbox(sandbox)
                 restore_untrusted_tree_permissions(
                     task_workspace,
-                    image=container_image_for_task(task),
+                    image=task.environment.image,
                 )
 
     def capture_filesystem_overlay(
@@ -194,9 +191,9 @@ class CommandHarnessProducer(CandidateProducer):
         )
         with docker_egress_policy(allowed_domains) as egress:
             return run_filesystem_overlay_agent_capture(
-                image=container_image_for_task(task),
+                image=task.environment.image,
                 command=self.command,
-                workdir=task_workdir(task),
+                workdir=task.environment.workdir,
                 spec=spec,
                 store=store,
                 baseline_digest=task.baseline_digest,
@@ -217,7 +214,7 @@ class CommandHarnessProducer(CandidateProducer):
         plan: MaterializationPlan,
         egress: HarnessEgress,
     ) -> Sandbox:
-        image = container_image_for_task(task)
+        image = task.environment.image
         return DockerSandbox(
             image=image,
             root=task_workspace,

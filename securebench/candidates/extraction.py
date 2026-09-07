@@ -47,18 +47,16 @@ def default_extraction_spec(
     """Return the default extraction strategy for a task's candidate contract."""
     candidate_type = task.verification.candidate.type
     if candidate_type == "git_patch":
-        return CandidateExtractionSpec(
-            mode="git_patch",
-            candidate_type=candidate_type,
-            workdir=_task_workdir(task),
-        )
-    if candidate_type in {"file_bundle", "filesystem_overlay"}:
-        return CandidateExtractionSpec(
-            mode="workspace",
-            candidate_type=candidate_type,
-            workdir=_task_workdir(task),
-        )
-    raise ConfigError(f"Unsupported candidate type: {candidate_type!r}")
+        mode = "git_patch"
+    elif candidate_type in {"file_bundle", "filesystem_overlay"}:
+        mode = "workspace"
+    else:
+        raise ConfigError(f"Unsupported candidate type: {candidate_type!r}")
+    return CandidateExtractionSpec(
+        mode=mode,
+        candidate_type=candidate_type,
+        workdir=task.environment.workdir,
+    )
 
 
 def extraction_instructions(spec: CandidateExtractionSpec) -> str:
@@ -77,26 +75,18 @@ def extract_candidate(
     sandbox: Sandbox,
     run_result: CommandResult,
     spec: CandidateExtractionSpec,
-    *,
-    timeout: float | None = None,
 ) -> CandidateProduction:
     """Collect a candidate artifact according to a shared extraction spec."""
     if run_result.timed_out:
         raise CandidateProductionTimeout(run_result)
-    if spec.mode == "git_patch":
-        if run_result.exit_code != 0:
-            raise CandidateProductionError(
-                "harness command failed before producing a git_patch workspace "
-                f"(exit code {run_result.exit_code})"
-            )
-    elif spec.mode == "workspace":
-        if run_result.exit_code != 0:
-            raise CandidateProductionError(
-                "harness command failed before producing a workspace candidate "
-                f"(exit code {run_result.exit_code})"
-            )
-    else:
+    if spec.mode not in {"git_patch", "workspace"}:
         raise ConfigError(f"Unsupported candidate extraction mode: {spec.mode!r}")
+    if run_result.exit_code != 0:
+        description = "git_patch workspace" if spec.mode == "git_patch" else "workspace candidate"
+        raise CandidateProductionError(
+            f"harness command failed before producing a {description} "
+            f"(exit code {run_result.exit_code})"
+        )
     workspace = str(getattr(sandbox, "root", ""))
     if not workspace:
         raise ConfigError("stopped-state candidate extraction requires sandbox.root")
@@ -119,7 +109,3 @@ def _metadata(spec: CandidateExtractionSpec) -> dict[str, object]:
     if spec.workdir is not None:
         metadata["candidate_workdir"] = spec.workdir
     return metadata
-
-
-def _task_workdir(task: BenchmarkTask) -> str:
-    return task.environment.workdir
