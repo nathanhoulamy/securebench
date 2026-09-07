@@ -11,6 +11,7 @@ from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from securebench.candidates.extraction import default_extraction_spec, extraction_instructions
 from securebench.errors import ConfigError
 from securebench.candidates.git_repository import GitRepositoryError, validate_clean_repository
 from securebench.path_safety import portable_paths_equal, portable_paths_overlap
@@ -28,22 +29,9 @@ MATERIALIZATION_OPERATION_TIMEOUT_SECONDS = 120.0
 MATERIALIZATION_CLEANUP_TIMEOUT_SECONDS = 30.0
 
 
-def container_image_for_task(task: BenchmarkTask) -> str:
-    return environment_image_for_task(task)
-
-
-def environment_image_for_task(task: BenchmarkTask) -> str:
-    """Return the benchmark environment image selected for task execution."""
-    return task.environment.image
-
-
 def workspace_mount_target_for_task(task: BenchmarkTask) -> str:
     """Return where the harness workspace should be mounted in the container."""
     return _absolute_container_path(task.environment.workdir, "benchmark environment.workdir")
-
-
-def task_workdir(task: BenchmarkTask) -> str:
-    return task.environment.workdir
 
 
 def agent_workspace_git_env(
@@ -95,7 +83,7 @@ def task_allowed_domains(task: BenchmarkTask, configured: tuple[str, ...]) -> tu
 
 def materialize_image_workdir(task: BenchmarkTask, destination: Path) -> None:
     """Create the candidate-visible baseline from the immutable image workdir."""
-    image = container_image_for_task(task)
+    image = task.environment.image
     source = task.environment.workdir
     destination.mkdir(parents=True, exist_ok=True)
     container = f"securebench-copy-{uuid.uuid4().hex}"
@@ -230,6 +218,22 @@ def workspace_dir_name(task: BenchmarkTask) -> str:
     prefix = cleaned[:80].rstrip("._-") or "task"
     digest = sha256(task.id.encode("utf-8")).hexdigest()
     return f"{prefix}-{digest}"
+
+
+def agent_prompt(task: BenchmarkTask, task_file: str) -> str:
+    extraction = default_extraction_spec(task)
+    if task.family == "repo_patch":
+        return (
+            f"Read {task_file} and solve the benchmark task using only public workspace data. "
+            "The repository checkout to edit is the current working directory. "
+            "Do not clone the repository. "
+            "Edit only the implementation files needed for the fix; do not edit tests, "
+            "evaluation files, dependency files, lock files, or build configuration unless the "
+            "task explicitly requires those files. "
+            f"{extraction_instructions(extraction)}"
+        )
+    base = f"Read {task_file} and solve the benchmark task using only public workspace data."
+    return f"{base} {extraction_instructions(extraction)}"
 
 
 def agent_task_json(task: BenchmarkTask) -> str:

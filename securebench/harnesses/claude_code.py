@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,7 +21,6 @@ from securebench.candidates.store import CandidateStore
 from securebench.candidates.extraction import (
     default_extraction_spec,
     extract_candidate,
-    extraction_instructions,
 )
 from securebench.errors import ConfigError
 from securebench.execution_profiles import validate_executable_task
@@ -28,13 +28,12 @@ from securebench.harnesses.codex import (
     DockerPlatform,
     docker_image_platform,
     run_docker,
-    shell_quote,
 )
 from securebench.harnesses.shared import (
+    agent_prompt,
     agent_workspace_git_env,
     agent_task_json,
     close_sandbox,
-    container_image_for_task,
     container_workspace_path,
     materialize_image_workdir,
     optional_positive_number,
@@ -44,7 +43,6 @@ from securebench.harnesses.shared import (
     reject_unknown_fields,
     run_timeout_seconds,
     task_allowed_domains,
-    task_workdir,
     workspace_mount_target_for_task,
     workspace_path,
     workspace_root,
@@ -160,7 +158,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
 
     def produce(self, task: BenchmarkTask, **context: Any) -> CandidateProduction:
         validate_executable_task(task)
-        image = container_image_for_task(task)
+        image = task.environment.image
         relay_spec = claude_code_provider_relay_spec(self.auth)
         require_provider_credential(relay_spec)
         require_env_names(self.env_names, "claude_code")
@@ -256,13 +254,13 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                         self.task_file,
                         mount_target=workspace_mount_target,
                     )
-                    agent_workdir = claude_code_agent_workdir(task)
+                    agent_workdir = task.environment.workdir
                     result = sandbox.run(
                         claude_code_shell_command(
-                            f"claude -p --model {shell_quote(self.model)} "
+                            f"claude -p --model {shlex.quote(self.model)} "
                             "--output-format json --dangerously-skip-permissions "
                             "--no-session-persistence "
-                            f"{shell_quote(claude_code_prompt(task, task_file_for_agent))}"
+                            f"{shlex.quote(agent_prompt(task, task_file_for_agent))}"
                         ),
                         workdir=agent_workdir,
                         timeout=timeout,
@@ -272,7 +270,6 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                         sandbox,
                         result,
                         extraction,
-                        timeout=timeout,
                     )
                     relay_summary = relay_decision_summary(egress.relay_log_dir)
                     return CandidateProduction(
@@ -318,7 +315,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
         spec = task.verification.candidate
         if not isinstance(spec, FilesystemOverlayCandidate):
             raise ConfigError("Claude Code overlay capture requires a filesystem_overlay task")
-        image = container_image_for_task(task)
+        image = task.environment.image
         relay_spec = claude_code_provider_relay_spec(self.auth)
         require_provider_credential(relay_spec)
         require_env_names(self.env_names, "claude_code")
@@ -361,13 +358,13 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
             return run_filesystem_overlay_agent_capture(
                 image=image,
                 command=claude_code_overlay_shell_command(
-                    f"claude -p --model {shell_quote(self.model)} "
+                    f"claude -p --model {shlex.quote(self.model)} "
                     "--output-format json --dangerously-skip-permissions "
                     "--no-session-persistence "
-                    f"{shell_quote(claude_code_prompt(task, task_file_for_agent))}"
+                    f"{shlex.quote(agent_prompt(task, task_file_for_agent))}"
                 ),
                 preflight_command=claude_code_overlay_shell_command("claude --version"),
-                workdir=claude_code_agent_workdir(task),
+                workdir=task.environment.workdir,
                 spec=spec,
                 store=store,
                 baseline_digest=task.baseline_digest,
@@ -561,15 +558,15 @@ def claude_code_shell_command(
     home_target: str = CLAUDE_CODE_HOME_TARGET,
 ) -> str:
     return (
-        f"export HOME={shell_quote(home_target)}; "
-        f"export PATH={shell_quote(CLAUDE_CODE_OVERLAY_TARGET + '/bin')}:$PATH; "
+        f"export HOME={shlex.quote(home_target)}; "
+        f"export PATH={shlex.quote(CLAUDE_CODE_OVERLAY_TARGET + '/bin')}:$PATH; "
         f"{inner}"
     )
 
 
 def claude_code_overlay_shell_command(inner: str) -> str:
     """Initialize bounded, case-local Claude Code state before invoking the CLI."""
-    home = shell_quote(CLAUDE_CODE_OVERLAY_AGENT_HOME_TARGET)
+    home = shlex.quote(CLAUDE_CODE_OVERLAY_AGENT_HOME_TARGET)
     return (
         f"umask 077; mkdir -p {home}; "
         + claude_code_shell_command(
@@ -577,23 +574,3 @@ def claude_code_overlay_shell_command(inner: str) -> str:
             home_target=CLAUDE_CODE_OVERLAY_AGENT_HOME_TARGET,
         )
     )
-
-
-def claude_code_agent_workdir(task: BenchmarkTask) -> str:
-    return task_workdir(task)
-
-
-def claude_code_prompt(task: BenchmarkTask, task_file: str) -> str:
-    extraction = default_extraction_spec(task)
-    if task.family == "repo_patch":
-        return (
-            f"Read {task_file} and solve the benchmark task using only public workspace data. "
-            "The repository checkout to edit is the current working directory. "
-            "Do not clone the repository. "
-            "Edit only the implementation files needed for the fix; do not edit tests, "
-            "evaluation files, dependency files, lock files, or build configuration unless the "
-            "task explicitly requires those files. "
-            f"{extraction_instructions(extraction)}"
-        )
-    base = f"Read {task_file} and solve the benchmark task using only public workspace data."
-    return f"{base} {extraction_instructions(extraction)}"

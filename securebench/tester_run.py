@@ -33,7 +33,7 @@ from securebench.harnesses.registry import (
     effective_harness_env_names,
     normalized_harness_config,
 )
-from securebench.harnesses.shared import environment_image_for_task, workspace_dir_name
+from securebench.harnesses.shared import workspace_dir_name
 from securebench.locking import FileLockError, exclusive_file_lock
 from securebench.progress import ProgressReporter, emit_progress, progress_context
 from securebench.schemas.benchmark import FilesystemOverlayCandidate
@@ -161,7 +161,7 @@ def _run_selected_tasks(
     indexes = {task.id: index for index, task in enumerate(tasks, start=1)}
     counters = _summary_counters(existing)
     image_pruner = DockerImageBatchPruner(config.docker.max_cached_images)
-    remaining_image_uses = Counter(environment_image_for_task(task) for task in remaining)
+    remaining_image_uses = Counter(task.environment.image for task in remaining)
 
     _initialize_results_file(output_path, existing)
     with progress_context(progress):
@@ -179,7 +179,7 @@ def _run_selected_tasks(
                 output_file.flush()
                 os.fsync(output_file.fileno())
                 _add_record(counters, completed.record)
-                image = environment_image_for_task(completed.task)
+                image = completed.task.environment.image
                 remaining_image_uses[image] -= 1
                 if remaining_image_uses[image] == 0:
                     image_pruner.observe(image)

@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import re
+import shlex
 import subprocess
 import tempfile
 from datetime import datetime, timezone
@@ -16,7 +17,6 @@ from typing import Any
 from securebench.candidates.extraction import (
     default_extraction_spec,
     extract_candidate,
-    extraction_instructions,
 )
 from securebench.candidates import (
     CandidateProducer,
@@ -29,11 +29,11 @@ from securebench.candidates.store import CandidateStore
 from securebench.errors import ConfigError
 from securebench.execution_profiles import validate_executable_task
 from securebench.harnesses.shared import (
+    agent_prompt,
     agent_workspace_git_env,
     agent_task_json,
     close_sandbox,
     container_workspace_path,
-    container_image_for_task,
     optional_positive_number,
     prepare_overlay_agent_inputs,
     materialize_image_workdir,
@@ -42,7 +42,6 @@ from securebench.harnesses.shared import (
     reject_unknown_fields,
     run_timeout_seconds,
     task_allowed_domains,
-    task_workdir,
     workspace_path,
     workspace_mount_target_for_task,
     workspace_root,
@@ -195,7 +194,7 @@ class CodexHarnessProducer(CandidateProducer):
 
     def produce(self, task: BenchmarkTask, **context: Any) -> CandidateProduction:
         validate_executable_task(task)
-        image = container_image_for_task(task)
+        image = task.environment.image
         relay_spec = codex_provider_relay_spec(self.auth)
         credential_file = codex_subscription_credential_file(self.auth)
         require_provider_credential(relay_spec, credential_file)
@@ -299,7 +298,7 @@ class CodexHarnessProducer(CandidateProducer):
                         self.task_file,
                         mount_target=workspace_mount_target,
                     )
-                    agent_workdir = codex_agent_workdir(task)
+                    agent_workdir = task.environment.workdir
                     config_args = codex_config_args(
                         egress.provider_base_url,
                         auth=self.auth,
@@ -309,9 +308,9 @@ class CodexHarnessProducer(CandidateProducer):
                     result = sandbox.run(
                         codex_shell_command(
                             f"codex {config_args} "
-                            f"exec --model {shell_quote(self.model)} --json --skip-git-repo-check "
+                            f"exec --model {shlex.quote(self.model)} --json --skip-git-repo-check "
                             f"--dangerously-bypass-approvals-and-sandbox "
-                            f"{shell_quote(codex_prompt(task, task_file_for_agent))}"
+                            f"{shlex.quote(agent_prompt(task, task_file_for_agent))}"
                         ),
                         workdir=agent_workdir,
                         timeout=timeout,
@@ -321,7 +320,6 @@ class CodexHarnessProducer(CandidateProducer):
                         sandbox,
                         result,
                         extraction,
-                        timeout=timeout,
                     )
                     relay_summary = relay_decision_summary(egress.relay_log_dir)
                     return CandidateProduction(
@@ -368,7 +366,7 @@ class CodexHarnessProducer(CandidateProducer):
         spec = task.verification.candidate
         if not isinstance(spec, FilesystemOverlayCandidate):
             raise ConfigError("Codex overlay capture requires a filesystem_overlay task")
-        image = container_image_for_task(task)
+        image = task.environment.image
         relay_spec = codex_provider_relay_spec(self.auth)
         credential_file = codex_subscription_credential_file(self.auth)
         require_provider_credential(relay_spec, credential_file)
@@ -436,16 +434,16 @@ class CodexHarnessProducer(CandidateProducer):
                 image=image,
                 command=codex_overlay_shell_command(
                     f"codex {config_args} "
-                    f"exec --model {shell_quote(self.model)} --json --skip-git-repo-check "
+                    f"exec --model {shlex.quote(self.model)} --json --skip-git-repo-check "
                     "--dangerously-bypass-approvals-and-sandbox "
-                    f"{shell_quote(codex_prompt(task, task_file_for_agent))}",
+                    f"{shlex.quote(agent_prompt(task, task_file_for_agent))}",
                     auth_seed=auth_seed,
                 ),
                 preflight_command=codex_overlay_shell_command(
                     "codex --version",
                     auth_seed=auth_seed,
                 ),
-                workdir=codex_agent_workdir(task),
+                workdir=task.environment.workdir,
                 spec=spec,
                 store=store,
                 baseline_digest=task.baseline_digest,
@@ -697,7 +695,7 @@ def codex_relay_config_args(
                 "tools.web_search=false",
             ]
         )
-    return " ".join(shell_quote(arg) for arg in args)
+    return shlex.join(args)
 
 
 def codex_config_args(
@@ -720,7 +718,7 @@ def codex_config_args(
     effort = codex_reasoning_effort(reasoning_effort)
     if effort is not None:
         effort_override = f"model_reasoning_effort={toml_string(effort)}"
-        args = f"{args} {shell_quote('-c')} {shell_quote(effort_override)}"
+        args = f"{args} {shlex.quote('-c')} {shlex.quote(effort_override)}"
     return args
 
 
@@ -767,7 +765,7 @@ def codex_subscription_config_args(
                 "features.image_generation=false",
             ]
         )
-    return " ".join(shell_quote(arg) for arg in args)
+    return shlex.join(args)
 
 
 def codex_subscription_model_base_url(base_url: str) -> str:
@@ -833,9 +831,9 @@ def dummy_jwt(claims: dict[str, Any]) -> str:
 
 def codex_shell_command(inner: str, *, home_target: str = CODEX_HOME_TARGET) -> str:
     return (
-        f"export HOME={shell_quote(home_target)}; "
-        f"export CODEX_HOME={shell_quote(home_target)}; "
-        f"export PATH={shell_quote(CODEX_OVERLAY_TARGET + '/bin')}:$PATH; "
+        f"export HOME={shlex.quote(home_target)}; "
+        f"export CODEX_HOME={shlex.quote(home_target)}; "
+        f"export PATH={shlex.quote(CODEX_OVERLAY_TARGET + '/bin')}:$PATH; "
         'if [ -z "$OPENAI_API_KEY" ] && [ -n "$CODEX_API_KEY" ]; then export OPENAI_API_KEY="$CODEX_API_KEY"; fi; '
         'if [ -z "$CODEX_API_KEY" ] && [ -n "$OPENAI_API_KEY" ]; then export CODEX_API_KEY="$OPENAI_API_KEY"; fi; '
         f"{inner}"
@@ -844,42 +842,17 @@ def codex_shell_command(inner: str, *, home_target: str = CODEX_HOME_TARGET) -> 
 
 def codex_overlay_shell_command(inner: str, *, auth_seed: str | None) -> str:
     """Initialize bounded, case-local Codex state before invoking the CLI."""
-    home = shell_quote(CODEX_OVERLAY_AGENT_HOME_TARGET)
+    home = shlex.quote(CODEX_OVERLAY_AGENT_HOME_TARGET)
     setup = f"umask 077; mkdir -p {home}; "
     if auth_seed is not None:
         setup += (
             f"if [ ! -f {home}/auth.json ]; then "
-            f"cp {shell_quote(auth_seed)} {home}/auth.json; fi; "
+            f"cp {shlex.quote(auth_seed)} {home}/auth.json; fi; "
         )
     return setup + codex_shell_command(
         inner,
         home_target=CODEX_OVERLAY_AGENT_HOME_TARGET,
     )
-
-
-def codex_agent_workdir(task: BenchmarkTask) -> str:
-    """Return the container workdir where Codex should operate."""
-    return task_workdir(task)
-
-
-def codex_prompt(task: BenchmarkTask, task_file: str) -> str:
-    extraction = default_extraction_spec(task)
-    if task.family == "repo_patch":
-        return (
-            f"Read {task_file} and solve the benchmark task using only public workspace data. "
-            "The repository checkout to edit is the current working directory. "
-            "Do not clone the repository. "
-            "Edit only the implementation files needed for the fix; do not edit tests, "
-            "evaluation files, dependency files, lock files, or build configuration unless the "
-            "task explicitly requires those files. "
-            f"{extraction_instructions(extraction)}"
-        )
-    base = f"Read {task_file} and solve the benchmark task using only public workspace data."
-    return f"{base} {extraction_instructions(extraction)}"
-
-
-def shell_quote(value: str) -> str:
-    return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
 def toml_string(value: str) -> str:
