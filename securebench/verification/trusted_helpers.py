@@ -17,6 +17,8 @@ from urllib.parse import urlsplit
 from yaml import YAMLError
 
 from securebench.data_formats import strict_yaml_loads
+from securebench.docker_network import ISOLATED_BRIDGE_ARGUMENTS, validate_private_network
+from securebench.errors import ConfigError
 from securebench.sandboxes import (
     CommandResult,
     DockerSandbox,
@@ -1108,7 +1110,7 @@ class TrustedHelperEvaluation:
                         "docker",
                         "network",
                         "create",
-                        "--internal",
+                        *ISOLATED_BRIDGE_ARGUMENTS,
                         "--label",
                         "securebench.role=trusted-helper-network",
                         self._network_name,
@@ -1116,6 +1118,18 @@ class TrustedHelperEvaluation:
                     "trusted_helper_network_failed",
                     "Trusted Helper Evaluation network could not be created",
                 )
+                try:
+                    validate_private_network(
+                        self._network_name,
+                        lambda command: _run_docker(
+                            command, "trusted_helper_network_failed",
+                            "Trusted Helper network could not be inspected",
+                        ),
+                    )
+                except ConfigError as exc:
+                    raise VerificationInfrastructureError(
+                        "trusted_helper_network_failed", str(exc), source="trusted_helper",
+                    ) from exc
                 self.network = self._network_name
             for index, helper in enumerate(self.check.trusted_helpers):
                 contract = contracts[index]
@@ -1210,13 +1224,14 @@ class TrustedHelperEvaluation:
                 _remove_network(self._network_name)
             except VerificationInfrastructureError as exc:
                 failures.append(exc)
-            self._network_name = None
-            self.network = "none"
+            else:
+                self._network_name = None
+                self.network = "none"
         if failures:
             raise failures[0]
 
 
-def _run_docker(command: list[str], code: str, message: str) -> None:
+def _run_docker(command: list[str], code: str, message: str) -> str:
     try:
         completed = subprocess.run(
             command,
@@ -1228,7 +1243,11 @@ def _run_docker(command: list[str], code: str, message: str) -> None:
     except (OSError, subprocess.SubprocessError) as exc:
         raise VerificationInfrastructureError(code, message, source="trusted_helper") from exc
     if completed.returncode != 0:
+        if code == "trusted_helper_network_failed":
+            message += ": " + completed.stderr.strip()[:2048]
         raise VerificationInfrastructureError(code, message, source="trusted_helper")
+
+    return completed.stdout
 
 
 def _validate_recorder_records(

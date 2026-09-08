@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from securebench.docker_network import ISOLATED_BRIDGE_ARGUMENTS, validate_private_network
 from securebench.errors import ConfigError
 
 
@@ -145,10 +146,14 @@ class DockerEgressPolicy:
                     "docker",
                     "network",
                     "create",
-                    "--internal",
+                    *ISOLATED_BRIDGE_ARGUMENTS,
                     self._network_name,
                 ],
                 "create egress network",
+            )
+            validate_private_network(
+                self._network_name,
+                lambda command: _run_docker(command, "inspect private network"),
             )
             _run_docker(
                 ["docker", "network", "create", self._upstream_network_name],
@@ -201,7 +206,7 @@ class DockerEgressPolicy:
                 ],
                 "connect egress proxy",
             )
-        except Exception:
+        except BaseException:
             self._cleanup()
             raise
 
@@ -300,10 +305,14 @@ class DockerProviderRelayPolicy:
                     "docker",
                     "network",
                     "create",
-                    "--internal",
+                    *ISOLATED_BRIDGE_ARGUMENTS,
                     self._network_name,
                 ],
                 "create provider relay network",
+            )
+            validate_private_network(
+                self._network_name,
+                lambda command: _run_docker(command, "inspect private network"),
             )
             _run_docker(
                 ["docker", "network", "create", self._upstream_network_name],
@@ -313,7 +322,7 @@ class DockerProviderRelayPolicy:
                 self.proxy_container = f"securebench-egress-proxy-{suffix}"
                 self._start_egress_proxy()
             self._start_provider_relay(relay_log_dir)
-        except Exception:
+        except BaseException:
             self._cleanup()
             raise
 
@@ -641,7 +650,7 @@ def _proxy_env() -> dict[str, str]:
     }
 
 
-def _run_docker(command: list[str], action: str) -> None:
+def _run_docker(command: list[str], action: str) -> str:
     try:
         completed = subprocess.run(
             command,
@@ -653,7 +662,9 @@ def _run_docker(command: list[str], action: str) -> None:
     except (OSError, subprocess.SubprocessError) as exc:
         raise ConfigError(f"Failed to {action}: Docker operation did not complete") from exc
     if completed.returncode != 0:
-        raise ConfigError(f"Failed to {action}: {completed.stderr.strip()}")
+        raise ConfigError(f"Failed to {action}: {completed.stderr.strip()[:2048]}")
+
+    return completed.stdout
 
 
 def _docker_cleanup_succeeded(command: list[str], *, missing_marker: str) -> bool:

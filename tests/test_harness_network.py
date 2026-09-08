@@ -90,7 +90,7 @@ def test_docker_egress_policy_empty_allowlist_disables_network(monkeypatch):
 
     def fake_run(command, **kwargs):
         commands.append(command)
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=0, stdout=_network_stdout(command), stderr="")
 
     monkeypatch.setattr("subprocess.run", fake_run)
 
@@ -107,7 +107,7 @@ def test_docker_egress_policy_creates_proxy_network_and_cleans_up(monkeypatch):
 
     def fake_run(command, **kwargs):
         commands.append(command)
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=0, stdout=_network_stdout(command), stderr="")
 
     monkeypatch.setattr("subprocess.run", fake_run)
 
@@ -117,17 +117,18 @@ def test_docker_egress_policy_creates_proxy_network_and_cleans_up(monkeypatch):
         assert egress.allowed_domains == ("api.openai.com",)
 
     assert commands[0][:4] == ["docker", "network", "create", "--internal"]
-    assert commands[1][:3] == ["docker", "network", "create"]
-    proxy_run = commands[2]
+    assert commands[1][:3] == ["docker", "network", "inspect"]
+    assert commands[2][:3] == ["docker", "network", "create"]
+    proxy_run = commands[3]
     assert proxy_run[:5] == ["docker", "run", "-d", "--rm", "--name"]
     upstream_network = proxy_run[proxy_run.index("--network") + 1]
     assert upstream_network.startswith("securebench-upstream-")
     assert upstream_network != "bridge"
     assert "SECUREBENCH_ALLOWED_DOMAINS=api.openai.com" in proxy_run
-    assert commands[3][:4] == ["docker", "network", "connect", "--alias"]
-    assert commands[4][:3] == ["docker", "rm", "-f"]
-    assert commands[5][:3] == ["docker", "network", "rm"]
+    assert commands[4][:4] == ["docker", "network", "connect", "--alias"]
+    assert commands[5][:3] == ["docker", "rm", "-f"]
     assert commands[6][:3] == ["docker", "network", "rm"]
+    assert commands[7][:3] == ["docker", "network", "rm"]
 
 
 def test_docker_egress_policy_cleans_up_after_start_failure(monkeypatch):
@@ -136,8 +137,8 @@ def test_docker_egress_policy_cleans_up_after_start_failure(monkeypatch):
     def fake_run(command, **kwargs):
         commands.append(command)
         if command[:3] == ["docker", "network", "connect"]:
-            return SimpleNamespace(returncode=1, stdout="", stderr="connect failed")
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=1, stdout=_network_stdout(command), stderr="connect failed")
+        return SimpleNamespace(returncode=0, stdout=_network_stdout(command), stderr="")
 
     monkeypatch.setattr("subprocess.run", fake_run)
 
@@ -157,7 +158,7 @@ def test_docker_egress_policy_bounds_docker_operations(monkeypatch):
         calls.append((command, kwargs))
         if len(calls) == 1:
             raise subprocess.TimeoutExpired(command, kwargs["timeout"])
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=0, stdout=_network_stdout(command), stderr="")
 
     monkeypatch.setattr("subprocess.run", fake_run)
 
@@ -171,8 +172,8 @@ def test_docker_egress_policy_bounds_docker_operations(monkeypatch):
 def test_docker_egress_policy_surfaces_cleanup_failure(monkeypatch):
     def fake_run(command, **kwargs):
         if command[:3] == ["docker", "rm", "-f"]:
-            return SimpleNamespace(returncode=1, stdout="", stderr="daemon failure")
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=1, stdout=_network_stdout(command), stderr="daemon failure")
+        return SimpleNamespace(returncode=0, stdout=_network_stdout(command), stderr="")
 
     monkeypatch.setattr("subprocess.run", fake_run)
     policy = DockerEgressPolicy(("api.openai.com",))
@@ -200,7 +201,7 @@ def test_docker_provider_relay_policy_starts_relay_without_generic_proxy(monkeyp
 
     def fake_run(command, **kwargs):
         commands.append(command)
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=0, stdout=_network_stdout(command), stderr="")
 
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setattr("subprocess.run", fake_run)
@@ -214,8 +215,9 @@ def test_docker_provider_relay_policy_starts_relay_without_generic_proxy(monkeyp
         assert egress.allow_external_tools is False
 
     assert commands[0][:4] == ["docker", "network", "create", "--internal"]
-    assert commands[1][:3] == ["docker", "network", "create"]
-    relay_run = commands[2]
+    assert commands[1][:3] == ["docker", "network", "inspect"]
+    assert commands[2][:3] == ["docker", "network", "create"]
+    relay_run = commands[3]
     assert relay_run[:5] == ["docker", "run", "-d", "--rm", "--name"]
     upstream_network = relay_run[relay_run.index("--network") + 1]
     assert upstream_network.startswith("securebench-upstream-")
@@ -233,11 +235,11 @@ def test_docker_provider_relay_policy_starts_relay_without_generic_proxy(monkeyp
     assert 'SECUREBENCH_ALLOWED_PATH_PREFIXES=["/v1/responses"]' in relay_run
     assert 'SECUREBENCH_ALLOWED_METHODS=["POST"]' in relay_run
     assert "SECUREBENCH_ALLOW_EXTERNAL_TOOLS=false" in relay_run
-    assert commands[3][:4] == ["docker", "network", "connect", "--alias"]
-    assert "securebench-provider-relay" in commands[3]
-    assert commands[4][:3] == ["docker", "rm", "-f"]
-    assert commands[5][:3] == ["docker", "network", "rm"]
+    assert commands[4][:4] == ["docker", "network", "connect", "--alias"]
+    assert "securebench-provider-relay" in commands[4]
+    assert commands[5][:3] == ["docker", "rm", "-f"]
     assert commands[6][:3] == ["docker", "network", "rm"]
+    assert commands[7][:3] == ["docker", "network", "rm"]
 
 
 def test_docker_provider_relay_policy_starts_generic_proxy_when_domains_allowed(monkeypatch):
@@ -245,7 +247,7 @@ def test_docker_provider_relay_policy_starts_generic_proxy_when_domains_allowed(
 
     def fake_run(command, **kwargs):
         commands.append(command)
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=0, stdout=_network_stdout(command), stderr="")
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
     monkeypatch.setattr("subprocess.run", fake_run)
@@ -260,9 +262,9 @@ def test_docker_provider_relay_policy_starts_generic_proxy_when_domains_allowed(
         assert egress.provider_base_url == "http://securebench-provider-relay:8090"
         assert egress.allow_external_tools is True
 
-    assert "SECUREBENCH_ALLOWED_DOMAINS=docs.python.org" in commands[2]
-    assert "securebench-egress-proxy" in commands[3]
-    relay_run = commands[4]
+    assert "SECUREBENCH_ALLOWED_DOMAINS=docs.python.org" in commands[3]
+    assert "securebench-egress-proxy" in commands[4]
+    relay_run = commands[5]
     assert ["-e", "ANTHROPIC_API_KEY"] == relay_run[relay_run.index("-e") : relay_run.index("-e") + 2]
     assert "SECUREBENCH_PROVIDER=anthropic" in relay_run
     assert "SECUREBENCH_UPSTREAM_HOST=api.anthropic.com" in relay_run
@@ -277,8 +279,8 @@ def test_docker_provider_relay_policy_surfaces_cleanup_failure(monkeypatch):
 
     def fake_run(command, **kwargs):
         if fail_container_cleanup and command[:3] == ["docker", "rm", "-f"]:
-            return SimpleNamespace(returncode=1, stdout="", stderr="daemon failure")
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=1, stdout=_network_stdout(command), stderr="daemon failure")
+        return SimpleNamespace(returncode=0, stdout=_network_stdout(command), stderr="")
 
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.setattr("subprocess.run", fake_run)
@@ -299,7 +301,7 @@ def test_docker_provider_relay_policy_passes_claude_subscription_token_by_name(m
 
     def fake_run(command, **kwargs):
         commands.append(command)
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=0, stdout=_network_stdout(command), stderr="")
 
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "secret-oauth-token")
     monkeypatch.setattr("subprocess.run", fake_run)
@@ -311,7 +313,7 @@ def test_docker_provider_relay_policy_passes_claude_subscription_token_by_name(m
     ):
         pass
 
-    relay_run = commands[2]
+    relay_run = commands[3]
     assert ["-e", "CLAUDE_CODE_OAUTH_TOKEN"] == relay_run[
         relay_run.index("-e") : relay_run.index("-e") + 2
     ]
@@ -328,7 +330,7 @@ def test_docker_provider_relay_policy_mounts_codex_subscription_login(monkeypatc
 
     def fake_run(command, **kwargs):
         commands.append(command)
-        return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=0, stdout=_network_stdout(command), stderr="")
 
     monkeypatch.setattr("subprocess.run", fake_run)
 
@@ -339,7 +341,7 @@ def test_docker_provider_relay_policy_mounts_codex_subscription_login(monkeypatc
     ):
         pass
 
-    relay_run = commands[2]
+    relay_run = commands[3]
     assert "SECUREBENCH_CREDENTIAL_KIND=codex-oauth" in relay_run
     assert (
         "SECUREBENCH_CREDENTIAL_FILE=/var/lib/securebench/codex-auth/auth.json"
@@ -370,7 +372,7 @@ def test_codex_subscription_relay_does_not_require_posix_user_ids(monkeypatch, t
         "subprocess.run",
         lambda command, **kwargs: (
             commands.append(command)
-            or SimpleNamespace(returncode=0, stdout="", stderr="")
+            or SimpleNamespace(returncode=0, stdout=_network_stdout(command), stderr="")
         ),
     )
 
@@ -396,3 +398,9 @@ def test_relay_decision_summary_counts_forwarded_and_blocked(tmp_path):
         "provider_relay_requests": 2,
         "provider_relay_blocked": 1,
     }
+
+
+def _network_stdout(command):
+    if command[:3] == ["docker", "network", "inspect"]:
+        return '["bridge",true,"isolated","isolated",false,{"Driver":"default","Config":[{"Subnet":"172.18.0.0/16"}]}]'
+    return ""

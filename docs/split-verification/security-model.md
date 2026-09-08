@@ -158,6 +158,12 @@ replaces the Agent-supplied Host header with the validated URL host. Row
 `agent_network` declares benchmark requirements; harness allowlists remain a
 tester-owned upper bound on actual connectivity.
 
+Private Docker bridges require isolated IPv4 and IPv6 gateway modes and an
+immediate check of effective gateway-free IPAM. Configuration inspection alone
+is not enforcement evidence: qualify each worker using the controlled positive
+and negative connection tests in
+[Docker network deployment validation](docker-network-validation.md).
+
 ## Current limits
 
 - Result records are not signed.
