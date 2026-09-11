@@ -1,0 +1,24 @@
+schema_version: "1.0"
+
+run:
+  id: terminal-bench-opencode-abliteration
+  output_dir: ../../runs/terminal-bench-opencode-abliteration
+  max_workers: 1
+
+benchmark:
+  manifest: manifest-v2.yaml
+  tasks: tasks-v2.jsonl
+
+docker:
+  max_cached_images: 2
+
+harness:
+  type: opencode
+  config:
+    provider: abliteration
+    model: abliterated-model
+    version: "1.18.30"
+    task_file: task.json
+    timeout_seconds: 900
+    allowed_domains: []
+    allow_external_tools: false

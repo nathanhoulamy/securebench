@@ -16,7 +16,7 @@ from securebench.candidates import (
     OverlayAgentCaptureResult,
     StoredCandidate,
 )
-from securebench.harnesses import claude_code, codex, command
+from securebench.harnesses import claude_code, codex, command, opencode
 from securebench.harnesses.claude_code import ClaudeCodeHarnessProducer, ClaudeCodeOverlay
 from securebench.harnesses.codex import (
     CodexHarnessProducer,
@@ -147,7 +147,7 @@ def test_command_harness_routes_overlay_through_trusted_capture(monkeypatch, tmp
     assert "instructions" in task_file.read_text()
 
 
-@pytest.mark.parametrize("harness", ["codex", "claude_code"])
+@pytest.mark.parametrize("harness", ["codex", "claude_code", "opencode"])
 def test_model_harness_overlay_state_is_bounded_and_outside_captured_roots(
     monkeypatch,
     tmp_path,
@@ -175,6 +175,14 @@ def test_model_harness_overlay_state_is_bounded_and_outside_captured_roots(
             model="gpt-test",
             workspace_root=tmp_path / "inputs",
         )
+    elif harness == "opencode":
+        monkeypatch.setenv("ABLIT_KEY", "host-secret")
+        monkeypatch.setattr(opencode, "docker_provider_relay_policy", provider_egress)
+        monkeypatch.setattr(opencode, "opencode_overlay_for_image",
+                            lambda image, version: opencode.OpenCodeOverlay(tool_root, platform, version))
+        monkeypatch.setattr(opencode, "run_filesystem_overlay_agent_capture",
+                            lambda **options: calls.append(options) or successful_capture(tmp_path, task))
+        producer = opencode.OpenCodeHarnessProducer(workspace_root=tmp_path / "inputs")
     else:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "host-secret")
         monkeypatch.setattr(claude_code, "docker_provider_relay_policy", provider_egress)

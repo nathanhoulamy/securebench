@@ -13,6 +13,7 @@ from securebench.harnesses.claude_code import (
     claude_code_env_names,
 )
 from securebench.harnesses.codex import CodexHarnessProducer, codex_config, codex_env_names
+from securebench.harnesses.opencode import OpenCodeHarnessProducer, opencode_config, opencode_env_names
 from securebench.harnesses.command import CommandHarnessProducer, command_config
 from securebench.tester_config import TesterHarnessSection
 
@@ -25,6 +26,8 @@ def build_harness_producer(
     """Build a candidate producer for one parsed tester harness section."""
     config = normalized_harness_config(harness)
     env_names = effective_harness_env_names(harness)
+    if harness.type == "opencode":
+        return OpenCodeHarnessProducer(env_names=env_names, workspace_root=workspace_root, **config)
     if harness.type == "command":
         return CommandHarnessProducer(
             env_names=env_names,
@@ -51,6 +54,8 @@ def build_harness_producer(
 
 def normalized_harness_config(harness: TesterHarnessSection) -> dict[str, Any]:
     """Return the semantic harness config with all defaults made explicit."""
+    if harness.type == "opencode":
+        return opencode_config(harness.config)
     if harness.type == "command":
         return command_config(harness.config)
     if harness.type == "codex":
@@ -62,6 +67,8 @@ def normalized_harness_config(harness: TesterHarnessSection) -> dict[str, Any]:
 
 def effective_harness_env_names(harness: TesterHarnessSection) -> tuple[str, ...]:
     """Return only environment names that the selected harness passes to the Agent."""
+    if harness.type == "opencode":
+        return opencode_env_names(harness.env)
     if harness.type == "command":
         return harness.env
     if harness.type == "codex":

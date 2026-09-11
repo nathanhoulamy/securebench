@@ -41,7 +41,10 @@ The checked-in executable reference is the converted TerminalBench
   --config benchmarks/terminal-bench/tester-codex.yaml
 ```
 
-Set the relevant provider credential in `.env`. Named Codex and Claude Code
+For OpenCode with abliteration.ai, see the [setup and qualification notes](docs/opencode.md)
+and [example tester configuration](benchmarks/terminal-bench/tester-opencode.yaml).
+
+Set the relevant provider credential in `.env`. Named Codex, Claude Code, and OpenCode
 harnesses keep real credentials in host-side relays and expose dummy
 credentials to the Agent container. Codex subscription login is managed with:
 

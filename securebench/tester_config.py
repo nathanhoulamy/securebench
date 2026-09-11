@@ -14,14 +14,14 @@ from securebench.errors import ConfigError
 
 
 SUPPORTED_TESTER_SCHEMA_VERSION = "1.0"
-HarnessType = Literal["codex", "claude_code", "command"]
+HarnessType = Literal["codex", "claude_code", "opencode", "command"]
 
 ROOT_FIELDS = {"schema_version", "run", "benchmark", "harness", "docker"}
 RUN_FIELDS = {"id", "output_dir", "max_workers"}
 BENCHMARK_FIELDS = {"manifest", "tasks"}
 HARNESS_FIELDS = {"type", "env", "config"}
 DOCKER_FIELDS = {"max_cached_images", "overlay_workspace_bytes"}
-HARNESS_TYPES = {"codex", "claude_code", "command"}
+HARNESS_TYPES = {"codex", "claude_code", "opencode", "command"}
 ENVIRONMENT_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 MAX_RUN_ID_LENGTH = 256
 MAX_TESTER_CONFIG_BYTES = 1024 * 1024
