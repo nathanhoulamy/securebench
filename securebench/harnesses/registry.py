@@ -15,34 +15,44 @@ from securebench.harnesses.claude_code import (
 from securebench.harnesses.codex import CodexHarnessProducer, codex_config, codex_env_names
 from securebench.harnesses.opencode import OpenCodeHarnessProducer, opencode_config, opencode_env_names
 from securebench.harnesses.command import CommandHarnessProducer, command_config
+from securebench.network_policy import NetworkPolicy
 from securebench.tester_config import TesterHarnessSection
 
 
 def build_harness_producer(
     harness: TesterHarnessSection,
     *,
+    network_policy: NetworkPolicy | None = None,
     workspace_root: str | Path | None = None,
 ) -> CandidateProducer:
     """Build a candidate producer for one parsed tester harness section."""
     config = normalized_harness_config(harness)
     env_names = effective_harness_env_names(harness)
     if harness.type == "opencode":
-        return OpenCodeHarnessProducer(env_names=env_names, workspace_root=workspace_root, **config)
+        return OpenCodeHarnessProducer(
+            env_names=env_names,
+            network_policy=network_policy,
+            workspace_root=workspace_root,
+            **config,
+        )
     if harness.type == "command":
         return CommandHarnessProducer(
             env_names=env_names,
+            network_policy=network_policy,
             workspace_root=workspace_root,
             **config,
         )
     if harness.type == "codex":
         return CodexHarnessProducer(
             env_names=env_names,
+            network_policy=network_policy,
             workspace_root=workspace_root,
             **config,
         )
     if harness.type == "claude_code":
         return ClaudeCodeHarnessProducer(
             env_names=env_names,
+            network_policy=network_policy,
             workspace_root=workspace_root,
             **config,
         )

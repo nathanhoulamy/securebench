@@ -21,5 +21,4 @@ harness:
     version: latest
     task_file: task.json
     timeout_seconds: 5400
-    allowed_domains: []
     allow_external_tools: false

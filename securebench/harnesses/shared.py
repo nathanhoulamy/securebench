@@ -14,6 +14,7 @@ from typing import Any
 from securebench.candidates.extraction import default_extraction_spec, extraction_instructions
 from securebench.errors import ConfigError
 from securebench.candidates.git_repository import GitRepositoryError, validate_clean_repository
+from securebench.network_policy import NetworkPolicy, resolve_allowed_domains
 from securebench.path_safety import portable_paths_equal, portable_paths_overlap
 from securebench.schemas.benchmark import GitPatchCandidate
 from securebench.workspaces.materialization import (
@@ -74,11 +75,21 @@ def task_timeout_seconds(task: BenchmarkTask) -> float:
     return float(task.environment.timeout_seconds)
 
 
-def task_allowed_domains(task: BenchmarkTask, configured: tuple[str, ...]) -> tuple[str, ...]:
-    """Apply the row's solving-phase network ceiling to tester egress."""
-    if task.environment.agent_network == "none":
-        return ()
-    return configured
+def task_allowed_domains(
+    task: BenchmarkTask,
+    policy: NetworkPolicy | None = None,
+) -> tuple[str, ...]:
+    """Resolve the row network declaration and tester policy into egress domains."""
+    if policy is None:
+        policy = NetworkPolicy()
+    row_network = task.environment.agent_network
+    if isinstance(row_network, str):
+        return resolve_allowed_domains(row_network, (), policy)
+    return resolve_allowed_domains(
+        row_network.mode,
+        row_network.allowed_domains,
+        policy,
+    )
 
 
 def materialize_image_workdir(task: BenchmarkTask, destination: Path) -> None:

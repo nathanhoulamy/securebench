@@ -17,7 +17,9 @@ from securebench.execution_profiles import (
     validate_task_components,
 )
 from securebench.harnesses.shared import run_timeout_seconds, task_allowed_domains
+from securebench.network_policy import NetworkPolicy
 from securebench.schemas.benchmark import (
+    AgentNetworkSpec,
     ArtifactSource,
     BenchmarkRowV2,
     FilesystemOverlayCandidate,
@@ -158,12 +160,53 @@ def test_unknown_profile_does_not_fall_back_to_another_policy():
         execution_profile("custom/v9")
 
 
-def test_agent_network_none_is_a_hard_ceiling_on_tester_domains():
+def test_agent_network_none_is_preserved_under_tester_extension():
     compiled = task()
     environment = compiled.environment.model_copy(update={"agent_network": "none"})
     restricted = compiled.__class__(**{**compiled.__dict__, "environment": environment})
 
-    assert task_allowed_domains(restricted, ("example.com",)) == ()
+    assert task_allowed_domains(
+        restricted,
+        NetworkPolicy(mode="extend", allowed_domains=("example.com",)),
+    ) == ()
+
+
+@pytest.mark.parametrize(
+    ("row_network", "policy", "expected"),
+    [
+        (
+            AgentNetworkSpec(mode="restricted", allowed_domains=("row.example.com",)),
+            NetworkPolicy(),
+            ("row.example.com",),
+        ),
+        (
+            AgentNetworkSpec(mode="restricted", allowed_domains=("row.example.com",)),
+            NetworkPolicy(mode="replace", allowed_domains=("global.example.com",)),
+            ("global.example.com",),
+        ),
+        (
+            AgentNetworkSpec(mode="restricted", allowed_domains=("row.example.com",)),
+            NetworkPolicy(mode="extend", allowed_domains=("global.example.com",)),
+            ("row.example.com", "global.example.com"),
+        ),
+        (
+            AgentNetworkSpec(mode="none"),
+            NetworkPolicy(mode="extend", allowed_domains=("global.example.com",)),
+            (),
+        ),
+    ],
+)
+def test_task_allowed_domains_applies_the_tester_policy_per_row(
+    row_network,
+    policy,
+    expected,
+):
+    compiled = task()
+    environment = compiled.environment.model_copy(update={"agent_network": row_network})
+    row = compiled.__class__(**{**compiled.__dict__, "environment": environment})
+
+    assert task_allowed_domains(row, policy) == expected
+
 
 
 def test_current_capture_backend_rejects_bundle_entries_outside_workdir():

@@ -17,9 +17,11 @@ the upstream model ID; SecureBench prefixes it with the configured provider for
 OpenCode. Versions must be exact releases, not `latest`. Other versions require
 compatibility testing before use in admitted runs.
 
-`allowed_domains` defaults to an empty list. Add only resources permitted by the
-benchmark resource policy. Provider access goes through the relay and does not
-require adding `api.abliteration.ai` here. `allow_external_tools` defaults to
+General egress follows the row's `environment.agent_network` declaration.
+Optional tester-level `network_policy` selects `benchmark`, `replace`, or
+`extend`; extension preserves a row's explicit `none`. Provider access goes
+through the relay and does not require adding `api.abliteration.ai` to task
+domains. `allow_external_tools` defaults to
 false; local function tools remain enabled. Harness-controlled OpenCode, XDG,
 HOME, PATH, proxy settings and known provider credentials are removed from
 `harness.env` forwarding.

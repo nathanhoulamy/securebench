@@ -11,16 +11,19 @@ import yaml
 
 from securebench.data_formats import DuplicateYamlKeyError, strict_yaml_loads
 from securebench.errors import ConfigError
+from securebench.network_policy import NetworkPolicy, allowed_domains_config
 
 
 SUPPORTED_TESTER_SCHEMA_VERSION = "1.0"
 HarnessType = Literal["codex", "claude_code", "opencode", "command"]
 
-ROOT_FIELDS = {"schema_version", "run", "benchmark", "harness", "docker"}
+ROOT_FIELDS = {"schema_version", "run", "benchmark", "harness", "docker", "network_policy"}
 RUN_FIELDS = {"id", "output_dir", "max_workers"}
 BENCHMARK_FIELDS = {"manifest", "tasks"}
 HARNESS_FIELDS = {"type", "env", "config"}
 DOCKER_FIELDS = {"max_cached_images", "overlay_workspace_bytes"}
+NETWORK_POLICY_FIELDS = {"mode", "allowed_domains"}
+NETWORK_POLICY_MODES = {"benchmark", "replace", "extend"}
 HARNESS_TYPES = {"codex", "claude_code", "opencode", "command"}
 ENVIRONMENT_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 MAX_RUN_ID_LENGTH = 256
@@ -73,6 +76,7 @@ class TesterConfig:
     benchmark: TesterBenchmarkSection
     harness: TesterHarnessSection
     docker: TesterDockerSection = field(default_factory=TesterDockerSection)
+    network_policy: NetworkPolicy = field(default_factory=NetworkPolicy)
 
 
 def load_tester_config(path: str | Path) -> TesterConfig:
@@ -130,11 +134,13 @@ def parse_tester_config(data: dict[str, Any], *, base_dir: str | Path | None = N
         tasks=_config_path(_required_str(benchmark_data, "tasks", "benchmark"), base),
     )
     harness = _harness_section(harness_data)
+    network_policy = _network_policy_section(data.get("network_policy"))
     return TesterConfig(
         schema_version=schema_version,
         run=run,
         benchmark=benchmark,
         harness=harness,
+        network_policy=network_policy,
         docker=_docker_section(data.get("docker")),
     )
 
@@ -142,11 +148,36 @@ def parse_tester_config(data: dict[str, Any], *, base_dir: str | Path | None = N
 def _harness_section(data: dict[str, Any]) -> TesterHarnessSection:
     harness_type = _expect_literal(_required_str(data, "type", "harness"), HARNESS_TYPES, "harness.type")
     config = _optional_dict(data.get("config"), "harness.config")
+    if "allowed_domains" in config:
+        legacy_domains = allowed_domains_config(config.get("allowed_domains"))
+        if legacy_domains:
+            raise ConfigError(
+                "harness.config.allowed_domains is no longer supported; "
+                "move it to top-level network_policy.allowed_domains"
+            )
 
     return TesterHarnessSection(
         type=harness_type,  # type: ignore[arg-type]
         env=_env_names(data.get("env"), "harness.env"),
         config=config,
+    )
+
+
+def _network_policy_section(value: Any) -> NetworkPolicy:
+    data = _optional_dict(value, "network_policy")
+    _reject_unknown_fields(data, NETWORK_POLICY_FIELDS, "network_policy")
+    mode = data.get("mode", "benchmark")
+    if not isinstance(mode, str) or mode not in NETWORK_POLICY_MODES:
+        raise ConfigError(
+            "network_policy.mode must be one of: "
+            + ", ".join(sorted(NETWORK_POLICY_MODES))
+        )
+    return NetworkPolicy(
+        mode=mode,
+        allowed_domains=allowed_domains_config(
+            data.get("allowed_domains"),
+            field="network_policy.allowed_domains",
+        ),
     )
 
 

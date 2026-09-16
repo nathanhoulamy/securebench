@@ -51,12 +51,11 @@ from securebench.harnesses.network import (
     PROVIDER_RELAY_ALIAS,
     PROVIDER_RELAY_PORT,
     ProviderRelaySpec,
-    allowed_domains_config,
     docker_provider_relay_policy,
-    effective_allowed_domains,
     relay_decision_summary,
     require_provider_credential,
 )
+from securebench.network_policy import NetworkPolicy, allowed_domains_config
 from securebench.locking import exclusive_file_lock
 from securebench.sandboxes import DockerSandbox, HostSandbox
 from securebench.sandboxes.docker import DockerBindMount
@@ -142,16 +141,22 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
         task_file: str = CLAUDE_CODE_DEFAULT_TASK_FILE,
         timeout_seconds: float | None = CLAUDE_CODE_DEFAULT_TIMEOUT_SECONDS,
         allowed_domains: tuple[str, ...] = (),
+        network_policy: NetworkPolicy | None = None,
         allow_external_tools: bool = False,
         workspace_root: str | Path | None = None,
     ) -> None:
+        if allowed_domains:
+            raise ConfigError(
+                "harness.config.allowed_domains is no longer supported; "
+                "move it to top-level network_policy.allowed_domains"
+            )
         self.auth = claude_code_auth_mode(auth)
         self.model = claude_code_model(model)
         self.env_names = claude_code_env_names(env_names)
         self.version = claude_code_version(version)
         self.task_file = task_file
         self.timeout_seconds = timeout_seconds
-        self.allowed_domains = tuple(allowed_domains)
+        self.network_policy = network_policy or NetworkPolicy()
         self.allow_external_tools = allow_external_tools
         self.workspace_root = None if workspace_root is None else Path(workspace_root)
         self.materializer = VisibilityAwareMaterializer()
@@ -192,10 +197,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
 
             overlay = claude_code_overlay_for_image(image, self.version)
             workspace_mount_target = workspace_mount_target_for_task(task)
-            allowed_domains = task_allowed_domains(
-                task,
-                effective_allowed_domains("claude_code", self.allowed_domains),
-            )
+            allowed_domains = task_allowed_domains(task, self.network_policy)
             with docker_provider_relay_policy(
                 relay_spec,
                 allowed_domains,
@@ -339,10 +341,7 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
             self.task_file,
             mount_target=OVERLAY_AGENT_INPUTS_TARGET,
         )
-        allowed_domains = task_allowed_domains(
-            task,
-            effective_allowed_domains("claude_code", self.allowed_domains),
-        )
+        allowed_domains = task_allowed_domains(task, self.network_policy)
         timeout = run_timeout_seconds(
             task,
             context_timeout=context.get("timeout"),
@@ -396,6 +395,12 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
 
 def claude_code_config(config: dict[str, Any]) -> dict[str, Any]:
     reject_unknown_fields(config, CLAUDE_CODE_CONFIG_FIELDS, "harness.config")
+    allowed_domains = allowed_domains_config(config.get("allowed_domains"))
+    if allowed_domains:
+        raise ConfigError(
+            "harness.config.allowed_domains is no longer supported; "
+            "move it to top-level network_policy.allowed_domains"
+        )
     return {
         "auth": claude_code_auth_mode(
             config.get("auth", CLAUDE_CODE_DEFAULT_AUTH_MODE)
@@ -410,7 +415,7 @@ def claude_code_config(config: dict[str, Any]) -> dict[str, Any]:
             config.get("timeout_seconds", CLAUDE_CODE_DEFAULT_TIMEOUT_SECONDS),
             "harness.config.timeout_seconds",
         ),
-        "allowed_domains": allowed_domains_config(config.get("allowed_domains")),
+        "allowed_domains": (),
         "allow_external_tools": allow_external_tools_config(config.get("allow_external_tools")),
     }
 

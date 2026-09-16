@@ -13,6 +13,11 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
+from securebench.network_policy import (
+    MAX_ALLOWED_DOMAINS,
+    AgentNetworkMode,
+    allowed_domains_config,
+)
 from securebench.path_safety import portable_path_is_relative_to, portable_paths_overlap
 
 
@@ -62,7 +67,7 @@ FILESYSTEM_OVERLAY_PROTECTED_PATHS = tuple(
 )
 
 FamilyName = Literal["repo_patch", "terminal_task"]
-AgentNetwork = Literal["none", "restricted", "internet"]
+AgentNetwork = AgentNetworkMode
 ComponentId = Annotated[
     str,
     StringConstraints(pattern=r"^[A-Za-z][A-Za-z0-9_.-]*$", min_length=1, max_length=128),
@@ -114,11 +119,50 @@ class AssetDefaults(StrictModel):
     read_only: bool = True
 
 
+class AgentNetworkSpec(StrictModel):
+    mode: AgentNetworkMode
+    allowed_domains: Annotated[tuple[str, ...], Field(max_length=MAX_ALLOWED_DOMAINS)] = ()
+
+    @field_validator("allowed_domains", mode="before")
+    @classmethod
+    def validate_allowed_domains(cls, value: Any) -> tuple[str, ...]:
+        if not isinstance(value, (list, tuple)):
+            raise ValueError(
+                "environment.agent_network.allowed_domains must be a list of DNS domain names"
+            )
+        return allowed_domains_config(
+            list(value), "environment.agent_network.allowed_domains"
+        )
+
+    @model_validator(mode="after")
+    def none_has_no_domains(self) -> "AgentNetworkSpec":
+        if self.mode == "none" and self.allowed_domains:
+            raise ValueError(
+                "environment.agent_network.allowed_domains must be empty when mode is none"
+            )
+        return self
+
+
+def _coerce_agent_network(value: Any) -> Any:
+    if isinstance(value, str):
+        return {"mode": value, "allowed_domains": []}
+    return value
+
+
 class EnvironmentDefaults(StrictModel):
     image: ImmutableImageReference | None = None
     workdir: str | None = None
     timeout_seconds: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None = None
-    agent_network: AgentNetwork | None = None
+    agent_network: AgentNetworkSpec | None = None
+
+    @field_validator(
+        "agent_network",
+        mode="before",
+        json_schema_input_type=AgentNetworkSpec | AgentNetworkMode | None,
+    )
+    @classmethod
+    def validate_agent_network(cls, value: Any) -> Any:
+        return _coerce_agent_network(value)
 
     @field_validator("workdir")
     @classmethod
@@ -152,7 +196,16 @@ class EnvironmentSpec(StrictModel):
     image: ImmutableImageReference
     workdir: str
     timeout_seconds: Annotated[float, Field(gt=0, allow_inf_nan=False)]
-    agent_network: AgentNetwork
+    agent_network: AgentNetworkSpec
+
+    @field_validator(
+        "agent_network",
+        mode="before",
+        json_schema_input_type=AgentNetworkSpec | AgentNetworkMode | None,
+    )
+    @classmethod
+    def validate_agent_network(cls, value: Any) -> Any:
+        return _coerce_agent_network(value)
 
     @field_validator("image")
     @classmethod

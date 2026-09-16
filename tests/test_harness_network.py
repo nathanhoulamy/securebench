@@ -19,7 +19,6 @@ from securebench.harnesses.network import (
     DockerProviderRelayPolicy,
     allowed_domains_config,
     domain_allowed,
-    effective_allowed_domains,
     relay_decision_summary,
 )
 
@@ -49,13 +48,6 @@ def test_allowed_domains_config_normalizes_and_deduplicates():
 def test_allowed_domains_config_rejects_invalid_entries(value):
     with pytest.raises(ConfigError, match="allowed_domains"):
         allowed_domains_config(value)
-
-
-def test_effective_allowed_domains_keeps_provider_domains_out_of_generic_egress():
-    assert effective_allowed_domains("codex", ("pypi.org",)) == ("pypi.org",)
-    assert effective_allowed_domains("claude_code", ("docs.python.org",)) == ("docs.python.org",)
-    assert effective_allowed_domains("command", ("docs.python.org",)) == ("docs.python.org",)
-    assert effective_allowed_domains("command", ()) == ()
 
 
 def test_domain_allowed_matches_exact_domain_and_subdomains_only():

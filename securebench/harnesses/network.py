@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import os
-import re
 import subprocess
 import tempfile
 import uuid
@@ -15,6 +13,7 @@ from typing import Any
 
 from securebench.docker_network import ISOLATED_BRIDGE_ARGUMENTS, validate_private_network
 from securebench.errors import ConfigError
+from securebench.network_policy import allowed_domains_config, normalize_domain
 
 
 EGRESS_PROXY_ALIAS = "securebench-egress-proxy"
@@ -25,7 +24,6 @@ PROVIDER_RELAY_PORT = 8090
 PROVIDER_RELAY_IMAGE = "python:3.11-slim"
 PROVIDER_RELAY_CODEX_AUTH_TARGET = "/var/lib/securebench/codex-auth"
 DOCKER_OPERATION_TIMEOUT_SECONDS = 30.0
-_LABEL_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
 
 @dataclass(frozen=True)
@@ -55,59 +53,6 @@ class ProviderRelaySpec:
     allow_untyped_client_tools: bool = False
     allowed_path_prefixes: tuple[str, ...] = ()
     allowed_methods: tuple[str, ...] = ("POST",)
-
-
-def allowed_domains_config(value: Any, field: str = "harness.config.allowed_domains") -> tuple[str, ...]:
-    """Parse and normalize a harness allowed-domain list."""
-    if value is None:
-        return ()
-    if not isinstance(value, list):
-        raise ConfigError(f"{field} must be a list of DNS domain names")
-    domains = []
-    seen = set()
-    for index, item in enumerate(value):
-        domain = normalize_domain(item, f"{field}[{index}]")
-        if domain not in seen:
-            seen.add(domain)
-            domains.append(domain)
-    return tuple(domains)
-
-
-def effective_allowed_domains(harness: str, configured: tuple[str, ...]) -> tuple[str, ...]:
-    """Return tester-configured generic egress domains for a harness."""
-    domains = []
-    seen = set()
-    for domain in configured:
-        normalized = normalize_domain(domain, f"{harness}.allowed_domains")
-        if normalized not in seen:
-            seen.add(normalized)
-            domains.append(normalized)
-    return tuple(domains)
-
-
-def normalize_domain(value: Any, field: str) -> str:
-    """Validate a DNS domain name and return its lowercase form."""
-    if not isinstance(value, str) or not value.strip():
-        raise ConfigError(f"{field} must be a non-empty DNS domain name")
-    domain = value.strip().lower().rstrip(".")
-    if not domain:
-        raise ConfigError(f"{field} must be a non-empty DNS domain name")
-    if "://" in domain or "/" in domain or ":" in domain or "*" in domain:
-        raise ConfigError(f"{field} must be a DNS domain name without scheme, port, path, or wildcard")
-    if domain == "localhost" or domain.endswith(".localhost"):
-        raise ConfigError(f"{field} must not be localhost")
-    try:
-        ipaddress.ip_address(domain)
-    except ValueError:
-        pass
-    else:
-        raise ConfigError(f"{field} must be a DNS domain name, not an IP address")
-    if len(domain) > 253 or "." not in domain:
-        raise ConfigError(f"{field} must be a DNS domain name with at least two labels")
-    labels = domain.split(".")
-    if any(not _LABEL_RE.fullmatch(label) for label in labels):
-        raise ConfigError(f"{field} must be a valid DNS domain name")
-    return domain
 
 
 def domain_allowed(host: str, allowed_domains: tuple[str, ...]) -> bool:

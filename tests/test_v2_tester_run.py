@@ -22,6 +22,7 @@ from securebench.candidates import (
 from securebench.errors import ConfigError
 from securebench.harnesses.shared import workspace_dir_name
 from securebench.locking import exclusive_file_lock
+from securebench.network_policy import NetworkPolicy
 from securebench.sandboxes import CommandResult
 from securebench.tester_config import (
     TesterBenchmarkSection as BenchmarkSection,
@@ -110,7 +111,7 @@ def test_runner_persists_only_durable_candidate_and_sanitized_oracle_result(monk
     producer = GoodProducer(current.run.output_dir / "workspaces")
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: producer,
+        lambda harness, network_policy=None, workspace_root=None: producer,
     )
 
     summary = run_tester_config(current)
@@ -153,7 +154,7 @@ def test_runner_routes_capture_rejection_to_oracle_as_candidate_failure(monkeypa
 
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: MissingArtifactProducer(),
+        lambda harness, network_policy=None, workspace_root=None: MissingArtifactProducer(),
     )
 
     summary = run_tester_config(current)
@@ -222,7 +223,7 @@ def test_runner_resume_requires_matching_row_provenance(monkeypatch, tmp_path):
     producer = GoodProducer(current.run.output_dir / "workspaces")
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: producer,
+        lambda harness, network_policy=None, workspace_root=None: producer,
     )
     first = run_tester_config(current)
     assert producer.calls == 1
@@ -381,7 +382,7 @@ resource_roots:
 
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: producer,
+        lambda harness, network_policy=None, workspace_root=None: producer,
     )
     monkeypatch.setattr("securebench.harnesses.shared.materialize_image_workdir", materialize)
     monkeypatch.setattr(
@@ -413,7 +414,7 @@ def test_runner_resume_reexecutes_after_harness_config_changes(monkeypatch, tmp_
     producer = GoodProducer(current.run.output_dir / "workspaces")
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: producer,
+        lambda harness, network_policy=None, workspace_root=None: producer,
     )
     run_tester_config(current)
     changed = replace(
@@ -428,6 +429,20 @@ def test_runner_resume_reexecutes_after_harness_config_changes(monkeypatch, tmp_
     assert record["provenance"]["execution_digest"] == execution_config_digest(changed)
 
 
+def test_execution_digest_binds_network_policy(tmp_path):
+    current = config(tmp_path)
+    first_digest = execution_config_digest(current)
+    changed = replace(
+        current,
+        network_policy=NetworkPolicy(
+            mode="replace",
+            allowed_domains=("example.com",),
+        ),
+    )
+
+    assert execution_config_digest(changed) != first_digest
+
+
 def test_runner_resume_reexecutes_after_overlay_workspace_capacity_changes(
     monkeypatch,
     tmp_path,
@@ -439,7 +454,7 @@ def test_runner_resume_reexecutes_after_overlay_workspace_capacity_changes(
     producer = GoodProducer(current.run.output_dir / "workspaces")
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: producer,
+        lambda harness, network_policy=None, workspace_root=None: producer,
     )
     first_digest = execution_config_digest(current)
     run_tester_config(current)
@@ -623,7 +638,7 @@ def test_qualified_overlay_gate_probes_once_before_agent_execution(monkeypatch, 
     monkeypatch.setattr("securebench.tester_run.probe_overlay_workspace_backend", probe)
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: Producer(),
+        lambda harness, network_policy=None, workspace_root=None: Producer(),
     )
     monkeypatch.setattr(VerificationEngine, "verify", fake_verify)
 
@@ -713,7 +728,7 @@ def test_runner_resume_reexecutes_after_agent_environment_changes(monkeypatch, t
     producer = GoodProducer(current.run.output_dir / "workspaces")
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: producer,
+        lambda harness, network_policy=None, workspace_root=None: producer,
     )
     run_tester_config(current)
     monkeypatch.setenv("AGENT_SETTING", "second")
@@ -751,7 +766,7 @@ def test_runner_resume_skips_oversized_corrupt_lines_without_buffering_them(
     producer = GoodProducer(current.run.output_dir / "workspaces")
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: producer,
+        lambda harness, network_policy=None, workspace_root=None: producer,
     )
     first = run_tester_config(current)
     output = Path(first.output_path)
@@ -774,7 +789,7 @@ def test_runner_resume_reexecutes_for_noncanonical_or_invalid_records(
     producer = GoodProducer(current.run.output_dir / "workspaces")
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: producer,
+        lambda harness, network_policy=None, workspace_root=None: producer,
     )
     first = run_tester_config(current)
     output = Path(first.output_path)
@@ -838,7 +853,7 @@ def test_runner_rejects_concurrent_use_of_one_output_directory(monkeypatch, tmp_
     current.run.output_dir.mkdir(parents=True)
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: pytest.fail("producer must not be built"),
+        lambda harness, network_policy=None, workspace_root=None: pytest.fail("producer must not be built"),
     )
 
     with exclusive_file_lock(current.run.output_dir / RUN_LOCK_FILENAME):
@@ -862,7 +877,7 @@ def test_runner_resume_reexecutes_when_candidate_artifact_is_missing(monkeypatch
     producer = GoodProducer(current.run.output_dir / "workspaces")
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: producer,
+        lambda harness, network_policy=None, workspace_root=None: producer,
     )
     first = run_tester_config(current)
     manifest = next(
@@ -913,7 +928,7 @@ def test_runner_resume_reexecutes_when_result_check_shape_is_invalid(monkeypatch
     producer = GoodProducer(current.run.output_dir / "workspaces")
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: producer,
+        lambda harness, network_policy=None, workspace_root=None: producer,
     )
     first = run_tester_config(current)
     record = json.loads(Path(first.output_path).read_text())
@@ -979,7 +994,7 @@ def test_runner_routes_producer_timeout_to_oracle(monkeypatch, tmp_path):
 
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: TimeoutProducer(),
+        lambda harness, network_policy=None, workspace_root=None: TimeoutProducer(),
     )
 
     summary = run_tester_config(current)
@@ -999,7 +1014,7 @@ def test_runner_routes_agent_failure_to_oracle(monkeypatch, tmp_path):
 
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: FailedProducer(),
+        lambda harness, network_policy=None, workspace_root=None: FailedProducer(),
     )
 
     summary = run_tester_config(current)
@@ -1018,7 +1033,7 @@ def test_runner_isolates_unexpected_row_infrastructure_failure(monkeypatch, tmp_
 
     monkeypatch.setattr(
         "securebench.tester_run.build_harness_producer",
-        lambda harness, workspace_root=None: BrokenProducer(),
+        lambda harness, network_policy=None, workspace_root=None: BrokenProducer(),
     )
 
     summary = run_tester_config(current)

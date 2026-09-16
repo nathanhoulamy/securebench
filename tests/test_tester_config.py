@@ -1,6 +1,8 @@
 import pytest
 
 from securebench.errors import ConfigError
+from securebench.harnesses.registry import build_harness_producer
+from securebench.network_policy import NetworkPolicy
 from securebench.tester_config import (
     MIN_OVERLAY_WORKSPACE_BYTES,
     load_tester_config,
@@ -36,7 +38,66 @@ def test_parse_tester_config_keeps_execution_choices_outside_rows():
     assert config.harness.env == ("OPENAI_API_KEY",)
     assert config.docker.max_cached_images == 2
     assert config.docker.overlay_workspace_bytes == 2147483648
+    assert config.network_policy.mode == "benchmark"
+    assert config.network_policy.allowed_domains == ()
     assert not hasattr(config, "verification")
+
+
+def test_parse_tester_config_resolves_network_policy_domains():
+    config = parse_tester_config(
+        valid_tester_config(
+            network_policy={
+                "mode": "extend",
+                "allowed_domains": ["Example.COM", "example.com."],
+            }
+        )
+    )
+
+    assert config.network_policy.mode == "extend"
+    assert config.network_policy.allowed_domains == ("example.com",)
+
+
+def test_parse_tester_config_rejects_nonempty_legacy_harness_domains():
+    with pytest.raises(ConfigError, match="move it to top-level network_policy"):
+        parse_tester_config(
+            valid_tester_config(
+                harness={
+                    "type": "command",
+                    "config": {"allowed_domains": ["example.com"]},
+                }
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("harness_type", "harness_config"),
+    [
+        ("command", {"command": "produce"}),
+        ("codex", {"model": "gpt-test"}),
+        ("claude_code", {"model": "claude-test"}),
+        ("opencode", {}),
+    ],
+)
+def test_registry_forwards_network_policy_to_every_harness(harness_type, harness_config):
+    config = parse_tester_config(
+        valid_tester_config(
+            harness={"type": harness_type, "config": harness_config},
+            network_policy={
+                "mode": "replace",
+                "allowed_domains": ["example.com"],
+            },
+        )
+    )
+
+    producer = build_harness_producer(
+        config.harness,
+        network_policy=config.network_policy,
+    )
+
+    assert producer.network_policy == NetworkPolicy(
+        mode="replace",
+        allowed_domains=("example.com",),
+    )
 
 
 def test_load_tester_config_resolves_relative_paths(tmp_path):
@@ -120,6 +181,16 @@ def test_load_tester_config_rejects_an_oversized_document(tmp_path, monkeypatch)
         (
             {"run": {"id": "x" * 257, "output_dir": "runs/x"}},
             "run.id must be at most 256 characters",
+        ),
+        ({"network_policy": {"mode": "invalid"}}, "network_policy.mode must be one of"),
+        (
+            {
+                "network_policy": {
+                    "mode": "benchmark",
+                    "allowed_domains": ["example.com"],
+                }
+            },
+            "must be empty when mode is benchmark",
         ),
         ({"harness": {"type": "unknown"}}, "harness.type must be one of"),
         (

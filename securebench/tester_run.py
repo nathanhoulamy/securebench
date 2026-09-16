@@ -143,7 +143,11 @@ def _run_selected_tasks(
     output_path = output_dir / DEFAULT_RESULTS_FILENAME
     workspace_root = output_dir / "workspaces"
     store = CandidateStore(output_dir / "artifacts")
-    producer = build_harness_producer(config.harness, workspace_root=workspace_root)
+    producer = build_harness_producer(
+        config.harness,
+        network_policy=config.network_policy,
+        workspace_root=workspace_root,
+    )
 
     existing = (
         _resume_records(
@@ -256,6 +260,10 @@ def execution_config_digest(config: TesterConfig) -> str:
                 for name in env_names
             },
             "config": normalized_harness_config(config.harness),
+        },
+        "network_policy": {
+            "mode": config.network_policy.mode,
+            "allowed_domains": config.network_policy.allowed_domains,
         },
         "docker_environment": {
             name: os.environ[name]

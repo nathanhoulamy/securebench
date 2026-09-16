@@ -1,5 +1,33 @@
 {
   "$defs": {
+    "AgentNetworkSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_domains": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1024,
+          "title": "Allowed Domains",
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "none",
+            "restricted",
+            "internet"
+          ],
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "title": "AgentNetworkSpec",
+      "type": "object"
+    },
     "ArtifactCheck": {
       "additionalProperties": false,
       "properties": {
@@ -235,6 +263,9 @@
         "agent_network": {
           "anyOf": [
             {
+              "$ref": "#/$defs/AgentNetworkSpec"
+            },
+            {
               "enum": [
                 "none",
                 "restricted",
@@ -246,8 +277,7 @@
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Agent Network"
+          "default": null
         },
         "image": {
           "anyOf": [

@@ -8,8 +8,11 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+from securebench.errors import ConfigError
+from securebench.network_policy import NetworkPolicy, resolve_allowed_domains
 from securebench.schemas.benchmark import (
     ArtifactSource,
+    AgentNetworkSpec,
     BenchmarkPackManifestV2,
     BenchmarkRowDocumentV2,
     EnvironmentDefaults,
@@ -323,6 +326,98 @@ def test_row_defaults_and_family_contract_are_applied():
     assert row.family == "terminal_task"
     assert row.environment.image == DIGEST
     assert isinstance(row.verification.candidate, FileBundleCandidate)
+
+
+def test_agent_network_accepts_legacy_string_and_canonical_object():
+    manifest = BenchmarkPackManifestV2.model_validate(
+        manifest_data(
+            defaults={
+                "family": "terminal_task",
+                "environment": {
+                    "image": DIGEST,
+                    "workdir": "/app",
+                    "timeout_seconds": 30,
+                    "agent_network": "restricted",
+                },
+            }
+        )
+    )
+    inherited = normalize_benchmark_row(
+        BenchmarkRowDocumentV2.model_validate(passive_row_data()), manifest
+    )
+    assert inherited.environment.agent_network == AgentNetworkSpec(
+        mode="restricted", allowed_domains=()
+    )
+
+    row_data = passive_row_data(
+        environment={
+            "agent_network": {
+                "mode": "restricted",
+                "allowed_domains": ["Example.COM", "api.example.com."],
+            }
+        }
+    )
+    row = normalize_benchmark_row(
+        BenchmarkRowDocumentV2.model_validate(row_data), manifest
+    )
+    assert row.environment.agent_network.mode == "restricted"
+    assert row.environment.agent_network.allowed_domains == (
+        "example.com",
+        "api.example.com",
+    )
+
+
+def test_row_network_object_replaces_pack_default_as_a_whole():
+    manifest = BenchmarkPackManifestV2.model_validate(
+        manifest_data(
+            defaults={
+                "family": "terminal_task",
+                "environment": {
+                    "image": DIGEST,
+                    "workdir": "/app",
+                    "timeout_seconds": 30,
+                    "agent_network": {
+                        "mode": "restricted",
+                        "allowed_domains": ["shared.example.com"],
+                    },
+                },
+            }
+        )
+    )
+    row_data = passive_row_data(
+        environment={"agent_network": {"mode": "restricted"}}
+    )
+    row = normalize_benchmark_row(
+        BenchmarkRowDocumentV2.model_validate(row_data), manifest
+    )
+    assert row.environment.agent_network.allowed_domains == ()
+
+
+def test_agent_network_none_rejects_domains_and_network_policy_validates():
+    with pytest.raises(ValidationError, match="must be empty when mode is none"):
+        AgentNetworkSpec.model_validate(
+            {"mode": "none", "allowed_domains": ["example.com"]}
+        )
+
+    with pytest.raises(ConfigError, match="empty when mode is benchmark"):
+        NetworkPolicy(mode="benchmark", allowed_domains=("example.com",))
+
+    assert resolve_allowed_domains(
+        "none", (), NetworkPolicy(mode="extend", allowed_domains=("extra.example.com",))
+    ) == ()
+    assert resolve_allowed_domains(
+        "restricted",
+        ("row.example.com",),
+        NetworkPolicy(mode="extend", allowed_domains=("extra.example.com",)),
+    ) == ("row.example.com", "extra.example.com")
+
+
+@pytest.mark.parametrize("domain", ["https://example.com", "localhost", "127.0.0.1"])
+def test_agent_network_rejects_invalid_domains(domain):
+    with pytest.raises(ValidationError, match="must"):
+        AgentNetworkSpec.model_validate(
+            {"mode": "restricted", "allowed_domains": [domain]}
+        )
 
 
 def test_environment_image_digest_is_canonicalized_to_lowercase():

@@ -37,10 +37,9 @@ from securebench.harnesses.shared import (
 )
 from securebench.harnesses.network import (
     HarnessEgress,
-    allowed_domains_config,
     docker_egress_policy,
-    effective_allowed_domains,
 )
+from securebench.network_policy import NetworkPolicy, allowed_domains_config
 from securebench.workspaces.materialization import (
     MaterializationPlan,
     VisibilityAwareMaterializer,
@@ -72,13 +71,19 @@ class CommandHarnessProducer(CandidateProducer):
         task_file: str = COMMAND_DEFAULT_TASK_FILE,
         timeout_seconds: float | None = None,
         allowed_domains: tuple[str, ...] = (),
+        network_policy: NetworkPolicy | None = None,
         workspace_root: str | Path | None = None,
     ) -> None:
+        if allowed_domains:
+            raise ConfigError(
+                "harness.config.allowed_domains is no longer supported; "
+                "move it to top-level network_policy.allowed_domains"
+            )
         self.env_names = tuple(env_names)
         self.command = command
         self.task_file = task_file
         self.timeout_seconds = timeout_seconds
-        self.allowed_domains = tuple(allowed_domains)
+        self.network_policy = network_policy or NetworkPolicy()
         self.workspace_root = None if workspace_root is None else Path(workspace_root)
         self.materializer = VisibilityAwareMaterializer()
 
@@ -109,10 +114,7 @@ class CommandHarnessProducer(CandidateProducer):
         )
         staging.write_file(self.task_file, agent_task_json(task))
 
-        allowed_domains = task_allowed_domains(
-            task,
-            effective_allowed_domains("command", self.allowed_domains),
-        )
+        allowed_domains = task_allowed_domains(task, self.network_policy)
         with docker_egress_policy(allowed_domains) as egress:
             sandbox = self._sandbox(task, task_workspace, plan, egress)
             try:
@@ -180,10 +182,7 @@ class CommandHarnessProducer(CandidateProducer):
             workspace_mount_target=OVERLAY_AGENT_INPUTS_TARGET,
             materializer=self.materializer,
         )
-        allowed_domains = task_allowed_domains(
-            task,
-            effective_allowed_domains("command", self.allowed_domains),
-        )
+        allowed_domains = task_allowed_domains(task, self.network_policy)
         timeout = run_timeout_seconds(
             task,
             context_timeout=context.get("timeout"),
@@ -229,6 +228,12 @@ class CommandHarnessProducer(CandidateProducer):
 
 def command_config(config: dict[str, Any]) -> dict[str, Any]:
     reject_unknown_fields(config, COMMAND_CONFIG_FIELDS, "harness.config")
+    allowed_domains = allowed_domains_config(config.get("allowed_domains"))
+    if allowed_domains:
+        raise ConfigError(
+            "harness.config.allowed_domains is no longer supported; "
+            "move it to top-level network_policy.allowed_domains"
+        )
     return {
         "command": command_value(config.get("command")),
         "task_file": workspace_path(
@@ -238,7 +243,7 @@ def command_config(config: dict[str, Any]) -> dict[str, Any]:
         "timeout_seconds": optional_positive_number(
             config.get("timeout_seconds"), "harness.config.timeout_seconds"
         ),
-        "allowed_domains": allowed_domains_config(config.get("allowed_domains")),
+        "allowed_domains": (),
     }
 
 

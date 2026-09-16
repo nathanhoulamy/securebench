@@ -12,6 +12,35 @@ benchmark:
 docker:
   max_cached_images: 2
 
+# Explicit compatibility override; review row requirements before narrowing.
+network_policy:
+  mode: extend
+  allowed_domains:
+    - github.com
+    - githubusercontent.com
+    - pypi.org
+    - pythonhosted.org
+    - huggingface.co
+    - hf.co
+    - xethub.hf.co
+    - pytorch.org
+    - debian.org
+    - ubuntu.com
+    - r-project.org
+    - youtube.com
+    - googlevideo.com
+    - ytimg.com
+    - povray.org
+    - neocities.org
+    - qemu.org
+    - inria.fr
+    - ocaml.org
+    - readthedocs.io
+    - rcsb.org
+    - ncbi.nlm.nih.gov
+    - fpbase.org
+    - corewar.co.uk
+
 harness:
   type: codex
   config:
@@ -21,29 +50,4 @@ harness:
     version: latest
     task_file: task.json
     timeout_seconds: 900
-    allowed_domains:
-      - github.com
-      - githubusercontent.com
-      - pypi.org
-      - pythonhosted.org
-      - huggingface.co
-      - hf.co
-      - xethub.hf.co
-      - pytorch.org
-      - debian.org
-      - ubuntu.com
-      - r-project.org
-      - youtube.com
-      - googlevideo.com
-      - ytimg.com
-      - povray.org
-      - neocities.org
-      - qemu.org
-      - inria.fr
-      - ocaml.org
-      - readthedocs.io
-      - rcsb.org
-      - ncbi.nlm.nih.gov
-      - fpbase.org
-      - corewar.co.uk
     allow_external_tools: false

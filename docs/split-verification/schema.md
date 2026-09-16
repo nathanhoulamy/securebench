@@ -247,7 +247,9 @@ environment:
   image: immutable-image-reference
   workdir: absolute-path
   timeout_seconds: positive-number
-  agent_network: none | restricted | internet
+  agent_network:
+    mode: none | restricted | internet
+    allowed_domains: [example.org]
 
 verification:
   execution_profile: strict-split/v1
@@ -282,6 +284,71 @@ metadata:
 `environment.timeout_seconds` and `environment.agent_network` apply only
 to candidate production. Verification time and networking are controlled by
 checks, trusted components, and the execution profile.
+
+### Agent network declarations and tester overrides
+
+`agent_network` declares general task egress. A domain permits that name and
+its subdomains through the existing HTTP/HTTPS proxy; it does not grant direct
+connections or define allowed HTTP paths or operations. `none` requires an
+empty domain list. Both `restricted` and `internet` use only the declared
+domains; neither grants unrestricted Internet access. Provider inference access
+uses a separate harness relay and is unaffected by this setting.
+
+A pack may set `defaults.environment.agent_network`. A row that supplies
+`environment.agent_network` replaces that entire default, including its domain
+list. Legacy strings (`none`, `restricted`, `internet`) remain accepted as
+shorthand for that mode with no domains; they do not inherit tester permissions
+implicitly.
+
+For example, a pack can share package access across its tasks:
+
+```yaml
+# Pack manifest
+defaults:
+  environment:
+    agent_network:
+      mode: restricted
+      allowed_domains: [pypi.org, pythonhosted.org]
+```
+
+A task can replace that default with its own destinations:
+
+```yaml
+# Row (other fields omitted)
+environment:
+  agent_network:
+    mode: restricted
+    allowed_domains: [example.org]
+```
+
+Under benchmark policy, this row may access `example.org` and its subdomains,
+but not the pack's package domains. An explicit `agent_network: none` instead
+disables general egress, including under tester extension.
+
+The tester may explicitly override the policy:
+
+```yaml
+network_policy:
+  mode: extend
+  allowed_domains: [pypi.org, pythonhosted.org]
+```
+
+| Tester mode | Effective general task egress |
+|---|---|
+| `benchmark` (default) | Only the effective row's domains. No tester domains may be supplied. |
+| `replace` | Only the tester's domains, even when the row declares `none`. An empty list disables general egress. |
+| `extend` | Row and tester domains combined, except that a row declaring `none` remains networkless. |
+
+Domain lists reject URLs, ports, wildcards, IP literals, and localhost names.
+The proxy also checks resolved addresses when opening connections. An override
+can broaden access or prevent task completion, so the selected policy is bound
+into execution provenance and changes invalidate resume. It is not conversion
+qualification or proof that a task's external-resource workflow succeeds.
+
+Migrate nonempty `harness.config.allowed_domains` to an explicit top-level
+`network_policy`; ambiguous legacy harness permissions are rejected. The shipped
+Terminal-Bench tester lists use `extend` to preserve their previous permissions.
+Their broad lists are compatibility examples, not reviewed per-task policies.
 
 ## Candidate branches
 

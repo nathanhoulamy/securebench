@@ -155,8 +155,11 @@ decision logs are bounded. Provider-hosted external tools are blocked unless
 tester configuration explicitly enables them. Generic allowlisted HTTPS egress
 requires the TLS SNI to match the CONNECT authority; plain HTTP forwarding
 replaces the Agent-supplied Host header with the validated URL host. Row
-`agent_network` declares benchmark requirements; harness allowlists remain a
-tester-owned upper bound on actual connectivity.
+`agent_network` declares task domains, with optional pack defaults. The tester's
+explicit `network_policy` either uses the benchmark declaration, replaces it,
+or extends it. Extension preserves a row's `none` mode; replacement can override
+it. Overrides may broaden access and are bound into execution provenance. They
+must be reviewed as part of the policy used for a benchmark run.
 
 Private Docker bridges require isolated IPv4 and IPv6 gateway modes and an
 immediate check of effective gateway-free IPAM. Configuration inspection alone

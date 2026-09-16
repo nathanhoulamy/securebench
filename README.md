@@ -55,8 +55,8 @@ credentials to the Agent container. Codex subscription login is managed with:
 
 ## Tester YAML
 
-Tester configuration selects orchestration only; evaluation policy belongs to
-the row schema.
+Tester configuration selects orchestration and optional Agent network overrides;
+evaluation policy belongs to the row schema.
 
 ```yaml
 schema_version: "1.0"
@@ -67,6 +67,8 @@ run:
 benchmark:
   manifest: manifest-v2.yaml
   tasks: tasks-v2.jsonl
+network_policy:
+  mode: benchmark
 harness:
   type: codex
   config:
@@ -79,6 +81,15 @@ docker:
   # Required when any selected row uses filesystem_overlay.
   overlay_workspace_bytes: 2147483648
 ```
+
+Rows declare `environment.agent_network: {mode: restricted, allowed_domains:
+[example.org]}`; packs can supply the same object as an environment default.
+Tester `network_policy.mode` defaults to `benchmark`. Use `replace` with a global
+`allowed_domains` list to override row permissions, or `extend` to add domains
+while preserving rows that declare `none`. Only `replace` can enable general
+egress for such rows. Provider inference uses its separate relay. See the
+[network policy contract](docs/split-verification/schema.md#agent-network-declarations-and-tester-overrides)
+for inheritance and migration rules.
 
 Each run writes sanitized `results.jsonl` plus immutable candidate manifests
 and blobs under `artifacts/`. Per-row Agent workspaces are removed after
