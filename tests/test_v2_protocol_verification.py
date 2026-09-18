@@ -324,7 +324,6 @@ resource_roots:
             {"path": "task/public.txt", "mount": public_mount, "read_only": True}
         ],
         "verification": {
-            "execution_profile": "strict-split/v1",
             "candidate": candidate,
             "resources": {
                 "runtime": {

@@ -234,8 +234,6 @@ package build, and leak checks remain clean.
   malicious-candidate rejection, and semantic fidelity in that conversion's review record. Build
   automation for this workflow later, after practical DeepSWE and Terminal-Bench conversions have
   established what should be generalized.
-- Implement `batched-split/v1` only as a visibly weaker, separately reported fallback after strict
-  Trusted Helper isolation is mature.
 - Define component registry governance and review/publication policy for pack-local adapters and
   Oracles.
 - Add stronger Oracle OS confinement and, if required, signed result records.
@@ -281,7 +279,7 @@ locally. Then:
 - Read `current.md`, the recommended schema, `docs/split-verification/security-model.md`, and
   `securebench/execution_profiles.py` before editing.
 - Treat schema-valid and executable as separate states; add capability support explicitly rather
-  than silently falling back.
+  than silently falling back. Strict split remains the only execution behavior.
 - Develop and review deterministic work locally, and use the available Linux machine for
   benchmark-image, fresh-Docker, and end-to-end conversion tests. Keep root/loop/ext4-only overlay
   checks in the final qualification section rather than mixing them into ordinary row conversion.

@@ -11,7 +11,8 @@ from securebench.verification.json_data import canonical_json_bytes, json_digest
 
 VerificationStatus = Literal["passed", "failed", "infrastructure_error"]
 CheckStatus = Literal["passed", "failed", "infrastructure_error"]
-RESULT_SCHEMA_VERSION = "3"
+RESULT_SCHEMA_VERSION = "4"
+EXECUTION_CONTRACT_VERSION = "strict-split/v1"
 CHALLENGE_EVIDENCE_FORMAT_V1 = "securebench.challenge-evidence/v1"
 
 
@@ -371,7 +372,6 @@ class VerificationResultV2:
     score: float
     candidate_type: str | None
     candidate_digest: str | None
-    execution_profile: str
     manifest_digest: str
     row_digest: str
     image_digest: str
@@ -440,7 +440,7 @@ class VerificationResultV2:
                 "type": self.candidate_type,
                 "digest": self.candidate_digest,
             },
-            "execution_profile": self.execution_profile,
+            "execution_contract": EXECUTION_CONTRACT_VERSION,
             "provenance": {
                 "manifest_digest": self.manifest_digest,
                 "row_digest": self.row_digest,

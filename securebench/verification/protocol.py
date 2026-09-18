@@ -221,7 +221,7 @@ class ProtocolCheckRunner:
         helper_evaluation: TrustedHelperEvaluation | None = None
         reconstruction: ReconstructedOverlay | None = None
         try:
-            # Import lazily: the harness package imports execution-profile validation.
+            # Import lazily: the harness package imports capability preflight validation.
             from securebench.harnesses.shared import materialize_image_workdir
 
             overlay = isinstance(task.verification.candidate, FilesystemOverlayCandidate)
@@ -528,7 +528,7 @@ def _validate_evaluation_participants(contract: AdapterManifestV2) -> None:
     ):
         raise VerificationInfrastructureError(
             "evaluation_participants_unsupported",
-            "This execution profile supports exactly one Candidate participant",
+            "Strict split execution supports exactly one Candidate participant",
         )
 
 

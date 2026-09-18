@@ -170,7 +170,6 @@ resource_roots:
         "id": "artifact/task",
         "input": {"instructions": "Write /app/result.json."},
         "verification": {
-            "execution_profile": "strict-split/v1",
             "candidate": ({
                 "type": "filesystem_overlay",
                 "include_roots": ["/app"],
@@ -480,7 +479,6 @@ resource_roots:
             "instructions": "Write result.json.",
         },
         "verification": {
-            "execution_profile": "strict-split/v1",
             "candidate": {
                 "type": "git_patch",
                 "max_patch_bytes": 4096,

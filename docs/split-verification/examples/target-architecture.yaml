@@ -15,7 +15,6 @@ environment:
   timeout_seconds: 5400
   agent_network: restricted
 verification:
-  execution_profile: strict-split/v1
   candidate:
     type: git_patch
     max_patch_bytes: 16777216
@@ -82,7 +81,6 @@ environment:
   timeout_seconds: 3600
   agent_network: restricted
 verification:
-  execution_profile: strict-split/v1
   candidate:
     type: filesystem_overlay
     include_roots:

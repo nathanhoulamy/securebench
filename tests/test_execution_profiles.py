@@ -1,3 +1,5 @@
+"""Validate strict split task capabilities and qualification gates."""
+
 from dataclasses import replace
 
 import pytest
@@ -12,7 +14,6 @@ from securebench.execution_profiles import (
     MAX_FILESYSTEM_OVERLAY_CHANGED_PATHS,
     MAX_GIT_CHANGED_BYTES,
     MAX_PASSIVE_ARTIFACT_BYTES_PER_CHECK,
-    execution_profile,
     validate_executable_task,
     validate_task_components,
 )
@@ -36,13 +37,8 @@ def task():
     return next(compile_benchmark_pack(pack))
 
 
-def test_strict_profile_is_registered_and_reference_row_is_executable():
-    assert execution_profile("strict-split/v1").implemented is True
+def test_strict_split_reference_row_is_executable():
     validate_executable_task(task())
-
-
-def _unsupported_profile(compiled):
-    return _validated_task_variant(compiled, execution_profile="batched-split/v1")
 
 
 def _unsupported_git_patch(compiled):
@@ -86,7 +82,6 @@ def _unsupported_filesystem_overlay(compiled):
 def _validated_task_variant(
     compiled,
     *,
-    execution_profile=None,
     candidate=None,
     artifact_source=None,
     family=None,
@@ -98,8 +93,6 @@ def _validated_task_variant(
         check = check.model_copy(update={"artifacts": (artifact,)})
     verification_data = compiled.verification.model_dump()
     verification_data["checks"] = [check.model_dump()]
-    if execution_profile is not None:
-        verification_data["execution_profile"] = execution_profile
     if candidate is not None:
         verification_data["candidate"] = candidate.model_dump()
     verification = VerificationSpec.model_validate(verification_data)
@@ -122,18 +115,13 @@ def _validated_task_variant(
     )
 
 
-@pytest.mark.parametrize(
-    ("variant", "message"),
-    [
-        (_unsupported_profile, "registered but not implemented"),
-        (_unsupported_filesystem_overlay, "filesystem_overlay.*schema-valid but not executable"),
-    ],
-    ids=["batched-profile", "filesystem-overlay"],
-)
-def test_executable_capability_matrix_rejects_unsupported_schema_branches(variant, message):
-    compiled = variant(task())
+def test_executable_capability_matrix_rejects_unqualified_filesystem_overlay():
+    compiled = _unsupported_filesystem_overlay(task())
 
-    with pytest.raises(ConfigError, match=message):
+    with pytest.raises(
+        ConfigError,
+        match="filesystem_overlay.*schema-valid but not executable",
+    ):
         validate_executable_task(compiled)
 
 
@@ -153,11 +141,6 @@ def test_native_qualification_flag_activates_the_public_overlay_gate(monkeypatch
     )
 
     validate_executable_task(_unsupported_filesystem_overlay(task()))
-
-
-def test_unknown_profile_does_not_fall_back_to_another_policy():
-    with pytest.raises(ConfigError, match="Unknown verification.execution_profile"):
-        execution_profile("custom/v9")
 
 
 def test_agent_network_none_is_preserved_under_tester_extension():

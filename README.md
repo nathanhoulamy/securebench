@@ -13,9 +13,9 @@ The two current row families describe the Agent task, not its verification topol
 
 Verification is composed independently from candidate capture, artifact or
 protocol checks, parser profiles, and a host-only Oracle. The executable path
-supports `strict-split/v1`, `file_bundle`, passive artifact checks, and the
-protocol path: bounded JSON Challenges, a reviewed runtime Adapter, and one
-fresh Evaluation container per Challenge. `git_patch` candidates and the
+uses strict split verification with `file_bundle`, passive artifact checks,
+and the protocol path: bounded JSON Challenges, a reviewed runtime Adapter,
+and one fresh Evaluation per Challenge. `git_patch` candidates and the
 `securebench.http-request-recorder/v1`, `securebench.append-only-event-ledger/v1`,
 and the host-only `securebench.process-supervisor/v1` Trusted Helpers are
 executable end to end. Networked helper Evaluations use a fresh internal-only
@@ -23,7 +23,7 @@ Docker network; the supervisor exposes no guest control credential. Bounded
 Output Artifacts can be collected from the same disposable Evaluation.
 Filesystem-overlay capture and replay are implemented but remain fail-closed
 until their deferred native root-Linux qualification passes. Other unregistered
-helpers and the weaker batching profile remain non-executable.
+helpers remain non-executable.
 
 ## Quick start
 

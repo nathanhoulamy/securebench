@@ -788,12 +788,6 @@
           "title": "Checks",
           "type": "array"
         },
-        "execution_profile": {
-          "maxLength": 256,
-          "minLength": 1,
-          "title": "Execution Profile",
-          "type": "string"
-        },
         "oracle": {
           "maxLength": 256,
           "pattern": "^(runtime|host)\\.[A-Za-z][A-Za-z0-9_.-]*$",
@@ -805,7 +799,6 @@
         }
       },
       "required": [
-        "execution_profile",
         "candidate",
         "checks",
         "oracle"

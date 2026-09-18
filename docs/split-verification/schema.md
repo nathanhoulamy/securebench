@@ -189,7 +189,7 @@ Examples include HTTP request ledgers, controlled origins, SMTP sinks, probe
 models, byte relays, databases, clocks, and process supervisors.
 
 Helper instances, state, and any applicable guest credentials are fresh for
-every Evaluation under the strict execution profile. Multi-phase persistence
+every Evaluation under strict split verification. Multi-phase persistence
 within one Evaluation is allowed when it is part of that Challenge's declared
 protocol.
 
@@ -252,8 +252,6 @@ environment:
     allowed_domains: [example.org]
 
 verification:
-  execution_profile: strict-split/v1
-
   candidate:
     type: git_patch | file_bundle | filesystem_overlay
 
@@ -283,7 +281,7 @@ metadata:
 
 `environment.timeout_seconds` and `environment.agent_network` apply only
 to candidate production. Verification time and networking are controlled by
-checks, trusted components, and the execution profile.
+checks and trusted components under strict split verification.
 
 ### Agent network declarations and tester overrides
 
@@ -516,7 +514,7 @@ Observation schemas, Evaluation Participants, required Trusted Helpers,
 Helper Access, Output Artifacts, and hard maximums that the row may only
 reduce.
 
-Under the current `strict-split/v1` backend, requested Output Artifact limits
+Under strict split verification, requested Output Artifact limits
 must total at most 16 MiB and 4,096 filesystem entries per Evaluation. Paths
 are relative to `environment.workdir`, may not use `.git` or the framework's
 `securebench/` materialization area, overlap an Evaluation resource mount, or
@@ -526,19 +524,20 @@ wrong-type, oversized, unsafe, or parser-rejected artifacts become Candidate
 evidence; collector or registered-parser contract failures are framework
 infrastructure errors.
 
-Under `strict-split/v1`, every Challenge receives a fresh Evaluation, helper
+Under strict split verification, every Challenge receives a fresh Evaluation, helper
 instances, credentials, and Evaluation ID. A bounded multi-step lifecycle is
 one Challenge, not cross-Challenge persistence.
 
-## Execution profiles
+## Strict split execution
 
-An execution profile selects framework isolation and information-flow
-semantics. It does not select cases, expected answers, scoring, or task
+Strict split is the only execution behavior. It fixes the framework's
+isolation and information-flow semantics independently of the backend used to
+provide them; it does not select cases, expected answers, scoring, or task
 behavior.
 
-### Strict split
+### Execution contract
 
-`strict-split/v1` requires:
+Strict split requires:
 
 - host resources never enter candidate-controlled VMs;
 - one current challenge is delivered at a time;
@@ -552,21 +551,12 @@ behavior.
 - only the host Oracle emitting a score or verdict.
 
 A challenge-free prepare, seal, and clone optimization is compatible with
-this profile:
+strict split:
 
 1. Materialize and perform declared challenge-independent setup.
 2. Seal an immutable candidate snapshot.
 3. Clone a fresh runtime from it for every case.
 4. Inject the current challenge and credentials only after cloning.
-
-### Batched split fallback
-
-A separately specified `batched-split/v1` profile may reuse one candidate
-runtime across several cases when strict isolation is operationally
-prohibitive. It must still reset Trusted Helpers and credentials and must
-report runtime reuse explicitly. It is weaker because candidate state may
-cross case boundaries and must not be presented as equivalent to strict split
-verification.
 
 ## Component contracts
 
@@ -746,7 +736,6 @@ evidence, while the other sources are infrastructure failures.
 | `assets` | no | Public task material mounted read-only by default into Agent and relevant Evaluation runtimes. |
 | `environment` | yes unless supplied by manifest defaults | Digest-pinned solving image, workdir, timeout, and Agent network policy. |
 | `environment.agent_network` | yes unless defaulted | Solving-phase network policy only. |
-| `verification.execution_profile` | yes | Registered framework security and isolation profile. |
 | `verification.candidate` | yes | Discriminated union defining the single durable handoff. |
 | `candidate.type` | yes | `git_patch`, `file_bundle`, or `filesystem_overlay`. |
 | `candidate.max_patch_bytes` | Git patch only | Maximum canonical patch bytes. |
@@ -823,7 +812,7 @@ evidence, while the other sources are infrastructure failures.
 7. Host resources compile as `hidden` and never enter candidate-controlled
    VMs.
 8. Only one bounded current challenge derived from a host resource enters a
-   runtime at a time under the strict profile.
+   runtime at a time under strict split verification.
 9. Candidate capture is durable and replayable and contains no process,
    socket, mount, credential, memory state, or Agent VM interaction log.
 10. Git patches are canonical, apply to the declared base commit, satisfy
@@ -862,7 +851,7 @@ alone.
 
 ### Component registry governance
 
-Finalize governance for Adapter, parser, Trusted Helper, execution-profile,
+Finalize governance for Adapter, parser, Trusted Helper, execution-contract,
 and Oracle publication. The recommended initial policy is central parsers and
 Trusted Helpers with reviewed pack-local Adapters and Oracles.
 
@@ -870,8 +859,6 @@ Trusted Helpers with reviewed pack-local Adapters and Oracles.
 
 The first implementation constructs every case from a clean baseline.
 Prepare/seal/clone may be added later without changing strict semantics.
-`batched-split/v1` remains a separately reported weaker fallback for rows where
-fresh-case execution proves prohibitively expensive.
 
 ### Filesystem overlay format
 

@@ -45,6 +45,7 @@ from securebench.tester_run import (
 )
 from securebench.schemas.benchmark import ArtifactSource, FilesystemOverlayCandidate
 from securebench.verification import CheckResultSummary, VerificationEngine
+from securebench.verification.models import EXECUTION_CONTRACT_VERSION
 from securebench.workspaces.overlay_quota import (
     OverlayWorkspaceCapabilities,
     OverlayWorkspaceUnavailable,
@@ -127,7 +128,8 @@ def test_runner_persists_only_durable_candidate_and_sanitized_oracle_result(monk
     assert record["provenance"]["image_digest"].startswith("sha256:")
     assert record["provenance"]["baseline_digest"].startswith("sha256:")
     assert record["provenance"]["verification_digest"].startswith("sha256:")
-    assert record["schema_version"] == "3"
+    assert record["schema_version"] == "4"
+    assert record["execution_contract"] == EXECUTION_CONTRACT_VERSION
     assert record["provenance"]["execution_digest"] == execution_config_digest(current)
     encoded = json.dumps(record)
     assert "must not enter result" not in encoded
@@ -323,7 +325,6 @@ resource_roots:
             "instructions": "Write result.json.",
         },
         "verification": {
-            "execution_profile": "strict-split/v1",
             "candidate": {
                 "type": "git_patch",
                 "max_patch_bytes": 4096,
@@ -950,7 +951,7 @@ def test_resume_rejects_changed_verification_inputs(tmp_path):
         )
     )
     record = {
-        "schema_version": "3",
+        "schema_version": "4",
         "run_id": current.run.id,
         "task_id": task.id,
         "benchmark_id": task.benchmark_id,
@@ -958,7 +959,7 @@ def test_resume_rejects_changed_verification_inputs(tmp_path):
         "passed": False,
         "score": 0.0,
         "candidate": {"type": None, "digest": None},
-        "execution_profile": task.verification.execution_profile,
+        "execution_contract": EXECUTION_CONTRACT_VERSION,
         "provenance": {
             "manifest_digest": task.manifest_digest,
             "row_digest": task.row_digest,
@@ -978,6 +979,46 @@ def test_resume_rejects_changed_verification_inputs(tmp_path):
         output,
         current.run.id,
         [changed],
+        CandidateStore(tmp_path / "store"),
+        execution_digest=execution_config_digest(current),
+    ) == []
+
+
+def test_resume_rejects_legacy_v3_profile_record(tmp_path):
+    current = config(tmp_path)
+    task = next(
+        compile_benchmark_pack(
+            load_benchmark_pack(current.benchmark.manifest, current.benchmark.tasks)
+        )
+    )
+    record = {
+        "schema_version": "3",
+        "run_id": current.run.id,
+        "task_id": task.id,
+        "benchmark_id": task.benchmark_id,
+        "status": "failed",
+        "passed": False,
+        "score": 0.0,
+        "candidate": {"type": None, "digest": None},
+        "execution_profile": "strict-split/v1",
+        "provenance": {
+            "manifest_digest": task.manifest_digest,
+            "row_digest": task.row_digest,
+            "image_digest": task.environment.image,
+            "baseline_digest": task.baseline_digest,
+            "verification_digest": task.verification_digest,
+            "execution_digest": execution_config_digest(current),
+        },
+        "checks": [],
+        "public_diagnostics": {},
+    }
+    output = tmp_path / "legacy-results.jsonl"
+    output.write_text(json.dumps(record) + "\n")
+
+    assert _resume_records(
+        output,
+        current.run.id,
+        [task],
         CandidateStore(tmp_path / "store"),
         execution_digest=execution_config_digest(current),
     ) == []

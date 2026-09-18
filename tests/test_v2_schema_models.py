@@ -58,7 +58,6 @@ def passive_row_data(**updates):
             {"path": "fixtures/input.json", "mount": "/app/input.json", "read_only": True}
         ],
         "verification": {
-            "execution_profile": "strict-split/v1",
             "candidate": {
                 "type": "file_bundle",
                 "max_total_files": 1,
@@ -439,6 +438,20 @@ def test_v1_eval_rows_are_rejected():
     row = passive_row_data(eval={"checker": {}})
     with pytest.raises(ValidationError, match="eval"):
         BenchmarkRowDocumentV2.model_validate(row)
+
+
+def test_obsolete_execution_profile_is_rejected():
+    row = passive_row_data()
+    row["verification"]["execution_profile"] = "strict-split/v1"
+
+    with pytest.raises(ValidationError) as error:
+        BenchmarkRowDocumentV2.model_validate(row)
+
+    assert any(
+        item["loc"] == ("verification", "execution_profile")
+        and item["type"] == "extra_forbidden"
+        for item in error.value.errors()
+    )
 
 
 def test_candidate_entry_reference_must_resolve():

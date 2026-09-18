@@ -126,12 +126,14 @@ The Oracle JSON-lines ABI uses `next_case` responses of either
 `evaluate_case` requests that return the opaque context and framework-built
 evidence to the host process. Extra response fields, duplicate JSON keys,
 non-finite values, oversized responses, and excess cases fail closed.
-The current executable profile accepts declared challenge and observation
+Strict split execution accepts declared challenge and observation
 bounds up to 1 MiB per Challenge.
 
 Public `results.jsonl` records contain candidate/evidence digests, check
 summaries, public diagnostics, and manifest, row, image, baseline, verification,
-and execution provenance. Raw Agent
+and execution provenance. Result schema v4 records the framework-owned
+`execution_contract` version; it is not row-configurable, and older result
+schemas are not eligible for resume. Raw Agent
 stdout, stderr, metadata, parsed evidence, runtime resources, and host paths are
 not serialized. The result component has no live resource view. Resume accepts
 only bounded finite, duplicate-key-free JSON records and validates the complete
@@ -174,8 +176,8 @@ and negative connection tests in
   authority or content after validating CONNECT, DNS, public IPs, and SNI.
 - Writable public asset mounts are schema-valid but blocked by current
   execution preflight until composed stopped-filesystem capture is available.
-- `filesystem_overlay` and `batched-split/v1` are registered but not executable
-  in normal runs. The overlay capture/replay implementation and accepted threat
+- `filesystem_overlay` is schema-valid but not executable in normal runs. Its
+  capture/replay implementation and accepted threat
   model are documented in
   [`filesystem-overlay-v1.md`](filesystem-overlay-v1.md). Overlay execution is
   protected by an internal capability token and a source-controlled native

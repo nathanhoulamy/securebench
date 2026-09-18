@@ -9,8 +9,7 @@
   content-addressed storage, and replay.
 - `verification/`: passive parsers, artifact and protocol engines, Trusted
   Helpers, Output Artifact collection, host Oracle ABI, and sanitized results.
-- `execution_profiles.py`: registered framework isolation/orchestration
-  profiles and executable-capability preflight.
+- `execution_profiles.py`: executable-capability and qualification preflight.
 - `tester_config.py`, `tester_run.py`, `cli.py`: end-to-end orchestration.
 - `audit/`: deterministic checks of visibility, materialization, provenance,
   and framework-owned candidate protections.

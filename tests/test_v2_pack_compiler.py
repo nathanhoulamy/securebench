@@ -68,7 +68,6 @@ resource_roots:
             {"path": "task/input.txt", "mount": "/app/input.txt", "read_only": True}
         ],
         "verification": {
-            "execution_profile": "strict-split/v1",
             "candidate": {
                 "type": "file_bundle",
                 "max_total_files": 1,

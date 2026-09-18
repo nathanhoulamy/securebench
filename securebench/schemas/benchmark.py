@@ -22,8 +22,6 @@ from securebench.path_safety import portable_path_is_relative_to, portable_paths
 
 
 SCHEMA_VERSION = "2.0"
-EXECUTION_PROFILE_STRICT = "strict-split/v1"
-EXECUTION_PROFILE_BATCHED = "batched-split/v1"
 MAX_FILESYSTEM_OVERLAY_ROOTS = 16
 MAX_FILESYSTEM_OVERLAY_PATH_BYTES = 4096
 MAX_FILESYSTEM_OVERLAY_PATH_DEPTH = 128
@@ -506,7 +504,6 @@ CheckSpec = Annotated[ArtifactCheck | ProtocolCheck, Field(discriminator="type")
 
 
 class VerificationSpec(StrictModel):
-    execution_profile: Annotated[str, StringConstraints(min_length=1, max_length=256)]
     candidate: CandidateSpec
     resources: VerificationResources = Field(default_factory=VerificationResources)
     checks: Annotated[tuple[CheckSpec, ...], Field(min_length=1)]

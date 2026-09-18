@@ -33,7 +33,7 @@ slice, not as complete support for every schema branch.
 - Target-architecture examples: [`docs/split-verification/examples/target-architecture.yaml`](docs/split-verification/examples/target-architecture.yaml)
 - Executable Pydantic models: [`securebench/schemas/benchmark.py`](securebench/schemas/benchmark.py)
 - Generated JSON Schemas: [`schemas/`](schemas/)
-- Runtime capability gate: [`securebench/execution_profiles.py`](securebench/execution_profiles.py)
+- Runtime capability and qualification gates: [`securebench/execution_profiles.py`](securebench/execution_profiles.py)
 - Security guarantees and limitations: [`docs/split-verification/security-model.md`](docs/split-verification/security-model.md)
 - Benchmark conversion portfolio: [`docs/benchmark-conversions/`](docs/benchmark-conversions/)
 - Conversion implementation guide: [`docs/benchmark-conversions/conversion-guide.md`](docs/benchmark-conversions/conversion-guide.md)
@@ -48,7 +48,7 @@ future-facing contracts that are schema-valid but not necessarily executable yet
 3. Pack resources are resolved below three non-overlapping, symlink-safe source roots.
 4. The compiler assigns resources to component-safe visibility views and computes baseline and
    verification digests over actual resource contents.
-5. Execution preflight rejects unsupported candidates, checks, parsers, profiles, mounts, and
+5. Execution preflight rejects unsupported candidates, checks, parsers, mounts, and
    component manifests before candidate production.
 6. A fresh Docker Agent environment receives only the prompt and public material. The candidate
    capture policy and verification graph are not added to its prompt.
@@ -88,8 +88,7 @@ the runner does not invent a benchmark score.
 | `securebench.append-only-event-ledger/v1` | Implemented end to end with fresh instances/credentials, a closed nonce/event/data append interface, host-monotonic timestamps, bounded attempt evidence, and correlated teardown |
 | `securebench.process-supervisor/v1` | Implemented as a host-only Evaluation launch owner with no guest credential, an allowlisted bounded signal schedule, and externally captured lifecycle/timing evidence |
 | Output Artifacts | Implemented for bounded regular files and directory trees from the same disposable Evaluation |
-| `strict-split/v1` | Implemented for file-bundle and git-patch execution and for qualification-gated overlay artifact/protocol paths, including all three registered Trusted Helpers |
-| `batched-split/v1` | Registered but explicitly not implemented |
+| Strict split execution | Implemented for file-bundle and git-patch execution and for qualification-gated overlay artifact/protocol paths, including all three registered Trusted Helpers |
 | Host Oracle JSON-lines ABI | Implemented for initialize, artifact evidence, cases, case evidence, and final verdict |
 | Sanitized result/provenance and resume validation | Implemented |
 | Admission qualification pipeline | Not implemented |
@@ -173,8 +172,8 @@ filesystem-overlay example remains intentionally non-executable.
   for Git patches, and 10,000 entries / 256 MiB per passive artifact check.
 - Oracle and adapter manifests fail closed, and Oracle manifests are validated during preflight
   without starting the process.
-- Executable-capability matrix tests prove the registered batched profile, qualification-gated
-  overlay candidate, and unknown Trusted Helper types fail preflight while unsupported. Overlay
+- Executable-capability matrix tests prove the qualification-gated overlay candidate and unknown
+  Trusted Helper types fail preflight while unsupported. Overlay
   tests also prove the backend probe precedes Agent startup and is bound to the exact storage root.
 - Adapter v2 validates closed typed Challenge and Observation values, exact Evaluation
   Participants, Trusted Helper requirements, Output Artifact declarations, and row limits against

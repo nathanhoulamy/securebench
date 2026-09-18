@@ -617,7 +617,7 @@ def _git_patch_artifact(
         )
     evaluation_root = Path(tempfile.mkdtemp(prefix="securebench-artifact-repository-"))
     try:
-        # Import lazily: harness modules import execution-profile validation.
+        # Import lazily: harness modules import capability preflight validation.
         from securebench.harnesses.shared import materialize_image_workdir
 
         try:
@@ -725,7 +725,6 @@ def _result(
         score=float(verdict.score),
         candidate_type=None if candidate is None else candidate.type,
         candidate_digest=None if candidate is None else candidate.digest,
-        execution_profile=task.verification.execution_profile,
         manifest_digest=task.manifest_digest,
         row_digest=task.row_digest,
         image_digest=_image_digest(task.environment.image),
@@ -749,7 +748,6 @@ def _infrastructure_result(
         score=0.0,
         candidate_type=None if candidate is None else candidate.type,
         candidate_digest=None if candidate is None else candidate.digest,
-        execution_profile=task.verification.execution_profile,
         manifest_digest=task.manifest_digest,
         row_digest=task.row_digest,
         image_digest=_image_digest(task.environment.image),

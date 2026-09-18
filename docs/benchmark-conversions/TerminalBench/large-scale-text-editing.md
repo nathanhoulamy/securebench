@@ -104,8 +104,8 @@ measurement of the public macro restrictions.
 
 The existing artifact and protocol contracts cover capture and execution. The
 additional component proposed for approval is a bounded, passive host utility
-for Vim string literals and key notation; it is not a new Trusted Helper,
-execution profile, or check type.
+for Vim string literals and key notation; it is not a new Trusted Helper or
+check type.
 
 ### Proposed passive utility
 

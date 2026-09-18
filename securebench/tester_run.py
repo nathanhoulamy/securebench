@@ -40,7 +40,11 @@ from securebench.schemas.benchmark import FilesystemOverlayCandidate
 from securebench.tasks import BenchmarkTask
 from securebench.tester_config import TesterConfig
 from securebench.verification import VerificationEngine
-from securebench.verification.models import RESULT_SCHEMA_VERSION, VerificationResultV2
+from securebench.verification.models import (
+    EXECUTION_CONTRACT_VERSION,
+    RESULT_SCHEMA_VERSION,
+    VerificationResultV2,
+)
 from securebench.workspaces.cleanup import remove_untrusted_tree
 from securebench.workspaces.overlay_quota import (
     OverlayWorkspaceCapabilities,
@@ -246,6 +250,7 @@ def execution_config_digest(config: TesterConfig) -> str:
     document = {
         "schema_version": EXECUTION_IDENTITY_SCHEMA_VERSION,
         "result_schema_version": RESULT_SCHEMA_VERSION,
+        "execution_contract": EXECUTION_CONTRACT_VERSION,
         "harness": {
             "type": config.harness.type,
             "environment": {
@@ -676,7 +681,7 @@ def _valid_resume_record(record: dict[str, Any], expected: dict[str, Any]) -> bo
         "passed",
         "score",
         "candidate",
-        "execution_profile",
+        "execution_contract",
         "provenance",
         "checks",
         "public_diagnostics",
@@ -687,7 +692,7 @@ def _valid_resume_record(record: dict[str, Any], expected: dict[str, Any]) -> bo
         set(record) == expected_fields
         and record.get("schema_version") == RESULT_SCHEMA_VERSION
         and record.get("benchmark_id") == expected["benchmark_id"]
-        and record.get("execution_profile") == expected["execution_profile"]
+        and record.get("execution_contract") == expected["execution_contract"]
         and status in {"passed", "failed", "infrastructure_error"}
         and isinstance(passed, bool)
         and passed is (status == "passed")
@@ -706,7 +711,7 @@ def _valid_resume_record(record: dict[str, Any], expected: dict[str, Any]) -> bo
             if key
             not in {
                 "benchmark_id",
-                "execution_profile",
+                "execution_contract",
                 "candidate_type",
                 "base_commit",
                 "checks",
@@ -811,7 +816,7 @@ def _expected_resume_identity(
 ) -> dict[str, Any]:
     return {
         "benchmark_id": task.benchmark_id,
-        "execution_profile": task.verification.execution_profile,
+        "execution_contract": EXECUTION_CONTRACT_VERSION,
         "candidate_type": task.verification.candidate.type,
         "base_commit": (
             task.input.get("base_commit")

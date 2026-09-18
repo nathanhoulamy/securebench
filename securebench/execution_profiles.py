@@ -1,8 +1,7 @@
-"""Registry of framework-owned isolation and orchestration profiles."""
+"""Capability and qualification preflight for strict split execution."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from securebench.baselines import task_baseline_digest, task_verification_digest
@@ -31,26 +30,6 @@ from securebench.verification.protocol import (
 from securebench.verification.trusted_helpers import default_trusted_helper_catalog
 
 
-@dataclass(frozen=True)
-class ExecutionProfile:
-    id: str
-    description: str
-    implemented: bool
-
-
-PROFILES = {
-    "strict-split/v1": ExecutionProfile(
-        id="strict-split/v1",
-        description="Fresh Agent sandbox per row followed by stopped-state capture and host Oracle verification",
-        implemented=True,
-    ),
-    "batched-split/v1": ExecutionProfile(
-        id="batched-split/v1",
-        description="Weaker fresh-baseline batching fallback with per-row capture boundaries",
-        implemented=False,
-    ),
-}
-
 MAX_FILE_BUNDLE_BYTES = 256 * 1024 * 1024
 MAX_FILE_BUNDLE_FILES = 10_000
 MAX_GIT_PATCH_BYTES = 16 * 1024 * 1024
@@ -63,13 +42,6 @@ MAX_PASSIVE_ARTIFACT_FILES_PER_CHECK = 10_000
 # This is deliberately changed only by the final reviewed native-Linux
 # qualification commit. It has no environment-variable or tester-config bypass.
 FILESYSTEM_OVERLAY_NATIVE_QUALIFICATION_COMPLETE = False
-
-
-def execution_profile(profile_id: str) -> ExecutionProfile:
-    try:
-        return PROFILES[profile_id]
-    except KeyError as exc:
-        raise ConfigError(f"Unknown verification.execution_profile: {profile_id!r}") from exc
 
 
 def validate_executable_task(task: BenchmarkTask) -> None:
@@ -87,9 +59,6 @@ def _validate_task_components(
     *,
     reject_unqualified_overlay: bool,
 ) -> None:
-    profile = execution_profile(task.verification.execution_profile)
-    if not profile.implemented:
-        raise ConfigError(f"Execution profile {profile.id!r} is registered but not implemented")
     candidate = task.verification.candidate
     _validate_candidate_bounds(candidate)
     if (

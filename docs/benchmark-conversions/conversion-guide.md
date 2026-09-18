@@ -22,8 +22,8 @@ contract:
    boundary and current limitations.
 5. [`securebench/schemas/benchmark.py`](../../securebench/schemas/benchmark.py) — executable schema
    source of truth.
-6. [`securebench/execution_profiles.py`](../../securebench/execution_profiles.py) — what preflight
-   actually permits.
+6. [`securebench/execution_profiles.py`](../../securebench/execution_profiles.py) — executable
+   capability and qualification preflight.
 7. [`docs/split-verification/examples/executable.yaml`](../split-verification/examples/executable.yaml)
    and the executable `constraints-scheduling` pack under
    [`benchmarks/terminal-bench/`](../../benchmarks/terminal-bench/) — smallest complete reference.
@@ -76,11 +76,11 @@ The pilot may use:
 - `securebench.append-only-event-ledger/v1` for timestamped nonce/event evidence;
 - `securebench.process-supervisor/v1` for host-owned launch, timing, and a
   bounded allowlisted signal schedule;
-- `strict-split/v1` with a fresh Evaluation for every Challenge.
+- strict split verification with a fresh Evaluation for every Challenge.
 
 Do not use `filesystem_overlay` in the pilot. Its implementation remains source-gated until the
-separate root-Linux native qualification is complete. Do not use `batched-split/v1`, writable
-public assets, an unregistered parser/helper, or another Adapter format. When a selected row needs a
+separate root-Linux native qualification is complete. Do not use writable public assets, an
+unregistered parser/helper, or another Adapter format. When a selected row needs a
 missing capability, implement a small reviewed vertical slice and make preflight accept it only
 after its contract, bounds, failure ownership, adversarial tests, and real-Docker isolation test
 exist.
@@ -253,7 +253,7 @@ dataset/revision and dossier metadata. Then load, compile, and call executable p
 focused test before any Agent run.
 
 The row and component manifests are closed schemas. Do not add convenience keys and do not catch a
-preflight error by silently selecting a weaker Candidate/check/profile.
+preflight error by silently selecting a weaker Candidate or check.
 
 ### 6. Add a manual qualification record
 

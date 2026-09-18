@@ -1,5 +1,5 @@
 # Executable today: passive artifact verification with a file_bundle candidate.
-# This row shape is supported end to end by strict-split/v1.
+# This row shape is supported end to end by strict split verification.
 id: terminal-bench/constraints-scheduling
 family: terminal_task
 input:
@@ -20,7 +20,6 @@ environment:
   timeout_seconds: 1200
   agent_network: internet
 verification:
-  execution_profile: strict-split/v1
   candidate:
     type: file_bundle
     max_total_files: 1
