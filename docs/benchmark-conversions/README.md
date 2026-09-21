@@ -12,7 +12,7 @@ The first-wave Linux admission record is the
 
 ## Portfolio
 
-| Benchmark | Rows | Approved | Excluded |
+| Benchmark | Rows | Design approved | Design excluded |
 |---|---:|---:|---:|
 | DeepSWE | 113 | 97 | 16 |
 | TerminalBench 2.0 | 89 | 73 | 16 |
@@ -30,12 +30,34 @@ The design disposition is tracked separately from approval status:
 | Benchmark | Clean | Semantic change | Major redesign | No conversion | Total |
 |---|---:|---:|---:|---:|---:|
 | DeepSWE | 32 | 64 | 17 | 0 | 113 |
-| TerminalBench 2.0 | 52 | 15 | 6 | 16 | 89 |
-| **Total** | **84** | **79** | **23** | **16** | **202** |
+| TerminalBench 2.0 | 51 | 16 | 6 | 16 | 89 |
+| **Total** | **83** | **80** | **23** | **16** | **202** |
 
 The authoritative per-row status is [`inventory.csv`](inventory.csv). Dossier
 headers deliberately defer to that inventory so status cannot drift between two
 sources.
+
+## Implementation and qualification status
+
+`review_status`, `final_verdict`, and `disposition` describe the portfolio's
+design review. They do not claim that a v2 row exists or that a row is admitted
+for benchmark use. The machine-readable implementation and runtime state lives
+in the `implementation_status` and `qualification_status` columns of
+[`inventory.csv`](inventory.csv):
+
+| State | Rows | Meaning |
+|---|---:|---|
+| Implemented | 31 | A v2 task row exists in the executable TerminalBench or DeepSWE pack. |
+| Design only | 139 | The row has a reviewed design but no v2 task row yet. |
+| Excluded | 32 | The portfolio disposition excludes conversion under the current trust model. |
+
+The 31 implemented rows split into 25 historical Linux qualifications and six
+rows still awaiting their first qualification. The 25 historical qualifications
+are marked `requalification_pending`: the latest strict split and Agent network
+policy changes require a new qualification run. The other six are marked
+`qualification_pending` (the three first-wave TerminalBench rows and the three
+DeepSWE rows). Historical evidence remains documented in each dossier, but no
+pending or historical record is a current admission decision.
 
 ## Source revisions
 

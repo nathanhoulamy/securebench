@@ -5,17 +5,23 @@ commit. Tick a row only after its real pinned image has run end to end and its
 dossier contains the resulting evidence. Deterministic unit tests are useful,
 but they do not replace Linux/Docker qualification.
 
-Inventory review disposition and runtime qualification are separate. The
-first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
-remain intentionally unchecked; the twenty-five incrementally qualified rows below
-currently have binary admission decisions. The intervening
+Inventory review disposition, implementation, and runtime qualification are
+separate. The packs contain 31 implemented rows: 25 retain historical Linux
+qualification evidence and six remain qualification-pending. The 25 historical
+rows require requalification after the latest strict split and Agent network
+policy changes; their old binary decisions do not constitute current admission.
+The first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections
+remain intentionally unchecked; the twenty-five incremental rows below retain
+their historical evidence and are tracked as requalification-pending in the
+inventory. The intervening
 `feal-differential-cryptanalysis` row retains its manually approved Excluded
 decision, and `filter-js-from-html` remains Excluded under the current browser
 trust model. `fix-ocaml-gc` is likewise Excluded until an independent bounded
 compiler/runtime scenario runner exists. `git-multibranch` is Excluded until
 bounded system-state capture and an isolated multi-participant service/client
-runner exist. Global preflight and final pack
-sign-off therefore remain incomplete.
+runner exist. Global preflight and final pack sign-off therefore remain
+incomplete. The three DeepSWE rows below are also implemented but remain
+qualification-pending.
 
 Test-layout status is separate from admission: all twenty-five incremental rows
 use the compact shared `file_bundle` qualification proof. `dna-assembly`,

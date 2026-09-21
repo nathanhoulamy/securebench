@@ -5,6 +5,16 @@ plus eight approved rows that still require a major redesign. Approved clean and
 semantic-change designs remain in [`inventory.csv`](inventory.csv) without being
 duplicated here.
 
+The design queue is separate from executable conversion progress. The current
+inventory has 31 implemented v2 rows, 139 reviewed design-only rows, and 32
+excluded rows. Of the implemented rows, 25 retain historical Linux
+qualification evidence but are `requalification_pending` after the strict split
+and Agent network policy changes; six are `qualification_pending` and have not
+completed their first qualification. These statuses do not add an admission
+decision: a row is admitted only after its current qualification is complete and
+the final status is explicitly Approved. Excluded is a final disposition that is
+not admitted.
+
 ## Priority interpretation
 
 1. **Excluded:** do not convert. DeepSWE rows in this group still need a

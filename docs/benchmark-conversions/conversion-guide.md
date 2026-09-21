@@ -78,6 +78,18 @@ The pilot may use:
   bounded allowlisted signal schedule;
 - strict split verification with a fresh Evaluation for every Challenge.
 
+The current row schema has no `verification.execution_profile` field: strict
+split verification is mandatory. Declare Agent egress explicitly with
+`environment.agent_network: {mode: restricted, allowed_domains: [...]}` or
+`{mode: none}`. Legacy `internet`/`restricted` strings grant no destinations
+under the default tester `benchmark` policy. Tester `extend`/`replace` lists
+are explicit overrides, not evidence that the row's own resource policy is
+complete. Evaluation access remains separately controlled by reviewed checks
+and Trusted Helpers. Requalify affected behavior when these policies change;
+old run digests do not attest to the updated row.
+The converted Terminal-Bench rows' declarations and remaining live-validation
+limits are recorded in the [Agent network policy](TerminalBench/agent-network-policy.md).
+
 Do not use `filesystem_overlay` in the pilot. Its implementation remains source-gated until the
 separate root-Linux native qualification is complete. Do not use writable public assets, an
 unregistered parser/helper, or another Adapter format. When a selected row needs a
@@ -92,6 +104,13 @@ unreferenced blobs. Their impact, later fixes, and pilot mitigations are recorde
 monitored, pilot-specific run storage.
 
 ## Recommended pilot rows and order
+
+This is the original pilot selection, not the current implementation count.
+The packs now contain 28 Terminal-Bench and three DeepSWE rows. Rows 0–5 below
+are implemented but still lack completed admission records; their remaining
+work is qualification, including any component defects exposed by it. See the
+portfolio [inventory](inventory.csv) and [checklist](pilot-qualification-checklist.md)
+for progress; the “Expected new work” column records the original plan.
 
 The selection deliberately starts with clean conversions and introduces complexity gradually.
 `constraints-scheduling` is the already executable baseline and should be rerun before adding a new

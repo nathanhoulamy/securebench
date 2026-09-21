@@ -1,12 +1,14 @@
 # Current SecureBench v2 state
 
-Last reviewed: 2026-09-04
+Last alignment review: 2026-09-21 (schema/preflight and conversion records; historical
+Linux qualification evidence below retains its original scope).
 
 Implementation baseline reviewed: this branch through Output Artifacts, HTTP
 request/event-ledger/process-supervisor Trusted Helper execution, git-patch
 execution, the locally qualified filesystem-overlay implementation, and the
 subsequent architecture-wide overlay integration review, plus the compact
-qualification matrix and Terminal conversions through `install-windows-3.11`
+qualification matrix and Terminal conversions through `kv-store-grpc`, plus
+explicit Agent network declarations and mandatory strict split verification
 
 Active development branch: `split-verification-v2`
 
@@ -94,11 +96,11 @@ the runner does not invent a benchmark score.
 | Admission qualification pipeline | Not implemented |
 | Result signing | Not implemented |
 
-The executable reference packs currently contain twenty-seven Terminal-Bench rows
-and three DeepSWE rows. The twenty-four incremental conversions from `bn-fit-modify`
-through `install-windows-3.11` are Approved after deterministic,
+The executable reference packs currently contain twenty-eight Terminal-Bench rows
+and three DeepSWE rows. The twenty-five incremental conversions from `bn-fit-modify`
+through `kv-store-grpc` have recorded Approved decisions after deterministic,
 pinned-image, stopped-capture, adversarial, teardown, and model-backed
-qualification. The twenty-four rows share a declarative `file_bundle`
+qualification. The twenty-five rows share a declarative `file_bundle`
 capture-qualification matrix while retaining semantic, parser, asset-identity,
 and replay evidence in focused row tests; the financial row extends that proof
 to bounded directory entries and passive nested-file selection. The fix-code
@@ -125,6 +127,10 @@ monitor-key interaction, HTTP reachability, and host-supervised Evaluation
 lifecycle; its documented semantic changes replace live process handoff and
 host-attested child arguments with bounded restart and combined black-box
 evidence.
+`kv-store-grpc` adds three restartable gRPC service cases with a bounded
+dependency tree and wire-client observations. These 25 decisions record the
+original qualified revisions; schema/preflight success alone does not renew
+Linux qualification after row, network-policy, or runtime changes.
 The first-wave control,
 `sqlite-db-truncate`, and `vulnerable-secret` remain
 qualification-pending in their dossiers and checklist; an inventory-level
@@ -222,9 +228,10 @@ schema support.
    supervisor have executable Trusted Helper runtimes. Other helper types must
    be reviewed, registered with finite contracts, and implemented explicitly.
 2. Resource-usage evidence is not yet included in Challenge Evidence.
-3. `restricted` and `internet` both currently permit only the tester's explicit domain allowlist;
-   only `none` changes the row-level ceiling. This is safe, but the intended semantic distinction
-   should be documented or implemented before relying on it for benchmark requirements.
+3. `restricted` and `internet` both permit only explicit row domains under the default
+   `benchmark` policy. Tester `extend`/`replace` overrides are provenance-bound; legacy
+   mode strings carry no domains. Compatibility tester allowlists do not establish
+   per-row resource-access qualification.
 4. The filesystem-overlay implementation is complete on macOS but deliberately non-executable.
    Activation still requires the deferred native root-Linux quota, real-Docker isolation, and leak
    qualification recorded in `next_steps.md`. That pass must also prove real image include roots,

@@ -203,6 +203,16 @@ its own section below and must not block other implementation work.
 
 ## Active next batch: small conversion pilot on Linux
 
+Alignment checkpoint (2026-09-21): 31 executable rows exist (28 Terminal-Bench,
+three DeepSWE). Twenty-five Terminal-Bench rows have historical completed
+qualification records; the three original Terminal pilot rows and all three
+DeepSWE rows remain qualification-pending. `large-scale-text-editing` has a
+qualified passive utility but no executable row yet. Use the conversion
+inventory to distinguish design acceptance, implementation, and admission.
+Explicit Agent resource declarations and mandatory strict split verification
+are the current contract; changed policies require fresh affected qualification
+evidence rather than reuse of historical execution digests.
+
 Defer standalone benchmark-admission tooling and proceed with a deliberately small row-conversion
 pilot. The active instructions, selected rows, pack layout, component-authoring rules, manual
 qualification matrix, and Linux workflow are in
