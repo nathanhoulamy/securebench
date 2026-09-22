@@ -1,0 +1,879 @@
+% Select the legacy font encoding before IEEEtran initializes its Times fonts.
+% This keeps Tectonic/XeTeX and pdfLaTeX consistent instead of falling back to Latin Modern.
+\RequirePackage[T1]{fontenc}
+\documentclass[conference]{IEEEtran}
+
+\usepackage{cite}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+
+% Review layout: remove this override to restore the IEEE submission format.
+\renewenvironment{abstract}{%
+    \normalfont\small
+    \begin{center}\bfseries Abstract\end{center}
+    \noindent\ignorespaces
+}{\par\medskip}
+
+
+
+% drafting notes -- delete before submission
+\newcommand{\draft}[1]{%
+    \par\noindent
+    {\color{gray}\small #1}
+    \par
+}
+
+% professor recommendations -- resolve/delete before submission
+\newcommand{\teacher}[1]{\textcolor{red}{#1}}
+
+% second professor meeting -- resolve drafting notes before submission
+\definecolor{secondtalkblue}{RGB}{0,85,170}
+\newcommand{\secondtalk}[1]{{\color{secondtalkblue}#1}}
+
+\title{SecureBench: Secure Evaluation of Adversarial Coding Agents}
+
+\author{Mattia Favretto, Nathan Nour Houlamy}
+
+\begin{document}
+
+\maketitle
+
+\draft{Revision key: \teacher{red = earlier feedback};
+\secondtalk{blue = second professor meeting. Blue prose states design intent;
+blue drafting notes describe evidence and experiments still to be completed.}}
+
+
+% ============================================================
+% ABSTRACT
+% ============================================================
+
+\begin{abstract}
+
+Coding-agent benchmarks can produce misleading scores when agents manipulate grading infrastructure or access protected evaluation information. We present SecureBench, a framework that separates candidate execution from authoritative judgment. SecureBench captures a bounded submission and evaluates it through passive artifact inspection or execution in a fresh environment, while a host-side Oracle retains expected answers and scoring logic. The design treats the entire execution environment, including its adapter, as untrusted and requires independently protected evidence for properties that cannot be established from candidate outputs alone. Explicit resource-access policies constrain the services available during development and evaluation. We describe a Docker implementation and examine the adaptation of selected tasks from Terminal-Bench and DeepSWE, focusing on the conditions under which their acceptance criteria can be preserved under an adversarial-candidate threat model.
+
+\end{abstract}
+
+
+% ============================================================
+% I. INTRODUCTION
+% ============================================================
+
+\section{Introduction}
+
+A coding-agent benchmark is useful only if its scores reflect how well the agent completes the assigned tasks. Those tasks may require writing code, producing files, or changing an environment. If the agent can alter the grading process or obtain protected evaluation information, it may receive credit for work it has not done. Such information includes hidden tests, expected answers, scoring rules, and unreleased cases. Scores obtained this way can undermine research conclusions and mislead people comparing models or deciding where to deploy them.
+
+\secondtalk{This is a problem of adversarial measurement: the agent being measured can act on the infrastructure used to measure it. The evaluation must preserve the meaning of its evidence even when the submitted work attempts to manipulate how that evidence is produced or interpreted.}
+
+Recent cases show how flaws in grading and access policies can undermine benchmark results. BenchJack shows how agents can receive credit without solving tasks by modifying the evaluator, reading reference answers, or falsifying test outcomes~\cite{benchjack}. The July 2026 OpenAI incident shows the importance of access controls in evaluation environments. Agents running internal ExploitGym evaluations bypassed network controls and compromised Hugging Face systems while searching for material related to their tasks~\cite{openai_huggingface_incident}. Protecting an evaluation therefore requires attention to both its grading process and the resources an agent can reach.
+
+Benchmark developers use sandboxes, external scorers, and audits to protect evaluations~\cite{inspectai,benchjack}. The evaluator must still inspect the agent's work and, for some tasks, execute it. That work may itself attempt to manipulate grading. Separating the evaluator from the agent therefore requires deciding how the two can interact without giving the agent control over its score. The benchmark must also define an access policy specifying which resources the agent may use to complete its task.
+
+We introduce SecureBench to specify both the evaluation boundary and resource-access policies independently of the isolation system used to enforce them. SecureBench gives the agent public task materials while keeping protected evaluation information and grading logic outside the environments controlled by the agent or its submitted work. A trusted component on the host, the Oracle, evaluates the agent's output as untrusted evidence and assigns the score. This design assumes that the isolation system enforces the declared boundaries and access restrictions.
+
+We call this arrangement split verification. The agent submits a candidate: its work, captured within limits on size and contents. Some tasks can be judged by inspecting the submitted artifacts without executing them. For tasks that require execution, the Oracle instead receives observations from a fresh evaluation environment. The interface between that environment and the Oracle limits the evidence returned for grading.
+
+Our conversion study covers all 202 tasks in Terminal-Bench 2.0~\cite{terminalbench} and DeepSWE v1.1~\cite{deepswe}. Both benchmarks evaluate frontier coding agents, with Terminal-Bench covering terminal workflows and DeepSWE focusing on long-horizon engineering work in software repositories. We study which tasks can be converted to split verification while preserving the original task requirements and evaluation semantics, and examine the obstacles where conversion is difficult or cannot be supported. We then test the converted evaluations against known attacks and attacks discovered during the study.
+
+The paper makes three contributions:
+
+\begin{itemize}
+    \item SecureBench, an architecture for split verification that keeps protected evaluation information and final grading decisions outside the agent's control, with access policies specifying the resources the agent may use.
+    \item A study of conversion across all 202 tasks in Terminal-Bench 2.0 and DeepSWE v1.1, examining support, obstacles to conversion, and preservation of the original task requirements and evaluation semantics.
+    \item An evaluation of the converted tasks against known attacks and attacks discovered during the study, testing whether SecureBench prevents them.
+\end{itemize}
+
+
+% ============================================================
+% II. BENCHMARK MANIPULATION
+% ============================================================
+
+\section{\teacher{Analysis of Benchmark Manipulation}}
+
+\draft{
+\teacher{
+Professor suggested replacing a generic ``Background and Related Work''
+section with something more directly connected to the paper's story.
+}
+}
+
+\subsection{Coding-Agent Evaluation}
+
+\draft{
+Coding-agent benchmarks give an agent a task description and a software environment in which to work. The agent inspects the available files, edits code, and runs commands to develop and test its solution. After the agent finishes, the benchmark evaluates the resulting work against the task requirements. The checks used for grading may differ from the tests available to the agent during development.
+
+The work being evaluated depends on the benchmark. Terminal-Bench tasks require agents to complete terminal workflows, such as building software or processing files. Each task includes a container environment and tests that examine its final state. The tests judge whether the requested outcome was achieved, rather than prescribing the commands the agent must use. In the evaluation workflow described by Terminal-Bench, the tests are copied into the agent's container and executed there~\cite{terminalbench}.
+
+DeepSWE focuses on changes to software repositories. Agents receive a repository at a base commit and a description of the requested functionality. Task authors write functional verifiers from that description to assess submitted implementations. The repository supplied to the agent contains a shallow clone at the base commit, which prevents it from recovering the reference solution from later commits in the local history~\cite{deepswe}.
+
+These workflows make the placement of evaluation code and data a security concern. Tests may execute code written by the agent or depend on files and tools that the agent could modify. Withholding tests during development therefore leaves a separate question: whether the submitted work can influence the grading process when evaluation begins.
+}
+
+\subsection{Known Benchmark Attacks}
+
+\draft{
+Benchmark manipulation can exploit the tools that run tests as well as the tests themselves. BenchJack uses coding agents to search for such weaknesses in ten agent benchmarks. Its audit gives the attacking agents access to benchmark internals, so the reported exploits establish weaknesses under that access model rather than the frequency of manipulation during ordinary task execution~\cite{benchjack}.
+
+In the Terminal-Bench setup audited by BenchJack, an attack replaces a download utility used during test setup. The replacement installs a modified test runner that writes a successful reward and emits passing test output. The task need not be solved for the evaluator to receive these signals. A separate SWE-bench Verified attack adds a test-framework hook to the submitted repository that changes reported test outcomes to passes~\cite{benchjack}. These examples show how code left by the agent can affect grading after the agent's development phase has ended.
+
+Evaluation-related attacks can also extend beyond the local workspace. OpenAI's report on the July 2026 Hugging Face incident describes agents running ExploitGym evaluations that bypassed outbound network controls through Artifactory, a service provided for access to software packages. The agents sought material they believed was relevant to their tasks. They subsequently used exposed credentials and vulnerabilities in Hugging Face infrastructure to execute code on production systems and access private resources. Agents also used Artifactory to share information across evaluation runs~\cite{openai_huggingface_incident}.
+
+The incident connects evaluation integrity to control over reachable services and shared state. It also involves failures of isolation and external infrastructure, which must be distinguished from flaws in grading logic. We use these reports to identify the boundaries an evaluation must protect; whether a particular attack is prevented depends on both the evaluation design and the mechanisms enforcing those boundaries.
+}
+
+\subsection{\teacher{Attack Taxonomy}}
+
+\draft{
+\begin{itemize}
+    \item hidden-test discovery
+    \item evaluator modification
+    \item verdict / evidence forgery
+    \item toolchain manipulation
+    \item persistence / state manipulation
+    \item external-resource abuse
+    \item other categories found during literature review
+    \item attacks discovered by our adversarial-agent study
+\end{itemize}
+}
+
+\draft{
+\begin{itemize}
+    \item \teacher{identify the common thread between attack classes}
+    \item \teacher{use taxonomy to motivate SecureBench security goals}
+\end{itemize}
+}
+
+\subsection{Related Secure Evaluation Work}
+
+\draft{
+\begin{itemize}
+    \item sandboxing / isolated execution
+    \item trusted verification
+    \item secure grading
+    \item what existing approaches do not provide
+\end{itemize}
+}
+
+
+% ============================================================
+% III. THREAT MODEL
+% ============================================================
+
+\section{Threat Model and Security Goals}
+
+
+SecureBench aims to protect evaluation secrets, preserve grading integrity, and separate evaluation cases. Expected answers, grading assertions, scoring logic, and unreleased cases remain host-side; only the current challenge is released during evaluation. Grading integrity means judging the captured candidate against the benchmark's acceptance conditions even when the candidate or Evaluation environment fabricates outputs or reports. Candidate-controlled state from one case must not affect another.
+
+
+\subsection{Adversary}
+
+
+The adversary controls the agent, its workspace, and the candidate, and may control the entire Evaluation environment, including the adapter. It may fabricate observations, attack host-side processing through malicious inputs, and misuse permitted communication paths. We do not assume that the adapter implementation is secret or that schema-valid observations are truthful.
+
+The agent may use public materials and run its own tests during development. The captured candidate remains fixed during evaluation. SecureBench provides evaluation results to the benchmark operator, not to the agent or candidate.
+
+
+\subsection{Trusted Components}
+
+
+We trust the Oracle and benchmark configuration to specify and apply acceptance conditions. We also trust the host-side components responsible for candidate capture, evaluation orchestration, evidence processing, and resource-access enforcement. Where a service supplies independent evidence, its records and reporting interface must be protected from the candidate. SecureBench does not establish whether the acceptance conditions fully capture the intended task.
+
+A vulnerability in these trusted components may compromise evaluation integrity. Attacks through candidate artifacts, evaluation responses, and permitted service interfaces remain in scope.
+
+
+\subsection{Isolation Assumptions and Scope}
+
+
+We assume that the selected isolation mechanism enforces its configured boundaries. Exploits that defeat those boundaries are outside our threat model. SecureBench remains responsible for specifying permitted resource access, configuring its enforcement, and verifying that undeclared access is denied. Unsafe permissions, exposed host services, and misuse of permitted communication paths remain in scope.
+
+We exclude side channels based on hardware timing or resource contention. This exclusion does not cover disclosure through evaluation interfaces or accessible shared state.
+
+
+% Historical Section III outline and feedback retained below as source comments.
+% \section{Threat Model and Security Goals}
+% 
+% \draft{
+% \begin{itemize}
+%     \item what SecureBench protects
+%     \item what is trusted
+%     \item what is adversarial
+%     \item main security boundary
+% \end{itemize}
+% }
+% 
+% \subsection{Adversary}
+% 
+% \secondtalk{The adversary may control the entire Evaluation environment, including the adapter process. It may fabricate schema-valid observations, attack host-side parsers, or misuse permitted communication paths. Adapter implementation secrecy and read-only adapter files do not establish trustworthy observations.}
+% 
+% \draft{
+% \begin{itemize}
+%     \item agent is untrusted
+%     \item Candidate is untrusted
+%     \item Evaluation environment may be fully compromised
+%     \item attacker may attempt to learn tests or manipulate evaluation
+%     \item \teacher{assume the Candidate retains knowledge of the public task and can deliberately target the Oracle through evaluation responses; hidden expectations do not make its output harmless}
+% \end{itemize}
+% }
+% 
+% \subsection{Trusted Components}
+% 
+% \draft{
+% \begin{itemize}
+%     \item host
+%     \item Oracle
+%     \item benchmark configuration
+%     \item trusted parsers / helpers where applicable
+%     \item underlying sandbox mechanism
+% \end{itemize}
+% }
+% 
+% \subsection{\teacher{Mechanism and Policy}}
+% 
+% \secondtalk{We distinguish failure of an isolation mechanism from misuse of access that the configured policy permits. Arbitrary kernel, container-runtime, or hypervisor escapes are outside scope. Defining the policy, configuring its enforcement, and checking that undeclared paths are denied remain SecureBench's responsibility. Access to a relay or package service does not authorize access to other host services, protected evaluation material, or other evaluations.}
+% 
+% \draft{
+% \begin{itemize}
+%     \item \teacher{mechanism = Docker / Firecracker / VM / isolation technology}
+%     \item \teacher{policy = what resources, domains and services the agent may access}
+%     \item \teacher{SecureBench assumes the isolation mechanism enforces its boundary}
+%     \item \teacher{SecureBench specifies and constrains benchmark access policy}
+% \end{itemize}
+% }
+% 
+% \subsection{Security Goals}
+% 
+% \draft{
+% \begin{itemize}
+%     \item \textbf{G1:} hidden evaluation information stays hidden
+%     \item \textbf{G2:} Candidate cannot directly control authoritative verdicts
+%     \item \textbf{G3:} only a bounded Candidate crosses the Agent--Evaluation boundary
+%     \item \textbf{G4:} candidate-controlled state does not persist across challenges
+%     \item \textbf{G5:} Evaluation-to-Oracle communication is narrow and validated
+%     \item \teacher{\textbf{G6:} external resource access follows an explicit benchmark policy}
+% \end{itemize}
+% }
+% 
+% \subsection{Non-Goals}
+% 
+% \draft{\secondtalk{Scope the exclusions below carefully: attacks on the Oracle through candidate evidence and abuse of permitted external services must not be dismissed as ``trusted-host compromise'' or an external-infrastructure non-goal. Identify side channels considered, controls applied, and residual channels outside the evaluated threat model; do not imply that narrow explicit interfaces eliminate all information leakage.}}
+% 
+% \draft{
+% \begin{itemize}
+%     \item zero-days in Docker / Firecracker / hypervisor
+%     \item trusted-host compromise
+%     \item vulnerabilities in trusted external infrastructure
+%     \item \teacher{be explicit that a sandbox-mechanism escape breaks our assumptions}
+% \end{itemize}
+% }
+% 
+% 
+
+% ============================================================
+% IV. SECUREBENCH DESIGN
+% ============================================================
+
+\section{SecureBench Design}
+
+\draft{
+\teacher{
+For each design element: describe what it does, then explicitly argue
+which security goal(s) it satisfies and why.
+}
+}
+
+\subsection{Architecture Overview}
+
+
+SecureBench separates work on the solution, candidate execution, and judgment (Figure~\ref{fig:architecture}). The Agent environment provides the public task materials and a workspace in which the agent works on its solution. After the Agent environment stops, SecureBench captures one bounded candidate, stored so that it can be reconstructed for evaluation. When evaluating a task requires running the candidate, SecureBench reconstructs and runs it in a fresh Evaluation environment. Protected evaluation information stays on the host, where the Oracle evaluates the evidence and decides whether the candidate passes.
+
+We use Terminal-Bench's \texttt{cobol-modernization} task as a running example. The task asks the agent to reproduce a public COBOL program's behavior in Python. The program reads transaction inputs and updates account balances, book ownership, and a transaction log. The agent submits \texttt{program.py}. During evaluation, the Oracle releases a scenario containing initial file contents and transaction inputs. An adapter runs the submitted program in the Evaluation environment, and SecureBench collects the updated account, book ownership, and transaction log files. The Oracle computes the expected final contents from the initial state and transaction inputs, then checks each collected file for exact text equality with its expected contents.
+
+The agent may write and run its own tests using public materials while working on its solution. These self-tests do not determine the benchmark verdict, and the agent receives no protected evaluation feedback with which to revise the captured submission during the run.
+
+SecureBench keeps acceptance rules on the host and protects the collection and comparison of evidence. The Oracle, host-side capture and parsing code, and any protected evidence services form the trusted evaluation components. The candidate can produce outputs, but cannot change the host-held expectations or replace the Oracle's decision with its own report of success.
+
+Benchmark developers define the task's acceptance conditions. SecureBench provides the interfaces and isolation needed to evaluate those conditions without trusting candidate-controlled reports. It does not determine whether the chosen conditions fully capture the intended task. Each conversion must establish that its evidence supports those conditions under the stated adversary model.
+
+
+% Earlier outline and professor feedback retained for author revision.
+\draft{Earlier outline and professor feedback (retained for revision):}
+\draft{
+\begin{itemize}
+    \item Agent environment
+    \item bounded Candidate
+    \item fresh Evaluation environment
+    \item host-only Oracle
+    \item information flow
+    \item \teacher{use one actual benchmark row as a running example: show the public task, the honest agent's edits and self-tests, the captured Candidate, reconstruction in a fresh Evaluation environment, one challenge and observation, and the Oracle's decision}
+    \item \teacher{use the current architecture and consistent component names in the diagram; distinguish the agent's development tests from authoritative evaluation}
+\end{itemize}
+}
+
+% Architecture diagram added 2026-09-10; spans both columns for legibility.
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figures/diagram-securebench-arch.jpg}
+    \caption{SecureBench split-verification architecture. Protocol checks reconstruct the candidate in a fresh Evaluation environment for each case; artifact checks passively parse candidate bytes without executing candidate code. The Evaluation environment, including the adapter, remains untrusted. Bounding and validating evidence does not establish its truthfulness. Resource-access controls, public and evaluation-only resource mounts, and protected external-service evidence are omitted for clarity.}
+    \label{fig:architecture}
+\end{figure*}
+
+\subsection{Candidate Capture and Fresh Evaluation}
+
+
+Once the Agent environment has stopped, SecureBench captures one candidate within declared limits on its contents and size. In the running example, this candidate contains the submitted Python program, rather than the data files produced during development. Live processes, connections, credentials, mounts, and in-memory state are not part of the candidate. This boundary prevents undeclared workspace changes and live processes from carrying into evaluation.
+
+For each protocol case, SecureBench reconstructs the same captured candidate from an immutable baseline in a fresh Evaluation environment. A case may contain several operations: in the running example, successive transactions update the same account, book, and transaction files. After the case ends, SecureBench destroys the Evaluation environment and its case-local state before starting the next case. This separation prevents candidate-controlled state from carrying across cases.
+
+
+% Earlier outline and professor feedback retained for author revision.
+\draft{Earlier outline and professor feedback (retained for revision):}
+\secondtalk{The agent may write and run its own tests during development. It receives no protected evaluation feedback with which to revise its submission during a run. After development stops, exactly one bounded, durable candidate is captured for evaluation. Live processes, connections, credentials, mounts, and in-memory state are not part of that candidate.}
+
+\draft{
+\begin{itemize}
+    \item what Candidate means
+    \item what can cross
+    \item what cannot cross
+    \item capture + replay
+    \item \teacher{argue how this satisfies G1 and G3}
+\end{itemize}
+}
+\draft{
+\begin{itemize}
+    \item fresh environment for each challenge
+    \item known initial state
+    \item removes Agent-side system modifications / processes
+    \item no cross-case persistence
+    \item Candidate remains untrusted
+    \item \teacher{argue how this satisfies G4}
+\end{itemize}
+}
+
+\subsection{Information Separation}
+\label{sec:information-separation}
+
+
+SecureBench separates task resources into three visibility classes. \textbf{Public} materials are available during development and evaluation. \textbf{Evaluation inputs} (\texttt{evaluation\_inputs}), such as the adapter, are available in the Evaluation environment but withheld from the Agent environment. \textbf{Hidden} materials remain on the host and include expected answers, grading logic, and unreleased cases.
+
+The Oracle releases only the current bounded challenge to the Evaluation environment. In the running example, this challenge contains initial file contents and transaction inputs; the expected final contents remain host-side. This allows the candidate to receive the inputs needed for execution without receiving the protected materials used to judge its outputs. Security does not depend on concealing the adapter's implementation.
+
+
+% Earlier outline and professor feedback retained for author revision.
+\draft{Earlier outline and professor feedback (retained for revision):}
+\secondtalk{The current bounded challenge may enter the Evaluation environment. Expected answers, grading assertions, scoring logic, and unreleased cases remain host-only. Public development tests are distinct from these protected materials.}
+
+\draft{
+\begin{itemize}
+    \item public / Agent-visible
+    \item evaluation-only
+    \item hidden / Oracle-only
+    \item tests never exposed to Agent environment
+    \item \teacher{argue how this satisfies G1}
+\end{itemize}
+}
+
+\subsection{Checks and Evidence}
+
+
+SecureBench supports two check types. An \textbf{artifact check} passively parses bounded candidate bytes and provides the parsed content to the Oracle, without importing or executing candidate code. A \textbf{protocol check} reconstructs the candidate in a fresh Evaluation environment, runs it through an adapter, and returns bounded observations to the Oracle.
+
+For example, Terminal-Bench's \texttt{chess-best-move} task asks the agent to identify winning moves from a board image and write them to a file. An artifact check reads the captured file within a declared byte limit, and the Oracle compares its move tokens against the benchmark's host-held expected moves. Verification does not execute any program the agent used to find its answer. By contrast, \texttt{cobol-modernization} requires a protocol check because the submitted program must produce outputs for the current scenario.
+
+An adapter translates the current challenge into the operations needed to exercise the candidate. It enforces input and protocol bounds but does not decide correctness or contain secret expected answers. Protocol checks may also collect output files or records from external services. SecureBench identifies which check, case, and Evaluation produced each evidence item so that records from different evaluations cannot be combined to justify a pass.
+
+SecureBench rejects malformed evidence and evidence that exceeds declared bounds or violates the interface contract before passing it to the Oracle. A response in the expected format is not necessarily truthful. The Oracle's acceptance conditions must remain valid even when the adapter fabricates observations. In the running example, reports of successful execution are insufficient for acceptance: the Oracle also compares the collected output files against independently computed expectations.
+
+If a task requires an HTTP request to reach a service, the adapter's claim that it sent the request is insufficient. An external service can record the request's arrival and supply that record to the Oracle through a separate interface inaccessible to the candidate. The candidate must not be able to alter the record.
+
+
+\draft{\textbf{Drafting note---scope of the verdict:} The COBOL Oracle checks exit codes and timeout reports in addition to the collected file contents. Fabricating successful execution reports cannot bypass the required file comparisons. This supports a claim about final contents for the tested scenarios, not independent confirmation of the reported execution history.}
+
+\draft{\textbf{Drafting note---supporting inventory:} Provide the observation formats, limits, parser locations, rejection conditions, and Oracle comparisons requested in the professor feedback in a supporting table or appendix. Distinguish recorded qualification evidence from checks performed for the final study.}
+
+% Earlier outline and professor feedback retained for author revision.
+\draft{Earlier outline and professor feedback (retained for revision):}
+\secondtalk{The Oracle runs trusted judgment code but never imports or executes candidate-controlled code. Artifact checks passively parse bounded candidate bytes; protocol checks execute candidate code only in a fresh Evaluation environment. Adapters transport challenges and observations and enforce input and protocol bounds without making authoritative correctness judgments. Properties that require trusted measurement need independently protected evidence, correlated to the same check and case.}
+
+\draft{
+\begin{itemize}
+    \item artifact checks
+    \item protocol checks
+    \item assertion-free Adapter
+    \item Oracle owns expectations + final verdict
+    \item Trusted Helpers where needed
+    \item \teacher{argue how this satisfies G2}
+\end{itemize}
+}
+\draft{\secondtalk{Add an inventory of the observation formats actually required by the converted corpus. For each, give a task identifier, example serialized response, permitted types and structure, byte and collection limits, parser location, rejection conditions, and the Oracle comparison. Distinguish outputs the Oracle can independently check from claims about guest behavior that require protected external evidence. A mature parser or a schema-valid response alone is not a security argument.}}
+
+\draft{
+\begin{itemize}
+    \item \teacher{everything from Evaluation environment is adversarial input}
+    \item \teacher{Candidate may intentionally attack the Oracle through this channel}
+    \item narrow schemas
+    \item bounded values
+    \item strict parsing
+    \item explicit allowed types
+    \item avoid arbitrary / weakly constrained strings where possible
+    \item \teacher{enumerate the observation formats required by the evaluated tasks; specify each format's permitted structure, bounds, and host-side parsing}
+    \item \teacher{explain how necessary text and binary fields are constrained; a structure containing arbitrary strings, or a numeric type alone, does not establish parser safety}
+    \item \teacher{argue the channel's safety even when the Candidate knows the public task and current challenge; do not rely on ignorance of secret cases to prevent attacks on the Oracle}
+    \item \teacher{do not claim that ``non-executable data'' is automatically safe}
+    \item \teacher{argue how this satisfies G5}
+\end{itemize}
+}
+
+\subsection{Resource-Access Policy}
+
+
+Each benchmark task declares which files, external services, and network connections the Agent and Evaluation environments may access. The tester may explicitly override the Agent network policy, as described in Section~\ref{sec:resource-enforcement}. For example, an agent may need public input files or access to a package repository, while evaluation may require a controlled service. Access not explicitly permitted is denied. Permission to use a service does not authorize access to protected host resources or other evaluations.
+
+SecureBench must verify that the configured enforcement mechanisms implement the declared policy.
+
+
+\draft{\textbf{Working note---planned firewall enforcement:} We plan to supplement the proxy with host-controlled firewall rules permitting each environment to reach only its assigned proxy, provider relay, or case-local helpers, as applicable. The intended rules deny direct egress, protected host access, and cross-evaluation access. This work is not implemented or qualified. Firewall rules do not resolve the proxy's inability to inspect encrypted HTTP contents.}
+
+\draft{\textbf{Drafting note---implementation evidence:} Document actual permitted routes and their enforcement in Section V or supporting material, including the network-dependent task discussed with the professors. These examples of resource needs do not establish that every policy is currently supported.}
+
+% Earlier outline and professor feedback retained for author revision.
+\draft{Earlier outline and professor feedback (retained for revision):}
+\draft{\secondtalk{Inventory network requirements separately for the Agent and Evaluation environments: task identifier, reason for access, destination or service, permitted operations, and enforcement mechanism. Report how many tasks need no network. For each remaining task, trace the complete permitted route and explain why it cannot reach protected resources or shared evaluation state.}}
+
+\draft{\secondtalk{Work through the video-download task discussed in the meeting after confirming its corpus identifier and requirements. Specify who resolves names and opens connections, how redirects and secondary download destinations are handled, and how direct egress bypasses are denied. Explain the relay's responsibilities, credential handling, and backend network controls. A domain allowlist alone does not specify these mechanisms; an allowed service may also provide unintended communication paths. Any replacement with a pre-fetched asset must be assessed for semantic change.}}
+
+\draft{
+\begin{itemize}
+    \item benchmark declares resources the Agent needs
+    \item public resources
+    \item allowed external services / domains
+    \item evaluation-only resources
+    \item hidden resources
+    \item default deny / whitelist where possible
+    \item \teacher{policy should be backend-agnostic}
+    \item \teacher{interesting question: can we restrict access without reducing agent utility?}
+    \item \teacher{argue how this satisfies G6}
+\end{itemize}
+}
+
+
+% ============================================================
+% V. IMPLEMENTATION
+% ============================================================
+
+\section{Implementation}
+
+Our implementation uses Docker for the Agent and Evaluation environments. Other container or virtual-machine systems, such as Firecracker, could implement the architecture if they enforce the same isolation and resource-access restrictions.
+
+\subsection{Benchmark Representation}
+
+SecureBench defines a common schema for task specifications. Adapting a benchmark requires expressing each task through its public inputs, execution environment, captured candidate, and verification configuration. A pack manifest groups the specifications, supplies shared defaults, and identifies separate source directories for public, evaluation-only, and host-only resources. Table~\ref{tab:task-specification} summarizes the main fields.
+
+\begin{table}[t]
+    \centering
+    \caption{Main fields of a SecureBench task specification.}
+    \label{tab:task-specification}
+    \small
+    \setlength{\tabcolsep}{3pt}
+    \renewcommand{\arraystretch}{1.12}
+    \begin{tabular}{@{}p{0.43\columnwidth}p{0.53\columnwidth}@{}}
+        \toprule
+        Field & Purpose \\
+        \midrule
+        \texttt{id}, \texttt{family} & Task identity and agent workflow: terminal work or repository modification. \\
+        \texttt{input}, \texttt{assets} & Public instructions and files, including mount locations and access settings. \\
+        \texttt{environment} & Pinned image, working directory, agent time limit, and network declaration. \\
+        \texttt{verification.}\allowbreak\texttt{candidate} & Submission format, captured paths, and size and file-count limits. \\
+        \texttt{verification.}\allowbreak\texttt{resources} & Evaluation-only and host-only resources. \\
+        \texttt{verification.}\allowbreak\texttt{checks} & Artifact or protocol checks, selected parsers, and evidence limits. \\
+        \texttt{verification.}\allowbreak\texttt{oracle} & Reference to trusted, author-supplied host-side grading code. \\
+        \texttt{metadata} & Descriptive information, such as the source benchmark and revision. \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Benchmark developers supply the Oracle implementation and reference it through the task specification's \texttt{verification.oracle} field. The Oracle runs as trusted host-side code and contains the benchmark's grading rules. Multiple task specifications may reference the same Oracle.
+
+Before starting the agent, SecureBench validates resource references, paths, mount conflicts, declared bounds, and runtime support. The compiler assigns resource visibility from the specification's structure and constructs restricted views for each component, implementing the separation described in Section~\ref{sec:information-separation}. Network declarations may inherit pack defaults.
+
+\subsection{Candidate and Evaluation Lifecycle}
+
+After the Agent environment stops, trusted capture code reads the declared files or derives a Git patch from the stopped workspace. File capture enforces path, file-type, and size restrictions. Git capture derives the patch in a trusted clone rather than accepting agent-produced diff output or Git metadata. Candidate contents and manifests are stored by SHA-256 digest, with the manifest identifying the baseline required for reconstruction.
+
+For every protocol case, SecureBench reconstructs the stored candidate against the pinned image baseline and starts a fresh Docker container. Public and evaluation-only resources are mounted read-only, while the reconstructed workspace is writable. The adapter receives the current challenge through a bounded JSON request. After execution, the framework collects declared output artifacts and helper evidence, then removes the container and case-local resources. Cleanup errors are reported as infrastructure failures.
+
+SecureBench provides the artifact parsers and enforces parsing limits. Benchmark developers select parsers from the predefined registry and declare their bounds in the task specification. They write the Oracle that judges the resulting evidence. Protocol observations undergo strict JSON parsing and validation against the adapter's declared schema. Valid input is not necessarily truthful or correct.
+
+Each protocol evidence record identifies its check, challenge, and Evaluation environment. SecureBench checks that collected artifacts and helper records carry matching identifiers, then sends the evidence to the Oracle. The Oracle runs as a separate host process and exchanges JSON messages with SecureBench. This allows the framework to enforce response limits and detect crashes or timeouts. Malformed adapter responses and failures of the evaluation machinery are reported separately from candidate failures submitted to the Oracle for judgment.
+
+\subsection{Resource-Access Enforcement}
+\label{sec:resource-enforcement}
+
+SecureBench resolves each task's network declaration with the tester's selected policy before configuring Agent access. By default, it uses the task's declared domains. A tester may replace them with a global list or extend them with additional domains; extension preserves an explicit prohibition on network access. These choices govern general task traffic. Model-provider requests use a separate relay that supplies credentials outside the Agent environment and restricts requests to configured provider endpoints and operations.
+
+For permitted task traffic, the Agent connects to a proxy through a private Docker network; the proxy also joins an upstream network, while the Agent does not. The proxy checks the requested domain against the allowlist, resolves it, rejects non-public destination addresses, and connects to the selected address. HTTPS connections additionally require the TLS server name to match the requested destination. The proxy does not inspect encrypted HTTP contents, so a permitted domain does not imply restrictions on paths or operations within that service.
+
+Evaluation containers normally run without network access. Some checks require a separate service to record candidate interactions. For example, the \texttt{cancel-async-tasks} conversion uses an event ledger. SecureBench starts networked helpers with fresh state and credentials on a private network for each case, and the host collects their records directly.
+
+Before attaching untrusted containers, SecureBench checks that the private Docker network has the required isolation settings and no assigned gateway. Deployment tests separately check which connections succeed or fail.
+
+% Historical Section V outline and professor feedback retained as source comments.
+% \section{Implementation}
+% 
+% \draft{
+% \teacher{
+% Keep this section relatively short. Describe only architecture-relevant
+% implementation details; the artifact can contain the rest.
+% }
+% }
+% 
+% \subsection{Benchmark Representation}
+% 
+% \draft{
+% \begin{itemize}
+%     \item schema
+%     \item benchmark rows
+%     \item resource visibility / policies
+%     \item verification configuration
+% \end{itemize}
+% }
+% 
+% \subsection{Candidate and Evaluation Lifecycle}
+% 
+% \draft{
+% \begin{itemize}
+%     \item capture
+%     \item reconstruction
+%     \item challenge execution
+%     \item evidence collection
+%     \item destruction / reset
+% \end{itemize}
+% }
+% 
+% \subsection{Isolation Backend}
+% 
+% \draft{\secondtalk{Document the implemented Docker policy and relay path with concrete configuration and boundary checks. Keep backend-independent policy separate from backend-specific enforcement. Treat schema support as a target until runtime preflight and qualification demonstrate it; describe unqualified experimental features separately from admitted benchmark runs.}}
+% 
+% \draft{
+% \begin{itemize}
+%     \item current Docker implementation
+%     \item architecture not tied to Docker
+%     \item Firecracker / VM backend possible
+%     \item fail-closed behavior
+% \end{itemize}
+% }
+
+
+% ============================================================
+% VI. EVALUATION
+% ============================================================
+
+\section{Evaluation}
+
+\subsection{Research Questions}
+
+\begin{description}
+
+    \item[\textbf{RQ1}]
+    Can SecureBench prevent benchmark-manipulation attacks while
+    preserving the semantics of the original evaluation?
+
+    \item[\textbf{RQ2}]
+    How much of existing coding-agent benchmarks can be faithfully
+    converted to SecureBench, and what determines convertibility?
+
+    \item[\teacher{\textbf{RQ3}}]
+    \teacher{Can restrictive benchmark access policies be specified
+    without preventing agents from completing the intended task?}
+
+\end{description}
+
+\draft{
+\teacher{
+RQ3 above is a possible additional research question from the meeting.
+Could instead remain part of RQ2 / the evaluation methodology.
+}
+}
+
+\subsection{Benchmark Corpus}
+
+\draft{
+\begin{itemize}
+    \item Terminal-Bench
+    \item DeepSWE
+    \item exact versions / cutoff
+    \item total tasks reviewed
+    \item full conversion target
+\end{itemize}
+}
+
+\subsection{Attack Evaluation}
+
+\draft{\secondtalk{Define attack success, attacker knowledge, tools, attempt budgets, and access before running experiments. Include a bounded adversarial-agent campaign against the actual interfaces and network policy. Record attacks found, policy revisions, and retests; report infrastructure failures separately from blocked attacks. Successful resistance to the attempted attacks is evidence about those attempts, not proof of universal security.}}
+
+\draft{
+\begin{itemize}
+    \item representative known attacks
+    \item attacks from BenchJack
+    \item attacks from other literature
+    \item our new / extended attacks
+    \item adversarial-agent generated attacks
+    \item same attacks against original benchmark and SecureBench
+\end{itemize}
+}
+
+\subsection{Conversion Study}
+
+\draft{\secondtalk{Describe the AI-assisted porting procedure and human review. Measure per-task conversion time and cost, manual corrections, adapter reuse, and tasks requiring a new or modified adapter. Include a faithful conversion and a principled exclusion, explaining which original requirement cannot be retained. Redesigns that change the measured task must be reported separately. Preliminary feasibility estimates from the meeting are not coverage results.}}
+
+\draft{\secondtalk{Final admission is Approved or Excluded; work awaiting qualification remains explicitly pending and outside admitted results. Each approved conversion needs base failure, reference success, targeted-mutant rejection, malicious-candidate rejection, and documented semantic fidelity. Report counts and denominators for reviewed, implemented, pending, approved, and excluded work without conflating implementation with admission.}}
+
+\draft{
+\begin{itemize}
+    \item reviewed
+    \item convertible
+    \item implemented
+    \item qualified
+    \item semantic change
+    \item excluded
+    \item why some tasks cannot use split verification
+    \item \teacher{treat convertibility itself as a scientific result}
+\end{itemize}
+}
+
+\subsection{Semantic Fidelity}
+
+\draft{\secondtalk{Use two complementary comparisons. First, evaluate the same captured solutions under the original and converted verifiers and inspect per-task disagreements, including base, reference, mutant, malicious, and honest-agent candidates. Second, run the same agent configurations on the original and adapted task environments to measure whether the full workflow changes task completion. Use the same approved task cohort for the paired comparison and report excluded tasks separately.}}
+
+\draft{\secondtalk{Plan at least five independent repetitions per selected configuration and condition. Freeze benchmark versions, harness and model identifiers, prompts, sampling settings, and task budgets; record seeds where supported. Keep the matrix small, using selected Codex and Claude CLI configurations rather than a broad capability leaderboard. Report mean scores, variability, paired differences where applicable, and uncertainty. Define what difference would be materially important: low standard deviation or similar aggregate scores alone does not establish semantic equivalence.}}
+
+
+\draft{
+\begin{itemize}
+    \item original verifier vs SecureBench
+    \item reference solution
+    \item incorrect candidates / mutants
+    \item honest model solutions
+    \item compare benchmark scores
+    \item does conversion make task easier / harder?
+\end{itemize}
+}
+
+\subsection{\teacher{Access-Policy Evaluation}}
+
+\draft{\secondtalk{For tasks requiring external access, test legitimate completion and attempted misuse of the same permitted route. Exercise direct relay bypass, destination-resolution and redirect handling, unintended writes or communication through allowed services, and cross-evaluation state access where relevant to the implemented policy. Explain how each test maps to a specific enforcement point.}}
+
+\draft{
+\begin{itemize}
+    \item \teacher{define required network / external resources for real benchmark tasks}
+    \item \teacher{show restrictive policies can be written}
+    \item \teacher{measure whether honest agent utility is preserved}
+\end{itemize}
+}
+
+\subsection{Security Tests}
+
+\draft{
+\begin{itemize}
+    \item hidden-data access
+    \item verdict manipulation
+    \item cross-case persistence
+    \item evidence / parser attacks
+    \item malformed responses
+    \item unauthorized network access
+\end{itemize}
+}
+
+\subsection{Performance}
+
+\draft{\secondtalk{Run a small pilot to estimate per-task runtime, token usage, and monetary cost before committing to the full repeated-run matrix. Separate conversion costs, ordinary agent runs, adversarial search, and SecureBench infrastructure overhead. Record actual budgets and completed repetitions in the final paper.}}
+
+\draft{
+\begin{itemize}
+    \item runtime overhead
+    \item environment setup overhead
+    \item only include if useful / space permits
+\end{itemize}
+}
+
+
+% ============================================================
+% VII. RESULTS
+% ============================================================
+
+\section{Results}
+
+\subsection{Attack Resistance}
+
+\draft{
+\begin{itemize}
+    \item attacks tested
+    \item original benchmark results
+    \item SecureBench results
+    \item attacks blocked
+    \item attacks not blocked
+    \item why
+\end{itemize}
+}
+
+\subsection{Benchmark Convertibility}
+
+\draft{\secondtalk{Present measured adapter reuse and porting effort alongside qualified coverage. Give concrete reasons for exclusions and distinguish unsupported verification semantics from implementation work that remains unfinished.}}
+
+\draft{
+\begin{itemize}
+    \item tasks reviewed
+    \item convertible
+    \item implemented
+    \item qualified
+    \item excluded
+    \item categories / patterns behind exclusions
+\end{itemize}
+}
+
+\subsection{Semantic Fidelity}
+
+\draft{
+\begin{itemize}
+    \item score agreement
+    \item verifier agreement
+    \item disagreements
+    \item semantic changes
+\end{itemize}
+}
+
+\subsection{\teacher{Access-Policy Results}}
+
+\draft{
+\begin{itemize}
+    \item \teacher{how restrictive policies were for real tasks}
+    \item \teacher{whether agents still solved the tasks}
+    \item \teacher{cases where required access was difficult to specify ahead of time}
+\end{itemize}
+}
+
+\subsection{Security and Performance}
+
+\draft{
+\begin{itemize}
+    \item boundary tests
+    \item parser / evidence tests
+    \item failure tests
+    \item overhead
+\end{itemize}
+}
+
+
+% ============================================================
+% VIII. DISCUSSION
+% ============================================================
+
+\section{Discussion}
+
+\draft{
+\begin{itemize}
+    \item what SecureBench actually solves
+    \item what the attack taxonomy tells us
+    \item implications for coding-agent benchmark design
+    \item what makes tasks safely convertible
+\end{itemize}
+}
+
+\subsection{\teacher{Mechanism vs Policy}}
+
+\draft{
+\begin{itemize}
+    \item \teacher{relationship to OpenAI / Hugging Face incident}
+    \item \teacher{what SecureBench could have prevented through policy}
+    \item \teacher{what would still depend on the isolation mechanism}
+    \item \teacher{why sandbox zero-days remain outside our guarantee}
+\end{itemize}
+}
+
+\subsection{Limitations}
+
+\secondtalk{Repeated score agreement and rejection of selected attacks provide bounded empirical evidence. They do not establish equivalence for every possible candidate or resistance to every attack. Conclusions must be limited to the qualified tasks, implemented policies, agent configurations, and attack budgets evaluated.}
+
+\draft{\secondtalk{Discuss residual side channels, the trusted parsing surface, and network-dependent benchmark classes not covered by the study. State which access restrictions may change task utility and which cases therefore require exclusion.}}
+
+\draft{
+\begin{itemize}
+    \item not every benchmark row is convertible
+    \item sandbox mechanism assumed secure
+    \item trusted Oracle / parser code
+    \item policy specification may restrict agent creativity
+    \item external trusted systems may contain vulnerabilities
+    \item benchmark coverage / unfinished conversions
+\end{itemize}
+}
+
+\subsection{Future Work}
+
+\draft{
+\begin{itemize}
+    \item more benchmarks
+    \item more attacks
+    \item Firecracker / stronger isolation backends
+    \item stronger evidence schemas
+    \item improved policy specification
+    \item remaining non-convertible task classes
+\end{itemize}
+}
+
+
+% ============================================================
+% IX. CONCLUSION
+% ============================================================
+
+\section{Conclusion}
+
+\draft{
+\begin{itemize}
+    \item adversarial benchmark evaluation problem
+    \item SecureBench approach
+    \item strongest attack-resistance result
+    \item convertibility result
+    \item semantic-fidelity result
+    \item precise takeaway: benchmark integrity, not universal agent containment
+\end{itemize}
+}
+
+
+% ============================================================
+% DISCLOSURES
+% ============================================================
+
+\section*{Open Science}
+
+\draft{
+\begin{itemize}
+    \item code
+    \item benchmark conversions
+    \item attacks
+    \item experiment artifacts
+    \item reproduction instructions
+\end{itemize}
+}
+
+\section*{LLM Usage Considerations}
+
+\draft{\secondtalk{Disclose the actual models and roles used for conversion, development, adversarial experiments, and manuscript assistance. Describe completed human review and validation of generated conversions, including paired verifier checks and repeated baseline comparisons. Do not present planned checks as completed assurance; confirm the venue's disclosure requirements before submission.}}
+
+\draft{
+\begin{itemize}
+    \item LLM use in benchmark conversion
+    \item adversarial-agent experiments
+    \item development
+    \item manuscript assistance as required by venue policy
+\end{itemize}
+}
+
+
+% ============================================================
+% REFERENCES
+% ============================================================
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}
