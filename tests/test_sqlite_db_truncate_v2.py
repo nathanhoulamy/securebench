@@ -221,13 +221,20 @@ def test_duplicate_rows_cannot_inflate_recovery(tmp_path):
             id="case_mutated_words",
         ),
         pytest.param(
+            # The source verifier's set comprehension never inspects types:
+            # a stringified value simply fails to equal its float
+            # counterpart, so it is silently unscored rather than
+            # disqualifying. With every row stringified, nothing matches and
+            # the candidate falls below the recovery threshold.
             lambda rows: [{**row, "value": str(row["value"])} for row in rows],
-            "invalid_row_type",
+            "insufficient_recovery",
             id="stringified_values",
         ),
         pytest.param(
+            # Likewise, upstream happily builds ``(word, True)`` tuples; they
+            # just do not equal any expected ``(word, float)`` pair here.
             lambda rows: [{**row, "value": True} for row in rows],
-            "invalid_row_type",
+            "insufficient_recovery",
             id="boolean_values",
         ),
         pytest.param(
@@ -240,11 +247,40 @@ def test_duplicate_rows_cannot_inflate_recovery(tmp_path):
             "invalid_row_shape",
             id="rows_as_arrays",
         ),
+        pytest.param(
+            # An unhashable ``value`` (a list/object) would blow up
+            # upstream's own ``{(item["word"], item["value"]) ...}`` set
+            # comprehension with a ``TypeError``; the Oracle mirrors that
+            # crash as a whole-candidate failure rather than silently
+            # dropping just this row.
+            lambda rows: [{**row, "value": [row["value"]]} for row in rows],
+            "invalid_row_shape",
+            id="unhashable_values",
+        ),
     ],
 )
 def test_targeted_semantic_mutants_fail(tmp_path, mutator, category):
     rows = [dict(row) for row in REFERENCE_ROWS]
     assert_candidate_failure(tmp_path, mutator(rows), category)
+
+
+def test_type_mismatched_row_is_skipped_like_upstream_and_still_passes(tmp_path):
+    """Upstream never disqualifies a candidate for one badly-typed row.
+
+    The source verifier only intersects ``(word, value)`` tuples; a row that
+    cannot match anything (wrong type, extra field, or a value the recovery
+    process could not coerce) is simply absent from the intersection. Seven
+    correct rows plus one type-mismatched row therefore still passes
+    upstream (7 matches, over the ``score > 6`` threshold), and must still
+    pass here after the fix.
+    """
+    rows = [dict(row) for row in REFERENCE_ROWS] + [
+        {"word": "testword10", "value": "not-a-number"}
+    ]
+
+    result, _, _ = verify_recovery(tmp_path, rows)
+
+    assert result.status == "passed", result
 
 
 @pytest.mark.parametrize(

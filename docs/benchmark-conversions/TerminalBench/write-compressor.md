@@ -79,3 +79,24 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 ## Future conversion notes
 
 Use passive artifact verification. Extract only bounded regular `data.comp`; no candidate-controlled code executes during evaluation. The host-side Oracle enforces the original `<2500` byte predicate and decodes the artifact with a trusted memory-safe implementation of the public `decomp.c` format, comparing the resulting bytes with its trusted copy of public `data.txt`; malformed streams and decompression errors fail. The public `data.txt` and `decomp.c` remain Agent VM materials—the task image does not provide `main.rs`. Hidden tests, assertions, scoring, and reference solutions remain host-side. No candidate-reported value is trusted, and externally indistinguishable artifacts receive the same score. Verdict: clean conversion; confirmed in the final clean-conversion audit.
+
+## Implemented v2 conversion
+
+Final status: **Approved**.
+
+- Check type: one passive `artifact` check (`compressed_artifact`), parsed
+  with `securebench.opaque-bytes/v1` (a new registered profile added for this
+  row that decodes and interprets nothing beyond byte count/hash) under a
+  65,536-byte limit. No adapter; no candidate-controlled code executes during
+  verification.
+- Network policy: the row declares `agent_network: {mode: none,
+  allowed_domains: []}` — no general network egress for the Agent. Tester
+  `network_policy: extend` (used by `tester-linux.yaml`/`tester-codex.yaml`)
+  does not widen a `none` row.
+- Focused test: `tests/test_write_compressor_v2.py`.
+- Qualification evidence: recorded in
+  [`terminal-bench-qualification-record.md`](../terminal-bench-qualification-record.md)
+  ("Wave B") as 30 gate cases. The reference `data.comp` was produced by
+  compiling upstream `main.rs` with `rustc -O` inside the pinned image and
+  confirmed byte-identical against both the gcc-built C decoder and the
+  Oracle's Python decoder.

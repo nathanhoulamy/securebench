@@ -73,3 +73,21 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 ## Future conversion notes
 
 Use passive artifact verification. Extract a bounded `summary.csv`; the host-side Oracle independently parses the public log inputs, applies the fixed reference date and severity rules, and compares every expected row and count. Hidden expected rows and scoring remain host-side, and no candidate code executes during evaluation. Verdict: clean conversion; auto-approved under the first-pass policy.
+
+## Implemented v2 conversion
+
+Final status: **Approved**.
+
+- Check type: one passive `artifact` check (`summary_artifact`), parsed with
+  `securebench.strict-csv/v1` under a 16,384-byte limit. No adapter; no
+  candidate-controlled code executes during verification.
+- Network policy: the row declares `agent_network: {mode: none,
+  allowed_domains: []}` — no general network egress for the Agent. Tester
+  `network_policy: extend` (used by `tester-linux.yaml`/`tester-codex.yaml`)
+  does not widen a `none` row.
+- Focused test: `tests/test_log_summary_date_ranges_v2.py`.
+- Qualification evidence: recorded in
+  [`terminal-bench-qualification-record.md`](../terminal-bench-qualification-record.md)
+  ("Wave B — new conversions") as 30 gate cases under
+  `SECUREBENCH_DOCKER_INTEGRATION=1`, including rejection of a mutant that
+  reproduces the source's naive substring severity counter.

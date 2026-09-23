@@ -10,6 +10,8 @@ from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import CandidateStore, HostWorkspaceFilesystem, capture_file_bundle
 from securebench.execution_profiles import validate_executable_task
+from securebench.tester_config import load_tester_config
+from securebench.tester_run import candidate_byte_limit
 from securebench.verification import VerificationEngine
 from securebench.verification.json_data import json_digest
 from securebench.verification.models import ChallengeEvidence, TrustedHelperEvidence
@@ -17,6 +19,12 @@ from securebench.verification.oracle import OracleProcessSession
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# terminal-bench/hf-model-inference needs more than the framework's plain
+# file_bundle default; the pack's own tester policy (capture.max_candidate_bytes)
+# raises it, same as tests/deepswe_qualification.py applies PACK_MEMORY_LIMIT.
+TERMINAL_BENCH_MAX_CANDIDATE_BYTES = load_tester_config(
+    ROOT / "benchmarks" / "terminal-bench" / "tester-linux.yaml"
+).capture.max_candidate_bytes
 
 
 def compiled_tasks(pack_name: str):
@@ -61,10 +69,11 @@ def test_all_first_wave_rows_compile_and_pass_executable_preflight():
     # the checked-in Dockerfile because no published image exists. A bare ID is
     # immutable but host-local; see
     # docs/benchmark-conversions/terminal-bench-qualification-record.md.
-    for task in (*terminal.values(), *deep.values()):
-        validate_executable_task(task)
-        image = task.environment.image
-        assert "@sha256:" in image or image.startswith("sha256:"), task.id
+    with candidate_byte_limit(TERMINAL_BENCH_MAX_CANDIDATE_BYTES):
+        for task in (*terminal.values(), *deep.values()):
+            validate_executable_task(task)
+            image = task.environment.image
+            assert "@sha256:" in image or image.startswith("sha256:"), task.id
 
 
 def test_sqlite_recovery_preserves_source_threshold(tmp_path):

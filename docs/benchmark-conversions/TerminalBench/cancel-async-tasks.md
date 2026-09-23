@@ -204,3 +204,122 @@ standard library is sufficient.
 - Final teardown inspection found no SecureBench containers, non-default Docker
   networks, Docker volumes, Evaluation roots, event-ledger roots, or
   process-supervisor roots.
+
+## Review correction
+
+A later workaround audit (`docs/benchmark-conversions/workaround-audit.md`,
+"cancel-async-tasks") found that the implementation above did not actually
+observe the task's central requirement. In
+`v2/evaluation_inputs/cancel-async-tasks/adapter/adapter.py`, the trusted
+`TaskService`'s per-task worker slept `cleanup_ms` and then appended
+`task.cleaned` to the ledger **unconditionally** once the loopback socket
+closed, regardless of whether the Candidate's `run_tasks` had actually let
+that task's `finally` clause run. A Candidate that double-cancelled, returned
+without awaiting cancelled tasks, or called `os._exit` on `SIGINT` would be
+scored identically to one that genuinely completed cleanup, because the
+Oracle's only independent defense was a coarse process-duration proxy
+(`duration_ms >= attempted_after_ms + 150`) rather than a per-task, per-
+process fact.
+
+### Fix
+
+`task.cleaned` is now produced only when trusted adapter code observes a
+cleanup acknowledgement that originates from inside the Candidate's own
+process, from that task's own `finally` clause, and only after the trusted
+service's own cleanup delay has elapsed:
+
+- `adapter/driver.py`: each task's RPC stub now sends a one-byte cleanup
+  marker (`b"C"`) from its `finally` clause -- on every exit path, cancelled
+  or not -- immediately after (in the non-cancelled case) receiving the
+  trusted "work done" signal. It then awaits a bounded cleanup
+  acknowledgement (`b"K"`) from the service before returning, so the task
+  does not release any concurrency slot the Candidate's `run_tasks` is
+  holding until the service's genuine cleanup delay has actually elapsed.
+  This mirrors the upstream fixed `task()` function's own
+  `finally: await asyncio.sleep(cleanup_ms)` -- a real await the Candidate
+  can only skip by abandoning or killing the task.
+- `adapter/adapter.py` (`TaskService._run_task`): the "work" wait now
+  distinguishes an on-time deadline (not cancelled) from the early arrival
+  of the `"C"` marker (cancelled) using a strict single-byte match; any other
+  byte or a premature EOF is treated as ambiguous and is never credited. On
+  the non-cancelled path, the adapter first confirms the connection is still
+  reachable (sends `"D"`) before recording `task.completed`, then requires
+  the `"C"` marker to arrive within a short bound before trusting that
+  cleanup is starting. Only after that genuine marker is observed does the
+  adapter run its own `cleanup_ms` delay, append `task.cleaned`, and send the
+  `"K"` acknowledgement back. `_client_closed` (which treated any EOF as
+  proof of cleanup) was removed; `_await_byte` replaces it and returns
+  `None` on timeout, EOF, or a socket error -- callers never treat "no
+  marker" as an implicit success.
+- The Adapter remains assertion-free: it still only records observations and
+  forwards a host-delivered `SIGINT`; the Oracle (`oracle/oracle.py`) was not
+  changed. Its existing ordering checks (`cancellation_before_signal`,
+  `cleanup_before_signal`, `tasks_completed_after_signal`) already require
+  every retained ledger event to be ordered relative to the host-controlled
+  `adapter.signal_forwarded` marker, so they continue to reject a Candidate
+  that tries to puppet the loopback protocol directly (using the `host`/
+  `port` values visible in its own process) ahead of the real, host-timed
+  signal.
+- `tests/test_cancel_async_tasks_v2.py`: added `ABANDONS_CLEANUP_MUTANT`, a
+  plausible near-correct implementation that calls `task.cancel()` on
+  `SIGINT` (showing intent to cancel) but then calls `os._exit(1)` instead of
+  awaiting the cancelled tasks' cleanup. Before this fix, such a Candidate
+  scored identically to the reference; it is now included in the real-Docker
+  parametrized mutant matrix and fails.
+
+### Judgment calls
+
+- The fix adds a second RPC round trip (`"D"`/`"C"`/`"K"`) rather than the
+  single marker literally suggested in the task description. A first attempt
+  using only a one-way `"C"` marker (no `"K"` ack) passed every existing
+  mutant/malicious case but broke the **reference** solution's own
+  concurrency accounting: a task's RPC stub returned (releasing the
+  Candidate's semaphore slot) as soon as it sent `"C"`, before the adapter's
+  real `cleanup_ms` sleep and ledger append had run, so a `max_concurrent=1`
+  case could record two tasks as concurrently "active" even though the
+  Candidate's own concurrency limiting was correct. Requiring the task to
+  await a real cleanup acknowledgement before returning removes that race and
+  is a closer semantic match to upstream anyway, since upstream's own cleanup
+  (`await asyncio.sleep(cleanup_ms)`) is itself an awaited step the wrapping
+  task does not return from early.
+- `CLEANUP_ACK_TIMEOUT_SECONDS = 5.0` (in `driver.py`) is a fixed constant
+  rather than a value derived from `cleanup_ms`, to avoid adding challenge
+  fields into the Candidate-shared process's closures beyond `task_id`,
+  `host`, and `port` (unchanged from before this fix). It is generous enough
+  for loopback traffic plus a `cleanup_ms` on the order of hundreds of
+  milliseconds, while still bounded so a stalled service cannot hang a task
+  indefinitely; a genuine second cancellation while awaiting the ack still
+  interrupts it, matching upstream double-cancellation fidelity.
+- No mutant explicitly exercises "double-cancel during cleanup" or raw-socket
+  protocol puppeting of the loopback service; these were reasoned through
+  (and, for puppeting, cross-checked against the Oracle's existing signal-
+  ordering checks) but are not new required test cases per this task's scope.
+  Reusing the untouched `oracle.py` was a deliberate choice: the flaw was
+  entirely in what the Adapter reported as `task.cleaned`, not in how the
+  Oracle scores it, and the task instructions required no loosening or
+  tightening of other checks.
+
+### Re-qualification evidence (2026-09-23, this fix)
+
+- Non-Docker: `.venv/bin/python -m pytest -q -W error tests/test_cancel_async_tasks_v2.py`
+  -- `2 passed, 8 skipped`.
+- Real Docker, full parametrized matrix (reference, sequential/unbounded/
+  signal-ignoring/forged-claim/new abandons-cleanup mutants, credential
+  forgery, early cancellation, pinned-agent capture/replay):
+  `SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error
+  tests/test_cancel_async_tasks_v2.py` -- `11 passed in 181.09s`.
+- Shared row-capture qualification:
+  `SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error
+  tests/test_terminal_file_bundle_qualification.py -k cancel-async` --
+  `4 passed, 172 deselected`.
+- Full warning-strict suite: `.venv/bin/python -m pytest -q -W error` --
+  `2077 passed, 413 skipped in 138.48s`.
+- `.venv/bin/python -m tools.generate_schemas` -- no diff.
+- `.venv/bin/python -m securebench.cli audit-self --output-dir
+  /tmp/securebench-audit` -- `status=passed total=145 passed=145 failed=0
+  warnings=0 skipped=0`.
+- `git diff --check` -- clean.
+- Leak check: no `alexgshaw/cancel-async-tasks` containers, and no
+  non-default Docker networks or volumes, after the runs above.
+- Final status: **Approved**, with the corrected cleanup-authenticity
+  measurement in place.

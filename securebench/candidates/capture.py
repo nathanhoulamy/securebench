@@ -306,9 +306,24 @@ def capture_git_patch(
             raise CandidateCaptureError(
                 f"candidate patch changes too many files: {len(changed_paths)} > {spec.max_changed_files}"
             )
-        changed_bytes = 0
+        excluded_paths: list[str] = []
         for path in changed_paths:
             _validate_candidate_relative_path(path)
+            if _is_row_excluded_path(path, spec):
+                excluded_paths.append(path)
+        if excluded_paths:
+            # A row's exclude_paths keep its hidden tests out of the candidate.
+            # Edits there are dropped rather than rejecting the submission:
+            # agents routinely add or fix tests, and upstream graders never
+            # penalise that. Framework-protected paths still reject below.
+            _run_git(
+                ["reset", "--quiet", "HEAD", "--", *(f":(literal){path}" for path in excluded_paths)],
+                cwd=checkout,
+                context="drop excluded candidate paths",
+            )
+            changed_paths = tuple(path for path in changed_paths if path not in excluded_paths)
+        changed_bytes = 0
+        for path in changed_paths:
             _validate_patch_path(path, spec, normalized_protected)
             candidate_path = checkout.joinpath(*PurePosixPath(path).parts)
             if candidate_path.is_symlink():
@@ -335,6 +350,7 @@ def capture_git_patch(
                 "changed_files": list(changed_paths),
                 "changed_bytes": changed_bytes,
                 "base_commit": validated_commit,
+                "excluded_files": sorted(excluded_paths),
             },
         )
     except CandidateStoreCapacityError as exc:
@@ -533,6 +549,13 @@ def _validate_internal_symlink(path: str, target: str) -> None:
             stack.pop()
         else:
             stack.append(part)
+
+
+def _is_row_excluded_path(path: str, spec: GitPatchCandidate) -> bool:
+    """True for a row-excluded path that is not also framework-protected."""
+    return not _matches_framework_pattern(path) and _matches_patterns_portably(
+        path, spec.exclude_paths
+    )
 
 
 def _validate_patch_path(

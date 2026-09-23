@@ -12,11 +12,17 @@ MODEL_PATH = Path("/app/model_cache/sentiment_model")
 
 
 model = AutoModelForSequenceClassification.from_pretrained(MODEL, revision=REVISION)
+# The public instruction just says "download the model and save it"; this is
+# the plain upstream-default export an ordinary Agent produces: the default
+# *fast* tokenizer (which also writes tokenizer.json/special_tokens_map.json),
+# with no post-save cleanup. The row's candidate bounds are raised by tester
+# policy (benchmarks/terminal-bench/tester-*.yaml -> capture.max_candidate_bytes,
+# see docs/benchmark-conversions/TerminalBench/hf-model-inference.md, "Review
+# correction") specifically so this default six-file, 268,777,554-byte export
+# fits with headroom.
 tokenizer = AutoTokenizer.from_pretrained(MODEL, revision=REVISION)
 model.save_pretrained(MODEL_PATH)
 tokenizer.save_pretrained(MODEL_PATH)
-for optional_name in ("tokenizer.json", "special_tokens_map.json"):
-    (MODEL_PATH / optional_name).unlink()
 
 shutil.copyfile("/qualification/reference.py", "/app/app.py")
 Path("/app/hf_service_dependencies").mkdir()

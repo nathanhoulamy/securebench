@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterator
@@ -36,6 +37,8 @@ from securebench.harnesses.registry import (
 from securebench.harnesses.shared import workspace_dir_name
 from securebench.locking import FileLockError, exclusive_file_lock
 from securebench.progress import ProgressReporter, emit_progress, progress_context
+from securebench.sandboxes.docker import DOCKER_MEM_LIMIT_ENV
+from securebench.execution_profiles import MAX_CANDIDATE_BYTES_ENV
 from securebench.schemas.benchmark import FilesystemOverlayCandidate
 from securebench.tasks import BenchmarkTask
 from securebench.tester_config import TesterConfig
@@ -59,6 +62,7 @@ EXECUTION_IDENTITY_SCHEMA_VERSION = "2"
 MAX_RESULT_RECORD_BYTES = 256 * 1024
 OVERLAY_AGENT_STORAGE_DIRNAME = "overlay-agents"
 _DOCKER_EXECUTION_ENV_NAMES = (
+    "SECUREBENCH_MAX_CANDIDATE_BYTES",
     "SECUREBENCH_DOCKER_MEM_LIMIT",
     "SECUREBENCH_DOCKER_PIDS_LIMIT",
     "SECUREBENCH_DOCKER_TMPFS",
@@ -109,6 +113,20 @@ def run_tester_config(
     output_dir = config.run.output_dir.resolve()
     _validate_output_location(output_dir, pack.root)
     output_dir.mkdir(parents=True, exist_ok=True)
+    with docker_memory_limit(config.docker.memory_limit), candidate_byte_limit(
+        config.capture.max_candidate_bytes
+    ):
+        return _run_locked(config, tasks, output_dir, progress=progress, resume=resume)
+
+
+def _run_locked(
+    config: TesterConfig,
+    tasks: list[BenchmarkTask],
+    output_dir: Path,
+    *,
+    progress: ProgressReporter | None,
+    resume: bool,
+) -> TesterRunSummary:
     execution_digest = execution_config_digest(config)
     try:
         with exclusive_file_lock(output_dir / RUN_LOCK_FILENAME, blocking=False):
@@ -244,6 +262,45 @@ def _run_selected_tasks(
     )
 
 
+@contextmanager
+def candidate_byte_limit(value: int | None) -> Iterator[None]:
+    """Apply the tester's ``capture.max_candidate_bytes`` for a run."""
+    with _scoped_environment(MAX_CANDIDATE_BYTES_ENV, None if value is None else str(value)):
+        yield
+
+
+@contextmanager
+def docker_memory_limit(value: str | None) -> Iterator[None]:
+    """Apply the tester's ``docker.memory_limit`` to every sandbox in a run.
+
+    Agent and Evaluation sandboxes already honour ``SECUREBENCH_DOCKER_MEM_LIMIT``
+    wherever resource overrides are allowed, so the tester policy is carried
+    through that one channel. A conflicting operator value is rejected rather
+    than silently overridden.
+    """
+    with _scoped_environment(DOCKER_MEM_LIMIT_ENV, value):
+        yield
+
+
+@contextmanager
+def _scoped_environment(name: str, value: str | None) -> Iterator[None]:
+    """Set a policy variable for one run; reject a conflicting operator value."""
+    if value is None:
+        yield
+        return
+    existing = os.environ.get(name)
+    if existing not in (None, "", value):
+        raise ConfigError(f"tester policy {value!r} conflicts with {name}={existing!r}")
+    os.environ[name] = value
+    try:
+        yield
+    finally:
+        if existing is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = existing
+
+
 def execution_config_digest(config: TesterConfig) -> str:
     """Bind results to semantic harness and sandbox execution choices."""
     env_names = sorted(effective_harness_env_names(config.harness))
@@ -277,6 +334,10 @@ def execution_config_digest(config: TesterConfig) -> str:
         },
         "docker": {
             "overlay_workspace_bytes": config.docker.overlay_workspace_bytes,
+            "memory_limit": config.docker.memory_limit,
+        },
+        "capture": {
+            "max_candidate_bytes": config.capture.max_candidate_bytes,
         },
     }
     encoded = json.dumps(

@@ -143,7 +143,11 @@ unambiguous DNA bases.
 
 - Public: the complete prompt, digest-pinned solving image, and read-only
   `/app/sequences.fasta`, containing the circular input and desired output.
-  The Agent retains the source row's internet access.
+  The row declares `agent_network: {mode: internet, allowed_domains: []}` —
+  no domains. Upstream allowed unrestricted internet access; the admitted
+  `tester-linux.yaml`/`tester-codex.yaml` testers use `network_policy: extend`,
+  which widens this to their fixed tester-level allowlist (GitHub, package
+  indexes, HuggingFace, OS repositories, video domains).
 - Evaluation-only: none. Passive verification starts no Candidate-controlled
   runtime.
 - Host-only: `dna-insert/oracle/oracle.yaml`, `oracle.py`, an immutable copy of

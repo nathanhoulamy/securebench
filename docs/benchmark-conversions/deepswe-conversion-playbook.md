@@ -178,12 +178,14 @@ replaying the gold solution:
     pinned image with the real mount layout (`python3 ./adapter.py <
     request.json`) to see the traceback the harness wraps. A common cause:
     `shutil.copytree` into a directory already created with `mkdir`.
-14. **Evaluation containers have 1 GB of memory.** Driving a feature through a
-    heavyweight test harness package (for example Prometheus'
-    `util/teststorage`, which pulls in all of `tsdb`) can take minutes to
-    compile and get the adapter OOM-killed. Build the smallest harness that
-    exercises the scored code path — harness plumbing is not the code under
-    test — and record the substitution in the dossier.
+14. **Memory is tester policy; never work around it.** Container memory is
+    set by `docker.memory_limit` in the tester config
+    (`benchmarks/deep-swe/tester-linux.yaml`, currently `8g`), and
+    `tests/deepswe_qualification.py` qualifies under that same value. Drive
+    the feature through upstream's own test helpers (for example Prometheus'
+    `util/teststorage`). Never replace a helper, move upstream files aside,
+    or add memory-tuning flags to fit a limit. If a build exceeds the policy,
+    stop and report the measured peak so the policy can be decided.
 15. **Protocol observations are capped at 1 MiB.** `observation_bytes_per_case`
     and `maximums.observation_bytes` above `MAX_PROTOCOL_OBSERVATION_BYTES`
     fail `validate_executable_task` ("Protocol observation bound exceeds the

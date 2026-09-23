@@ -15,8 +15,25 @@ challenge_schema:
           value: {type: integer}
         required: [rpc, key]
         max_fields: 3
-  required: [operations]
-  max_fields: 1
+    wire:
+      type: object
+      properties:
+        path_prefix: {type: string, max_utf8_bytes: 200}
+        get_request_key_field: {type: integer}
+        get_response_val_field: {type: integer}
+        set_request_key_field: {type: integer}
+        set_request_value_field: {type: integer}
+        set_response_val_field: {type: integer}
+      required:
+        - path_prefix
+        - get_request_key_field
+        - get_response_val_field
+        - set_request_key_field
+        - set_request_value_field
+        - set_response_val_field
+      max_fields: 6
+  required: [operations, wire]
+  max_fields: 2
 observation_schema:
   type: object
   properties:

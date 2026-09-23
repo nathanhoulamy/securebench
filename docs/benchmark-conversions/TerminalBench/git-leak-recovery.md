@@ -175,3 +175,72 @@ image nor required by the prompt.
 captures one bounded replayable Candidate, treats the repository only as
 host-parsed data, keeps every expectation and verdict host-only, and preserves
 the source task's complete scored behavior.
+
+## Review correction
+
+A later audit (`docs/benchmark-conversions/workaround-audit.md`, "git-leak-recovery",
+category B, disclosed) found that `repository_failure` in `oracle/oracle.py` rejects
+`secret[` in **every** remaining Git object (loose or packed, reachable or
+unreachable): `if "secret[" in content: return "secret_remains_in_git_objects"` runs
+unconditionally over the whole `objects` list. Upstream's corresponding check
+(`benchmarks/terminal-bench/hidden/git-leak-recovery/tests/test_outputs.py::
+test_no_secrets_in_unreachable_objects`) only walks `git fsck --lost-found` lines
+containing `dangling` and `cat-file -p`s those specific object hashes; it never
+inspects an unreachable object that still has an incoming reference from another
+object (for example a blob or tree that is only reachable from a dangling commit's
+tree, which `git fsck` does not itself report as `dangling`). Combined with
+`test_no_secrets_in_commits` (`git log --all --grep`/`-S`, reachable refs only), the
+audit's characterization is accurate: the v2 check is strictly broader than the union
+of upstream's two assertions.
+
+**Disposition: kept, not narrowed, per the conversion guide's own exception.** The
+public instruction is explicit and does not stop at "remove it from history that
+`git fsck` happens to flag": *"clean up the secret in that repo to **make sure it
+cannot be found anywhere in that repo**"* (see "Public instruction, condensed" above).
+`docs/benchmark-conversions/conversion-guide.md` and this correction's own governing
+instructions direct keeping a check the public instruction explicitly requires even
+where upstream's test is looser, and documenting the case — this is exactly that case.
+Narrowing the check to upstream's dangling-only sweep would reopen the exact blind
+spot the original dossier's "Semantic fidelity and limitations" section already
+named and defended: a candidate that recovers the secret correctly but leaves the
+repository's reflog un-expired and un-pruned (so the object holding the leaked secret
+is still referenced by another object and is therefore never individually reported as
+`dangling`, even though `git cat-file` can still read it out of the repository)
+currently fails v2 with `secret_remains_in_git_objects` and, on inspection, would
+**pass all five of upstream's own assertions** — the repository checksum, reachable
+history, and `good_commits_preserved` checks are all unaffected by that object's
+presence, and it is not independently `dangling`. `test_targeted_mutants_and_forged_claims_fail[False-None-secret_remains_in_git_objects]`
+in `tests/test_git_leak_recovery_v2.py` is exactly this scenario (skip
+`recover_and_clean`'s reflog-expire/prune, write the correct flag value directly) and
+is retained unchanged as the regression case for it.
+
+No Oracle, Adapter, or parser code changed as a result of this correction. Because
+nothing was loosened, there is no "upstream accepts it, the old check rejected it, the
+new check accepts it" input to add for this row: the check that was already in the
+row remains, unmodified, and is the strictly conforming (not stricter) implementation
+of the public instruction, with upstream's own looser test represented as a subset of
+what v2 verifies. `intelligence_impact` is left as `none` in `inventory.csv`
+(unmodified, per this correction's scope): the retained check does not require the
+Agent to solve a different problem than the public instruction states, it only closes
+a verification gap in *how thoroughly* the stated requirement ("cannot be found
+anywhere") is checked.
+
+### Re-qualification (Docker, this correction)
+
+- No code changed; this is a re-run of the existing suite to confirm the row is
+  unaffected and still qualifies.
+- Host: 2026-09-23, Linux `7.0.0-29-generic` x86_64, Docker `29.7.2`.
+- `.venv/bin/python -m pytest -q -W error tests/test_git_leak_recovery_v2.py` →
+  `11 passed, 4 skipped in 1.28s` (skips are Docker-gated).
+- `SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error
+  tests/test_git_leak_recovery_v2.py` → `15 passed in 5.93s`, including the pinned
+  reference (`test_pinned_reference_passes`) and the three pinned targeted mutants
+  (`test_pinned_targeted_mutants_fail`: base repository with no recovery, recovery
+  without cleaning, and changed worktree — all fail without an infrastructure error).
+- `SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error
+  tests/test_terminal_file_bundle_qualification.py -k "git-leak-recovery"` →
+  `4 passed, 172 deselected in 0.43s`, including `test_base_image_fails_stopped_candidate_capture`
+  (the unmodified base image has no deliverable and fails Candidate capture) and the
+  three malicious-shape rejections (symlink, directory, oversized).
+- `docker ps -a` / `docker network ls` / `docker volume ls` show no leftover
+  `git-leak-recovery`-named container, network, or volume after these runs.

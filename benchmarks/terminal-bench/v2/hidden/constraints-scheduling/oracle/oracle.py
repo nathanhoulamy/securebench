@@ -65,19 +65,31 @@ class ScheduleOracle:
         events = calendar.get("events")
         if not isinstance(events, list):
             return [*errors, "missing_event"]
+        # Mirrors the source verifier's own matching exactly
+        # (`tests/test_outputs.py::test_structure_event_title_attendees_duration_window`):
+        # SUMMARY is a substring match (`"SUMMARY:Team Planning Meeting" in b`),
+        # each ATTENDEE line only has to *end with* the required email
+        # (`re.search(rf"^ATTENDEE[:;].*{email}$", meeting, re.I | re.M)`, which
+        # allows any prefix -- parameters, "mailto:", case differences -- before
+        # the email), and the first VEVENT satisfying both wins
+        # (`next((b for b in vevents if ...), None)`); upstream never requires
+        # the match to be unique.
         matching: list[dict[str, Any]] = []
         for event in events:
             if not isinstance(event, dict):
                 continue
             properties = _properties(event.get("properties"))
-            attendees = {
-                value.lower().removeprefix("mailto:")
-                for value in properties.get("ATTENDEE", [])
-            }
-            if "Team Planning Meeting" in properties.get("SUMMARY", []) and EMAILS <= attendees:
+            attendees = [value.lower() for value in properties.get("ATTENDEE", [])]
+            summary_matches = any(
+                "Team Planning Meeting" in value for value in properties.get("SUMMARY", [])
+            )
+            attendees_match = all(
+                any(value.endswith(email) for value in attendees) for email in EMAILS
+            )
+            if summary_matches and attendees_match:
                 matching.append(properties)
-        if len(matching) != 1:
-            return [*errors, "meeting_event_not_unique"]
+        if not matching:
+            return [*errors, "meeting_event_not_found"]
         meeting = matching[0]
         start = _one_timestamp(meeting, "DTSTART", errors)
         end = _one_timestamp(meeting, "DTEND", errors)

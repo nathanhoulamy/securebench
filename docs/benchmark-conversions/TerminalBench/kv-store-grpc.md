@@ -95,7 +95,7 @@ The executable row is `terminal-bench/kv-store-grpc` in
 
 | Public requirement | Independent evidence | Host-only decision |
 |---|---|---|
-| Define the `KVStore` protobuf service and four messages | bounded proto text is parsed passively | Oracle requires both RPC signatures and the public field names, types, and numbers |
+| Define the `KVStore` protobuf service and four messages | bounded proto text is parsed passively | Oracle requires both RPC signatures and the public field names and types; field numbers and an optional `package` are the submitter's choice, exactly as upstream treats them (see Review correction) |
 | Generate both Python bindings | both bounded UTF-8 files must exist in the stopped Candidate | Oracle requires both artifacts while live behavior proves a compatible service |
 | Implement `class Server` on port 5328 | bounded server source plus black-box HTTP/2/gRPC observations | Oracle requires the class marker and every RPC response |
 | Store, retrieve, and update integer values by string key | Adapter sends host-selected unary SetVal/GetVal calls over real gRPC framing | Oracle owns the expected state transitions and protobuf integer values |
@@ -111,14 +111,19 @@ installation, and unrelated Agent state do not cross the Candidate boundary.
 The public protocol is `securebench.kv-store-grpc/v1`. Its assertion-free
 Adapter starts `/app/server.py` with the pinned Python and Candidate dependency
 path, then uses only Python's standard library to issue unary HTTP/2/gRPC calls
-for the fixed public protobuf schema. It does not import Candidate-generated
-bindings or Candidate-installed gRPC code into the trusted client. Request,
-frame, protobuf, output, startup, and process lifetimes are bounded. The
-Adapter returns raw integer responses and errors; it contains no case values,
-expectations, score, or verdict. The host Oracle creates three seeded cases for
-set/get/update behavior, independent keys, zero updates, negative values, and
-UTF-8 keys. SecureBench replays the same immutable Candidate in a fresh
-networkless Evaluation for every case.
+for the public GetVal/SetVal/key/value/val contract. It does not import
+Candidate-generated bindings or Candidate-installed gRPC code into the trusted
+client. The wire's field numbers and full method path (including any
+`package`) are derived by the host Oracle from the same passively parsed proto
+text used for the artifact check and delivered to the Adapter inside the
+Challenge, so the Adapter talks whatever legal numbering and package the
+Candidate's own proto declares instead of a numbering fixed by SecureBench
+(see Review correction). Request, frame, protobuf, output, startup, and
+process lifetimes are bounded. The Adapter returns raw integer responses and
+errors; it contains no case values, expectations, score, or verdict. The host
+Oracle creates three seeded cases for set/get/update behavior, independent
+keys, zero updates, negative values, and UTF-8 keys. SecureBench replays the
+same immutable Candidate in a fresh networkless Evaluation for every case.
 
 The image is pinned as
 `alexgshaw/kv-store-grpc@sha256:3399400800dcb207634daa42bc1b052e831e285cc9d221eea66c47bc0fc79791`
@@ -184,3 +189,122 @@ installation and lifecycle provenance. Intelligence impact: **low**.
   tester infrastructure error and produced no Candidate.
 
 Final status: **Approved — Conversion with semantic change**.
+
+## Review correction
+
+A later audit (`docs/benchmark-conversions/workaround-audit.md`, "kv-store-grpc")
+found the Oracle and Adapter above stricter than upstream in a way that
+changes measurement: `proto_matches_contract` required the literal gold field
+numbers (`string key = 1;`, `int32 value = 2;`, `int32 val = 1;` in every
+message), and the Adapter's hand-written HTTP/2 client hard-coded those same
+numbers plus a package-free method path (`/KVStore/GetVal`, `/KVStore/SetVal`).
+Neither a field number nor the presence/absence of a `package` line is in the
+public prompt.
+
+**What upstream actually asserts.** Fetched directly from the pinned source
+snapshot (`harbor-framework/terminal-bench-2@2fd12b88aafdd04a52c298e3940bcb189f9766d6`,
+`kv-store-grpc/tests/test_outputs.py` and `tests/test.sh`):
+
+- `test_proto_file_creation` does a substring check for `"service KVStore"`,
+  `"rpc GetVal"`, `"rpc SetVal"`, `"message GetValRequest"`, and
+  `"message SetValResponse"` — names only, never a field, a type, a number, or
+  a package.
+- `test_grpc_protocol_handshake` and `test_grpc_server_functionality` build
+  their gRPC client from the **candidate's own generated** `kv_store_pb2`/
+  `kv_store_pb2_grpc` modules (`sys.path.insert(0, "/app")`) and call
+  `SetValRequest(key=..., value=...)`, `GetValRequest(key=...)`, and read
+  `response.val` — by field **name**, never by number. Protobuf field numbers
+  only affect wire encoding, which upstream's client derives itself from the
+  candidate's own compiled bindings; upstream's Python-level test code is
+  numbering-agnostic and package-agnostic.
+- The gold `solution/solve.sh` happens to use `key=1`, `value=2`, `val=1` and
+  no package, which is why the numbers looked load-bearing before this
+  correction — they are simply the author's choice, not an assertion.
+
+**What changed.** `parse_proto_contract` (renamed from `proto_matches_contract`,
+kept as a thin wrapper for compatibility) in
+`benchmarks/terminal-bench/v2/hidden/kv-store-grpc/oracle/oracle.py` now checks
+only the service/RPC names and the message field **names and types** the
+public prompt specifies (`string key`, `int32 value`, `int32 val`), exactly
+matching upstream's asserted surface plus the prompt. It still passively
+parses whatever field numbers and optional `package` the candidate's proto
+declares (rejecting only illegal protobuf field numbers: non-positive,
+`>536,870,911`, the `19000–19999` reserved range, or a duplicated number
+within one message — a proto that fails these could not compile with
+`protoc` in the first place) and returns them as a `wire` contract. The host
+Oracle attaches that `wire` contract to every Challenge it hands the protocol
+check (`next_case`), and the Adapter
+(`benchmarks/terminal-bench/v2/evaluation_inputs/kv-store-grpc/adapter/adapter.py`)
+now builds its protobuf tags and its `/<path_prefix>/GetVal|SetVal` method
+path from that contract instead of a number and path fixed by SecureBench.
+`adapter.yaml`'s `challenge_schema` was extended with the bounded `wire`
+object. This is a passive-parse black-box mechanism only: the Adapter never
+imports Candidate code or Candidate-generated bindings, and correctness is
+still independently decided behaviorally (does the server return the
+Oracle-expected values), never by trusting the proto text. A proto that lies
+about its own compiled bindings' numbering only breaks its own wire
+communication and is rejected by the unchanged behavior check (see the new
+mismatched-wire test below) — the fix does not create a new way to pass by
+merely declaring a plausible-looking schema.
+
+**Re-qualification (real Docker, `SECUREBENCH_DOCKER_INTEGRATION=1`,
+`tests/test_kv_store_grpc_v2.py` and `tests/test_terminal_file_bundle_qualification.py -k kv-store-grpc`):**
+
+- `pytest -q -W error tests/test_kv_store_grpc_v2.py -m "not docker_integration"`:
+  `25 passed, 4 skipped`.
+- `SECUREBENCH_DOCKER_INTEGRATION=1 pytest -q -W error tests/test_kv_store_grpc_v2.py -k test_reference_passes_three_fresh_networkless_evaluations`:
+  `1 passed` — reference (gold numbering, no package) still passes three
+  fresh, networkless Evaluations.
+- `SECUREBENCH_DOCKER_INTEGRATION=1 pytest -q -W error tests/test_kv_store_grpc_v2.py -k test_live_state_and_protocol_mutants_fail`:
+  `1 passed` — the four existing targeted server mutants (does-not-store,
+  ignores-keys, not-grpc, error-trailer) still fail.
+- `SECUREBENCH_DOCKER_INTEGRATION=1 pytest -q -W error tests/test_kv_store_grpc_v2.py -k test_alternate_field_numbers_and_package_proto_passes`:
+  `1 passed` — **new positive case**: a correct proto declaring
+  `package kvstore.alt.v2;` and field numbers `7, 3, 5, 9, 4` (all different
+  from gold, all upstream-legal) now passes end to end, matching upstream's
+  real acceptance. This is the case the original conversion incorrectly
+  rejected.
+- `SECUREBENCH_DOCKER_INTEGRATION=1 pytest -q -W error tests/test_kv_store_grpc_v2.py -k test_proto_claiming_different_field_numbers_than_its_own_bindings_fails`:
+  `1 passed` — **new malicious-candidate case** for the new mechanism: a
+  proto hand-edited to claim different numbers than the ones its own
+  generated bindings/server were actually compiled with still fails, because
+  the Adapter talks the numbers the (mismatched) proto text declares and the
+  real server cannot decode them.
+- `SECUREBENCH_DOCKER_INTEGRATION=1 pytest -q -W error tests/test_kv_store_grpc_v2.py`
+  (whole file, all cases together): `29 passed`.
+- `SECUREBENCH_DOCKER_INTEGRATION=1 pytest -q -W error tests/test_terminal_file_bundle_qualification.py -k kv-store-grpc`
+  (shared capture/base/missing-Candidate qualification): `5 passed, 171 deselected`.
+- Forged evidence (forged verdict-shaped stdout, forged challenge digest,
+  reused evaluation ID, wrong value/count, RPC error, server-stopped claim,
+  output flood) is still rejected — unchanged, exercised by
+  `test_oracle_rejects_semantic_mutants_and_claims` and
+  `test_oracle_rejects_missing_or_malformed_artifacts`. Fresh isolation
+  (distinct Evaluation IDs, no state crossing cases) is unchanged and
+  continues to hold across the three-case run in
+  `test_reference_passes_three_fresh_networkless_evaluations`.
+- New deterministic parser-level tests added:
+  `test_proto_contract_accepts_alternate_field_numbers_and_package`,
+  `test_proto_contract_derives_default_wire_shape_for_the_gold_numbering`,
+  and `test_proto_contract_rejects_illegal_field_numbers` (reused number,
+  reserved-range number, over-ceiling number, non-positive number).
+
+Environment note: this re-qualification ran on the shared `split-verification-v2`
+working tree while an unrelated, concurrent, uncommitted edit to the
+`terminal-bench/headless-terminal` row temporarily left a non-symlink
+constraint violated under its `vim-runtime` resource, which blocks compiling
+the *entire* Terminal-Bench pack (including this row) via
+`compile_benchmark_pack`. To avoid depending on that unrelated row's
+in-progress state, or touching it, the Docker-gated runs above were executed
+against a scratch copy of `benchmarks/`, `securebench/`, `tests/`, and
+`pyproject.toml` (symlinks dereferenced with `rsync -a -L`) built from the
+real repository's working tree *after* this fix was applied there, using the
+real repository's `.venv` interpreter and the real Docker daemon/pinned image
+digest; no `securebench/` framework code, other row, or `inventory.csv` was
+read from or written to anything but the real repository. The fix itself
+(`oracle.py`, `adapter.py`, `adapter.yaml`, and
+`tests/test_kv_store_grpc_v2.py`) lives only in the real repository at
+`/home/mfavrett/project/securebench`.
+
+No change to the row's declared public prompt, candidate shape, image, case
+count, or fidelity decision was needed. Final status is unchanged: **Approved
+— Conversion with semantic change**.

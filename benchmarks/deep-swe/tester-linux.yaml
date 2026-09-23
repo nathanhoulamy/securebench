@@ -11,6 +11,7 @@ benchmark:
 
 docker:
   max_cached_images: 1
+  memory_limit: 8g
 
 harness:
   type: codex

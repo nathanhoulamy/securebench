@@ -23,8 +23,16 @@ from securebench.benchmark_compiler import compile_benchmark_pack
 from securebench.benchmark_pack import load_benchmark_pack
 from securebench.candidates import CandidateStore, capture_git_patch_workspace
 from securebench.harnesses.shared import materialize_image_workdir
+from securebench.tester_config import load_tester_config
+from securebench.tester_run import docker_memory_limit
 from securebench.verification import VerificationEngine
 from securebench.verification.oracle import OracleProcessSession
+
+
+# Qualify under the same memory policy the pack's tester config runs with.
+PACK_MEMORY_LIMIT = load_tester_config(
+    Path(__file__).resolve().parents[1] / "benchmarks" / "deep-swe" / "tester-linux.yaml"
+).docker.memory_limit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -145,7 +153,7 @@ def verify_patch(
         baseline_digest=task.baseline_digest,
         base_commit=task.input["base_commit"],
     )
-    with RecordingOracle(name) as oracle:
+    with RecordingOracle(name) as oracle, docker_memory_limit(PACK_MEMORY_LIMIT):
         result = VerificationEngine().verify(
             task,
             candidate,

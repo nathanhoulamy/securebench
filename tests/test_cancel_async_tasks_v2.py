@@ -82,6 +82,33 @@ async def run_tasks(tasks, max_concurrent):
     print('{"verdict":"passed","score":1}')
 """
 
+ABANDONS_CLEANUP_MUTANT = """\
+import asyncio
+import os
+import signal
+
+
+async def run_tasks(tasks, max_concurrent):
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def limited(task):
+        async with semaphore:
+            await task()
+
+    running = [asyncio.create_task(limited(task)) for task in tasks]
+
+    def handle_sigint(signum, frame):
+        for running_task in running:
+            running_task.cancel()
+        # Abandon the cancelled tasks instead of awaiting their cleanup:
+        # exit the process immediately so no finally clause the tasks are
+        # suspended in ever gets a chance to run to completion.
+        os._exit(1)
+
+    signal.signal(signal.SIGINT, handle_sigint)
+    await asyncio.gather(*running, return_exceptions=True)
+"""
+
 CREDENTIAL_FORGERY = """\
 import asyncio
 import json
@@ -440,6 +467,12 @@ def test_cancel_async_oracle_accepts_reference_evidence_and_rejects_semantic_mut
             id="signal_ignoring_mutant",
         ),
         pytest.param(FORGED_CLAIM, "failed", "event_count", id="forged_claim"),
+        pytest.param(
+            ABANDONS_CLEANUP_MUTANT,
+            "failed",
+            None,
+            id="abandons_cleanup_mutant",
+        ),
     ],
 )
 def test_cancel_async_real_pinned_evaluations_reject_mutants_and_claims(

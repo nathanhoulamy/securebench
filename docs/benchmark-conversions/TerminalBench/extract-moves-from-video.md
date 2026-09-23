@@ -118,9 +118,12 @@ verdict.
 ### Resource visibility and security properties
 
 - Public: the complete prompt, YouTube URL, and digest-pinned Ubuntu image.
-  The Agent retains internet access; the Linux tester allowlist now includes
-  `youtube.com`, `googlevideo.com`, and `ytimg.com`, matching the existing
-  production Codex tester policy for this source task.
+  The row declares `agent_network: {mode: internet, allowed_domains:
+  [youtube.com, googlevideo.com, ytimg.com, pypi.org, pythonhosted.org]}` —
+  not unrestricted internet. Upstream allowed unrestricted internet access;
+  the admitted `tester-linux.yaml`/`tester-codex.yaml` testers use
+  `network_policy: extend`, which widens the effective allowlist with their
+  fixed tester-level domain list on top of the row's own declared domains.
 - Evaluation-only: none. Candidate content is never executed during
   verification.
 - Host-only: `oracle.yaml`, `oracle.py`, and the pinned expected transcript.

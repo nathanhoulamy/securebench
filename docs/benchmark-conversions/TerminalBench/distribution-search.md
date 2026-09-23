@@ -135,7 +135,12 @@ diagnostics, the check outcome, score, and verdict.
 ### Resource visibility
 
 - Public: the complete prompt and the digest-pinned solving image with NumPy
-  and SciPy. The Agent retains the source row's internet access.
+  and SciPy. The row declares `agent_network: {mode: internet,
+  allowed_domains: []}` — no domains. Upstream allowed unrestricted internet
+  access; the admitted `tester-linux.yaml`/`tester-codex.yaml` testers use
+  `network_policy: extend`, which widens this to their fixed tester-level
+  allowlist (GitHub, package indexes, HuggingFace, OS repositories, video
+  domains).
 - Evaluation-only: none. Passive artifact verification creates no
   Candidate-controlled verification runtime or network channel.
 - Host-only: `distribution-search/oracle/oracle.yaml`, `oracle.py`, the target

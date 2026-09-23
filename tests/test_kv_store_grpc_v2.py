@@ -167,6 +167,88 @@ def test_proto_contract_is_passive_and_rejects_semantic_mutants(mutation, accept
     assert module.proto_matches_contract(text) is accepted
 
 
+_ALTERNATE_PROTO = """syntax = "proto3";
+
+package kvstore.alt.v2;
+
+service KVStore {
+    rpc GetVal (GetValRequest) returns (GetValResponse) {}
+    rpc SetVal (SetValRequest) returns (SetValResponse) {}
+}
+
+message GetValRequest {
+    string key = 7;
+}
+
+message GetValResponse {
+    int32 val = 3;
+}
+
+message SetValRequest {
+    string key = 5;
+    int32 value = 9;
+}
+
+message SetValResponse {
+    int32 val = 4;
+}
+"""
+
+
+def test_proto_contract_accepts_alternate_field_numbers_and_package():
+    """Upstream builds its gRPC client from the candidate's own generated
+    bindings and never asserts a field number or a package's absence, so a
+    correct proto that chooses different numbers and declares a package
+    must be accepted exactly like the gold numbering (review correction:
+    see the kv-store-grpc dossier)."""
+    module = load_module(ORACLE, "kv_proto_alternate_numbers")
+
+    assert module.proto_matches_contract(_ALTERNATE_PROTO) is True
+    assert module.parse_proto_contract(_ALTERNATE_PROTO) == {
+        "path_prefix": "kvstore.alt.v2.KVStore",
+        "get_request_key_field": 7,
+        "get_response_val_field": 3,
+        "set_request_key_field": 5,
+        "set_request_value_field": 9,
+        "set_response_val_field": 4,
+    }
+
+
+def test_proto_contract_derives_default_wire_shape_for_the_gold_numbering():
+    module = load_module(ORACLE, "kv_proto_gold_numbers")
+    text = (QUALIFICATION / "reference.proto").read_text()
+
+    assert module.parse_proto_contract(text) == module._DEFAULT_WIRE
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        # Reused field number within one message: not legal protobuf.
+        lambda text: text.replace(
+            "string key = 1;\n    int32 value = 2;",
+            "string key = 1;\n    int32 value = 1;",
+        ),
+        # Field number inside protobuf's reserved implementation range.
+        lambda text: text.replace(
+            "string key = 1;\n    int32 value = 2;",
+            "string key = 19000;\n    int32 value = 2;",
+        ),
+        # Field number above the protobuf field-number ceiling.
+        lambda text: text.replace("int32 val = 1;\n}", "int32 val = 536870912;\n}", 1),
+        # Non-positive field number.
+        lambda text: text.replace("string key = 1;\n}", "string key = 0;\n}", 1),
+    ],
+)
+def test_proto_contract_rejects_illegal_field_numbers(mutation):
+    module = load_module(ORACLE, "kv_proto_illegal_numbers")
+    text = (QUALIFICATION / "reference.proto").read_text()
+    mutated = mutation(text)
+
+    assert mutated != text
+    assert module.proto_matches_contract(mutated) is False
+
+
 def test_oracle_cases_are_seeded_correlated_and_cover_state_semantics():
     module = load_module(ORACLE, "kv_cases")
     first = module.build_cases("first-seed")
@@ -297,6 +379,84 @@ def _prepare_reference_workspace(tmp_path: Path) -> Path:
         timeout=180,
     )
     return workspace
+
+
+def _prepare_alternate_workspace(tmp_path: Path) -> Path:
+    """Build a Candidate workspace from a proto that is correct by the
+    public prompt but uses different field numbers and declares a package,
+    reusing the unmodified reference server (it addresses fields by name,
+    never by number, exactly like upstream's own generated client)."""
+    workspace = tmp_path / "alternate-workspace"
+    workspace.mkdir()
+    qualification = tmp_path / "alternate-qualification"
+    qualification.mkdir()
+    (qualification / "reference.proto").write_text(_ALTERNATE_PROTO)
+    (qualification / "reference-server.py").write_text(
+        (QUALIFICATION / "reference-server.py").read_text()
+    )
+    shutil.copy(
+        QUALIFICATION / "prepare-reference.sh", qualification / "prepare-reference.sh"
+    )
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--user",
+            f"{os.getuid()}:{os.getgid()}",
+            "--mount",
+            f"type=bind,src={workspace},dst=/app",
+            "--mount",
+            f"type=bind,src={qualification},dst=/qualification,readonly",
+            IMAGE,
+            "sh",
+            "/qualification/prepare-reference.sh",
+        ],
+        check=True,
+        timeout=180,
+    )
+    return workspace
+
+
+@DOCKER_INTEGRATION
+def test_alternate_field_numbers_and_package_proto_passes(tmp_path):
+    """Review correction: upstream's own verifier builds its gRPC client
+    from the candidate's generated bindings, so it never pins field numbers
+    or forbids a package. A correct proto that picks different numbers and
+    declares a package must pass exactly like the gold numbering."""
+    workspace = _prepare_alternate_workspace(tmp_path)
+
+    assert (workspace / "kv-store.proto").read_text() == _ALTERNATE_PROTO
+    result, _, _ = verify_workspace(
+        compiled_task(),
+        workspace,
+        tmp_path / "alternate-store",
+        run_seed="kv-store-alternate-wire",
+    )
+
+    assert result.status == "passed", result
+
+
+@DOCKER_INTEGRATION
+def test_proto_claiming_different_field_numbers_than_its_own_bindings_fails(tmp_path):
+    """Malicious-candidate case for the new wire-derivation mechanism: a
+    proto that claims different field numbers than the bindings actually
+    compiled from it (e.g. hand-edited after ``protoc`` ran) must fail. The
+    Adapter talks the numbers the proto text declares; a server built from
+    different numbers cannot decode them, so the values it returns are
+    wrong."""
+    workspace = _prepare_reference_workspace(tmp_path)
+    (workspace / "kv-store.proto").write_text(_ALTERNATE_PROTO)
+
+    result, _, _ = verify_workspace(
+        compiled_task(),
+        workspace,
+        tmp_path / "mismatched-store",
+        run_seed="kv-store-mismatched-wire",
+    )
+
+    assert result.status == "failed", result
+    assert result.infrastructure_error is None, result
 
 
 @DOCKER_INTEGRATION

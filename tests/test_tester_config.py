@@ -28,6 +28,7 @@ def test_parse_tester_config_keeps_execution_choices_outside_rows():
             docker={
                 "max_cached_images": 2,
                 "overlay_workspace_bytes": 2147483648,
+                "memory_limit": "4g",
             },
         )
     )
@@ -38,6 +39,7 @@ def test_parse_tester_config_keeps_execution_choices_outside_rows():
     assert config.harness.env == ("OPENAI_API_KEY",)
     assert config.docker.max_cached_images == 2
     assert config.docker.overlay_workspace_bytes == 2147483648
+    assert config.docker.memory_limit == "4g"
     assert config.network_policy.mode == "benchmark"
     assert config.network_policy.allowed_domains == ()
     assert not hasattr(config, "verification")
@@ -166,6 +168,9 @@ def test_load_tester_config_rejects_an_oversized_document(tmp_path, monkeypatch)
         ({"harness": "bad"}, "root.harness must be an object"),
         ({"docker": {"max_cached_images": 0}}, "must be a positive integer"),
         ({"docker": {"overlay_workspace_bytes": True}}, "positive integer"),
+        ({"docker": {"memory_limit": 4}}, "docker.memory_limit must be a size"),
+        ({"docker": {"memory_limit": "4 GB"}}, "docker.memory_limit must be a size"),
+        ({"docker": {"memory_limit": "0g"}}, "docker.memory_limit must be a size"),
         (
             {"docker": {"overlay_workspace_bytes": MIN_OVERLAY_WORKSPACE_BYTES - 4096}},
             "must be between",
@@ -214,3 +219,76 @@ def test_load_tester_config_rejects_an_oversized_document(tmp_path, monkeypatch)
 def test_tester_config_rejects_invalid_shape(override, match):
     with pytest.raises(ConfigError, match=match):
         parse_tester_config(valid_tester_config(**override))
+
+
+def test_tester_memory_limit_applies_for_the_run_and_is_restored(monkeypatch):
+    import os
+
+    from securebench.sandboxes.docker import DOCKER_MEM_LIMIT_ENV, DockerSandbox
+    from securebench.tester_run import docker_memory_limit
+
+    monkeypatch.delenv(DOCKER_MEM_LIMIT_ENV, raising=False)
+    with docker_memory_limit("4g"):
+        assert DockerSandbox(image="img", root=".").mem_limit == "4g"
+    assert DOCKER_MEM_LIMIT_ENV not in os.environ
+    assert DockerSandbox(image="img", root=".").mem_limit == "1g"
+
+
+def test_tester_memory_limit_rejects_a_conflicting_operator_value(monkeypatch):
+    from securebench.sandboxes.docker import DOCKER_MEM_LIMIT_ENV
+    from securebench.tester_run import docker_memory_limit
+
+    monkeypatch.setenv(DOCKER_MEM_LIMIT_ENV, "2g")
+    with pytest.raises(ConfigError, match="conflicts with"):
+        with docker_memory_limit("4g"):
+            pass
+
+
+def test_tester_memory_limit_is_part_of_the_execution_identity():
+    from securebench.tester_run import execution_config_digest
+
+    harness = {"type": "command", "config": {"command": ["true"]}}
+    base = parse_tester_config(valid_tester_config(harness=harness))
+    raised = parse_tester_config(
+        valid_tester_config(harness=harness, docker={"memory_limit": "4g"})
+    )
+    assert execution_config_digest(base) != execution_config_digest(raised)
+
+
+def test_tester_capture_section_parses_and_rejects_bad_values():
+    config = parse_tester_config(valid_tester_config(capture={"max_candidate_bytes": 536870912}))
+    assert config.capture.max_candidate_bytes == 536870912
+    assert parse_tester_config(valid_tester_config()).capture.max_candidate_bytes is None
+    for bad in (0, -1, True, "512m"):
+        with pytest.raises(ConfigError, match="capture.max_candidate_bytes"):
+            parse_tester_config(valid_tester_config(capture={"max_candidate_bytes": bad}))
+    with pytest.raises(ConfigError, match="capture contains unsupported field"):
+        parse_tester_config(valid_tester_config(capture={"max_bytes": 1}))
+
+
+def test_tester_candidate_byte_limit_governs_capacity_and_is_restored(monkeypatch):
+    import os
+
+    from securebench.execution_profiles import (
+        MAX_CANDIDATE_BYTES_ENV,
+        MAX_FILE_BUNDLE_BYTES,
+        candidate_byte_capacity,
+    )
+    from securebench.tester_run import candidate_byte_limit
+
+    monkeypatch.delenv(MAX_CANDIDATE_BYTES_ENV, raising=False)
+    assert candidate_byte_capacity(MAX_FILE_BUNDLE_BYTES) == MAX_FILE_BUNDLE_BYTES
+    with candidate_byte_limit(536870912):
+        assert candidate_byte_capacity(MAX_FILE_BUNDLE_BYTES) == 536870912
+    assert MAX_CANDIDATE_BYTES_ENV not in os.environ
+
+
+def test_tester_candidate_byte_limit_is_part_of_the_execution_identity():
+    from securebench.tester_run import execution_config_digest
+
+    harness = {"type": "command", "config": {"command": ["true"]}}
+    base = parse_tester_config(valid_tester_config(harness=harness))
+    raised = parse_tester_config(
+        valid_tester_config(harness=harness, capture={"max_candidate_bytes": 536870912})
+    )
+    assert execution_config_digest(base) != execution_config_digest(raised)

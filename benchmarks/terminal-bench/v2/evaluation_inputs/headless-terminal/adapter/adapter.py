@@ -29,6 +29,18 @@ MAX_DRIVER_STREAM_BYTES = 8_192
 MAX_OBSERVED_BYTES = 4_096
 MAX_WAIT_MS = 5_000
 DRIVER_SECONDS = 25
+STOP_GRACE_SECONDS = 2.0
+
+# Read-only runtime resource vendored alongside this Adapter (see
+# ../vim-runtime/PROVENANCE.md): the exact `vim`/`vim-common`/`vim-runtime`/
+# `xxd`/`libgpm2`/`libsodium23` packages upstream's own verifier installs at
+# verification time (`apt-get install -y vim`), extracted ahead of time so
+# the networkless Evaluation container never needs to fetch them.
+VIM_RUNTIME_ROOT = Path("/opt/securebench/runtimes/vim")
+VIM_BIN_DIR = VIM_RUNTIME_ROOT / "usr" / "bin"
+VIM_LIB_DIR = VIM_RUNTIME_ROOT / "usr" / "lib" / "x86_64-linux-gnu"
+VIM_SHARE_DIR = VIM_RUNTIME_ROOT / "usr" / "share" / "vim"
+VIM_RUNTIME_DIR = VIM_SHARE_DIR / "vim90"
 
 
 def _candidate_error(code: str, message: str) -> None:
@@ -169,35 +181,69 @@ def _read_available(
     return exceeded
 
 
-def _run_driver(request: dict[str, Any]) -> tuple[str, int | None, bytes, bytes]:
+FileObservation = tuple[bool, bool, bytes]
+HttpObservation = tuple[bool, int, bool, bytes, str]
+
+
+def _run_driver(
+    request: dict[str, Any],
+    observed_path: Path,
+    http_port: int,
+    http_path: str,
+) -> tuple[str, int | None, bytes, bytes, FileObservation, HttpObservation]:
     environment = os.environ.copy()
     environment["HOME"] = str(HOME)
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
-    process = subprocess.Popen(
-        [sys.executable, str(DRIVER)],
-        cwd=APP,
-        env=environment,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
+    environment["PATH"] = f"{VIM_BIN_DIR}:{environment.get('PATH', '')}"
+    environment["VIM"] = str(VIM_SHARE_DIR)
+    environment["VIMRUNTIME"] = str(VIM_RUNTIME_DIR)
+    existing_ld_path = environment.get("LD_LIBRARY_PATH", "")
+    environment["LD_LIBRARY_PATH"] = (
+        f"{VIM_LIB_DIR}:{existing_ld_path}" if existing_ld_path else str(VIM_LIB_DIR)
     )
+
+    ready_read_fd, ready_write_fd = os.pipe()
+    environment["SECUREBENCH_READY_FD"] = str(ready_write_fd)
+    try:
+        process = subprocess.Popen(
+            [sys.executable, str(DRIVER)],
+            cwd=APP,
+            env=environment,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+            pass_fds=(ready_write_fd,),
+        )
+    finally:
+        os.close(ready_write_fd)
     if process.stdin is None or process.stdout is None or process.stderr is None:
+        os.close(ready_read_fd)
         raise RuntimeError("driver pipes were not created")
-    process.stdin.write(json.dumps(request, separators=(",", ":")).encode())
-    process.stdin.close()
+    process.stdin.write(json.dumps(request, separators=(",", ":")).encode() + b"\n")
+    process.stdin.flush()
 
     selector = selectors.DefaultSelector()
-    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    buffers = {"stdout": bytearray(), "stderr": bytearray(), "ready": bytearray()}
     for label, stream in (("stdout", process.stdout), ("stderr", process.stderr)):
         os.set_blocking(stream.fileno(), False)
         selector.register(stream, selectors.EVENT_READ, label)
+    os.set_blocking(ready_read_fd, False)
+    selector.register(ready_read_fd, selectors.EVENT_READ, "ready")
 
     status = "observed"
     exit_code: int | None = None
+    reached_ready = False
+    file_observation: FileObservation = (False, False, b"")
+    http_observation: HttpObservation = (False, 0, False, b"", "")
     deadline = time.monotonic() + DRIVER_SECONDS
     try:
-        while process.poll() is None:
+        while True:
+            if buffers["ready"]:
+                reached_ready = True
+                break
+            if process.poll() is not None:
+                break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 status = "timeout"
@@ -205,11 +251,40 @@ def _run_driver(request: dict[str, Any]) -> tuple[str, int | None, bytes, bytes]
             if _read_available(selector, buffers, min(0.1, remaining)):
                 status = "too_large"
                 break
+
         if status == "observed":
-            exit_code = process.poll()
-            if exit_code is None:
-                raise RuntimeError("driver did not report an exit status")
-        _stop_process_group(process)
+            # The Candidate terminal -- and anything it left running, such as
+            # a background service -- is still alive here: the driver either
+            # signalled readiness explicitly, or it had already exited on its
+            # own (for example, a Candidate import error). Either way this is
+            # the moment to observe bounded evidence, matching upstream's
+            # in-process ordering, before any teardown below.
+            file_observation = _observe_file(observed_path)
+            http_observation = _observe_http(http_port, http_path)
+
+        if reached_ready:
+            try:
+                process.stdin.write(b"stop\n")
+                process.stdin.flush()
+            except OSError:
+                pass
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+            stop_deadline = time.monotonic() + STOP_GRACE_SECONDS
+            while process.poll() is None:
+                remaining = stop_deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                if _read_available(selector, buffers, min(0.1, max(remaining, 0.0))):
+                    status = "too_large"
+                    break
+
+        exit_code = process.poll()
+        if status == "observed" and exit_code is None:
+            status = "timeout"
+
         drain_deadline = time.monotonic() + 0.5
         while selector.get_map() and time.monotonic() < drain_deadline:
             if _read_available(selector, buffers, 0.05):
@@ -220,7 +295,18 @@ def _run_driver(request: dict[str, Any]) -> tuple[str, int | None, bytes, bytes]
         selector.close()
         process.stdout.close()
         process.stderr.close()
-    return status, exit_code, bytes(buffers["stdout"]), bytes(buffers["stderr"])
+        try:
+            os.close(ready_read_fd)
+        except OSError:
+            pass
+    return (
+        status,
+        exit_code,
+        bytes(buffers["stdout"]),
+        bytes(buffers["stderr"]),
+        file_observation,
+        http_observation,
+    )
 
 
 def _observe_file(path: Path) -> tuple[bool, bool, bytes]:
@@ -270,7 +356,14 @@ def main() -> None:
     driver_request, observed_path, http_port, http_path = _prepare_challenge(
         request["challenge"]
     )
-    status, exit_code, driver_stdout, driver_stderr = _run_driver(driver_request)
+    (
+        status,
+        exit_code,
+        driver_stdout,
+        driver_stderr,
+        file_observation,
+        http_observation,
+    ) = _run_driver(driver_request, observed_path, http_port, http_path)
     if status == "timeout":
         _candidate_error("candidate_timeout", "Candidate terminal driver exceeded its time limit")
         return
@@ -281,10 +374,8 @@ def main() -> None:
         )
         return
 
-    file_exists, file_too_large, file_content = _observe_file(observed_path)
-    http_attempted, http_status, http_too_large, http_body, http_error = _observe_http(
-        http_port, http_path
-    )
+    file_exists, file_too_large, file_content = file_observation
+    http_attempted, http_status, http_too_large, http_body, http_error = http_observation
     encoded = lambda value: base64.b64encode(value).decode("ascii")
     print(
         json.dumps(

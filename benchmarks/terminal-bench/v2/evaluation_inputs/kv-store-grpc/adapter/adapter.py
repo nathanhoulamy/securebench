@@ -6,6 +6,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import re
 import resource
 import signal
 import socket
@@ -26,10 +27,62 @@ MAX_STREAM_BYTES = 32_768
 MAX_FRAME_BYTES = 65_536
 MAX_GRPC_BYTES = 4_096
 
+# Protobuf field-number legality: 1..2**29-1, excluding the range reserved
+# for the implementation. The Oracle passively derives these numbers (and
+# an optional package prefix) from the candidate's own declared proto
+# instead of a fixed contract, since upstream builds its client from the
+# candidate's own generated bindings and never asserts a fixed wire shape.
+MAX_FIELD_NUMBER = 536_870_911
+RESERVED_FIELD_LOW = 19_000
+RESERVED_FIELD_HIGH = 19_999
+MAX_PATH_PREFIX_BYTES = 200
+_PATH_PREFIX_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*")
+_WIRE_FIELDS = {
+    "path_prefix",
+    "get_request_key_field",
+    "get_response_val_field",
+    "set_request_key_field",
+    "set_request_value_field",
+    "set_response_val_field",
+}
 
-def _operations(challenge: Any) -> list[dict[str, Any]]:
-    if not isinstance(challenge, dict) or set(challenge) != {"operations"}:
-        raise ValueError("challenge must contain exactly the operations list")
+
+def _field_number(value: Any) -> int:
+    if type(value) is not int:
+        raise ValueError("wire field number must be an integer")
+    if not 1 <= value <= MAX_FIELD_NUMBER:
+        raise ValueError("wire field number is out of range")
+    if RESERVED_FIELD_LOW <= value <= RESERVED_FIELD_HIGH:
+        raise ValueError("wire field number is reserved")
+    return value
+
+
+def _wire_contract(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict) or set(raw) != _WIRE_FIELDS:
+        raise ValueError("wire contract has invalid fields")
+    path_prefix = raw["path_prefix"]
+    if (
+        not isinstance(path_prefix, str)
+        or len(path_prefix.encode("utf-8")) > MAX_PATH_PREFIX_BYTES
+        or _PATH_PREFIX_RE.fullmatch(path_prefix) is None
+    ):
+        raise ValueError("wire path prefix is invalid")
+    return {
+        "path_prefix": path_prefix,
+        "get_request_key_field": _field_number(raw["get_request_key_field"]),
+        "get_response_val_field": _field_number(raw["get_response_val_field"]),
+        "set_request_key_field": _field_number(raw["set_request_key_field"]),
+        "set_request_value_field": _field_number(raw["set_request_value_field"]),
+        "set_response_val_field": _field_number(raw["set_response_val_field"]),
+    }
+
+
+def _operations(challenge: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if not isinstance(challenge, dict) or set(challenge) != {"operations", "wire"}:
+        raise ValueError(
+            "challenge must contain exactly the operations list and wire contract"
+        )
+    wire = _wire_contract(challenge["wire"])
     raw = challenge["operations"]
     if not isinstance(raw, list) or not 1 <= len(raw) <= 8:
         raise ValueError("operations must be a bounded non-empty list")
@@ -56,7 +109,7 @@ def _operations(challenge: Any) -> list[dict[str, Any]]:
             ):
                 raise ValueError("SetVal operation has invalid fields")
             result.append({"rpc": rpc, "key": key, "value": value})
-    return result
+    return result, wire
 
 
 def _varint(value: int) -> bytes:
@@ -70,11 +123,20 @@ def _varint(value: int) -> bytes:
     return bytes(encoded)
 
 
-def _request_message(operation: dict[str, Any]) -> bytes:
+def _tag(field: int, wire_type: int) -> bytes:
+    return _varint((field << 3) | wire_type)
+
+
+def _request_message(operation: dict[str, Any], wire: dict[str, Any]) -> bytes:
     key = operation["key"].encode("utf-8")
-    message = b"\x0a" + _varint(len(key)) + key
+    key_field = (
+        wire["get_request_key_field"]
+        if operation["rpc"] == "get"
+        else wire["set_request_key_field"]
+    )
+    message = _tag(key_field, 2) + _varint(len(key)) + key
     if operation["rpc"] == "set":
-        message += b"\x10" + _varint(operation["value"])
+        message += _tag(wire["set_request_value_field"], 0) + _varint(operation["value"])
     return message
 
 
@@ -91,7 +153,7 @@ def _read_varint(data: bytes, offset: int) -> tuple[int, int]:
     raise ValueError("oversized protobuf varint")
 
 
-def _response_value(message: bytes) -> int:
+def _response_value(message: bytes, val_field: int) -> int:
     offset = 0
     value = 0
     found = False
@@ -100,7 +162,7 @@ def _response_value(message: bytes) -> int:
         field, wire = tag >> 3, tag & 7
         if wire == 0:
             item, offset = _read_varint(message, offset)
-            if field == 1:
+            if field == val_field:
                 value = item & 0xFFFFFFFF
                 found = True
         elif wire == 1:
@@ -265,7 +327,7 @@ def _receive_exact(connection: socket.socket, size: int) -> bytes:
     return bytes(chunks)
 
 
-def _grpc_call(path: str, message: bytes) -> int:
+def _grpc_call(path: str, message: bytes, val_field: int) -> int:
     body = b"\x00" + len(message).to_bytes(4, "big") + message
     with socket.create_connection(("127.0.0.1", PORT), timeout=RPC_SECONDS) as connection:
         connection.settimeout(RPC_SECONDS)
@@ -328,7 +390,7 @@ def _grpc_call(path: str, message: bytes) -> int:
     length = int.from_bytes(data[1:5], "big")
     if length > MAX_GRPC_BYTES or len(data) != length + 5:
         raise ValueError("malformed gRPC message framing")
-    return _response_value(bytes(data[5:]))
+    return _response_value(bytes(data[5:]), val_field)
 
 
 def _child_limits() -> None:
@@ -395,10 +457,15 @@ def _stream(file: Any) -> tuple[bytes, bool]:
     return file.read(MAX_STREAM_BYTES), size > MAX_STREAM_BYTES
 
 
-def _run(operation: dict[str, Any]) -> dict[str, Any]:
-    path = "/KVStore/GetVal" if operation["rpc"] == "get" else "/KVStore/SetVal"
+def _run(operation: dict[str, Any], wire: dict[str, Any]) -> dict[str, Any]:
+    if operation["rpc"] == "get":
+        path = f"/{wire['path_prefix']}/GetVal"
+        val_field = wire["get_response_val_field"]
+    else:
+        path = f"/{wire['path_prefix']}/SetVal"
+        val_field = wire["set_response_val_field"]
     try:
-        value = _grpc_call(path, _request_message(operation))
+        value = _grpc_call(path, _request_message(operation, wire), val_field)
         return {"status": "returned", "val": value, "error": ""}
     except (OSError, ValueError) as error:
         return {"status": "error", "val": 0, "error": str(error)[:384]}
@@ -406,11 +473,11 @@ def _run(operation: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> None:
     request = json.load(sys.stdin)
-    operations = _operations(request["challenge"])
+    operations, wire = _operations(request["challenge"])
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         process = _start_service(stdout, stderr)
         started = _port_ready(process)
-        responses = [_run(operation) for operation in operations] if started else []
+        responses = [_run(operation, wire) for operation in operations] if started else []
         running = process.poll() is None
         exit_code = process.poll()
         _stop(process)

@@ -75,3 +75,22 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 ## Future conversion notes
 
 Use passive artifact verification. The public retrieval data and model information remain available in the Agent VM. Extract the bounded one-line `result.txt` and compare it in the host-side Oracle with the host-held expected fifth-ranked document, reproducing the original stripping and exact-string predicate. Candidate-controlled code need not execute during evaluation; hidden tests, the expected answer, scoring logic, and reference solution remain outside both VMs. The original exact-answer assertion is fully externally observable and semantically unchanged. Verdict: clean conversion; confirmed in the final clean-conversion audit.
+
+## Implemented v2 conversion
+
+Final status: **Approved**.
+
+- Check type: one passive `artifact` check (`retrieved_document_artifact`),
+  parsed with `securebench.utf8-text/v1` under a 4,096-byte limit. No
+  adapter; no candidate-controlled code executes during verification.
+- Network policy: the row declares `agent_network: {mode: restricted,
+  allowed_domains: [huggingface.co, hf.co, xethub.hf.co, pypi.org,
+  pythonhosted.org]}`. Upstream allowed unrestricted internet access; the
+  admitted `tester-linux.yaml`/`tester-codex.yaml` testers use
+  `network_policy: extend`, which adds their fixed tester-level allowlist on
+  top of these declared domains.
+- Focused test: `tests/test_mteb_exact_answer_v2.py` (shared with
+  `mteb-leaderboard`).
+- Qualification evidence: recorded in
+  [`terminal-bench-qualification-record.md`](../terminal-bench-qualification-record.md)
+  ("Wave B") as 31 gate cases.

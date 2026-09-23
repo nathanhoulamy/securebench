@@ -67,42 +67,67 @@ def build_cases(run_seed: str) -> list[dict[str, Any]]:
     server = "/app/.securebench-case/server"
     return [
         _case(
+            # Wait matches upstream's own wait exactly
+            # (`tests/test_outputs.py::test_send_non_interactive_command`:
+            # `send_keystrokes("\n", wait_sec=1)`).
             steps=[
                 _step(f"printf '%s' '{values[0]}' > {observed}/noninteractive"),
-                _step("\n", 700),
+                _step("\n", 1_000),
             ],
             file_name="noninteractive",
             expected_file=values[0],
         ),
         _case(
+            # Waits match upstream's own waits exactly
+            # (`tests/test_outputs.py::test_shell_state_persists_between_commands`:
+            # both `send_keystrokes("\n", wait_sec=0.5)`).
             steps=[
                 _step(f"export SECUREBENCH_FILE={observed}/persistent"),
-                _step("\n", 300),
+                _step("\n", 500),
                 _step(f"printf '%s' '{values[1]}' > \"$SECUREBENCH_FILE\""),
-                _step("\n", 700),
+                _step("\n", 500),
             ],
             file_name="persistent",
             expected_file=values[1],
         ),
         _case(
+            # Restored to match upstream's real interactive-program case
+            # (`tests/test_outputs.py:test_send_interactive_command`): open
+            # vim, enter insert mode, type the value, escape, and write+quit.
+            # Upstream's own `tests/test.sh` installs vim at verification
+            # time (`apt-get install -y vim`); v2 vendors the identical
+            # pinned packages read-only instead (see
+            # `v2/evaluation_inputs/headless-terminal/vim-runtime/PROVENANCE.md`)
+            # so the same scenario runs with no Evaluation-time network access.
             steps=[
-                _step("python -q"),
+                _step(f"vim {observed}/interactive"),
+                _step("\n", 2_000),
+                _step("i", 500),
                 _step("\n", 500),
-                _step(
-                    f"open('{observed}/interactive','w').write('{values[2]}')"
-                ),
+                _step(f"{values[2]}\n", 500),
+                _step("\x1b", 500),
+                _step(":wq"),
                 _step("\n", 500),
-                _step("\x04", 300),
             ],
             file_name="interactive",
             expected_file=values[2],
         ),
         _case(
+            # The two real waits below match upstream's own waits exactly
+            # (`tests/test_outputs.py::test_cancel_command`: both
+            # `send_keystrokes(..., wait_sec=0.5)`). The `sleep 2` (vs.
+            # upstream's `sleep 10`) and the trailing 1.7 s step are an
+            # unrelated, previously reviewed and documented fidelity
+            # improvement (see the dossier's "Fidelity decision"): they
+            # observe cancellation after the original delayed command would
+            # have completed, instead of upstream's own immediate-absence
+            # false positive. Neither is a "wait" with an upstream
+            # counterpart, so neither is touched here.
             steps=[
                 _step(
                     f"sleep 2 && printf '%s' '{values[3]}' > {observed}/cancelled"
                 ),
-                _step("\n", 400),
+                _step("\n", 500),
                 _step("\x03", 500),
                 _step("", 1_700),
             ],
@@ -110,24 +135,30 @@ def build_cases(run_seed: str) -> list[dict[str, Any]]:
             expected_file=None,
         ),
         _case(
+            # Wait matches upstream's own wait exactly
+            # (`tests/test_outputs.py::test_startup_files`:
+            # `send_keystrokes("\n", wait_sec=0.5)`).
             startup=f"export SECUREBENCH_STARTUP_VALUE={values[4]}\n",
             steps=[
                 _step(
                     f"printf '%s' \"$SECUREBENCH_STARTUP_VALUE\" > {observed}/startup"
                 ),
-                _step("\n", 700),
+                _step("\n", 500),
             ],
             file_name="startup",
             expected_file=values[4],
         ),
         _case(
+            # Wait matches upstream's own wait exactly
+            # (`tests/test_outputs.py::test_background_commands`:
+            # `send_keystrokes("\n", wait_sec=5)`).
             server_body=values[5],
             steps=[
                 _step(
                     "python -m http.server 18080 --bind 127.0.0.1 "
                     f"--directory {server} &"
                 ),
-                _step("\n", 1_200),
+                _step("\n", 5_000),
             ],
             file_name="background-unused",
             expected_file=None,

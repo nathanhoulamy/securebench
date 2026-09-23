@@ -116,7 +116,59 @@ def test_oracle_builds_seeded_cases_for_every_public_behavior():
         for step in item["challenge"]["steps"]
     ]
     assert b"\x03" in decoded_steps
-    assert b"\x04" in decoded_steps
+    assert b"vim " in b"".join(decoded_steps)
+    assert b"\x1b" in decoded_steps
+    assert b":wq" in decoded_steps
+
+
+def test_case_waits_now_match_upstreams_own_waits_exactly():
+    """Regression test for the audit finding that several non-vim cases'
+    waits were tighter than upstream's own waits
+    (`docs/benchmark-conversions/workaround-audit.md`, "headless-terminal":
+    "Waits are tighter than upstream: 5 s -> 1.2 s, 1 s -> 0.7 s and
+    2 s -> 0.5 s"). The 2 s -> 0.5 s (vim) case was already restored in an
+    earlier correction (see the dossier's "Review correction" section); this
+    covers the remaining five non-vim cases against upstream's own
+    `tests/test_outputs.py` wait_sec values.
+
+    A too-tight wait can reject a correct implementation whose real
+    command-completion time is between the old (too tight) wait and
+    upstream's actual wait -- exactly the input upstream accepts that the old
+    v2 check rejected.
+    """
+    oracle_module = load_module(ORACLE, "headless_terminal_oracle_waits")
+    cases = oracle_module.build_cases("wait-regression-seed")
+
+    def wait_ms_values(index: int) -> list[int]:
+        return [step["wait_ms"] for step in cases[index]["challenge"]["steps"]]
+
+    # test_send_non_interactive_command: send_keystrokes("\n", wait_sec=1)
+    assert wait_ms_values(0) == [0, 1_000]
+    # test_shell_state_persists_between_commands: both waits are wait_sec=0.5
+    assert wait_ms_values(1) == [0, 500, 0, 500]
+    # test_send_interactive_command (vim), already matching upstream exactly
+    assert wait_ms_values(2) == [0, 2_000, 500, 500, 500, 500, 0, 500]
+    # test_cancel_command: both real waits are wait_sec=0.5. The trailing
+    # 1.7 s step and the shorter `sleep 2` command are an unrelated,
+    # previously reviewed and documented fidelity improvement (observing
+    # cancellation after the original delayed command would have completed),
+    # not a "wait" with an upstream counterpart, so they are untouched.
+    assert wait_ms_values(3) == [0, 500, 500, 1_700]
+    # test_startup_files: wait_sec=0.5
+    assert wait_ms_values(4) == [0, 500]
+    # test_background_commands: wait_sec=5
+    assert wait_ms_values(5) == [0, 5_000]
+
+    # A concrete, plausible correct implementation: its real command
+    # completion time for the non-interactive case is 850 ms (independent of
+    # what the driver asks it to wait). The previous, too-tight 700 ms v2
+    # wait would have rejected it (its file write had not yet been observed
+    # by the time the Adapter read the file); upstream's own 1000 ms wait --
+    # now restored here -- accepts it.
+    old_too_tight_wait_ms = 700
+    plausible_real_completion_ms = 850
+    new_wait_ms = wait_ms_values(0)[-1]
+    assert old_too_tight_wait_ms < plausible_real_completion_ms <= new_wait_ms
 
 
 def test_oracle_accepts_independent_correct_evidence():
@@ -224,6 +276,67 @@ def test_reference_passes_six_fresh_pinned_evaluations(tmp_path):
     assert len(set(behavior.evidence_digests)) == 6
 
 
+PTY_FORK_REFERENCE = b'''from base_terminal import BaseTerminal
+import os
+import pty
+import time
+from pathlib import Path
+
+
+class HeadlessTerminal(BaseTerminal):
+    """A non-daemonizing, pexpect/ptyprocess-style implementation.
+
+    Unlike the tmux-backed qualification reference above, this owns its pty
+    and child bash directly in this same process (`pty.fork()`, like
+    `pexpect`/`ptyprocess` do), instead of handing off to an independently
+    daemonized `tmux` server. Before the Adapter fix, killing this driver's
+    process group -- or even letting it exit on its own -- before observing
+    bounded evidence would tear down the pty and its foreground session,
+    losing the background service the Candidate started
+    (docs/benchmark-conversions/workaround-audit.md: "pexpect or
+    ptyprocess-style implementations send SIGHUP to the background server and
+    fail v2, even though they pass upstream"). It is a valid, upstream-passing
+    implementation and must still pass here.
+    """
+
+    def __init__(self):
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.execvp(
+                "bash",
+                ["bash", "--noprofile", "--rcfile", str(Path.home() / ".bashrc"), "-i"],
+            )
+        self._pid = pid
+        self._fd = fd
+
+    def send_keystrokes(self, keystrokes: str, wait_sec: float = 0.0) -> None:
+        os.write(self._fd, keystrokes.encode())
+        time.sleep(wait_sec)
+'''
+
+
+@DOCKER_INTEGRATION
+def test_non_daemonizing_pty_reference_passes_six_fresh_pinned_evaluations(tmp_path):
+    """A pexpect/ptyprocess-style positive control for the HTTP-ordering fix.
+
+    Regression coverage for the audit finding that the Adapter used to probe
+    the file/HTTP evidence only after the driver's terminal was already torn
+    down, which rejected valid non-tmux implementations that upstream itself
+    accepts.
+    """
+    result, _, _ = verify_workspace(
+        compiled_task(),
+        _workspace(tmp_path, PTY_FORK_REFERENCE),
+        tmp_path / "store",
+        run_seed="headless-terminal-pty-fork",
+    )
+
+    assert result.status == "passed", result
+    behavior = result.checks[0]
+    assert behavior.cases == 6
+    assert len(set(behavior.evidence_digests)) == 6
+
+
 @DOCKER_INTEGRATION
 def test_semantic_and_malicious_mutants_fail_real_evaluations(tmp_path):
     ignored_interrupt = REFERENCE.read_text().replace(
@@ -241,6 +354,55 @@ def test_semantic_and_malicious_mutants_fail_real_evaluations(tmp_path):
         "forged-output": b'''from base_terminal import BaseTerminal\nclass HeadlessTerminal(BaseTerminal):\n def __init__(self): print('{"verdict":"passed","score":1}')\n def send_keystrokes(self,keystrokes,wait_sec=0): pass\n''',
         "output-flood": b'''from base_terminal import BaseTerminal\nprint("x"*9000)\nclass HeadlessTerminal(BaseTerminal):\n def send_keystrokes(self,keystrokes,wait_sec=0): pass\n''',
         "ignored-interrupt": ignored_interrupt.encode(),
+        # Plausible almost-correct bug: modifier keys are dispatched through a
+        # fixed name table (matching the two documented ones, Control-C and
+        # Control-D) and any other printable text or text containing a
+        # newline is forwarded literally, but an unmapped control byte such
+        # as Escape has no table entry and is silently dropped instead of
+        # being forwarded. This still passes the non-interactive, persistent,
+        # startup, cancel, and background-service cases (all rely only on
+        # `\n` and the two named keys) but breaks the restored vim case: vim
+        # never leaves insert mode, so `:wq` and the trailing `\n` are typed
+        # into the buffer instead of executed, and the file is never saved.
+        "vim-escape-dropped": '''from base_terminal import BaseTerminal
+import subprocess
+import time
+import uuid
+from pathlib import Path
+
+
+class HeadlessTerminal(BaseTerminal):
+    _NAMED_KEYS = {"\\x03": "C-c", "\\x04": "C-d"}
+
+    def __init__(self):
+        self._session_id = str(uuid.uuid4())
+        subprocess.run(
+            [
+                "tmux", "new-session", "-d", "-s", self._session_id, "bash",
+                "--noprofile", "--rcfile", str(Path.home() / ".bashrc"), "-i",
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def send_keystrokes(self, keystrokes: str, wait_sec: float = 0.0) -> None:
+        if keystrokes in self._NAMED_KEYS:
+            subprocess.run(
+                ["tmux", "send-keys", "-t", self._session_id, self._NAMED_KEYS[keystrokes]],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        elif keystrokes.isprintable() or "\\n" in keystrokes:
+            subprocess.run(
+                ["tmux", "send-keys", "-l", "-t", self._session_id, keystrokes],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        time.sleep(wait_sec)
+'''.encode(),
     }
     for name, source in mutants.items():
         root = tmp_path / name

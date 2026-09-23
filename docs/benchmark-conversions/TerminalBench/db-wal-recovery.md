@@ -155,8 +155,12 @@ the check outcome, score, and final verdict.
 ### Resource visibility
 
 - Public: the complete instruction and digest-pinned image baseline containing
-  `/app/main.db` and the XOR-encrypted `/app/main.db-wal`. The solving phase
-  retains the source row's internet access.
+  `/app/main.db` and the XOR-encrypted `/app/main.db-wal`. The row declares
+  `agent_network: {mode: internet, allowed_domains: []}` — no domains.
+  Upstream allowed unrestricted internet access; the admitted
+  `tester-linux.yaml`/`tester-codex.yaml` testers use `network_policy: extend`,
+  which widens this to their fixed tester-level allowlist (GitHub, package
+  indexes, HuggingFace, OS repositories, video domains).
 - Evaluation-only: none. A passive artifact check creates no
   Candidate-execution environment or verification-time network channel.
 - Host-only: `db-wal-recovery/oracle/oracle.yaml`, `oracle.py`, expected IDs,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import sys
 from typing import Any
 
@@ -37,20 +36,29 @@ class RecoveryOracle:
         if not isinstance(rows, list):
             self.failure = "root_not_array"
             return
-        recovered: set[tuple[str, float]] = set()
+        # Mirrors the source verifier exactly:
+        #   soln_tuples = {(item["word"], item["value"]) for item in soln}
+        #   data_tuples = {(item["word"], item["value"]) for item in data}
+        #   matches = soln_tuples & data_tuples
+        # Upstream never inspects the type of ``word``/``value``: a row whose
+        # types do not match the expected recovery is simply not present in
+        # the intersection, it does not disqualify the candidate. Only a
+        # shape that would raise in upstream's own comprehension (a missing
+        # key, because ``item["word"]`` is a ``KeyError``, or an unhashable
+        # ``value`` such as a list/dict, because the set literal cannot hold
+        # it) is treated as a failure here, matching upstream's crash.
+        recovered: set[tuple[Any, Any]] = set()
         for row in rows:
-            if not isinstance(row, dict) or not {"word", "value"} <= set(row):
+            if not isinstance(row, dict) or "word" not in row or "value" not in row:
                 self.failure = "invalid_row_shape"
                 return
-            word, value = row.get("word"), row.get("value")
-            if not isinstance(word, str) or isinstance(value, bool) or not isinstance(value, (int, float)):
-                self.failure = "invalid_row_type"
+            pair = (row["word"], row["value"])
+            try:
+                hash(pair)
+            except TypeError:
+                self.failure = "invalid_row_shape"
                 return
-            number = float(value)
-            if not math.isfinite(number):
-                self.failure = "non_finite_value"
-                return
-            recovered.add((word, number))
+            recovered.add(pair)
         count = len(recovered & EXPECTED)
         self.passed = count >= MINIMUM_RECOVERED
         self.failure = "" if self.passed else "insufficient_recovery"

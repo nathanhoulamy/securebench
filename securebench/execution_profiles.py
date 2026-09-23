@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from pathlib import PurePosixPath
 
 from securebench.baselines import task_baseline_digest, task_verification_digest
@@ -38,10 +40,23 @@ MAX_GIT_CHANGED_FILES = 2048
 MAX_FILESYSTEM_OVERLAY_CHANGED_BYTES = 4 * 1024 * 1024 * 1024
 MAX_FILESYSTEM_OVERLAY_CHANGED_PATHS = 50_000
 MAX_PASSIVE_ARTIFACT_BYTES_PER_CHECK = 256 * 1024 * 1024
+# Tester policy (`capture.max_candidate_bytes`) may raise the two byte
+# capacities above for a run; the tester applies it through this variable.
+MAX_CANDIDATE_BYTES_ENV = "SECUREBENCH_MAX_CANDIDATE_BYTES"
 MAX_PASSIVE_ARTIFACT_FILES_PER_CHECK = 10_000
 # This is deliberately changed only by the final reviewed native-Linux
 # qualification commit. It has no environment-variable or tester-config bypass.
 FILESYSTEM_OVERLAY_NATIVE_QUALIFICATION_COMPLETE = False
+
+
+def candidate_byte_capacity(default: int) -> int:
+    """Byte capacity for candidates and passive artifacts under tester policy."""
+    value = os.environ.get(MAX_CANDIDATE_BYTES_ENV)
+    if value is None or value == "":
+        return default
+    if not value.isdigit() or int(value) <= 0:
+        raise ConfigError(f"{MAX_CANDIDATE_BYTES_ENV} must be a positive integer")
+    return int(value)
 
 
 def validate_executable_task(task: BenchmarkTask) -> None:
@@ -134,7 +149,7 @@ def _validate_candidate_bounds(
     if isinstance(candidate, FileBundleCandidate):
         if (
             candidate.max_total_files > MAX_FILE_BUNDLE_FILES
-            or candidate.max_total_bytes > MAX_FILE_BUNDLE_BYTES
+            or candidate.max_total_bytes > candidate_byte_capacity(MAX_FILE_BUNDLE_BYTES)
         ):
             raise ConfigError(
                 "file_bundle candidate bounds exceed the capture backend capacity"
@@ -169,7 +184,7 @@ def _validate_artifact_bounds(task: BenchmarkTask) -> None:
             artifact.limits.max_files or 1 for artifact in check.artifacts
         )
         if (
-            total_bytes > MAX_PASSIVE_ARTIFACT_BYTES_PER_CHECK
+            total_bytes > candidate_byte_capacity(MAX_PASSIVE_ARTIFACT_BYTES_PER_CHECK)
             or total_files > MAX_PASSIVE_ARTIFACT_FILES_PER_CHECK
         ):
             raise ConfigError(

@@ -12,7 +12,44 @@ from typing import Any
 
 
 CHECK_ID = "sentiment_service_behavior"
+IDENTITY_CHECK_ID = "model_identity_artifact"
 MAX_DECODED_BYTES = 32_768
+
+# Upstream's test_model_downloaded loads the requested model and tokenizer from
+# the captured directory and only asserts the objects are not None. There is no
+# split-verification substitute for "attempt to load it" that does not execute
+# Candidate-controlled code, so the closest non-executing equivalent is to pin
+# the captured files to the exact bytes a faithful download-and-save of the
+# pinned "distilbert-base-uncased-finetuned-sst-2-english" revision produces in
+# the pinned runtime image. Every hash below was measured directly from
+# `AutoModelForSequenceClassification.from_pretrained(...).save_pretrained(...)`
+# and `AutoTokenizer.from_pretrained(...).save_pretrained(...)` at revision
+# 714eb0fa89d2f80546fda750413ed43d93601a13 inside the pinned
+# alexgshaw/hf-model-inference image, and reproduced byte-for-byte across
+# repeated runs. A faithful solution always reproduces these bytes; a
+# different, corrupted, or heuristic stand-in model does not.
+CONFIG_JSON = {"sha256": "a2f9acf981e8a4e22fb22983c8c8b9a01b38993b32faab23be7e8b4b14b6bc5f", "size": 687}
+MODEL_SAFETENSORS = {
+    "sha256": "61afb985df6fbe77fd84138129481f0a4444c02893782984e330f874f43cee4b",
+    "size": 267_832_560,
+}
+PYTORCH_MODEL_BIN = {
+    "sha256": "931709bcd085eb7da7fe32231c891b469f8f7c3ad0790c89be1584b630708146",
+    "size": 267_854_979,
+}
+VOCAB_TXT = {"sha256": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3", "size": 231_508}
+TOKENIZER_CONFIG_JSON = {
+    "sha256": "b7aea1a75760cc3312ad93f27a6119976b2046382760286eb80dee50978c02d7",
+    "size": 1_278,
+}
+TOKENIZER_JSON = {
+    "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+    "size": 711_396,
+}
+SPECIAL_TOKENS_MAP_JSON = {
+    "sha256": "b6d346be366a7d1d48332dbc9fdf3bf8960b5d879522b7799ddba59e76237ee3",
+    "size": 125,
+}
 SOURCE_TEXTS = (
     ("I really enjoyed this movie, it was amazing!", "positive"),
     ("The service at this restaurant was terrible and the food was cold.", "negative"),
@@ -105,6 +142,24 @@ def _json_body(encoded: Any) -> Any:
     )
 
 
+def _tree_nodes(value: Any) -> list[dict[str, Any]] | None:
+    if not isinstance(value, dict) or set(value) != {"nodes"}:
+        return None
+    nodes = value.get("nodes")
+    if not isinstance(nodes, list) or not all(isinstance(node, dict) for node in nodes):
+        return None
+    return nodes
+
+
+def _node_matches(node: dict[str, Any] | None, expected: dict[str, Any]) -> bool:
+    if node is None or node.get("kind") != "regular_file":
+        return False
+    return (
+        node.get("blob") == f"sha256:{expected['sha256']}"
+        and node.get("size") == expected["size"]
+    )
+
+
 def _sentiment_matches(body: Any, label: str) -> bool:
     if not isinstance(body, dict) or body.get("sentiment") != label:
         return False
@@ -128,6 +183,8 @@ class SentimentServiceOracle:
         self.evaluation_ids: set[str] = set()
         self.passed = True
         self.failures: list[str] = []
+        self.identity_evaluated = 0
+        self.identity_passed = True
 
     def initialize(self, run_seed: str) -> None:
         self.cases = build_cases(run_seed)
@@ -213,6 +270,53 @@ class SentimentServiceOracle:
             ):
                 self.fail("incorrect_sentiment_response")
 
+    def evaluate_identity_artifact(self, evidence: dict[str, Any]) -> None:
+        self.identity_evaluated += 1
+        if evidence.get("artifact_id") != "model_files":
+            self.identity_passed = False
+            self.failures.append("identity:unexpected_artifact")
+            return
+        if evidence.get("status") != "observed":
+            error = evidence.get("error")
+            code = error.get("code") if isinstance(error, dict) else None
+            self.identity_passed = False
+            self.failures.append(f"identity:{code or 'artifact_rejected'}")
+            return
+        nodes = _tree_nodes(evidence.get("parsed_value"))
+        if nodes is None:
+            self.identity_passed = False
+            self.failures.append("identity:invalid_tree")
+            return
+        by_path: dict[str, dict[str, Any]] = {}
+        for node in nodes:
+            path = node.get("path")
+            if isinstance(path, str) and path not in by_path:
+                by_path[path] = node
+
+        failure = None
+        if not _node_matches(by_path.get("config.json"), CONFIG_JSON):
+            failure = "identity:config_mismatch"
+        elif not (
+            _node_matches(by_path.get("model.safetensors"), MODEL_SAFETENSORS)
+            or _node_matches(by_path.get("pytorch_model.bin"), PYTORCH_MODEL_BIN)
+        ):
+            failure = "identity:weights_mismatch"
+        else:
+            has_fast_tokenizer = _node_matches(by_path.get("tokenizer.json"), TOKENIZER_JSON)
+            has_slow_tokenizer = _node_matches(
+                by_path.get("vocab.txt"), VOCAB_TXT
+            ) and _node_matches(by_path.get("tokenizer_config.json"), TOKENIZER_CONFIG_JSON)
+            if not (has_fast_tokenizer or has_slow_tokenizer):
+                failure = "identity:tokenizer_mismatch"
+            elif "special_tokens_map.json" in by_path and not _node_matches(
+                by_path.get("special_tokens_map.json"), SPECIAL_TOKENS_MAP_JSON
+            ):
+                failure = "identity:special_tokens_mismatch"
+
+        if failure is not None:
+            self.identity_passed = False
+            self.failures.append(failure)
+
     def verdict(self) -> dict[str, Any]:
         behavior = (
             len(self.cases) == 3
@@ -220,16 +324,18 @@ class SentimentServiceOracle:
             and len(self.evaluation_ids) == len(self.cases)
             and self.passed
         )
+        identity = self.identity_evaluated == 1 and self.identity_passed
+        passed = behavior and identity
         return {
             "type": "verdict",
             "verdict": {
-                "passed": behavior,
-                "score": 1.0 if behavior else 0.0,
-                "check_outcomes": {CHECK_ID: behavior},
+                "passed": passed,
+                "score": 1.0 if passed else 0.0,
+                "check_outcomes": {CHECK_ID: behavior, IDENTITY_CHECK_ID: identity},
                 "public_diagnostics": {
                     "message": (
                         "Sentiment service satisfied the bounded scenarios"
-                        if behavior
+                        if passed
                         else "Sentiment service did not satisfy the task"
                     ),
                     "failure_categories": sorted(set(self.failures))[:20],
@@ -269,6 +375,12 @@ def main() -> None:
                 ):
                     raise ValueError("case evidence is required")
                 oracle.evaluate_case(context, evidence)
+                response = {"type": "ack"}
+            elif operation == "evaluate_artifact":
+                evidence = request.get("evidence")
+                if not isinstance(evidence, dict) or evidence.get("check_id") != IDENTITY_CHECK_ID:
+                    raise ValueError("artifact evidence is required")
+                oracle.evaluate_identity_artifact(evidence)
                 response = {"type": "ack"}
             elif operation == "finalize":
                 response = oracle.verdict()

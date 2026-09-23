@@ -75,3 +75,22 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 ## Future conversion notes
 
 Use passive artifact verification. Extract the bounded one-line `result.txt` from the candidate and compare it in the host-side Oracle with the Oracle's pinned August 2025 leaderboard answer; do not place the expected model name, test implementation, scoring rule, or reference answer in either VM. Candidate-controlled code need not execute during evaluation, and the Oracle trusts only the retrieved artifact. The original exact-answer assertion is fully externally observable and remains semantically unchanged. Verdict: clean conversion; auto-approved under the first-pass policy.
+
+## Implemented v2 conversion
+
+Final status: **Approved**.
+
+- Check type: one passive `artifact` check (`leaderboard_answer_artifact`),
+  parsed with `securebench.utf8-text/v1` under a 4,096-byte limit. No
+  adapter; no candidate-controlled code executes during verification.
+- Network policy: the row declares `agent_network: {mode: restricted,
+  allowed_domains: [huggingface.co, hf.co, pypi.org, pythonhosted.org]}`.
+  Upstream allowed unrestricted internet access; the admitted
+  `tester-linux.yaml`/`tester-codex.yaml` testers use `network_policy:
+  extend`, which adds their fixed tester-level allowlist on top of these
+  declared domains.
+- Focused test: `tests/test_mteb_exact_answer_v2.py` (shared with
+  `mteb-retrieve`).
+- Qualification evidence: recorded in
+  [`terminal-bench-qualification-record.md`](../terminal-bench-qualification-record.md)
+  ("Wave B") as 31 gate cases.

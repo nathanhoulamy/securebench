@@ -157,8 +157,12 @@ Candidate-controlled import, or mutable host executable is involved.
 - Public: the full prompt, the digest-pinned solving image, and read-only
   `/app/sequences.fasta`. The checked-in public asset is byte-identical to the
   source image fixture and contains the input, insert, and desired-output
-  sequences named by the prompt. The Agent retains the source row's internet
-  access.
+  sequences named by the prompt. The row declares `agent_network: {mode:
+  internet, allowed_domains: []}` — no domains. Upstream allowed unrestricted
+  internet access; the admitted `tester-linux.yaml`/`tester-codex.yaml`
+  testers use `network_policy: extend`, which widens this to their fixed
+  tester-level allowlist (GitHub, package indexes, HuggingFace, OS
+  repositories, video domains).
 - Evaluation-only: none. This passive row never starts Candidate-controlled
   code during verification.
 - Host-only: `dna-assembly/oracle/oracle.yaml`, `oracle.py`, an immutable copy

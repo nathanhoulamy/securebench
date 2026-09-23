@@ -83,6 +83,7 @@ Rows converted from design-only are recorded here as they are integrated.
 | `tomlkit-toml-table-converters` | Python | 51 | fails | passes | 3 real-code + generic | 10 passed (gates 1, 2, 4) | semantic change, low |
 | `obsidian-linter-scoped-ignore-markers` | TypeScript | 49 items / 4 cases | fails | passes | 3 real-code + generic | 23 passed | semantic change, low |
 | `helm-array-merge-strategies` | Go | scenario batches, 2 replays | fails | passes | 3 real-code + generic | 21 (gates 1, 2, all mutants re-run under Docker) | clean, none |
+| `obsidian-linter-auto-table-of-contents` | TypeScript | 41 items / 2 cases | fails | passes | 3 real-code + generic | 23 passed | clean, none |
 
 Review notes:
 
@@ -120,9 +121,14 @@ three **real-code** mutants run under Docker, not Oracle-level ones.
 - **`task-graph`** checks three tie-ambiguous fields only as far as upstream
   asserts them: the diamond's longest-path middle element, the three-way
   `for_deps` tie (not asserted upstream), and `reverse` beyond index 0.
-- **`prometheus`** replaces upstream's `util/teststorage` with a small hand-rolled
-  `Queryable`. That is harness plumbing, not the code under test, and it stops
-  the build being OOM-killed inside the 1 GB Evaluation limit. Upstream's
+- **`prometheus`** first backed its query engine with a hand-rolled
+  `Queryable` to fit the old 1 GB limit. Under the tester memory policy (8g)
+  it now uses upstream's `util/teststorage` with default options, appending
+  series through the real `Appender`. The Oracle is unchanged. It was fully
+  re-qualified (17 passed), and gates 1, 2 and 4 were re-run in review.
+  Upstream's F2P tests call the private `funcSortByLabel` directly on
+  hand-built vectors. The driver goes through the public engine instead, so
+  the behaviour is observed black-box. Upstream's
   `natsort` fallback is not a total order (`"1"` vs `"01"`, and `""` ties with
   everything), so the empty-label case keeps upstream's own small ascending-only
   shape. `require.Nil(t, anns)` is enforced as a zero annotation count.
@@ -200,11 +206,11 @@ three **real-code** mutants run under Docker, not Oracle-level ones.
   that, a mutant that pushes values in completion order would pass. Upstream
   has no type-level assertions, so no type probes are needed.
 - **`helm`** was blocked until the capture fix for unchanged baseline
-  symlinks (conversion-blockers §4). Its adapter builds a driver inside
-  `pkg/cmd`, where eight unrelated test files pull in a full OCI registry
-  server and OOM the 1 GB link step. The adapter moves them aside for the
-  build only and sets `CGO_ENABLED=0`. Those files are baseline-only:
-  `**/*_test.go` is excluded from the candidate.
+  symlinks (conversion-blockers §4). It was first built around the old 1 GB
+  limit: it moved eight unrelated `pkg/cmd` test files aside and disabled
+  cgo. Under the tester memory policy (8g) it now builds `pkg/cmd` exactly as
+  upstream's `test.sh` does, with no files moved and no tuning flags. It was
+  fully re-qualified (16 passed), and gates 1, 2 and 4 were re-run in review.
 - **`skrub`** as delivered used blanket 1e-3/1e-6 tolerances, looser than
   upstream's exact `==` in places and stricter than its `< 0.6`/`< 0.01`
   bounds in others. Review sent it back. Every check now carries upstream's
@@ -253,9 +259,18 @@ three **real-code** mutants run under Docker, not Oracle-level ones.
   count and the merged element. Review changed both to an order-insensitive
   multiset comparison. New Oracle tests show a reordered correct result
   passes and a dropped element fails. `nested_merge_key` keeps exact order
-  because upstream pins it. Building `pkg/action`'s internal test binary
-  OOMs at 1 GB, so the action driver is an external-package consumer built
-  with a batched pre-warm, `-p=1`, `GOMEMLIMIT=450MiB`.
+  because upstream pins it. It was first built around the old 1 GB limit,
+  with an external action driver that re-implemented upstream fixtures plus
+  memory tuning. Once memory became tester policy (`docker.memory_limit`,
+  8g for DeepSWE), the driver was restored to an internal `pkg/action` test
+  using upstream's own `actionConfigFixture`, all tuning was removed, and the
+  per-case budget was cut from 1200 s to 600 s. It was fully re-qualified
+  (21 passed), and gates 1, 2 and 4 were re-run in review.
+- **`obsidian-linter-auto-table-of-contents`** reuses the sibling row's
+  approach. All 41 F2P `(before, after, options)` triples are captured from
+  upstream's own `ruleTest` helper, and none is dropped. `test.patch` has no
+  P2P tail and no private-state assertions, so the verdict is corrected from
+  the dossier's anticipated semantic change to clean.
 
 ## Held for review
 

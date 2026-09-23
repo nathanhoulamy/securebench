@@ -80,6 +80,13 @@ docker:
   max_cached_images: 2
   # Required when any selected row uses filesystem_overlay.
   overlay_workspace_bytes: 2147483648
+  # Memory for every Agent and Evaluation container in the run ("4g", "512m",
+  # or "unlimited"). Omitted, the framework default of 1 GiB applies.
+  memory_limit: 4g
+capture:
+  # Bytes a file_bundle candidate, or one passive artifact check, may hold.
+  # Omitted, the framework default of 256 MiB applies.
+  max_candidate_bytes: 536870912
 ```
 
 Rows declare `environment.agent_network: {mode: restricted, allowed_domains:

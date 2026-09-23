@@ -22,6 +22,30 @@ MAX_CASES = 3
 MAX_CASE_BYTES = 16_384
 MAX_DECODED_BYTES = 32_768
 
+# Protobuf field-number legality per the language spec: 1..2**29-1, excluding
+# the range reserved for the implementation.
+FIELD_NUMBER_MIN = 1
+FIELD_NUMBER_MAX = 536_870_911
+RESERVED_FIELD_LOW = 19_000
+RESERVED_FIELD_HIGH = 19_999
+MAX_PATH_PREFIX_BYTES = 200
+
+_PACKAGE_RE = re.compile(
+    r"(?<![\w.])package\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*;"
+)
+
+# Used only when the proto artifact did not pass (the overall verdict is
+# already lost via the artifact check); keeps the behavior check running
+# without inventing a wire shape the candidate never declared.
+_DEFAULT_WIRE = {
+    "path_prefix": "KVStore",
+    "get_request_key_field": 1,
+    "get_response_val_field": 1,
+    "set_request_key_field": 1,
+    "set_request_value_field": 2,
+    "set_response_val_field": 1,
+}
+
 
 def _without_comments(text: str) -> str:
     return re.sub(r"//[^\n]*|/\*.*?\*/", " ", text, flags=re.DOTALL)
@@ -47,38 +71,93 @@ def _block(text: str, kind: str, name: str) -> str | None:
     return None
 
 
-def proto_matches_contract(text: str) -> bool:
+def _valid_field_number(value: int) -> bool:
+    if not FIELD_NUMBER_MIN <= value <= FIELD_NUMBER_MAX:
+        return False
+    return not RESERVED_FIELD_LOW <= value <= RESERVED_FIELD_HIGH
+
+
+def _field_number(pattern: str, block: str) -> int | None:
+    match = re.search(pattern, block)
+    if match is None:
+        return None
+    value = int(match.group(1))
+    return value if _valid_field_number(value) else None
+
+
+def parse_proto_contract(text: str) -> dict[str, Any] | None:
+    """Passively derive the public KVStore contract and its declared wire shape.
+
+    Upstream never asserts a field number or the presence/absence of a
+    ``package`` statement: its own verifier builds a gRPC client from the
+    candidate's *own* generated bindings, so any field number or package the
+    candidate's proto declares is automatically the one its client uses. Only
+    the service/RPC names and the message/field names and types are checked
+    here, exactly matching what the public prompt specifies. The actual
+    field numbers and package (if any) are extracted so the Adapter can talk
+    the candidate's own declared wire format instead of a fixed one.
+    """
+
+    stripped = _without_comments(text)
     service = _block(text, "service", "KVStore")
     get_request = _block(text, "message", "GetValRequest")
     get_response = _block(text, "message", "GetValResponse")
     set_request = _block(text, "message", "SetValRequest")
     set_response = _block(text, "message", "SetValResponse")
     if None in {service, get_request, get_response, set_request, set_response}:
-        return False
+        return None
     assert service is not None
     assert get_request is not None
     assert get_response is not None
     assert set_request is not None
     assert set_response is not None
-    return all(
-        (
-            re.search(
-                r"\brpc\s+GetVal\s*\(\s*GetValRequest\s*\)\s*returns\s*"
-                r"\(\s*GetValResponse\s*\)",
-                service,
-            ),
-            re.search(
-                r"\brpc\s+SetVal\s*\(\s*SetValRequest\s*\)\s*returns\s*"
-                r"\(\s*SetValResponse\s*\)",
-                service,
-            ),
-            re.search(r"\bstring\s+key\s*=\s*1\s*;", get_request),
-            re.search(r"\bint32\s+val\s*=\s*1\s*;", get_response),
-            re.search(r"\bstring\s+key\s*=\s*1\s*;", set_request),
-            re.search(r"\bint32\s+value\s*=\s*2\s*;", set_request),
-            re.search(r"\bint32\s+val\s*=\s*1\s*;", set_response),
+    if not (
+        re.search(
+            r"\brpc\s+GetVal\s*\(\s*GetValRequest\s*\)\s*returns\s*"
+            r"\(\s*GetValResponse\s*\)",
+            service,
         )
-    )
+        and re.search(
+            r"\brpc\s+SetVal\s*\(\s*SetValRequest\s*\)\s*returns\s*"
+            r"\(\s*SetValResponse\s*\)",
+            service,
+        )
+    ):
+        return None
+    get_request_key = _field_number(r"\bstring\s+key\s*=\s*(\d+)\s*;", get_request)
+    get_response_val = _field_number(r"\bint32\s+val\s*=\s*(\d+)\s*;", get_response)
+    set_request_key = _field_number(r"\bstring\s+key\s*=\s*(\d+)\s*;", set_request)
+    set_request_value = _field_number(r"\bint32\s+value\s*=\s*(\d+)\s*;", set_request)
+    set_response_val = _field_number(r"\bint32\s+val\s*=\s*(\d+)\s*;", set_response)
+    if None in {
+        get_request_key,
+        get_response_val,
+        set_request_key,
+        set_request_value,
+        set_response_val,
+    }:
+        return None
+    if set_request_key == set_request_value:
+        # Not a legal proto (protoc rejects duplicate field numbers in one
+        # message); fail closed rather than build an ambiguous wire message.
+        return None
+    package_match = _PACKAGE_RE.search(stripped)
+    package = package_match.group(1) if package_match else None
+    path_prefix = f"{package}.KVStore" if package else "KVStore"
+    if len(path_prefix) > MAX_PATH_PREFIX_BYTES:
+        return None
+    return {
+        "path_prefix": path_prefix,
+        "get_request_key_field": get_request_key,
+        "get_response_val_field": get_response_val,
+        "set_request_key_field": set_request_key,
+        "set_request_value_field": set_request_value,
+        "set_response_val_field": set_response_val,
+    }
+
+
+def proto_matches_contract(text: str) -> bool:
+    return parse_proto_contract(text) is not None
 
 
 def _case(case_id: str, operations: list[dict[str, Any]]) -> dict[str, Any]:
@@ -175,6 +254,7 @@ class KvStoreOracle:
         self.artifacts_valid = True
         self.behavior_passed = True
         self.failures: list[str] = []
+        self.wire_contract: dict[str, Any] | None = None
 
     def initialize(self, run_seed: str) -> None:
         self.cases = build_cases(run_seed)
@@ -185,6 +265,7 @@ class KvStoreOracle:
         self.artifacts_valid = True
         self.behavior_passed = True
         self.failures.clear()
+        self.wire_contract = None
 
     def evaluate_artifact(self, evidence: dict[str, Any]) -> None:
         artifact_id = evidence.get("artifact_id")
@@ -199,7 +280,10 @@ class KvStoreOracle:
         value = evidence.get("parsed_value")
         passed = evidence.get("status") == "observed" and isinstance(value, str)
         if passed and artifact_id == "proto":
-            passed = proto_matches_contract(value)
+            contract = parse_proto_contract(value)
+            passed = contract is not None
+            if passed:
+                self.wire_contract = contract
         elif passed and artifact_id in {"python_bindings", "grpc_bindings"}:
             passed = bool(value.strip())
         elif passed and artifact_id == "server":
@@ -212,12 +296,20 @@ class KvStoreOracle:
         if self.case_index >= len(self.cases):
             return {"type": "exhausted"}
         case = self.cases[self.case_index]
+        # The wire shape is only known once the proto artifact has been
+        # evaluated; every candidate proto in a run may declare its own
+        # field numbers and package, so the digest used for correlation is
+        # computed here, over the exact challenge sent, not at case-build
+        # time.
+        challenge = dict(case["challenge"])
+        challenge["wire"] = self.wire_contract or _DEFAULT_WIRE
         context = dict(case["context"])
         context["case_index"] = self.case_index
+        context["challenge_digest"] = json_digest(challenge)
         self.case_index += 1
         return {
             "type": "case",
-            "challenge": case["challenge"],
+            "challenge": challenge,
             "case_context": context,
         }
 

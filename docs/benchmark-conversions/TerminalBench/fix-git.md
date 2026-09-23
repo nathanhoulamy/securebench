@@ -192,3 +192,65 @@ and original starting directory remain unchanged.
 Candidate, masked answer leak, exact source-byte semantics, and host-owned
 Oracle preserve the original scored behavior without trusting Candidate Git
 claims or guest verdicts.
+
+## Review correction
+
+A later audit (`docs/benchmark-conversions/workaround-audit.md`, "fix-git", category
+B, disclosed) found that masking `/app/resources` (so `/app/resources/patch_files`,
+which holds the gold copies of both target files, is absent during Agent execution)
+makes the row harder than the unmodified source image, while this dossier's
+"Final qualification decision" above states `no intelligence impact`. The audit's
+recommendation was to relabel the row, not to reverse the masking.
+
+**What this correction checked and why nothing changed.** The masking is not a
+*check*: it does not touch what the row's Oracle scores or the operator/strength of
+any assertion. `AGENTS.md` ("Route every resource by visibility") and
+`docs/benchmark-conversions/conversion-guide.md` ("Reconstruct the intended
+behavior") both direct exactly this treatment for a source image that embeds an
+answer outside the intended challenge state: *"mask the narrowest leaked path with a
+reviewed read-only public directory containing no answer material; do not change the
+starting workdir or prompt merely to work around the leak... Assert the mask contents
+and prove the leaked path is absent in a pinned Agent command."* That is precisely
+what this row already does, and it is architecturally required, not optional
+hardening this correction could trade away. Reverting it would reintroduce an
+answer leak into the Agent environment, which the split-verification architecture
+this repository is built around treats as a defect to fix, not a baseline to
+preserve. This is the same governing instruction's own stated exception: keep what
+the architecture (here, standing in for "the public instruction") requires even
+where it makes the row diverge from the unmodified source image's difficulty, and
+document the case — this document already did so at length in "Agent environment and
+Candidate boundary" and "Semantic fidelity and limitations" above; this section makes
+the audit's specific finding and disposition explicit.
+
+The row's actual scoring check — the Oracle's stripped-byte-identity comparison of
+`about.md` and `default.html` against the two hidden SHA-256 digests (`oracle/oracle.py`)
+— is unchanged and remains exactly as strict as upstream's own `read().strip()`
+byte comparison (see "Passive evidence and host Oracle" above): same accepted
+leading/trailing byte set, hardened only against theoretical MD5 collisions with no
+practical acceptance-set difference. No Oracle, Adapter, or masking code changed as a
+result of this correction. Because the check itself was never stricter than upstream,
+there is no "upstream accepts it, the old check rejected it, the new check accepts
+it" input to add for this row. `inventory.csv`'s `intelligence_impact: none` is left
+unmodified (out of scope for this correction), and is accurate for the check itself;
+the masking's effect is on Agent-visible information at solve time, not on how the
+deliverable is scored, and is exactly what the architecture requires for a source
+image that leaks its own answer key.
+
+### Re-qualification (Docker, this correction)
+
+- No code changed; this is a re-run of the existing suite to confirm the row is
+  unaffected and still qualifies.
+- Host: 2026-09-23, Linux `7.0.0-29-generic` x86_64, Docker `29.7.2`.
+- `.venv/bin/python -m pytest -q -W error tests/test_fix_git_v2.py` →
+  `18 passed, 5 skipped in 1.02s` (skips are Docker-gated).
+- `SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error
+  tests/test_fix_git_v2.py` → `23 passed in 6.95s`, including the reviewed reflog
+  recovery/merge reference and the pinned targeted mutants (partial recoveries,
+  changed content, forged text/structured verdicts, Unicode-edge-whitespace,
+  invalid UTF-8) all failing without an infrastructure error.
+- `SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error
+  tests/test_terminal_file_bundle_qualification.py -k "fix-git"` →
+  `4 passed, 172 deselected in 0.73s`, including `test_base_image_fails_stopped_candidate_capture`
+  (the untouched master files fail) and the three malicious-shape rejections.
+- `docker ps -a` / `docker network ls` / `docker volume ls` show no leftover
+  `fix-git`-named container, network, or volume after these runs.

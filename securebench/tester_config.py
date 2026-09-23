@@ -17,11 +17,15 @@ from securebench.network_policy import NetworkPolicy, allowed_domains_config
 SUPPORTED_TESTER_SCHEMA_VERSION = "1.0"
 HarnessType = Literal["codex", "claude_code", "opencode", "command"]
 
-ROOT_FIELDS = {"schema_version", "run", "benchmark", "harness", "docker", "network_policy"}
+ROOT_FIELDS = {
+    "schema_version", "run", "benchmark", "harness", "docker", "capture", "network_policy",
+}
 RUN_FIELDS = {"id", "output_dir", "max_workers"}
 BENCHMARK_FIELDS = {"manifest", "tasks"}
 HARNESS_FIELDS = {"type", "env", "config"}
-DOCKER_FIELDS = {"max_cached_images", "overlay_workspace_bytes"}
+MEMORY_LIMIT_PATTERN = re.compile(r"[1-9][0-9]*[mg]")
+DOCKER_FIELDS = {"max_cached_images", "overlay_workspace_bytes", "memory_limit"}
+CAPTURE_FIELDS = {"max_candidate_bytes"}
 NETWORK_POLICY_FIELDS = {"mode", "allowed_domains"}
 NETWORK_POLICY_MODES = {"benchmark", "replace", "extend"}
 HARNESS_TYPES = {"codex", "claude_code", "opencode", "command"}
@@ -65,6 +69,18 @@ class TesterDockerSection:
 
     max_cached_images: int | None = None
     overlay_workspace_bytes: int | None = None
+    # Memory for every Agent and Evaluation container in the run, as a Docker
+    # size ("4g", "512m") or "unlimited". None keeps the framework default.
+    memory_limit: str | None = None
+
+
+@dataclass(frozen=True)
+class TesterCaptureSection:
+    """Candidate-capture capacity policy for one tester run."""
+
+    # Bytes a file_bundle candidate, or one passive artifact check, may hold.
+    # None keeps the framework default (256 MiB).
+    max_candidate_bytes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +92,7 @@ class TesterConfig:
     benchmark: TesterBenchmarkSection
     harness: TesterHarnessSection
     docker: TesterDockerSection = field(default_factory=TesterDockerSection)
+    capture: TesterCaptureSection = field(default_factory=TesterCaptureSection)
     network_policy: NetworkPolicy = field(default_factory=NetworkPolicy)
 
 
@@ -142,6 +159,7 @@ def parse_tester_config(data: dict[str, Any], *, base_dir: str | Path | None = N
         harness=harness,
         network_policy=network_policy,
         docker=_docker_section(data.get("docker")),
+        capture=_capture_section(data.get("capture")),
     )
 
 
@@ -181,6 +199,15 @@ def _network_policy_section(value: Any) -> NetworkPolicy:
     )
 
 
+def _capture_section(value: Any) -> TesterCaptureSection:
+    data = _optional_dict(value, "capture")
+    _reject_unknown_fields(data, CAPTURE_FIELDS, "capture")
+    maximum = data.get("max_candidate_bytes")
+    if maximum is not None:
+        maximum = _positive_int(maximum, "capture.max_candidate_bytes")
+    return TesterCaptureSection(max_candidate_bytes=maximum)
+
+
 def _docker_section(value: Any) -> TesterDockerSection:
     data = _optional_dict(value, "docker")
     _reject_unknown_fields(data, DOCKER_FIELDS, "docker")
@@ -211,9 +238,18 @@ def _docker_section(value: Any) -> TesterDockerSection:
                 "docker.overlay_workspace_bytes must be a multiple of "
                 f"{OVERLAY_WORKSPACE_BLOCK_BYTES}"
             )
+    memory_limit = data.get("memory_limit")
+    if memory_limit is not None and not (
+        isinstance(memory_limit, str)
+        and (memory_limit == "unlimited" or MEMORY_LIMIT_PATTERN.fullmatch(memory_limit))
+    ):
+        raise ConfigError(
+            'docker.memory_limit must be a size such as "4g" or "512m", or "unlimited"'
+        )
     return TesterDockerSection(
         max_cached_images=max_cached_images,
         overlay_workspace_bytes=overlay_workspace_bytes,
+        memory_limit=memory_limit,
     )
 
 

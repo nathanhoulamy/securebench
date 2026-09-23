@@ -122,8 +122,13 @@ bounded diagnostics, and final verdict.
 ### Resource visibility
 
 - Public: the complete task instruction and the digest-pinned baseline image.
-  The solving phase retains the source row's internet access because the task
-  instructs the Agent to consult HuggingFace data and tokenizer material.
+  The row declares `agent_network: {mode: internet, allowed_domains:
+  [huggingface.co, hf.co, xethub.hf.co, pypi.org, pythonhosted.org]}` — not
+  unrestricted internet. Upstream allowed unrestricted internet access; the
+  `tester-linux.yaml` and `tester-codex.yaml` testers additionally use
+  `network_policy: extend`, which widens the effective allowlist with a fixed
+  tester-level domain list (GitHub, package indexes, HuggingFace, OS
+  repositories) on top of the row's own declared domains.
 - Evaluation-only: none. Passive verification creates no Candidate execution
   environment and grants no verification-time network access.
 - Host-only: `count-dataset-tokens/oracle/oracle.yaml`, `oracle.py`, the

@@ -83,3 +83,27 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 ## Future conversion notes
 
 Use passive artifact verification with a recorded semantic change. Extract the four bounded numeric CSV artifacts and compare their parsed shapes and posterior-mean ranges in the host-side Oracle against host-owned expected ranges. No candidate-controlled code executes during scoring, and hidden expected values, tests, scoring, and reference solutions remain outside both VMs. The public RStan reference material remains available in the Agent VM. The original absence-of-R/RStan assertion cannot be inferred from four output artifacts; using an Evaluation VM base image without R merely turns absence into a harness property. Drop that assertion explicitly unless a future conversion captures and safely inspects the complete candidate system overlay. Verdict: conversion with semantic change; manually approved in the final clean-conversion audit.
+
+## Implemented v2 conversion
+
+Final status: **Approved** (recorded as `semantic_change`).
+
+- Check type: one passive `artifact` check (`posterior_estimates_artifact`)
+  covering four artifacts (`alpha`, `sigma`, `rho`, `beta`), each parsed with
+  `securebench.utf8-text/v1` under a 4,096-byte limit. No adapter; no
+  candidate-controlled code executes during verification.
+- Network policy: the row declares `agent_network: {mode: restricted,
+  allowed_domains: [pypi.org, pythonhosted.org]}`. Upstream allowed
+  unrestricted internet access; the admitted `tester-linux.yaml`/
+  `tester-codex.yaml` testers use `network_policy: extend`, which adds their
+  fixed tester-level allowlist on top of these declared domains. (Note:
+  `tester-codex.yaml`'s fixed list also includes `r-project.org`, which is not
+  part of this row's own declared domains.)
+- Focused test: `tests/test_rstan_to_pystan_v2.py`.
+- Qualification evidence: recorded in
+  [`terminal-bench-qualification-record.md`](../terminal-bench-qualification-record.md)
+  ("Wave B") as 45 gate cases. As documented above, the source verifier's
+  sixth check — proving R/RStan were never installed by shelling out inside
+  the candidate's own filesystem — is dropped rather than reproduced, which is
+  why the row is recorded as `semantic_change` rather than a clean
+  conversion.

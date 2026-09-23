@@ -80,3 +80,25 @@ These messages are an inventory aid, not a substitute for reading the verifier. 
 ## Future conversion notes
 
 Use passive artifact verification. Extract the bounded single-line `gblock.txt` and have the host Oracle independently translate and validate its required protein order, exact scoring-relevant sequences, linker constraints, nucleotide alphabet/length, and sliding-window GC bounds. Keep hidden expected sequences, assertions, scoring, and reference solutions out of both VMs; no candidate-controlled code executes during evaluation. The original artifact assertions are externally observable and preserved. Verdict: clean conversion; auto-approved under the first-pass policy.
+
+## Implemented v2 conversion
+
+Final status: **Approved**.
+
+- Check type: one passive `artifact` check (`gblock_artifact`), parsed with
+  `securebench.utf8-text/v1` under an 8,192-byte limit. No adapter; no
+  candidate-controlled code executes during verification.
+- Network policy: the row declares `agent_network: {mode: restricted,
+  allowed_domains: [rcsb.org, fpbase.org, pypi.org, pythonhosted.org]}`.
+  Upstream allowed unrestricted internet access; the admitted
+  `tester-linux.yaml`/`tester-codex.yaml` testers use `network_policy:
+  extend`, which adds their fixed tester-level allowlist on top of these
+  declared domains.
+- Focused test: `tests/test_protein_assembly_v2.py`.
+- Qualification evidence: recorded in
+  [`terminal-bench-qualification-record.md`](../terminal-bench-qualification-record.md)
+  ("Wave B") as 37 gate cases. The reference gBlock
+  (`v2/hidden/protein-assembly/qualification/build_reference.py`) was
+  reverse-translated under the 50-nucleotide GC-window constraint and was
+  independently validated by running the real source verifier with real
+  Biopython in a container.

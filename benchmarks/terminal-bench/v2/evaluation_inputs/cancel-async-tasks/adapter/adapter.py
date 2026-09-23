@@ -172,17 +172,42 @@ class TaskService:
                 self.started_count += 1
                 if self.started_count == self.expected_started:
                     self.ready.set()
-            cancelled = self._client_closed(
-                connection,
-                self.challenge["work_ms"] / 1000,
-            )
+
+            # Work phase: wait up to work_ms for either the deadline to
+            # elapse (normal completion) or an early cleanup marker "C"
+            # arriving on the wire, which only Candidate-invoked code
+            # sends, and only from its own `finally` clause. Early arrival
+            # means the awaited work was cancelled before it finished.
+            work_seconds = self.challenge["work_ms"] / 1000
+            marker = self._await_byte(connection, work_seconds)
+            if marker is not None and marker != b"C":
+                # Malformed or unexpected bytes on the wire: never award
+                # credit for ambiguous evidence.
+                return
+            cancelled = marker == b"C"
+
             if not cancelled:
+                try:
+                    connection.sendall(b"D")
+                except OSError:
+                    # The connection is already gone; do not record a
+                    # completion the Candidate process never observed.
+                    return
                 _append_event(
                     self.access,
                     f"{prefix}_{task_id}_complete",
                     "task.completed",
                     data,
                 )
+                # A well-behaved task returns from its try block and enters
+                # its own finally immediately; require that marker before
+                # trusting that cleanup is about to run.
+                marker = self._await_byte(connection, INVOCATION_TIMEOUT_SECONDS)
+                if marker != b"C":
+                    # The Candidate's run_tasks never let this task's own
+                    # cleanup code run (e.g. it abandoned or killed the
+                    # task instead of awaiting its finally clause).
+                    return
             else:
                 _append_event(
                     self.access,
@@ -190,6 +215,10 @@ class TaskService:
                     "task.cancelled",
                     data,
                 )
+
+            # Only now, after observing the Candidate-process cleanup
+            # marker, does the trusted cleanup delay and event run. The
+            # adapter never records task.cleaned on its own initiative.
             time.sleep(self.challenge["cleanup_ms"] / 1000)
             _append_event(
                 self.access,
@@ -197,33 +226,42 @@ class TaskService:
                 "task.cleaned",
                 data,
             )
-            if not cancelled:
-                try:
-                    connection.sendall(b"D")
-                except OSError:
-                    pass
+            # Acknowledge cleanup back to the Candidate-invoked task so it
+            # does not return -- and release any concurrency slot it holds
+            # -- until this task's cleanup delay and ledger append are
+            # genuinely finished. Best-effort: the event is already
+            # recorded, so a broken pipe here (the Candidate process gave
+            # up waiting) does not change the observation.
+            try:
+                connection.sendall(b"K")
+            except OSError:
+                pass
         except BaseException as exc:
             self.error = exc
         finally:
             connection.close()
 
     @staticmethod
-    def _client_closed(connection: socket.socket, duration: float) -> bool:
-        deadline = time.monotonic() + duration
+    def _await_byte(connection: socket.socket, timeout: float) -> bytes | None:
+        """Block up to `timeout` seconds for exactly one byte from the
+        connection. Return the byte, or None on timeout, EOF, or a socket
+        error -- callers must treat None as "no marker observed", never as
+        an implicit success."""
+        deadline = time.monotonic() + timeout
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return False
+                return None
             readable, _, _ = select.select([connection], [], [], remaining)
             if not readable:
-                return False
+                return None
             try:
-                # Any post-invocation client bytes are invalid; EOF means the
-                # awaiting task was cancelled or its process exited.
-                connection.recv(1)
+                chunk = connection.recv(1)
             except OSError:
-                pass
-            return True
+                return None
+            if not chunk:
+                return None
+            return chunk
 
 
 def main() -> None:

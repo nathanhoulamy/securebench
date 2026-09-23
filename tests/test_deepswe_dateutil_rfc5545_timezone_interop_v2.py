@@ -403,6 +403,155 @@ def test_mutant_repr_not_reconstructable_fails():
     assert verdict.passed is False
 
 
+# -- Gate 3 (real-code): review correction. The five mutants above are all
+# Oracle-level (`drive_dateutil` feeds hand-built observations straight to
+# the Oracle subprocess -- no Docker, no compiled candidate). They establish
+# the Oracle's own comparison logic is sound, but per the DeepSWE conversion
+# playbook's Gate 3, only a mutant built from the gold patch plus one hand
+# edit to the real source, replayed through a real Evaluation container
+# (`verify_patch(..., reference=True, mutate=...)`), counts toward the
+# required three targeted real-code mutants. The following three add that,
+# each on a semantic axis distinct from the five above and from each other,
+# taken from the public instruction / an upstream `test.patch` assertion not
+# already covered by a real-code mutant elsewhere in this row. Each was
+# confirmed (playbook defect #8) to flip its target case's failure category
+# before being wired in here -- see the row dossier's "Review correction:
+# real-code mutants" section for the verification log.
+
+
+def _replace_once(path: Path, before: str, after: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    count = text.count(before)
+    assert count == 1, (path, count, before)
+    path.write_text(text.replace(before, after), encoding="utf-8")
+
+
+def _mutate_vcalendar_line_unfolding_keeps_leading_whitespace(workspace: Path) -> None:
+    """Axis: RFC 5545 line unfolding (instruction: "VCALENDAR ... line
+    unfolding"; upstream `testVCalendarLineUnfolding`).
+
+    Per RFC 5545 SS3.1, an unfolded continuation line drops both the CRLF and
+    the single leading whitespace character that marks it as a
+    continuation. The gold `_rrulestr._unfold_lines` does
+    ``unfolded[-1] += line[1:]``, stripping that one leading character. This
+    hand edit keeps it (``+= line`` instead of ``+= line[1:]``) -- a
+    plausible near-miss for an implementation that recognizes continuation
+    lines but forgets RFC 5545's specific unfolding rule. Confirmed
+    (playbook defect #8) to flip the Oracle's folded-RRULE `vcalendar_parse`
+    case (`case_4`): the challenge's ``"RRULE:FREQ=WEE\\r\\n KLY;COUNT=4;
+    BYDAY=TU\\r\\n"`` unfolds to the malformed ``FREQ=WEE KLY`` (an embedded
+    space), which the candidate's real ``dateutil.rrule`` cannot parse as a
+    frequency name, raising inside the adapter's ``_observe`` and producing
+    an embedded ``run_error`` status instead of the expected occurrence
+    list -- diverging that case's ``run_error`` failure category while every
+    other case (none of which folds a line) is unaffected.
+    """
+    target = workspace / "src" / "dateutil" / "rrule.py"
+    _replace_once(
+        target,
+        "                    unfolded[-1] += line[1:]\n",
+        "                    unfolded[-1] += line  # BUG: continuation whitespace not stripped\n",
+    )
+
+
+def _mutate_vtimezone_priority_over_tzids_dropped(workspace: Path) -> None:
+    """Axis: "VTIMEZONE definitions take priority over the fallback"
+    (instruction; upstream `testVCalendarVTimezonePriorityOverTzids`).
+
+    The gold `_MergedTzids.__call__` checks its own `_vtimezones` dict
+    (parsed from the VCALENDAR's inline VTIMEZONE blocks) before falling
+    back to the caller-supplied `tzids` argument. This hand edit checks a
+    callable fallback first instead -- a plausible near-miss for an
+    implementation that wires inline VTIMEZONE parsing in but forgets to
+    prioritize it over an explicit `tzids` callable. Confirmed (playbook
+    defect #8) to flip the Oracle's `vcalendar_parse` case built specifically
+    to catch this (`case_5`, `tzids_mode: "raise"` with an inline
+    `VTIMEZONE:Custom-TZ` block): the Oracle's `tzids` callable raises
+    ``RuntimeError`` if actually invoked, so with the bug (fallback checked
+    first) the candidate's real `dateutil.rrule` raises inside
+    `rrulestr`, producing an embedded ``run_error`` instead of the expected
+    occurrence list, while the mapping/default/no-VTIMEZONE cases (whose
+    fallback is not callable) are unaffected.
+    """
+    target = workspace / "src" / "dateutil" / "rrule.py"
+    _replace_once(
+        target,
+        "    def __call__(self, name):\n"
+        "        tz = self._vtimezones.get(name)\n"
+        "        if tz is not None:\n"
+        "            return tz\n"
+        "\n"
+        "        if self._fallback is None:\n",
+        "    def __call__(self, name):\n"
+        "        if callable(self._fallback):\n"
+        "            return self._fallback(name)  # BUG: fallback checked before inline VTIMEZONE definitions\n"
+        "\n"
+        "        tz = self._vtimezones.get(name)\n"
+        "        if tz is not None:\n"
+        "            return tz\n"
+        "\n"
+        "        if self._fallback is None:\n",
+    )
+
+
+def _mutate_ruleset_dtstart_dedup_dropped(workspace: Path) -> None:
+    """Axis: "rruleset.__str__() outputs DTSTART (from the first rrule)"
+    (instruction; upstream `testRulesetStrDtstartFromFirstRRule`).
+
+    The gold `rruleset.__str__` emits DTSTART only once, from the first
+    rrule that has one, guarded by a `dtstart_emitted` flag. This hand edit
+    drops the guard so every rrule's DTSTART line is emitted -- a plausible
+    near-miss for an implementation that gets each individual rrule's own
+    `__str__` right but forgets the ruleset-level dedup rule. Confirmed
+    (playbook defect #8) to flip the Oracle's two-rrule `ruleset_str_props`
+    case (`case_16`, `first_line_exact`/`dtstart_count: 1`): with the bug,
+    `text.count("DTSTART")` is `2` instead of the expected `1`, diverging
+    that case's `dtstart_repeats` failure category, while the single-rrule
+    `ruleset_str_props`/`ruleset_to_ical` cases (where there is nothing to
+    dedup) are unaffected.
+    """
+    target = workspace / "src" / "dateutil" / "rrule.py"
+    _replace_once(
+        target,
+        "                if line.startswith('DTSTART'):\n"
+        "                    if not dtstart_emitted:\n"
+        "                        output.append(line)\n"
+        "                        dtstart_emitted = True\n"
+        "                else:\n",
+        "                if line.startswith('DTSTART'):\n"
+        "                    output.append(line)  # BUG: dtstart_emitted guard dropped\n"
+        "                    dtstart_emitted = True\n"
+        "                else:\n",
+    )
+
+
+DOCKER_MUTANTS = [
+    _mutate_vcalendar_line_unfolding_keeps_leading_whitespace,
+    _mutate_vtimezone_priority_over_tzids_dropped,
+    _mutate_ruleset_dtstart_dedup_dropped,
+]
+
+
+@DOCKER_INTEGRATION
+@pytest.mark.parametrize(
+    "mutate",
+    DOCKER_MUTANTS,
+    ids=[
+        "vcalendar-line-unfolding-keeps-whitespace",
+        "vtimezone-priority-over-tzids-dropped",
+        "ruleset-dtstart-dedup-dropped",
+    ],
+)
+def test_targeted_real_code_mutant_fails(tmp_path, baseline, mutate):
+    outcome = verify_patch(
+        NAME, baseline, tmp_path, reference=True, mutate=mutate,
+        run_seed=f"{NAME}-mutant-{mutate.__name__}",
+    )
+
+    assert outcome.status == "failed", (mutate.__name__, outcome.result)
+    assert not outcome.infrastructure_errors, outcome.evidence
+
+
 # -- Gate 4: forged / malformed evidence is rejected by the Oracle. --
 
 

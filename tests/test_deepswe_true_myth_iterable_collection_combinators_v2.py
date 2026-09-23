@@ -314,19 +314,47 @@ def _oracle_with_cases():
     return oracle
 
 
-def _good_result(case):
-    result = dict(case["expect"])
-    if case["op"] == "traverse" and "call_trace" not in result:
+def _good_result_for(op, expect):
+    result = dict(expect)
+    if op == "traverse" and "call_trace" not in result:
         # Parallel task.traverse's invocation order is not asserted, but
         # the driver's envelope always carries the field.
         result["call_trace"] = []
-    if case["op"] == "toolbelt_traverse":
+    if op == "toolbelt_traverse":
         result["call_trace"] = []
     return result
 
 
+def _good_result(case):
+    return _good_result_for(case["op"], case["expect"])
+
+
+def _good_extra_entries(case):
+    """Well-formed observations for every bundled extra step a case
+    declares (playbook #24). Mirrors what a correct candidate's driver run
+    actually reports: one `{id, op, status, error, result}` entry per step,
+    each independently checked against its own expectation."""
+    entries = []
+    for step_id, spec in (case.get("extra_expect") or {}).items():
+        entries.append({
+            "id": step_id, "op": spec["op"], "status": "observed", "error": "",
+            "result": _good_result_for(spec["op"], spec["expect"]),
+        })
+    return entries
+
+
+def _context_for(case):
+    return {
+        "id": case["id"], "op": case["op"], "expect": case["expect"],
+        "extra_expect": case.get("extra_expect", {}),
+    }
+
+
 def _good_evidence(case):
-    observation = {"op": case["op"], "status": "observed", "error": "", "result": _good_result(case)}
+    observation = {
+        "op": case["op"], "status": "observed", "error": "",
+        "result": _good_result(case), "extra": _good_extra_entries(case),
+    }
     return {"status": "observed", "observation": {"observation_json": json.dumps(observation)}}
 
 
@@ -352,10 +380,21 @@ def test_challenges_contain_no_grading_directives_or_expectations():
 def test_oracle_accepts_the_well_formed_case_set():
     oracle = _oracle_with_cases()
     for case in oracle.cases:
-        oracle.evaluate(
-            {"id": case["id"], "op": case["op"], "expect": case["expect"]},
-            _good_evidence(case),
-        )
+        oracle.evaluate(_context_for(case), _good_evidence(case))
+    assert oracle.failures == []
+    assert oracle.verdict()["verdict"]["passed"]
+
+
+def test_bundled_extra_steps_cover_every_previously_uncovered_f2p_assertion():
+    """Every case that bundles extra steps must report exactly the ids this
+    Oracle expects, and a well-formed run of the whole case set must
+    exercise every one of them (playbook #24: bundle F2P assertions, never
+    drop them)."""
+    oracle = _oracle_with_cases()
+    total_extra = sum(len(case.get("extra_expect") or {}) for case in oracle.cases)
+    assert total_extra == 43
+    for case in oracle.cases:
+        oracle.evaluate(_context_for(case), _good_evidence(case))
     assert oracle.failures == []
     assert oracle.verdict()["verdict"]["passed"]
 
@@ -364,16 +403,13 @@ def test_oracle_requires_every_case_and_rejects_repeats():
     oracle = _oracle_with_cases()
     assert not oracle.verdict()["verdict"]["passed"]
     for case in oracle.cases[:-1]:
-        oracle.evaluate(
-            {"id": case["id"], "op": case["op"], "expect": case["expect"]},
-            _good_evidence(case),
-        )
+        oracle.evaluate(_context_for(case), _good_evidence(case))
     assert not oracle.verdict()["verdict"]["passed"]
 
     oracle_b = _oracle_with_cases()
     first = oracle_b.cases[0]
     good = _good_evidence(first)
-    ctx = {"id": first["id"], "op": first["op"], "expect": first["expect"]}
+    ctx = _context_for(first)
     oracle_b.evaluate(ctx, good)
     oracle_b.evaluate(ctx, good)
     assert "repeated_case" in oracle_b.failures
@@ -386,6 +422,8 @@ def test_oracle_requires_every_case_and_rejects_repeats():
     "trace_tampered", "oks_errs_swapped", "extra_field_injected",
     "missing_field", "wrong_op_claimed", "top_level_candidate_error",
     "malformed_observation_json", "oversized_observation_json",
+    "bundled_extra_step_result_tampered", "bundled_extra_step_missing",
+    "bundled_extra_step_wrong_op_claimed", "bundled_extra_step_unexpected_id",
 ])
 def test_oracle_rejects_forged_or_malformed_observations(attack):
     oracle = _oracle_with_cases()
@@ -431,16 +469,43 @@ def test_oracle_rejects_forged_or_malformed_observations(attack):
     elif attack == "missing_field":
         del result["advance_count"]
     elif attack == "wrong_op_claimed":
-        observation = {"op": "compact", "status": "observed", "error": "", "result": result}
+        observation = {
+            "op": "compact", "status": "observed", "error": "", "result": result,
+            "extra": _good_extra_entries(case),
+        }
         oracle.evaluate(
-            {"id": case["id"], "op": case["op"], "expect": case["expect"]},
+            _context_for(case),
             {"status": "observed", "observation": {"observation_json": json.dumps(observation)}},
         )
         assert oracle.failures, attack
         assert not oracle.verdict()["verdict"]["passed"]
         return
 
-    observation = {"op": case["op"], "status": "observed", "error": "", "result": result}
+    extra = _good_extra_entries(case)
+
+    if attack == "bundled_extra_step_result_tampered":
+        # The seq_case (maybe-sequence-short-circuit-generator) bundles
+        # extra steps: tamper one bundled step's own result field.
+        assert extra, attack
+        extra = [dict(entry) for entry in extra]
+        tampered = dict(extra[0]["result"])
+        tampered["tag"] = "Just" if tampered.get("tag") != "Just" else "Nothing"
+        extra[0]["result"] = tampered
+    elif attack == "bundled_extra_step_missing":
+        assert extra, attack
+        extra = extra[1:]
+    elif attack == "bundled_extra_step_wrong_op_claimed":
+        assert extra, attack
+        extra = [dict(entry) for entry in extra]
+        extra[0] = dict(extra[0])
+        extra[0]["op"] = "compact"
+    elif attack == "bundled_extra_step_unexpected_id":
+        assert extra, attack
+        extra = [dict(entry) for entry in extra]
+        extra[0] = dict(extra[0])
+        extra[0]["id"] = "not-a-declared-extra-step-id"
+
+    observation = {"op": case["op"], "status": "observed", "error": "", "result": result, "extra": extra}
     evidence = {"status": "observed", "observation": {"observation_json": json.dumps(observation)}}
 
     if attack == "top_level_candidate_error":
@@ -452,7 +517,7 @@ def test_oracle_rejects_forged_or_malformed_observations(attack):
             evidence["observation"]["observation_json"][:-1] + ("x" * 20000) + "}"
         )
 
-    oracle.evaluate({"id": case["id"], "op": case["op"], "expect": case["expect"]}, evidence)
+    oracle.evaluate(_context_for(case), evidence)
     assert oracle.failures, attack
     assert not oracle.verdict()["verdict"]["passed"]
 

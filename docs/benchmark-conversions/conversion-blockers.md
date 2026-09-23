@@ -63,7 +63,16 @@ creates or retargets is still rejected if absolute or escaping, pinned by
 `test_candidate_authored_absolute_or_escaping_symlinks_are_still_rejected` in
 `tests/test_v2_candidates.py`. Flagging because it relaxes a capture check.
 
-### 5. Editing a test file rejects the whole candidate (affects Approved rows)
+### 5. Editing a test file rejects the whole candidate — RESOLVED (option 1)
+
+**Decision (user):** drop excluded edits. `capture_git_patch` now drops a
+candidate's changes under the row's `exclude_paths`, and the manifest records
+them as `excluded_files`. The rest of the submission is still captured.
+Framework-protected paths still reject the whole candidate. Pinned by
+`test_stopped_workspace_capture_drops_excluded_and_rejects_escaping_changes`
+in `tests/test_v2_candidates.py`. The original analysis follows.
+
+#### Original analysis
 
 `_validate_patch_path` raises `CandidateCaptureError` when a candidate touches
 any `exclude_paths` pattern. It does not drop the excluded path. DeepSWE Go and

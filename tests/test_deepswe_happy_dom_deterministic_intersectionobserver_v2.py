@@ -471,3 +471,66 @@ def test_oracle_rejects_forged_or_malformed_observations(attack):
 
     assert oracle.failures, attack
     assert not oracle.verdict()["verdict"]["passed"]
+
+
+def test_oracle_rejects_forged_window_size_with_consistent_intersection():
+    """Regression test for the split-verification review finding: the Oracle
+    must never derive its expected viewport rectangle from the candidate's
+    own reported ``window_inner_width``/``window_inner_height`` (candidate
+    observations are untrusted; AGENTS.md).
+
+    This attack is stronger than ``wrong_ratio`` above: the candidate does
+    not just report a wrong number, it reports a *self-consistent* forged
+    world -- a manipulated window size together with intersection results
+    that are exactly what a genuine implementation would compute for that
+    fake size. Before the fix, an adversarial candidate could inflate
+    ``window_inner_width``/``window_inner_height`` and make the
+    far-away-viewport case (which exists specifically to catch a fake
+    "always intersecting" observer) report a fabricated intersection,
+    because the Oracle used to build its expected root rectangle from that
+    same candidate-reported size. The fix pins the expected root rectangle
+    to Happy DOM's documented default viewport (1024x768) and checks the
+    reported size only as a separate, non-expectation-feeding assertion.
+    """
+    from geometry import intersect  # type: ignore
+
+    oracle = _oracle_with_cases()
+    case = next(c for c in oracle.cases if c["id"] == "observe-initial-delivery-viewport-outside")
+    assert case["challenge"]["root_mode"] == "viewport"
+    target = case["challenge"]["targets"][0]
+    evidence = _good_observation(case)
+    obs = evidence["observation"]
+
+    # Sanity: against the real default viewport, this target does not
+    # intersect at all (it is why this case exists).
+    real_root = {"x": 0, "y": 0, "width": WINDOW_W, "height": WINDOW_H}
+    real_ratio, real_intersecting = intersect(target["rect"], real_root)
+    assert real_intersecting is False and real_ratio == 0.0
+
+    # Forge a wildly inflated viewport that happens to contain the target,
+    # and report intersection fields that are internally consistent with
+    # that fake viewport -- not just a wrong number, a coherent fake world.
+    fake_w, fake_h = 2_000_000, 2_000_000
+    fake_root = {"x": 0, "y": 0, "width": fake_w, "height": fake_h}
+    fake_ratio, fake_intersecting = intersect(target["rect"], fake_root)
+    assert fake_intersecting is True and fake_ratio == 1.0  # genuinely consistent w/ the lie
+
+    obs["window_inner_width"] = fake_w
+    obs["window_inner_height"] = fake_h
+    obs["batches"][0][0] = {
+        "target_id": target["id"],
+        "is_intersecting": fake_intersecting,
+        "intersection_ratio": fake_ratio,
+        "root_bounds_width": fake_w,
+        "root_bounds_height": fake_h,
+    }
+
+    oracle.evaluate({"id": case["id"], "expect": case["expect"]}, evidence)
+
+    # Caught two ways: the separate window-size assertion, and -- even if
+    # that assertion were absent -- the geometry check itself, because the
+    # expected root rectangle is pinned to the real default and never seeded
+    # from the candidate's own reported (fake) size.
+    assert "window_size_mismatch" in oracle.failures
+    assert "wrong_entry_values" in oracle.failures
+    assert not oracle.verdict()["verdict"]["passed"]

