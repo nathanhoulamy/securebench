@@ -666,12 +666,18 @@ def _synchronize_stopped_worktree(
                 continue
             if stat.S_ISLNK(info.st_mode):
                 target_value = os.readlink(source_path)
-                _validate_internal_symlink(path, target_value)
                 changed = not _symlink_equivalent(
                     target_value,
                     baseline.joinpath(*relative.parts),
                 )
+                # Only candidate-authored symlinks are validated. A symlink
+                # identical to the trusted baseline is already present in every
+                # Evaluation baseline and never enters the patch; real
+                # repositories ship absolute test fixtures (helm's
+                # `testdata/.../null -> /dev/null`) that would otherwise make
+                # the whole repository unconvertible.
                 if changed:
+                    _validate_internal_symlink(path, target_value)
                     changed_files += 1
                     changed_bytes += len(target_value.encode("utf-8"))
                     _check_preliminary_patch_bounds(

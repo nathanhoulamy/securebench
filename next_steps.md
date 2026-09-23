@@ -203,6 +203,31 @@ its own section below and must not block other implementation work.
 
 ## Active next batch: small conversion pilot on Linux
 
+2026-09-22 Wave A complete: all 28 implemented Terminal-Bench rows were
+requalified under real Docker. 23 are **Approved**, 3 are parked on a deferred
+fidelity decision, `circuit-fibsqrt` has an unproven gate 2 (no reference netlist
+exists), and `install-windows-3.11` needs a focused test. See the
+[qualification record](docs/benchmark-conversions/terminal-bench-qualification-record.md)
+and the [fidelity review queue](docs/benchmark-conversions/fidelity-review-queue.md).
+
+Blocked work and decisions awaiting review are in
+[conversion blockers](docs/benchmark-conversions/conversion-blockers.md); the
+largest is how Evaluation runtimes get an interpreter for protocol adapters.
+
+Next, in order: write the `install-windows-3.11` focused test, then implement the
+remaining design-only Terminal-Bench rows in cost order — 11 passive artifact rows, then
+19 clean protocol/hybrid rows, then 11 semantic-change protocol rows, then the 6
+major-redesign rows (`largest-eigenval`, `mailman`, `nginx-request-logging`,
+`query-optimize`, `train-fasttext`, `tune-mjcf`), which are expected to end in a
+documented component blocker rather than a forced conversion. DeepSWE follows
+TerminalBench.
+
+2026-09-22 paper subset update: the executable packs now contain 32 rows after
+adding `go-critic-doc-link-checker`, still qualification-pending. Follow the
+[twenty-row selection and fidelity queue](docs/benchmark-conversions/paper-subset.md)
+before expanding conversions. It distinguishes the ten implemented TerminalBench
+candidates from the ten proposed DeepSWE protocol conversions.
+
 Alignment checkpoint (2026-09-21): 31 executable rows exist (28 Terminal-Bench,
 three DeepSWE). Twenty-five Terminal-Bench rows have historical completed
 qualification records; the three original Terminal pilot rows and all three

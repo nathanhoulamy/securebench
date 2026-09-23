@@ -106,7 +106,7 @@ monitored, pilot-specific run storage.
 ## Recommended pilot rows and order
 
 This is the original pilot selection, not the current implementation count.
-The packs now contain 28 Terminal-Bench and three DeepSWE rows. Rows 0–5 below
+The packs now contain 28 Terminal-Bench and four DeepSWE rows. Rows 0–5 below
 are implemented but still lack completed admission records; their remaining
 work is qualification, including any component defects exposed by it. See the
 portfolio [inventory](inventory.csv) and [checklist](pilot-qualification-checklist.md)

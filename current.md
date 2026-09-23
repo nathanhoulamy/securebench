@@ -93,11 +93,26 @@ the runner does not invent a benchmark score.
 | Strict split execution | Implemented for file-bundle and git-patch execution and for qualification-gated overlay artifact/protocol paths, including all three registered Trusted Helpers |
 | Host Oracle JSON-lines ABI | Implemented for initialize, artifact evidence, cases, case evidence, and final verdict |
 | Sanitized result/provenance and resume validation | Implemented |
-| Admission qualification pipeline | Not implemented |
+| Admission qualification pipeline | Partially implemented: `tools/qualify_rows.py` runs the per-row matrix and emits a machine-readable record. It records evidence and does not decide admission. |
 | Result signing | Not implemented |
 
-The executable reference packs currently contain twenty-eight Terminal-Bench rows
-and three DeepSWE rows. The twenty-five incremental conversions from `bn-fit-modify`
+The executable reference packs currently contain thirty-one Terminal-Bench rows
+and four DeepSWE rows. The new `go-critic-doc-link-checker` conversion and the
+proposed twenty-row paper scope are tracked in
+[`paper-subset.md`](docs/benchmark-conversions/paper-subset.md); selection and
+partial qualification do not confer admission.
+
+2026-09-22 requalification: all twenty-eight Terminal-Bench rows were rerun
+against their digest-pinned images under Docker 29.7.2. Twenty-six are now
+**Approved** (including the Wave B conversions of `password-recovery`,
+`log-summary-date-ranges`, and `raman-fitting`); three are parked on a deferred semantic-fidelity decision,
+`circuit-fibsqrt` has an unproven gate 2, and `install-windows-3.11` still has no
+focused test. The record is
+[`terminal-bench-qualification-record.md`](docs/benchmark-conversions/terminal-bench-qualification-record.md).
+The wave also closed `cobol-modernization`'s missing reference, added focused
+tests for `sqlite-db-truncate` and `vulnerable-secret`, and fixed a real gate 8
+leak in `hf-model-inference` that left root-owned host state behind.
+The twenty-five incremental conversions from `bn-fit-modify`
 through `kv-store-grpc` have recorded Approved decisions after deterministic,
 pinned-image, stopped-capture, adversarial, teardown, and model-backed
 qualification. The twenty-five rows share a declarative `file_bundle`

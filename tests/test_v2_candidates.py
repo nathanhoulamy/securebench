@@ -567,3 +567,105 @@ def test_empty_git_patch_is_a_replayable_candidate(tmp_path):
     )
 
     assert store.load_candidate(candidate.digest).payload["changed_files"] == []
+
+
+def _repository_with_absolute_fixture(root: Path) -> tuple[Path, str]:
+    """Baseline that ships an absolute-target symlink, as real repos do.
+
+    `helm/helm` carries `.../testdata/frobnitz_with_dev_null/null -> /dev/null`
+    and `.../testdata/symlinks/invalid-symlink -> /non/existing/file` as
+    upstream test fixtures, unrelated to any candidate change.
+    """
+    baseline = make_repository(root)
+    (baseline / "fixtures").mkdir()
+    (baseline / "fixtures" / "null").symlink_to("/dev/null")
+    git(baseline, "add", ".")
+    git(baseline, "commit", "--quiet", "-m", "absolute fixture")
+    return baseline, git(baseline, "rev-parse", "HEAD").strip()
+
+
+def test_unchanged_baseline_absolute_symlink_does_not_block_capture(tmp_path):
+    """Trusted baseline content is not candidate-authored and is not validated.
+
+    It is already present in every Evaluation baseline and never enters the
+    candidate patch, so rejecting it would only make such repositories
+    impossible to convert.
+    """
+    baseline, base_commit = _repository_with_absolute_fixture(tmp_path / "baseline")
+    workspace = tmp_path / "workspace"
+    git(tmp_path, "clone", "--quiet", str(baseline), str(workspace))
+    (workspace / "src" / "app.py").write_text("value = 2\n")
+    store = CandidateStore(tmp_path / "store")
+
+    candidate = capture_git_patch_workspace(
+        workspace,
+        baseline,
+        git_patch_spec(allow_paths=["**"]),
+        store,
+        baseline_digest=BASELINE,
+        base_commit=base_commit,
+    )
+
+    manifest = store.load_candidate(candidate.digest)
+    assert manifest.payload["changed_files"] == ["src/app.py"]
+    replay = tmp_path / "replay"
+    git(tmp_path, "clone", "--quiet", str(baseline), str(replay))
+    replay_git_patch(
+        candidate,
+        store,
+        replay,
+        expected_baseline_digest=BASELINE,
+        expected_base_commit=base_commit,
+    )
+    assert os.readlink(replay / "fixtures" / "null") == "/dev/null"
+    assert (replay / "src" / "app.py").read_text() == "value = 2\n"
+
+
+@pytest.mark.parametrize(
+    ("mutate", "description"),
+    [
+        pytest.param(
+            lambda w: (
+                (w / "fixtures" / "null").unlink(),
+                (w / "fixtures" / "null").symlink_to("/etc/passwd"),
+            ),
+            "retargeting a baseline absolute symlink to another absolute path",
+            id="retarget_absolute",
+        ),
+        pytest.param(
+            lambda w: (
+                (w / "fixtures" / "null").unlink(),
+                (w / "fixtures" / "null").symlink_to("../../outside"),
+            ),
+            "retargeting a baseline absolute symlink to an escaping relative path",
+            id="retarget_escaping",
+        ),
+        pytest.param(
+            lambda w: (w / "src" / "leak").symlink_to("/etc/shadow"),
+            "adding a new absolute symlink",
+            id="new_absolute",
+        ),
+        pytest.param(
+            lambda w: (w / "fixtures" / "other").symlink_to("/dev/null"),
+            "adding a new absolute symlink identical in target to a baseline one",
+            id="new_absolute_same_target",
+        ),
+    ],
+)
+def test_candidate_authored_absolute_or_escaping_symlinks_are_still_rejected(
+    tmp_path, mutate, description
+):
+    baseline, base_commit = _repository_with_absolute_fixture(tmp_path / "baseline")
+    workspace = tmp_path / "workspace"
+    git(tmp_path, "clone", "--quiet", str(baseline), str(workspace))
+    mutate(workspace)
+
+    with pytest.raises(CandidateCaptureError, match="escapes tree"):
+        capture_git_patch_workspace(
+            workspace,
+            baseline,
+            git_patch_spec(allow_paths=["**"]),
+            CandidateStore(tmp_path / "store"),
+            baseline_digest=BASELINE,
+            base_commit=base_commit,
+        )

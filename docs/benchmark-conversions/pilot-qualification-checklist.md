@@ -6,8 +6,11 @@ dossier contains the resulting evidence. Deterministic unit tests are useful,
 but they do not replace Linux/Docker qualification.
 
 Inventory review disposition, implementation, and runtime qualification are
-separate. The packs contain 31 implemented rows: 25 retain historical Linux
-qualification evidence and six remain qualification-pending. The 25 historical
+separate. The packs contain 32 implemented rows: 25 retain historical Linux
+qualification evidence and seven remain qualification-pending. The new
+`go-critic-doc-link-checker` record is in its
+[dossier](DeepSWE/go-critic-doc-link-checker.md) and the
+[paper subset queue](paper-subset.md). The 25 historical
 rows require requalification after the latest strict split and Agent network
 policy changes; their old binary decisions do not constitute current admission.
 The first-wave control, `sqlite-db-truncate`, and `vulnerable-secret` sections

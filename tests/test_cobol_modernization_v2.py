@@ -36,7 +36,14 @@ ORACLE = (
     / "oracle"
     / "oracle.py"
 )
-REFERENCE = Path("/tmp/securebench-cobol-reference/program.py")
+REFERENCE = (
+    PACK
+    / "v2"
+    / "hidden"
+    / "cobol-modernization"
+    / "qualification"
+    / "reference.py"
+)
 ORIGINAL_ACCOUNTS = (
     "U001John Doe            0000001000"
     "U002Jane Smith          0000002000"
@@ -268,8 +275,10 @@ def test_oracle_rejects_mutants_and_candidate_claims(attack):
 
 @DOCKER_INTEGRATION
 def test_official_reference_passes_real_pinned_evaluations(tmp_path):
-    if not REFERENCE.is_file():
-        pytest.skip("extract the pinned official reference under /tmp for qualification")
+    # The reference is checked in as host-only qualification material. A missing
+    # file is a repository error, not a reason to skip: silently skipping here is
+    # what previously hid the absence of gate 2 (reference success) evidence.
+    assert REFERENCE.is_file(), f"missing host-only reference material: {REFERENCE}"
     result = _capture_and_verify(
         tmp_path,
         "reference",

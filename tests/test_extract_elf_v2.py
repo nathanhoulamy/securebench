@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -119,20 +120,52 @@ def test_hidden_case_corpus_is_bounded_and_pinned():
         assert hashlib.sha256(content).hexdigest() == digest
 
 
+# Digest-pinned Node runtime used only when the host has no `node`. This runs the
+# pinned *source* reference implementation for conformance comparison; it is
+# qualification tooling and never part of an Agent or Evaluation environment.
+NODE_IMAGE = (
+    "node@sha256:b877c2a430b04242d4ef8a0f1aeb8ba3f0f837ea58f1914d56ae0e18294367a4"
+)
+
+
+def _node_command(script: Path, elf: Path) -> list[str] | None:
+    """Return a command that runs `script` against `elf` under Node.js.
+
+    Prefers a host Node.js, falling back to the digest-pinned image so that
+    source-reference conformance is still proven on hosts without Node.js
+    installed. Returns None when neither is available.
+    """
+    host_node = shutil.which("node")
+    if host_node is not None:
+        return [host_node, str(script), str(elf)]
+    if shutil.which("docker") is None:
+        return None
+    return [
+        "docker", "run", "--rm",
+        "--network", "none",
+        "--read-only",
+        "--user", f"{os.getuid()}:{os.getgid()}",
+        "-v", f"{script}:/work/reference.js:ro",
+        "-v", f"{elf}:/work/target.elf:ro",
+        NODE_IMAGE,
+        "node", "/work/reference.js", "/work/target.elf",
+    ]
+
+
 def test_host_parser_matches_the_original_node_reference(tmp_path):
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("Node.js is required for source-reference conformance")
     script = tmp_path / "reference.js"
     script.write_text(reference_script(), encoding="utf-8")
     oracle_module = load_module(ORACLE, "extract_elf_reference_conformance")
 
     for elf in sorted((ORACLE.parent / "cases").glob("*.elf")):
+        command = _node_command(script, elf)
+        if command is None:
+            pytest.skip("neither a host Node.js nor Docker is available")
         completed = subprocess.run(
-            [node, str(script), str(elf)],
+            command,
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=120,
             check=False,
         )
         assert completed.returncode == 0, completed.stderr

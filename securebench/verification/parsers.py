@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import ast
+import base64
 import csv
+import hashlib
 import io
 import math
 import re
@@ -28,6 +30,7 @@ class BlobReader(Protocol):
 StoredTreeParser = Callable[[dict[str, Any], BlobReader], Any]
 
 
+MAX_OPAQUE_BYTES = 4 * 1024 * 1024
 MAX_CSV_BYTES = 16 * 1024 * 1024
 MAX_CSV_COLUMNS = 256
 MAX_CSV_ROWS = 100_000
@@ -94,6 +97,7 @@ class ParserRegistry:
 
 def default_parser_registry() -> ParserRegistry:
     registry = ParserRegistry()
+    registry.register(ParserProfile("securebench.opaque-bytes/v1", "bytes", _opaque_bytes))
     registry.register(ParserProfile("securebench.strict-json/v1", "bytes", _strict_json))
     registry.register(ParserProfile("securebench.utf8-text/v1", "bytes", _utf8_text))
     registry.register(ParserProfile("securebench.ics/v1", "bytes", _ics))
@@ -112,6 +116,30 @@ def default_parser_registry() -> ParserRegistry:
         )
     )
     return registry
+
+
+def _opaque_bytes(content: bytes) -> dict[str, Any]:
+    """Return bounded candidate bytes without interpreting their structure.
+
+    This is the narrowest profile in the registry: it decodes nothing and
+    parses nothing, so there is no format-specific attack surface. It exists
+    for artifacts that are genuinely binary, where the Oracle owns the format
+    and must do its own memory-safe decoding.
+
+    The value is base64-encoded because Oracle evidence is transported as JSON.
+    Encoding is not interpretation: the Oracle receives exactly the captured
+    bytes, and a digest so it can bind them to the stored candidate.
+    """
+    if len(content) > MAX_OPAQUE_BYTES:
+        raise ParserRejected(
+            "opaque_bytes_too_large",
+            "artifact exceeds the opaque-bytes parser byte bound",
+        )
+    return {
+        "byte_count": len(content),
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "bytes_base64": base64.b64encode(content).decode("ascii"),
+    }
 
 
 def _strict_json(content: bytes) -> Any:

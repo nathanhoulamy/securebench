@@ -183,6 +183,62 @@ ROWS = (
         missing_check_ids=("kv_store_artifacts", "kv_store_behavior"),
         base_command=("true",),
     ),
+    RowCaptureContract(
+        task_id="terminal-bench/sqlite-db-truncate",
+        target_id="recovery",
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/vulnerable-secret",
+        target_id="secret",
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/constraints-scheduling",
+        target_id="schedule",
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/password-recovery",
+        target_id="recovered_passwords",
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/log-summary-date-ranges",
+        target_id="summary",
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/raman-fitting",
+        target_id="fit_results",
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/protein-assembly",
+        target_id="gblock",
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/write-compressor",
+        target_id="compressed",
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/mteb-leaderboard",
+        target_id="answer",
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/mteb-retrieve",
+        target_id="answer",
+        base_command=("true",),
+    ),
+    RowCaptureContract(
+        task_id="terminal-bench/rstan-to-pystan",
+        target_id="alpha",
+        oversized_target="beta",
+        base_command=("true",),
+    ),
 )
 
 

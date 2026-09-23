@@ -47,17 +47,42 @@ in the `implementation_status` and `qualification_status` columns of
 
 | State | Rows | Meaning |
 |---|---:|---|
-| Implemented | 31 | A v2 task row exists in the executable TerminalBench or DeepSWE pack. |
-| Design only | 139 | The row has a reviewed design but no v2 task row yet. |
+| Implemented | 66 | A v2 task row exists in the executable TerminalBench (36) or DeepSWE (30) pack. |
+| Design only | 104 | The row has a reviewed design but no v2 task row yet. |
 | Excluded | 32 | The portfolio disposition excludes conversion under the current trust model. |
 
-The 31 implemented rows split into 25 historical Linux qualifications and six
-rows still awaiting their first qualification. The 25 historical qualifications
-are marked `requalification_pending`: the latest strict split and Agent network
-policy changes require a new qualification run. The other six are marked
-`qualification_pending` (the three first-wave TerminalBench rows and the three
-DeepSWE rows). Historical evidence remains documented in each dossier, but no
-pending or historical record is a current admission decision.
+The implemented TerminalBench rows were qualified or requalified on 2026-09-22
+against their pinned images under real Docker. Rows converted from a published
+registry image are pinned by repository digest; the three Wave B rows have no
+published image and are pinned by locally built image ID, which is host-local
+(see the record's image-pinning caveat). The current admission record is
+[`terminal-bench-qualification-record.md`](terminal-bench-qualification-record.md);
+the machine-readable result is `runs/qualification/terminal-bench-qualification.json`.
+DeepSWE admission is recorded in
+[`deepswe-qualification-record.md`](deepswe-qualification-record.md).
+
+| `qualification_status` | Rows | Meaning |
+|---|---:|---|
+| `approved` | 60 | Gates 1–8 executed and passed; admitted (30 TerminalBench, 30 DeepSWE). |
+| `fidelity_review_pending` | 3 | Gates pass, but the semantic-fidelity decision is deferred. |
+| `evidence_gap_pending` | 1 | `circuit-fibsqrt`: gate 2 unproven, no reference netlist exists. |
+| `qualification_pending` | 1 | `install-windows-3.11`: implemented but has no focused test. |
+| `reproducibility_pending` | 1 | `password-recovery`: gates pass, but its image rebuilds to a different ID every time (random `setup.sh`). |
+
+Open fidelity questions are parked in the
+[fidelity review queue](fidelity-review-queue.md), and conversion blockers plus
+decisions awaiting review are in
+[conversion blockers](conversion-blockers.md). Parking is not admission: a
+parked row stays pending and must not appear in admitted results.
+
+The four DeepSWE rows remain `qualification_pending`; DeepSWE requalification has
+not run yet.
+
+The [paper subset queue](paper-subset.md) records the proposed ten-per-benchmark
+scope, fidelity reviews, and first new DeepSWE conversion. Selection is not
+admission. The Helm unified-stream, kgateway hash-policy, and oxvg selector
+designs are protocol checks with artifact observations: producing their output
+requires candidate execution, despite the earlier passive-pattern labels.
 
 ## Source revisions
 

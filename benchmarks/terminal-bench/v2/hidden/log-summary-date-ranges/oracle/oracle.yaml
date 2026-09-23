@@ -1,0 +1,3 @@
+abi: securebench.oracle/v1
+command: ["{python}", "oracle.py"]
+timeout_seconds: 10

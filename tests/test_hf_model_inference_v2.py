@@ -9,6 +9,7 @@ import pytest
 
 from securebench.execution_profiles import validate_executable_task
 from securebench.schemas.benchmark import ProtocolCheck
+from securebench.workspaces.cleanup import remove_untrusted_tree
 from tests.qualification_support import (
     DOCKER_INTEGRATION,
     load_module,
@@ -273,22 +274,36 @@ def _prepare_reference_workspace(tmp_path: Path) -> Path:
 
 @DOCKER_INTEGRATION
 def test_reference_model_loads_offline_and_passes_three_fresh_evaluations(tmp_path):
+    task = compiled_task()
     workspace = _prepare_reference_workspace(tmp_path)
-    model_path = workspace / "model_cache" / "sentiment_model"
+    # The preparation container writes as root into the bind mount, so ordinary
+    # teardown cannot remove the tree. Without this the run leaks root-owned host
+    # state, which is a gate 8 (leak check) failure rather than a test nuisance.
+    try:
+        model_path = workspace / "model_cache" / "sentiment_model"
 
-    assert {path.name for path in model_path.iterdir()} == MODEL_FILES
-    assert sum(path.stat().st_size for path in model_path.iterdir()) == 268_066_033
-    result, candidate, store = verify_workspace(
-        compiled_task(),
-        workspace,
-        tmp_path / "store",
-        run_seed="hf-model-reference",
-    )
+        assert {path.name for path in model_path.iterdir()} == MODEL_FILES
+        assert (
+            sum(path.stat().st_size for path in model_path.iterdir()) == 268_066_033
+        )
+        result, candidate, store = verify_workspace(
+            task,
+            workspace,
+            tmp_path / "store",
+            run_seed="hf-model-reference",
+        )
 
-    assert result.status == "passed", result
-    assert result.checks[0].cases == 3
-    assert len(set(result.checks[0].evidence_digests)) == 3
-    assert store.load_candidate(candidate.digest).payload["total_bytes"] < 268_331_072
+        assert result.status == "passed", result
+        assert result.checks[0].cases == 3
+        assert len(set(result.checks[0].evidence_digests)) == 3
+        assert (
+            store.load_candidate(candidate.digest).payload["total_bytes"]
+            < 268_331_072
+        )
+    finally:
+        remove_untrusted_tree(workspace, image=task.environment.image)
+
+    assert not workspace.exists()
 
 
 @DOCKER_INTEGRATION

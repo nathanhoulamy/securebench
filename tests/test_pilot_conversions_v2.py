@@ -48,14 +48,23 @@ def test_all_first_wave_rows_compile_and_pass_executable_preflight():
         "terminal-bench/sqlite-db-truncate",
         "terminal-bench/vulnerable-secret",
     }
-    assert set(deep) == {
+    # The four first-wave rows; later conversions extend the pack.
+    assert set(deep) >= {
         "deep-swe/cattrs-partial-structuring-recovery",
         "deep-swe/fd-deterministic-multi-key-sorting",
         "deep-swe/updo-policy-alerting",
+        "deep-swe/go-critic-doc-link-checker",
     }
+    # Every row must be pinned to an immutable image. Two forms are valid:
+    # a repository digest ("name@sha256:...") for rows whose upstream image was
+    # published, and a bare image ID ("sha256:...") for rows built locally from
+    # the checked-in Dockerfile because no published image exists. A bare ID is
+    # immutable but host-local; see
+    # docs/benchmark-conversions/terminal-bench-qualification-record.md.
     for task in (*terminal.values(), *deep.values()):
         validate_executable_task(task)
-        assert "@sha256:" in task.environment.image
+        image = task.environment.image
+        assert "@sha256:" in image or image.startswith("sha256:"), task.id
 
 
 def test_sqlite_recovery_preserves_source_threshold(tmp_path):
@@ -148,7 +157,7 @@ def evidence(task, case, observation, index, helpers=()):
     )
 
 
-def drive_cattrs(task, *, mutate=False):
+def drive_cattrs(task, *, mutate=False, tweak=None):
     oracle_root = Path(task.resources.resources["host.task_oracle"].value["source_path"])
     with OracleProcessSession(oracle_root) as session:
         session.initialize(task, run_seed="cattrs-qualification")
@@ -170,6 +179,8 @@ def drive_cattrs(task, *, mutate=False):
                 })
             if mutate and index == 4:
                 snapshots[0]["failed_fields"] = []
+            if tweak is not None:
+                tweak(index, snapshots)
             observation = {
                 "status": "observed",
                 "api": {"partial_result_exported": True, "top_level_callable": True, "converter_method": True, "base_converter_method": True, "ordinary_structure_success": True, "ordinary_structure_rejects_bad": True},
@@ -281,3 +292,50 @@ def test_protocol_oracles_accept_reference_observations_and_reject_targeted_muta
     mutant = driver(task, mutate=True)
     assert reference.passed is True
     assert mutant.passed is False
+
+
+# Rules restored to upstream fidelity after the gold solution was replayed.
+# Replaying the upstream solution showed two checks in this Oracle were stricter
+# than anything the public instruction or the upstream tests require.
+
+
+def _cattrs_task():
+    return compiled_tasks("deep-swe")["deep-swe/cattrs-partial-structuring-recovery"]
+
+
+def test_cattrs_unpicklable_partial_errors_are_not_a_failure():
+    """Upstream pickling tests cover only the legacy error classes."""
+
+    def unpicklable(index, snapshots):
+        for snapshot in snapshots:
+            snapshot["errors_picklable"] = False
+
+    verdict = drive_cattrs(_cattrs_task(), tweak=unpicklable)
+    assert verdict.passed is True, verdict
+
+
+def test_cattrs_error_map_contents_are_unscored_without_detailed_validation():
+    """Upstream test_with_dv_false only asserts error_map is a dict."""
+
+    def empty_error_map_on_dv_false_case(index, snapshots):
+        if index == 2:  # the Oracle's detailed_validation=False case
+            for snapshot in snapshots:
+                snapshot["error_fields"] = []
+                snapshot["error_types"] = []
+
+    verdict = drive_cattrs(_cattrs_task(), tweak=empty_error_map_on_dv_false_case)
+    assert verdict.passed is True, verdict
+
+
+def test_cattrs_error_map_is_still_required_with_detailed_validation():
+    """With detailed validation, a failed field missing from error_map fails."""
+
+    def empty_error_map_on_dv_true_case(index, snapshots):
+        if index == 1:  # detailed_validation=True with failed field "b"
+            for snapshot in snapshots:
+                snapshot["error_fields"] = []
+                snapshot["error_types"] = []
+
+    verdict = drive_cattrs(_cattrs_task(), tweak=empty_error_map_on_dv_true_case)
+    assert verdict.passed is False
+    assert any("error_map" in item for item in verdict.public_diagnostics["failure_categories"])

