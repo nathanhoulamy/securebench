@@ -7,40 +7,35 @@ Raw results: `records.jsonl`.
 
 ## Method
 
-- **native**: the upstream `tests/test_outputs.py` grading logic, run offline
-  against the candidate repo (git CLI + stdlib; the working-tree checksum uses
-  the canonical in-container path `/app/repo`, exactly as upstream computes it).
-  No network: this runs the grading logic, not `test.sh`'s `uv` bootstrap.
+- **native**: the real upstream harness (Harbor Docker replay via
+  `phase1.native_grade`); reward from `/logs/verifier/reward.txt`.
 - **securebench**: `verify_workspace()` — the capture + `VerificationEngine` +
   Oracle path that `phase1` uses for host-captured candidates.
 
 Candidates are authored against native's model only, blind to SecureBench, then
 graded on both. "Genuinely solves" is fixed per candidate by construction.
+Builder: `tools/native_baseline/adversarial/git_leak_recovery.py`; driver:
+`tools/native_baseline/adversarial/git_leak_builder.py`.
 
-## Results
+## Results (full-fidelity: native = real Harbor Docker replay)
 
-| candidate | solves? | native | securebench | securebench failure |
+| candidate | solves? | native | securebench | note |
 |---|---|---|---|---|
 | base (no work) | no | fail | fail | recovered_secret missing |
-| reference (real fix) | yes | pass | pass | — |
-| reflog_only | no | **pass** | fail | `secret_remains_in_git_objects` |
-| dangling_commit | no | **pass** | fail | `secret_remains_in_git_objects` |
-| alternates | no | **pass** | fail | `unsafe_git_repository` (fail-closed at capture) |
+| reference (real fix) | yes | pass | pass | reproduces upstream repo checksum `2c3d63…` |
+| reflog_only | no | **pass** | fail | secret alive via reflog; SB: `secret_remains_in_git_objects` |
+| dangling_commit | no | **pass** | fail | secret under a dangling commit; SB: `secret_remains_in_git_objects` |
+| alternates | no | fail | fail | broken in-container (both reject) |
 
-Three non-solving candidates obtain native's pass verdict; SecureBench blocks
-all three. Native inspects only reachable refs and the objects `git fsck` prints
-on `dangling` lines, so a secret blob kept alive via reflog, held under a
-dangling commit, or relocated behind `objects/info/alternates` is never
-inspected. SecureBench enumerates every object (`cat-file --batch-all-objects`)
-and rejects the alternates mechanism at capture.
+**Two non-solving candidates obtain native's pass verdict; SecureBench blocks
+both.** Native inspects only reachable refs and the objects `git fsck` prints on
+`dangling` lines, so a secret blob kept alive via reflog or held under a dangling
+commit is never inspected. SecureBench enumerates every object
+(`cat-file --batch-all-objects`) and fails on `secret[` in any of them.
 
-The `reference` candidate reproduces upstream's pinned repository checksum
-(`2c3d63…`), so the reconstruction is byte-faithful and the native verdicts are
-trustworthy.
-
-## Caveat
-
-The native grade re-runs the upstream test **logic** offline, not the full
-Harbor container. The logic is faithful (same git commands; the checksum matched
-upstream's constant). A full-fidelity confirmation would replay a candidate
-through Harbor; noted for the headline candidate before publication.
+The `alternates` candidate (secret objects behind `objects/info/alternates`) is
+rejected by **both**: SecureBench fails closed on the unsupported mechanism at
+capture, and under the real container native's git cannot resolve the alternate
+path, breaking the repo so the tests error. An earlier offline grade had scored
+it native-pass; the Docker replay corrected it — recorded here as why
+full-fidelity grading is used.
