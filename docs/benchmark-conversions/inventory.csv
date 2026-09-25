@@ -51,7 +51,7 @@ DeepSWE,kysely-window-grouping-helpers,Approved,"Conversion with semantic change
 DeepSWE,mashumaro-flattened-dataclass-fields,Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Low,DeepSWE/mashumaro-flattened-dataclass-fields.md,implemented,approved,none
 DeepSWE,meriyah-explicit-resource-declarations,Approved,"Clean conversion","Clean conversion","Black-box challenge/response",None,DeepSWE/meriyah-explicit-resource-declarations.md,implemented,approved,none
 DeepSWE,narwhals-rolling-window-suite,Approved,"Clean conversion","Clean conversion","Black-box challenge/response",None,DeepSWE/narwhals-rolling-window-suite.md,implemented,approved,none
-DeepSWE,obsidian-linter-auto-table-of-contents,Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Low,DeepSWE/obsidian-linter-auto-table-of-contents.md,design_only,not_implemented,none
+DeepSWE,obsidian-linter-auto-table-of-contents,Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Low,DeepSWE/obsidian-linter-auto-table-of-contents.md,implemented,approved,none
 DeepSWE,obsidian-linter-link-format-conversion,Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Low,DeepSWE/obsidian-linter-link-format-conversion.md,design_only,not_implemented,none
 DeepSWE,obsidian-linter-scoped-ignore-markers,Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Low,DeepSWE/obsidian-linter-scoped-ignore-markers.md,implemented,approved,none
 DeepSWE,ofetch-per-origin-circuit-breaker,Approved,"Major redesign","Major redesign","Trusted external state",Low,DeepSWE/ofetch-per-origin-circuit-breaker.md,design_only,not_implemented,none
@@ -69,7 +69,7 @@ DeepSWE,pwntools-tube-multiplexing,Approved,"Conversion with semantic change","S
 DeepSWE,python-statemachine-state-data-scoping,Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Low,DeepSWE/python-statemachine-state-data-scoping.md,implemented,approved,none
 DeepSWE,query-persist-restored-query-state,Approved,"Major redesign","Major redesign","Trusted external state",Low,DeepSWE/query-persist-restored-query-state.md,design_only,not_implemented,none
 DeepSWE,quill-shared-toolbar-focus,Approved,"Clean conversion","Clean conversion","Black-box challenge/response",None,DeepSWE/quill-shared-toolbar-focus.md,design_only,not_implemented,none
-DeepSWE,returns-validated-error-accumulation,Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Low,DeepSWE/returns-validated-error-accumulation.md,implemented,approved,none
+DeepSWE,returns-validated-error-accumulation,Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Low,DeepSWE/returns-validated-error-accumulation.md,implemented,qualification_pending,none
 DeepSWE,scc-bounded-memory-spilling,Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response + passive artifact verification",Low,DeepSWE/scc-bounded-memory-spilling.md,design_only,not_implemented,none
 DeepSWE,scriggo-method-declarations,Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Low,DeepSWE/scriggo-method-declarations.md,design_only,not_implemented,none
 DeepSWE,skrub-duration-encoding,Approved,"Conversion with semantic change","Semantic change","Black-box challenge/response",Low,DeepSWE/skrub-duration-encoding.md,implemented,approved,none

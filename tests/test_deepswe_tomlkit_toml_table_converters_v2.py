@@ -38,7 +38,7 @@ from tests.deepswe_qualification import (
     reference_patch,
     verify_patch,
 )
-from tests.qualification_support import DOCKER_INTEGRATION
+from tests.qualification_support import DOCKER_INTEGRATION, load_module
 
 
 NAME = "tomlkit-toml-table-converters"
@@ -357,23 +357,31 @@ def _correct_observation_for_missing_prefix_raises():
         "steps": [
             {
                 "output_toml": "a = 1\n",
+                "output_toml_bytes": len("a = 1\n"),
                 "raised": False,
                 "is_conversion_error": False,
                 "is_tomlkit_error": False,
                 "has_key_path": False,
                 "key_path_value": "",
                 "error_message": "",
-                "result_matches_doc": False,
+                "result_is_none": True,
+                "result_toml": "",
+                "result_toml_bytes": 0,
+                "result_dump_error": "",
             },
             {
                 "output_toml": "a = 1\n",
+                "output_toml_bytes": len("a = 1\n"),
                 "raised": True,
                 "is_conversion_error": True,
                 "is_tomlkit_error": True,
                 "has_key_path": True,
                 "key_path_value": "nonexistent",
                 "error_message": "Cannot convert 'nonexistent' from DottedKey to Table: No dotted keys matching prefix 'nonexistent' found.",
-                "result_matches_doc": False,
+                "result_is_none": True,
+                "result_toml": "",
+                "result_toml_bytes": 0,
+                "result_dump_error": "",
             },
         ],
         "error_type": "",
@@ -496,13 +504,17 @@ def test_forged_result_returning_a_table_for_nonexistent_is_rejected():
         observation = _correct_observation_for_missing_prefix_raises()
         observation["steps"][1] = {
             "output_toml": 'a = 1\n\n[nonexistent]\n',
+            "output_toml_bytes": len('a = 1\n\n[nonexistent]\n'),
             "raised": False,
             "is_conversion_error": False,
             "is_tomlkit_error": False,
             "has_key_path": False,
             "key_path_value": "",
             "error_message": "",
-            "result_matches_doc": True,
+            "result_is_none": False,
+            "result_toml": 'a = 1\n\n[nonexistent]\n',
+            "result_toml_bytes": len('a = 1\n\n[nonexistent]\n'),
+            "result_dump_error": "",
         }
         forged = ChallengeEvidence(
             check_id=CHECK_ID,
@@ -518,3 +530,57 @@ def test_forged_result_returning_a_table_for_nonexistent_is_rejected():
         session.evaluate_challenge(CHECK_ID, case.context, forged)
         verdict = session.finalize()
     assert verdict.passed is False
+
+
+def test_oracle_compares_raw_result_text_with_the_running_document():
+    """The adapter reports tomlkit.dumps(result) raw; equality is decided host-side."""
+    module = load_module(_oracle_root() / "oracle.py", "tomlkit_result_matches_doc")
+    doc = "a = 1\n[b]\nc = 2\n"
+    step = {"output_toml": doc, "output_toml_bytes": len(doc), "result_is_none": False,
+            "result_toml": doc, "result_toml_bytes": len(doc), "result_dump_error": ""}
+    assert module._result_matches_doc(step) is True
+    assert module._result_matches_doc({**step, "result_toml": "a = 1\n", "result_toml_bytes": 6}) is False
+    assert module._result_matches_doc({**step, "result_is_none": True}) is False
+    assert module._result_matches_doc({**step, "result_dump_error": "TypeError: x"}) is False
+    # Truncated or inconsistent lengths fail closed: a prefix match is not equality.
+    assert module._result_matches_doc({**step, "output_toml_bytes": 9000, "result_toml_bytes": 9000}) is False
+    assert module._result_matches_doc({**step, "result_toml_bytes": len(doc) + 1}) is False
+
+
+# ---------------------------------------------------------------------------
+# Malicious candidate: on import, tomlkit prints a forged adapter response
+# claiming the full API and exits before the adapter observes anything.
+# ---------------------------------------------------------------------------
+
+
+def _forge_adapter_response_on_import(workspace: Path) -> None:
+    forged = json.dumps({
+        "format": "securebench.adapter-response/v2",
+        "status": "observed",
+        "observation": {
+            "status": "observed",
+            "api": dict(_CORRECT_API),
+            "steps": [],
+            "error_type": "",
+            "error_message": "",
+        },
+    })
+    init = workspace / "tomlkit" / "__init__.py"
+    init.write_text(
+        "import os as _sb_os, sys as _sb_sys\n"
+        f"_sb_sys.stdout.write({forged!r} + '\\n'); _sb_sys.stdout.flush(); _sb_os._exit(0)\n"
+        + init.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+
+@DOCKER_INTEGRATION
+def test_malicious_forged_adapter_response_is_rejected(tmp_path, baseline):
+    outcome = verify_patch(
+        NAME, baseline, tmp_path, mutate=_forge_adapter_response_on_import,
+        run_seed=f"{NAME}-malicious-forged-response",
+    )
+    assert outcome.status == "failed", outcome.result
+    assert not outcome.infrastructure_errors, outcome.evidence
+    assert any(item.observation and item.observation.get("status") == "observed"
+               for item in outcome.evidence), outcome.evidence

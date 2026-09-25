@@ -166,7 +166,15 @@ def evidence(task, case, observation, index, helpers=()):
     )
 
 
-def drive_cattrs(task, *, mutate=False, tweak=None):
+REFERENCE_ORDINARY_STRUCTURE = {
+    "valid_input": {"outcome": "value", "value_type": "_observe.<locals>.Ordinary",
+                    "value_json": '{"a":1,"b":"ok"}', "exception_type": ""},
+    "invalid_input": {"outcome": "exception", "value_type": "", "value_json": "",
+                      "exception_type": "ClassValidationError"},
+}
+
+
+def drive_cattrs(task, *, mutate=False, tweak=None, ordinary_structure=None):
     oracle_root = Path(task.resources.resources["host.task_oracle"].value["source_path"])
     with OracleProcessSession(oracle_root) as session:
         session.initialize(task, run_seed="cattrs-qualification")
@@ -192,7 +200,8 @@ def drive_cattrs(task, *, mutate=False, tweak=None):
                 tweak(index, snapshots)
             observation = {
                 "status": "observed",
-                "api": {"partial_result_exported": True, "top_level_callable": True, "converter_method": True, "base_converter_method": True, "ordinary_structure_success": True, "ordinary_structure_rejects_bad": True},
+                "api": {"partial_result_exported": True, "top_level_callable": True, "converter_method": True, "base_converter_method": True},
+                "ordinary_structure": ordinary_structure or REFERENCE_ORDINARY_STRUCTURE,
                 "snapshots": snapshots,
                 "legacy_error_roundtrips": [
                     {"class_name": name, "before_args_json": "[]", "after_args_json": "[]", "before_message": "same", "after_message": "same", "cause_none": True, "context_none": True, "traceback_none": True}
@@ -348,3 +357,26 @@ def test_cattrs_error_map_is_still_required_with_detailed_validation():
     verdict = drive_cattrs(_cattrs_task(), tweak=empty_error_map_on_dv_true_case)
     assert verdict.passed is False
     assert any("error_map" in item for item in verdict.public_diagnostics["failure_categories"])
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        pytest.param({**REFERENCE_ORDINARY_STRUCTURE, "valid_input": {
+            "outcome": "value", "value_type": "_observe.<locals>.Ordinary",
+            "value_json": '{"a":1,"b":"not-ok"}', "exception_type": ""}}, id="wrong_valid_value"),
+        pytest.param({**REFERENCE_ORDINARY_STRUCTURE, "valid_input": {
+            "outcome": "value", "value_type": "dict",
+            "value_json": '{"a":1,"b":"ok"}', "exception_type": ""}}, id="wrong_valid_type"),
+        pytest.param({**REFERENCE_ORDINARY_STRUCTURE, "valid_input": {
+            "outcome": "exception", "value_type": "", "value_json": "",
+            "exception_type": "ValueError"}}, id="valid_input_raises"),
+        pytest.param({**REFERENCE_ORDINARY_STRUCTURE, "invalid_input": {
+            "outcome": "value", "value_type": "_observe.<locals>.Ordinary",
+            "value_json": '{"a":"bad","b":"ok"}', "exception_type": ""}}, id="invalid_input_accepted"),
+    ],
+)
+def test_cattrs_oracle_judges_raw_ordinary_structure_outcomes(outcome):
+    """The adapter reports raw structure() outcomes; the Oracle decides correctness."""
+    verdict = drive_cattrs(_cattrs_task(), ordinary_structure=outcome)
+    assert verdict.passed is False, verdict

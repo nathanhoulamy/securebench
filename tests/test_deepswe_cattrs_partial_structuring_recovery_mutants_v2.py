@@ -202,3 +202,57 @@ def test_targeted_real_code_mutant_fails(tmp_path, baseline, mutate):
 
     assert outcome.status == "failed", (mutate.__name__, outcome.result)
     assert not outcome.infrastructure_errors, outcome.evidence
+
+
+# ---------------------------------------------------------------------------
+# Malicious candidate: on import, the package prints a forged adapter response
+# claiming success (API present, ordinary structure() correct) and exits before
+# the adapter can observe anything. It must be rejected by the Oracle.
+# ---------------------------------------------------------------------------
+
+_FORGED_RESPONSE = {
+    "format": "securebench.adapter-response/v2",
+    "status": "observed",
+    "observation": {
+        "status": "observed",
+        "api": {"partial_result_exported": True, "top_level_callable": True,
+                "converter_method": True, "base_converter_method": True},
+        "ordinary_structure": {
+            "valid_input": {"outcome": "value", "value_type": "_observe.<locals>.Ordinary",
+                            "value_json": '{"a":1,"b":"ok"}', "exception_type": ""},
+            "invalid_input": {"outcome": "exception", "value_type": "", "value_json": "",
+                              "exception_type": "ClassValidationError"},
+        },
+        "snapshots": [],
+        "legacy_error_roundtrips": [],
+        "factory_calls": 0,
+        "error_type": "",
+        "error_message": "",
+    },
+}
+
+
+def _forge_adapter_response_on_import(workspace: Path) -> None:
+    import json
+
+    init = workspace / "src" / "cattrs" / "__init__.py"
+    forged = json.dumps(_FORGED_RESPONSE)
+    init.write_text(
+        "import os as _sb_os, sys as _sb_sys\n"
+        f"_sb_sys.stdout.write({forged!r} + '\\n'); _sb_sys.stdout.flush(); _sb_os._exit(0)\n"
+        + init.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+
+@DOCKER_INTEGRATION
+def test_malicious_forged_adapter_response_is_rejected(tmp_path, baseline):
+    outcome = verify_patch(
+        NAME, baseline, tmp_path, mutate=_forge_adapter_response_on_import,
+        run_seed=f"{NAME}-malicious-forged-response",
+    )
+    assert outcome.status == "failed", outcome.result
+    assert not outcome.infrastructure_errors, outcome.evidence
+    # The forged response really reached the Oracle as a schema-valid observation.
+    assert any(item.observation and item.observation.get("status") == "observed"
+               for item in outcome.evidence), outcome.evidence

