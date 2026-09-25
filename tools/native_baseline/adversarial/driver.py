@@ -23,6 +23,7 @@ import argparse
 import importlib
 import io
 import json
+import os
 import sys
 import tarfile
 import tempfile
@@ -69,10 +70,13 @@ def main() -> int:
     parser.add_argument("builder")
     parser.add_argument("--native", action="store_true")
     parser.add_argument("--out")
+    parser.add_argument("--row", help="override the builder's ROW (e.g. deep-swe/<row>)")
     args = parser.parse_args()
 
+    if args.row:
+        os.environ["SB_ADV_ROW"] = args.row
     mod = importlib.import_module(f"tools.native_baseline.adversarial.{args.builder}")
-    row = mod.ROW
+    row = args.row or mod.ROW
     pack, name = row.split("/", 1)
     out = Path(args.out) if args.out else ROOT / "runs" / "campaign-adversarial" / pack / name
     out.mkdir(parents=True, exist_ok=True)
