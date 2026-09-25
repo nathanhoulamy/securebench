@@ -23,7 +23,7 @@ from tests.qualification_support import (
 ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / "benchmarks" / "terminal-bench"
 TASK_ID = "terminal-bench/raman-fitting"
-IMAGE = "sha256:6f406edf6c8592f0704674def107cdfd46adc60efa6950b787f29891f1d41525"
+IMAGE = "alexgshaw/raman-fitting@sha256:401fa95d5d491f44a473eda9d2c52930f9565cc889c796eabcb6e20fec26852e"
 SPECTRUM_SHA256 = (
     "cac96a29e73251e625cb2d17b5079250071b148e6792e0aa349632953dbfa094"
 )

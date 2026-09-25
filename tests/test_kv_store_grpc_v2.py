@@ -167,6 +167,16 @@ def test_proto_contract_is_passive_and_rejects_semantic_mutants(mutation, accept
     assert module.proto_matches_contract(text) is accepted
 
 
+def test_proto_contract_accepts_int64_values_like_upstream():
+    # The public prompt says "int"; upstream never inspects the scalar type, and
+    # int32 and int64 share one varint wire encoding for every challenged value.
+    module = load_module(ORACLE, "kv_proto_int64")
+    text = (QUALIFICATION / "reference.proto").read_text().replace("int32 ", "int64 ")
+
+    assert "int32" not in text
+    assert module.proto_matches_contract(text) is True
+
+
 _ALTERNATE_PROTO = """syntax = "proto3";
 
 package kvstore.alt.v2;

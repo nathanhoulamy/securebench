@@ -95,7 +95,7 @@ The executable row is `terminal-bench/kv-store-grpc` in
 
 | Public requirement | Independent evidence | Host-only decision |
 |---|---|---|
-| Define the `KVStore` protobuf service and four messages | bounded proto text is parsed passively | Oracle requires both RPC signatures and the public field names and types; field numbers and an optional `package` are the submitter's choice, exactly as upstream treats them (see Review correction) |
+| Define the `KVStore` protobuf service and four messages | bounded proto text is parsed passively | Oracle requires both RPC signatures, the public field names, `string` keys and signed `int32` or `int64` values (the prompt says "int", as upstream; both share one varint wire encoding); field numbers and an optional `package` are the submitter's choice, exactly as upstream treats them (see Review correction) |
 | Generate both Python bindings | both bounded UTF-8 files must exist in the stopped Candidate | Oracle requires both artifacts while live behavior proves a compatible service |
 | Implement `class Server` on port 5328 | bounded server source plus black-box HTTP/2/gRPC observations | Oracle requires the class marker and every RPC response |
 | Store, retrieve, and update integer values by string key | Adapter sends host-selected unary SetVal/GetVal calls over real gRPC framing | Oracle owns the expected state transitions and protobuf integer values |

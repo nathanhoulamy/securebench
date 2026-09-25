@@ -125,10 +125,10 @@ def parse_proto_contract(text: str) -> dict[str, Any] | None:
     ):
         return None
     get_request_key = _field_number(r"\bstring\s+key\s*=\s*(\d+)\s*;", get_request)
-    get_response_val = _field_number(r"\bint32\s+val\s*=\s*(\d+)\s*;", get_response)
+    get_response_val = _field_number(r"\bint(?:32|64)\s+val\s*=\s*(\d+)\s*;", get_response)
     set_request_key = _field_number(r"\bstring\s+key\s*=\s*(\d+)\s*;", set_request)
-    set_request_value = _field_number(r"\bint32\s+value\s*=\s*(\d+)\s*;", set_request)
-    set_response_val = _field_number(r"\bint32\s+val\s*=\s*(\d+)\s*;", set_response)
+    set_request_value = _field_number(r"\bint(?:32|64)\s+value\s*=\s*(\d+)\s*;", set_request)
+    set_response_val = _field_number(r"\bint(?:32|64)\s+val\s*=\s*(\d+)\s*;", set_response)
     if None in {
         get_request_key,
         get_response_val,

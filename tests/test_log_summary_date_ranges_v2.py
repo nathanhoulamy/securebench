@@ -22,7 +22,7 @@ from tests.qualification_support import (
 ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / "benchmarks" / "terminal-bench"
 TASK_ID = "terminal-bench/log-summary-date-ranges"
-IMAGE = "sha256:e51bda730f415064b19bcf1ab0801adca7569b16f34374d5f5bf79a0ceb7302d"
+IMAGE = "alexgshaw/log-summary-date-ranges@sha256:cbeb6ba905c2fec294f16cd5e16e3ea7f2e04d38ac2484d51a11de262aa7dc51"
 
 HEADER = ["period", "severity", "count"]
 REFERENCE_ROWS = [

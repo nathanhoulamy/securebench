@@ -25,7 +25,7 @@ from tests.qualification_support import (
 ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / "benchmarks" / "terminal-bench"
 TASK_ID = "terminal-bench/write-compressor"
-IMAGE = "sha256:d35bc48b79d5b2560fb095140ca853427f6817cc02bb9b3133db22b02ff9be4d"
+IMAGE = "alexgshaw/write-compressor@sha256:3618e1f8a997b437c09cd3dbaac736705809c05f6f12f584b65722175970ebe1"
 HIDDEN = PACK / "v2" / "hidden" / "write-compressor"
 ORACLE = HIDDEN / "oracle" / "oracle.py"
 REFERENCE = HIDDEN / "qualification" / "reference.comp"

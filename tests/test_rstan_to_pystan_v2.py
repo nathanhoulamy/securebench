@@ -23,7 +23,7 @@ from tests.qualification_support import (
 ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / "benchmarks" / "terminal-bench"
 TASK_ID = "terminal-bench/rstan-to-pystan"
-IMAGE = "sha256:2dd475590dc4601966f516e546a982adfa711c23b211547c83d4de2a9e60a141"
+IMAGE = "alexgshaw/rstan-to-pystan@sha256:b23d48839408524326095c15ada4145c772b87646cf299022ff1f58c97baba91"
 ORACLE = PACK / "v2" / "hidden" / "rstan-to-pystan" / "oracle" / "oracle.py"
 SOURCE_VERIFIER = PACK / "hidden" / "rstan-to-pystan" / "tests" / "test_outputs.py"
 

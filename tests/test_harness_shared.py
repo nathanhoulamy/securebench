@@ -3,7 +3,8 @@ from types import SimpleNamespace
 import pytest
 
 from securebench.errors import ConfigError
-from securebench.harnesses.shared import agent_workspace_git_env
+from securebench.harnesses.codex import codex_config
+from securebench.harnesses.shared import agent_prompt, agent_workspace_git_env
 
 
 def task(workdir: str = "/app/personal-site"):
@@ -78,3 +79,28 @@ def test_agent_workspace_git_env_adds_declared_directory_candidates():
 def test_agent_workspace_git_env_rejects_ambiguous_configuration(env):
     with pytest.raises(ConfigError, match="Git|GIT_CONFIG_COUNT"):
         agent_workspace_git_env(task(), env)
+
+
+def prompt_task(instructions):
+    return SimpleNamespace(id="pack/row", agent_payload=lambda: {"instructions": instructions})
+
+
+def test_instructions_prompt_is_the_public_instruction_verbatim():
+    text = "Line one.\n\n  - `code` stays\nLast line."
+
+    assert agent_prompt(prompt_task(text), "task.json", "instructions") == text
+
+
+@pytest.mark.parametrize("instructions", [None, "", "   "])
+def test_instructions_prompt_rejects_missing_instructions(instructions):
+    with pytest.raises(ConfigError, match="requires public instructions"):
+        agent_prompt(prompt_task(instructions), "task.json", "instructions")
+
+
+def test_codex_config_prompt_defaults_to_task_file_and_rejects_unknown_modes():
+    base = {"model": "m"}
+
+    assert codex_config(base)["prompt"] == "task_file"
+    assert codex_config({**base, "prompt": "instructions"})["prompt"] == "instructions"
+    with pytest.raises(ConfigError, match="harness.config.prompt"):
+        codex_config({**base, "prompt": "verbatim"})

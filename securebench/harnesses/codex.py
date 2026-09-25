@@ -30,6 +30,7 @@ from securebench.errors import ConfigError
 from securebench.execution_profiles import validate_executable_task
 from securebench.harnesses.shared import (
     agent_prompt,
+    agent_prompt_mode,
     agent_workspace_git_env,
     agent_task_json,
     close_sandbox,
@@ -81,6 +82,7 @@ CODEX_CONFIG_FIELDS = {
     "reasoning_effort",
     "version",
     "task_file",
+    "prompt",
     "timeout_seconds",
     "allowed_domains",
     "allow_external_tools",
@@ -174,6 +176,7 @@ class CodexHarnessProducer(CandidateProducer):
         env_names: tuple[str, ...] = (),
         version: str = CODEX_DEFAULT_VERSION,
         task_file: str = CODEX_DEFAULT_TASK_FILE,
+        prompt: str = "task_file",
         timeout_seconds: float | None = CODEX_DEFAULT_TIMEOUT_SECONDS,
         allowed_domains: tuple[str, ...] = (),
         network_policy: NetworkPolicy | None = None,
@@ -191,6 +194,7 @@ class CodexHarnessProducer(CandidateProducer):
         self.env_names = codex_env_names(env_names)
         self.version = codex_version(version)
         self.task_file = task_file
+        self.prompt_mode = agent_prompt_mode(prompt)
         self.timeout_seconds = timeout_seconds
         self.network_policy = network_policy or NetworkPolicy()
         self.allow_external_tools = allow_external_tools
@@ -237,7 +241,9 @@ class CodexHarnessProducer(CandidateProducer):
                 plan,
                 workspace_mount_target=workspace_mount_target_for_task(task),
             )
-            staging.write_file(self.task_file, agent_task_json(task))
+            if self.prompt_mode == "task_file":
+                # "instructions" mode leaves the workspace exactly as the image ships it.
+                staging.write_file(self.task_file, agent_task_json(task))
 
             overlay = codex_overlay_for_image(image, self.version)
             workspace_mount_target = workspace_mount_target_for_task(task)
@@ -312,7 +318,8 @@ class CodexHarnessProducer(CandidateProducer):
                             f"codex {config_args} "
                             f"exec --model {shlex.quote(self.model)} --json --skip-git-repo-check "
                             f"--dangerously-bypass-approvals-and-sandbox "
-                            f"{shlex.quote(agent_prompt(task, task_file_for_agent))}"
+                            # "--" so a prompt that starts with "-" is not parsed as a flag.
+                            f"-- {shlex.quote(agent_prompt(task, task_file_for_agent, self.prompt_mode))}"
                         ),
                         workdir=agent_workdir,
                         timeout=timeout,
@@ -435,7 +442,7 @@ class CodexHarnessProducer(CandidateProducer):
                     f"codex {config_args} "
                     f"exec --model {shlex.quote(self.model)} --json --skip-git-repo-check "
                     "--dangerously-bypass-approvals-and-sandbox "
-                    f"{shlex.quote(agent_prompt(task, task_file_for_agent))}",
+                    f"-- {shlex.quote(agent_prompt(task, task_file_for_agent, self.prompt_mode))}",
                     auth_seed=auth_seed,
                 ),
                 preflight_command=codex_overlay_shell_command(
@@ -484,6 +491,7 @@ def codex_config(config: dict[str, Any]) -> dict[str, Any]:
             config.get("task_file", CODEX_DEFAULT_TASK_FILE),
             "harness.config.task_file",
         ),
+        "prompt": agent_prompt_mode(config.get("prompt", "task_file")),
         "timeout_seconds": optional_positive_number(
             config.get("timeout_seconds", CODEX_DEFAULT_TIMEOUT_SECONDS),
             "harness.config.timeout_seconds",

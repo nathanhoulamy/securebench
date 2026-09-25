@@ -50,14 +50,14 @@ ROWS = (
         name="mteb-leaderboard",
         check_id="leaderboard_answer_artifact",
         expected="GritLM/GritLM-7B",
-        image="sha256:d55f499756a84cd4e38c57afcea438b71dcaeca916fa4f5b470978d47c8fcbfe",
+        image="alexgshaw/mteb-leaderboard@sha256:968de9456bfc53728f7df0cb6c9ce33e17bd0e5563ddfe031e6ed2964965aecf",
         domains=("huggingface.co", "hf.co", "pypi.org", "pythonhosted.org"),
     ),
     Row(
         name="mteb-retrieve",
         check_id="retrieved_document_artifact",
         expected="MTEB: Massive Text Embedding Benchmark",
-        image="sha256:48386cadd04e89e693e7d628df3d9b31a3ee0bbdffdea5054d61189e48f4a51a",
+        image="alexgshaw/mteb-retrieve@sha256:99dd676a21fd3124b7b8164cd93e8f0c51f1fdab2f84a831c61049eff78d063d",
         domains=(
             "huggingface.co",
             "hf.co",

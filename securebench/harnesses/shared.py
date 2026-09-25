@@ -231,7 +231,23 @@ def workspace_dir_name(task: BenchmarkTask) -> str:
     return f"{prefix}-{digest}"
 
 
-def agent_prompt(task: BenchmarkTask, task_file: str) -> str:
+AGENT_PROMPT_MODES = ("task_file", "instructions")
+
+
+def agent_prompt_mode(value: Any, field: str = "harness.config.prompt") -> str:
+    if value not in AGENT_PROMPT_MODES:
+        raise ConfigError(f"{field} must be one of: {', '.join(AGENT_PROMPT_MODES)}")
+    return value
+
+
+def agent_prompt(task: BenchmarkTask, task_file: str, mode: str = "task_file") -> str:
+    if agent_prompt_mode(mode) == "instructions":
+        # The row's public instructions, verbatim: the prompt an upstream
+        # harness gives, with no SecureBench wording and no task file.
+        instructions = task.agent_payload().get("instructions")
+        if not isinstance(instructions, str) or not instructions.strip():
+            raise ConfigError(f"{task.id}: prompt mode 'instructions' requires public instructions")
+        return instructions
     extraction = default_extraction_spec(task)
     if task.family == "repo_patch":
         return (

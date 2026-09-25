@@ -23,7 +23,7 @@ from tests.qualification_support import (
 ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / "benchmarks" / "terminal-bench"
 TASK_ID = "terminal-bench/protein-assembly"
-IMAGE = "sha256:b39fafdebbc856599df9d9f1ea457000cd83974982e2eec8f9045e1a4279e192"
+IMAGE = "alexgshaw/protein-assembly@sha256:94de701b57e7ecfdbada6044f8534876e4b58874f8f313184dadc4d7533e0818"
 HIDDEN = PACK / "v2" / "hidden" / "protein-assembly"
 ORACLE = HIDDEN / "oracle" / "oracle.py"
 REFERENCE = HIDDEN / "qualification" / "reference.txt"
