@@ -1,0 +1,41 @@
+{"time": 1790292380.1866894, "condition": "native", "task": "terminal-bench/log-summary-date-ranges", "rep": 0, "attempt": 0, "error_class": "harness", "error_detail": "0 trial results, exit 1"}
+{"time": 1790292381.0324266, "condition": "native", "task": "terminal-bench/log-summary-date-ranges", "rep": 0, "attempt": 1, "error_class": "harness", "error_detail": "0 trial results, exit 1"}
+{"time": 1790292382.6564527, "condition": "native", "task": "terminal-bench/chess-best-move", "rep": 0, "attempt": 0, "error_class": "harness", "error_detail": "0 trial results, exit 1"}
+{"time": 1790292383.4734716, "condition": "native", "task": "terminal-bench/chess-best-move", "rep": 0, "attempt": 1, "error_class": "harness", "error_detail": "0 trial results, exit 1"}
+{"time": 1790297228.7701476, "condition": "securebench", "task": "terminal-bench/mteb-retrieve", "rep": 1, "attempt": 0, "error_class": null, "error_detail": null}
+{"time": 1790302468.0864658, "condition": "native", "task": "deep-swe/prometheus-typed-label-sorting", "rep": 1, "attempt": 0, "error_class": "native:RuntimeError", "error_detail": null}
+{"time": 1790302468.123347, "condition": "native", "task": "deep-swe/prometheus-typed-label-sorting", "rep": 5, "attempt": 0, "error_class": "native:RuntimeError", "error_detail": null}
+{"time": 1790302502.8486392, "condition": "native", "task": "deep-swe/prometheus-typed-label-sorting", "rep": 1, "attempt": 1, "error_class": "native:RuntimeError", "error_detail": null}
+{"time": 1790302502.871194, "condition": "native", "task": "deep-swe/prometheus-typed-label-sorting", "rep": 5, "attempt": 1, "error_class": "native:RuntimeError", "error_detail": null}
+{"time": 1790302995.8607373, "condition": "securebench", "task": "deep-swe/prometheus-typed-label-sorting", "rep": 5, "attempt": 0, "error_class": null, "error_detail": null}
+{"time": 1790304906.2386613, "condition": "securebench", "task": "terminal-bench/extract-moves-from-video", "rep": 2, "attempt": 0, "error_class": null, "error_detail": null}
+{"time": 1790307453.0339167, "condition": "native", "task": "terminal-bench/gcode-to-text", "rep": 2, "attempt": 0, "error_class": "native:AgentSetupTimeoutError", "error_detail": null}
+{"time": 1790307587.3524928, "condition": "native", "task": "terminal-bench/vulnerable-secret", "rep": 2, "attempt": 0, "error_class": "native:AgentSetupTimeoutError", "error_detail": null}
+{"time": 1790308714.9485664, "condition": "securebench", "task": "deep-swe/sqlfmt-create-table-ddl-formatting", "rep": 2, "attempt": 0, "error_class": "model_api", "error_detail": ["{\"type\": \"error\", \"message\": \"Reconnecting... 1/5 (stream disconnected before completion: stream closed before response.completed)\"}"]}
+{"time": 1790311352.2062232, "condition": "securebench", "task": "deep-swe/sqlfmt-create-table-ddl-formatting", "rep": 2, "attempt": 0, "error_class": "repair:restored", "error_detail": "sqlfmt-create-table-ddl-formatting.attempt-0-1790308714 restored; retry superseded"}
+{"time": 1790315103.3443289, "condition": "native", "task": "terminal-bench/git-leak-recovery", "rep": 2, "attempt": 0, "error_class": "native:AgentSetupTimeoutError", "error_detail": null}
+{"time": 1790316026.0364888, "condition": "native", "task": "terminal-bench/sqlite-db-truncate", "rep": 2, "attempt": 0, "error_class": "native:AgentSetupTimeoutError", "error_detail": null}
+{"time": 1790317649.2532313, "condition": "securebench", "task": "deep-swe/true-myth-iterable-collection-combinators", "rep": 2, "attempt": 0, "error_class": null, "error_detail": null}
+{"time": 1790317856.3001559, "condition": "securebench", "task": "deep-swe/task-task-graph-export", "rep": 2, "attempt": 0, "error_class": null, "error_detail": null}
+{"time": 1790317994.8605309, "condition": "native", "task": "terminal-bench/raman-fitting", "rep": 2, "attempt": 0, "error_class": "native:AgentSetupTimeoutError", "error_detail": null}
+{"time": 1790318137.9118905, "condition": "securebench", "task": "terminal-bench/raman-fitting", "rep": 2, "attempt": 0, "error_class": null, "error_detail": null}
+{"time": 1790318414.9157932, "condition": "native", "task": "terminal-bench/raman-fitting", "rep": 2, "attempt": 1, "error_class": "native:AgentSetupTimeoutError", "error_detail": null}
+{"time": 1790318417.7056513, "condition": "securebench", "task": "deep-swe/true-myth-iterable-collection-combinators", "rep": 2, "attempt": 1, "error_class": null, "error_detail": null}
+{"time": 1790318566.9563708, "condition": "securebench", "task": "terminal-bench/raman-fitting", "rep": 2, "attempt": 1, "error_class": null, "error_detail": null}
+{"time": 1790318853.9541764, "condition": "securebench", "task": "terminal-bench/count-dataset-tokens", "rep": 2, "attempt": 0, "error_class": null, "error_detail": null}
+{"time": 1790318895.115614, "condition": "securebench", "task": "deep-swe/ts-pattern-match-each", "rep": 2, "attempt": 0, "error_class": null, "error_detail": null}
+{"time": 1790319005.053855, "condition": "native", "task": "deep-swe/skrub-duration-encoding", "rep": 2, "attempt": 0, "error_class": "native:RuntimeError", "error_detail": null}
+{"time": 1790319130.072993, "condition": "securebench", "task": "deep-swe/skrub-duration-encoding", "rep": 2, "attempt": 0, "error_class": null, "error_detail": null}
+{"time": 1790319130.3210795, "condition": "securebench", "task": "terminal-bench/count-dataset-tokens", "rep": 2, "attempt": 1, "error_class": null, "error_detail": null}
+{"time": 1790319222.3054957, "condition": "native", "task": "deep-swe/skrub-duration-encoding", "rep": 2, "attempt": 1, "error_class": "native:RuntimeError", "error_detail": null}
+{"time": 1790319235.4444406, "condition": "native", "task": "terminal-bench/count-dataset-tokens", "rep": 2, "attempt": 0, "error_class": "native:AgentSetupTimeoutError", "error_detail": null}
+{"time": 1790323354.4862309, "condition": "native", "task": "terminal-bench/extract-moves-from-video", "rep": 3, "attempt": 0, "error_class": "native:AgentSetupTimeoutError", "error_detail": null}
+{"time": 1790327371.60843, "condition": "securebench", "task": "deep-swe/ts-pattern-match-each", "rep": 3, "attempt": 0, "error_class": null, "error_detail": null}
+{"time": 1790329630.2150748, "condition": "native", "task": "deep-swe/ink-grid-box-layout", "rep": 3, "attempt": 0, "error_class": "native:RuntimeError", "error_detail": null}
+{"time": 1790332972.9462411, "condition": "securebench", "task": "deep-swe/dateutil-rfc5545-timezone-interop", "rep": 3, "attempt": 0, "error_class": null, "error_detail": null}
+{"time": 1790338250.5112302, "condition": "securebench", "task": "deep-swe/fd-deterministic-multi-key-sorting", "rep": 3, "attempt": 0, "error_class": "model_api", "error_detail": ["{\"type\": \"error\", \"message\": \"Reconnecting... 1/5 (stream disconnected before completion: Incomplete response returned, reason: max_output_tokens)\"}", "{\"type\": \"error\", \"message\": \"Reconnecting... 2/5 (stream disconnected before completion: Incomplete response returned, reason: max_output_tokens)\"}", "{\"type\": \"error\", \"message\": \"Reconnecting... 3/5 (stream disconnected before completion: Incomplete response returned, reason: max_output_tokens)\"}"]}
+{"time": 1790338325.0249884, "condition": "securebench", "task": "deep-swe/fd-deterministic-multi-key-sorting", "rep": 3, "attempt": 1, "error_class": null, "error_detail": null}
+{"time": 1790340359.1664639, "condition": "native", "task": "deep-swe/cattrs-partial-structuring-recovery", "rep": 3, "attempt": 0, "error_class": "native:RuntimeError", "error_detail": null}
+{"time": 1790343493.7676282, "condition": "securebench", "task": "deep-swe/tomlkit-toml-table-converters", "rep": 1, "attempt": 0, "error_class": null, "error_detail": null}
+{"time": 1790345063.591372, "condition": "securebench", "task": "terminal-bench/hf-model-inference", "rep": 1, "attempt": 0, "error_class": null, "error_detail": null}
+{"time": 1790346966.352227, "condition": "native", "task": "deep-swe/obsidian-linter-scoped-ignore-markers", "rep": 1, "attempt": 0, "error_class": "native:RuntimeError", "error_detail": null}

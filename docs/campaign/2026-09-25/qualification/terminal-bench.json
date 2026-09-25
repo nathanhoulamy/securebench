@@ -1,0 +1,557 @@
+{
+  "format": "securebench.qualification-report/v1",
+  "pack": "terminal-bench",
+  "docker": true,
+  "host": {
+    "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
+    "machine": "x86_64",
+    "python": "3.14.4",
+    "docker": "29.7.2"
+  },
+  "summary": {
+    "complete": 29,
+    "failing": 1
+  },
+  "rows": [
+    {
+      "row": "constraints-scheduling",
+      "task_id": "terminal-bench/constraints-scheduling",
+      "focused_test": "tests/test_constraints_scheduling_v2.py",
+      "docker": true,
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 2.398269325000001,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_constraints_scheduling_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k constraints-scheduling"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "sqlite-db-truncate",
+      "task_id": "terminal-bench/sqlite-db-truncate",
+      "focused_test": "tests/test_sqlite_db_truncate_v2.py",
+      "docker": true,
+      "passed": 39,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 7.563952106999977,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_sqlite_db_truncate_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k sqlite-db-truncate"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "vulnerable-secret",
+      "task_id": "terminal-bench/vulnerable-secret",
+      "focused_test": "tests/test_vulnerable_secret_v2.py",
+      "docker": true,
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 8.014201232999994,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_vulnerable_secret_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k vulnerable-secret"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "bn-fit-modify",
+      "task_id": "terminal-bench/bn-fit-modify",
+      "focused_test": "tests/test_bn_fit_modify_v2.py",
+      "docker": true,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 3.1659767619999,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_bn_fit_modify_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k bn-fit-modify"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "cancel-async-tasks",
+      "task_id": "terminal-bench/cancel-async-tasks",
+      "focused_test": "tests/test_cancel_async_tasks_v2.py",
+      "docker": true,
+      "passed": 15,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 226.24834235100002,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_cancel_async_tasks_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k cancel-async-tasks"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "chess-best-move",
+      "task_id": "terminal-bench/chess-best-move",
+      "focused_test": "tests/test_chess_best_move_v2.py",
+      "docker": true,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 3.8873259449999296,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_chess_best_move_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k chess-best-move"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "code-from-image",
+      "task_id": "terminal-bench/code-from-image",
+      "focused_test": "tests/test_code_from_image_v2.py",
+      "docker": true,
+      "passed": 20,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 6.999741587000017,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_code_from_image_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k code-from-image"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "count-dataset-tokens",
+      "task_id": "terminal-bench/count-dataset-tokens",
+      "focused_test": "tests/test_count_dataset_tokens_v2.py",
+      "docker": true,
+      "passed": 22,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 16.374503969999978,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_count_dataset_tokens_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k count-dataset-tokens"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "crack-7z-hash",
+      "task_id": "terminal-bench/crack-7z-hash",
+      "focused_test": "tests/test_crack_7z_hash_v2.py",
+      "docker": true,
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 11.658774744999846,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_crack_7z_hash_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k crack-7z-hash"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "db-wal-recovery",
+      "task_id": "terminal-bench/db-wal-recovery",
+      "focused_test": "tests/test_db_wal_recovery_v2.py",
+      "docker": true,
+      "passed": 31,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 10.313145733000056,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_db_wal_recovery_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k db-wal-recovery"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "distribution-search",
+      "task_id": "terminal-bench/distribution-search",
+      "focused_test": "tests/test_distribution_search_v2.py",
+      "docker": true,
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 16.353671351999992,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_distribution_search_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k distribution-search"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "dna-assembly",
+      "task_id": "terminal-bench/dna-assembly",
+      "focused_test": "tests/test_dna_assembly_v2.py",
+      "docker": true,
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 18.50460334499985,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_dna_assembly_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k dna-assembly"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "dna-insert",
+      "task_id": "terminal-bench/dna-insert",
+      "focused_test": "tests/test_dna_insert_v2.py",
+      "docker": true,
+      "passed": 33,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 26.881518894999772,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_dna_insert_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k dna-insert"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "extract-moves-from-video",
+      "task_id": "terminal-bench/extract-moves-from-video",
+      "focused_test": "tests/test_extract_moves_from_video_v2.py",
+      "docker": true,
+      "passed": 37,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 67.16389033700011,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_extract_moves_from_video_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k extract-moves-from-video"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "feal-linear-cryptanalysis",
+      "task_id": "terminal-bench/feal-linear-cryptanalysis",
+      "focused_test": "tests/test_feal_linear_cryptanalysis_v2.py",
+      "docker": true,
+      "passed": 26,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 10.79393730400011,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_feal_linear_cryptanalysis_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k feal-linear-cryptanalysis"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "financial-document-processor",
+      "task_id": "terminal-bench/financial-document-processor",
+      "focused_test": "tests/test_financial_document_processor_v2.py",
+      "docker": true,
+      "passed": 43,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 11.17894557600016,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_financial_document_processor_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k financial-document-processor"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "fix-git",
+      "task_id": "terminal-bench/fix-git",
+      "focused_test": "tests/test_fix_git_v2.py",
+      "docker": true,
+      "passed": 27,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 9.471178841999972,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_fix_git_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k fix-git"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "gcode-to-text",
+      "task_id": "terminal-bench/gcode-to-text",
+      "focused_test": "tests/test_gcode_to_text_v2.py",
+      "docker": true,
+      "passed": 25,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 9.139093398000114,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_gcode_to_text_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k gcode-to-text"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "git-leak-recovery",
+      "task_id": "terminal-bench/git-leak-recovery",
+      "focused_test": "tests/test_git_leak_recovery_v2.py",
+      "docker": true,
+      "passed": 19,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 8.122031106000122,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_git_leak_recovery_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k git-leak-recovery"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "gpt2-codegolf",
+      "task_id": "terminal-bench/gpt2-codegolf",
+      "focused_test": "tests/test_gpt2_codegolf_v2.py",
+      "docker": true,
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 34.10251121300007,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_gpt2_codegolf_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k gpt2-codegolf"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "headless-terminal",
+      "task_id": "terminal-bench/headless-terminal",
+      "focused_test": "tests/test_headless_terminal_v2.py",
+      "docker": true,
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 202.6790200129999,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_headless_terminal_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k headless-terminal"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "hf-model-inference",
+      "task_id": "terminal-bench/hf-model-inference",
+      "focused_test": "tests/test_hf_model_inference_v2.py",
+      "docker": true,
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 128.34103226900015,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_hf_model_inference_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k hf-model-inference"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "kv-store-grpc",
+      "task_id": "terminal-bench/kv-store-grpc",
+      "focused_test": "tests/test_kv_store_grpc_v2.py",
+      "docker": true,
+      "passed": 34,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 59.123665901000095,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_kv_store_grpc_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k kv-store-grpc"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "log-summary-date-ranges",
+      "task_id": "terminal-bench/log-summary-date-ranges",
+      "focused_test": "tests/test_log_summary_date_ranges_v2.py",
+      "docker": true,
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 14.931584005000332,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_log_summary_date_ranges_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k log-summary-date-ranges"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "raman-fitting",
+      "task_id": "terminal-bench/raman-fitting",
+      "focused_test": "tests/test_raman_fitting_v2.py",
+      "docker": true,
+      "passed": 39,
+      "failed": 1,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 137.18428067299965,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_raman_fitting_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k raman-fitting"
+      ],
+      "skipped_reasons": [],
+      "status": "failing",
+      "note": "At least one gate failed. Not admissible."
+    },
+    {
+      "row": "protein-assembly",
+      "task_id": "terminal-bench/protein-assembly",
+      "focused_test": "tests/test_protein_assembly_v2.py",
+      "docker": true,
+      "passed": 37,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 99.26991689099987,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_protein_assembly_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k protein-assembly"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "write-compressor",
+      "task_id": "terminal-bench/write-compressor",
+      "focused_test": "tests/test_write_compressor_v2.py",
+      "docker": true,
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 22.073015136999857,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_write_compressor_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k write-compressor"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "mteb-leaderboard",
+      "task_id": "terminal-bench/mteb-leaderboard",
+      "focused_test": "tests/test_mteb_exact_answer_v2.py",
+      "docker": true,
+      "passed": 31,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 43.3945856360001,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_mteb_exact_answer_v2.py -k mteb-leaderboard",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k mteb-leaderboard"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "mteb-retrieve",
+      "task_id": "terminal-bench/mteb-retrieve",
+      "focused_test": "tests/test_mteb_exact_answer_v2.py",
+      "docker": true,
+      "passed": 31,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 100.12507640899958,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_mteb_exact_answer_v2.py -k mteb-retrieve",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k mteb-retrieve"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "rstan-to-pystan",
+      "task_id": "terminal-bench/rstan-to-pystan",
+      "focused_test": "tests/test_rstan_to_pystan_v2.py",
+      "docker": true,
+      "passed": 45,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 20.24033839899994,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_rstan_to_pystan_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k rstan-to-pystan"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    }
+  ]
+}

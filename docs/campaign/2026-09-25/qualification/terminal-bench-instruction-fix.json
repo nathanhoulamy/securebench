@@ -1,0 +1,52 @@
+{
+  "format": "securebench.qualification-report/v1",
+  "pack": "terminal-bench",
+  "docker": true,
+  "host": {
+    "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
+    "machine": "x86_64",
+    "python": "3.14.4",
+    "docker": "29.7.2"
+  },
+  "summary": {
+    "complete": 2
+  },
+  "rows": [
+    {
+      "row": "git-leak-recovery",
+      "task_id": "terminal-bench/git-leak-recovery",
+      "focused_test": "tests/test_git_leak_recovery_v2.py",
+      "docker": true,
+      "passed": 19,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 7.549511592000272,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_git_leak_recovery_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k git-leak-recovery"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "kv-store-grpc",
+      "task_id": "terminal-bench/kv-store-grpc",
+      "focused_test": "tests/test_kv_store_grpc_v2.py",
+      "docker": true,
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 91.12235052899996,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_kv_store_grpc_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k kv-store-grpc"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    }
+  ]
+}

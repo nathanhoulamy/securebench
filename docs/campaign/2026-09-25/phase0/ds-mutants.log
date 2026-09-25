@@ -1,0 +1,19 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.4, pytest-9.1.1, pluggy-1.6.0 -- /home/mfavrett/project/securebench/.venv/bin/python
+rootdir: /home/mfavrett/project/securebench
+configfile: pyproject.toml
+collecting ... collected 10 items
+
+tests/test_deepswe_cattrs_partial_structuring_recovery_mutants_v2.py::test_targeted_real_code_mutant_fails[nested-partial-field-misclassified] PASSED [ 10%]
+tests/test_deepswe_cattrs_partial_structuring_recovery_mutants_v2.py::test_targeted_real_code_mutant_fails[refine-overwrites-structured-fields] PASSED [ 20%]
+tests/test_deepswe_cattrs_partial_structuring_recovery_mutants_v2.py::test_targeted_real_code_mutant_fails[init-false-fields-not-excluded] PASSED [ 30%]
+tests/test_deepswe_fd_deterministic_multi_key_sorting_mutants_v2.py::test_targeted_real_code_mutant_fails[type-rank-swaps-symlink-and-file] PASSED [ 40%]
+tests/test_deepswe_fd_deterministic_multi_key_sorting_mutants_v2.py::test_targeted_real_code_mutant_fails[size-defined-for-non-files] PASSED [ 50%]
+tests/test_deepswe_fd_deterministic_multi_key_sorting_mutants_v2.py::test_targeted_real_code_mutant_fails[natural-sort-leading-zeros] PASSED [ 60%]
+tests/test_deepswe_updo_policy_alerting_mutants_v2.py::test_targeted_real_code_mutant_fails[ssl-expiring-never-rearms] PASSED [ 70%]
+tests/test_deepswe_updo_policy_alerting_mutants_v2.py::test_targeted_real_code_mutant_fails[cooldown-suppression-disabled] PASSED [ 80%]
+tests/test_deepswe_updo_policy_alerting_mutants_v2.py::test_targeted_real_code_mutant_fails[webhook-custom-headers-dropped] PASSED [ 90%]
+tests/test_deepswe_updo_policy_alerting_mutants_v2.py::test_targeted_real_code_mutant_fails[config-ssl-threshold-not-inherited] PASSED [100%]
+
+======================== 10 passed in 733.17s (0:12:13) ========================
+EXIT 0

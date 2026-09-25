@@ -1,0 +1,142 @@
+{
+  "format": "securebench.qualification-report/v1",
+  "pack": "terminal-bench",
+  "docker": true,
+  "host": {
+    "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
+    "machine": "x86_64",
+    "python": "3.14.4",
+    "docker": "29.7.2"
+  },
+  "summary": {
+    "complete": 7
+  },
+  "rows": [
+    {
+      "row": "log-summary-date-ranges",
+      "task_id": "terminal-bench/log-summary-date-ranges",
+      "focused_test": "tests/test_log_summary_date_ranges_v2.py",
+      "docker": true,
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 15.854704318000131,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_log_summary_date_ranges_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k log-summary-date-ranges"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "raman-fitting",
+      "task_id": "terminal-bench/raman-fitting",
+      "focused_test": "tests/test_raman_fitting_v2.py",
+      "docker": true,
+      "passed": 40,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 22.45887239800004,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_raman_fitting_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k raman-fitting"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "protein-assembly",
+      "task_id": "terminal-bench/protein-assembly",
+      "focused_test": "tests/test_protein_assembly_v2.py",
+      "docker": true,
+      "passed": 37,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 18.28612536999981,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_protein_assembly_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k protein-assembly"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "write-compressor",
+      "task_id": "terminal-bench/write-compressor",
+      "focused_test": "tests/test_write_compressor_v2.py",
+      "docker": true,
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 12.343988099000399,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_write_compressor_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k write-compressor"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "mteb-leaderboard",
+      "task_id": "terminal-bench/mteb-leaderboard",
+      "focused_test": "tests/test_mteb_exact_answer_v2.py",
+      "docker": true,
+      "passed": 31,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 19.313627670000187,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_mteb_exact_answer_v2.py -k mteb-leaderboard",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k mteb-leaderboard"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "mteb-retrieve",
+      "task_id": "terminal-bench/mteb-retrieve",
+      "focused_test": "tests/test_mteb_exact_answer_v2.py",
+      "docker": true,
+      "passed": 31,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 19.492229206999582,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_mteb_exact_answer_v2.py -k mteb-retrieve",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k mteb-retrieve"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "rstan-to-pystan",
+      "task_id": "terminal-bench/rstan-to-pystan",
+      "focused_test": "tests/test_rstan_to_pystan_v2.py",
+      "docker": true,
+      "passed": 45,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 24.643626340000537,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_rstan_to_pystan_v2.py",
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_terminal_file_bundle_qualification.py -k rstan-to-pystan"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    }
+  ]
+}

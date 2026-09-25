@@ -1,0 +1,526 @@
+{
+  "format": "securebench.qualification-report/v1",
+  "pack": "deep-swe",
+  "docker": true,
+  "host": {
+    "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
+    "machine": "x86_64",
+    "python": "3.14.4",
+    "docker": "29.7.2"
+  },
+  "summary": {
+    "complete": 30
+  },
+  "rows": [
+    {
+      "row": "cattrs-partial-structuring-recovery",
+      "task_id": "deep-swe/cattrs-partial-structuring-recovery",
+      "focused_test": "tests/test_deepswe_first_wave_replay_v2.py",
+      "docker": true,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 34.59270733099993,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_first_wave_replay_v2.py -k cattrs-partial-structuring-recovery"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "fd-deterministic-multi-key-sorting",
+      "task_id": "deep-swe/fd-deterministic-multi-key-sorting",
+      "focused_test": "tests/test_deepswe_first_wave_replay_v2.py",
+      "docker": true,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 185.04171536100012,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_first_wave_replay_v2.py -k fd-deterministic-multi-key-sorting"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "updo-policy-alerting",
+      "task_id": "deep-swe/updo-policy-alerting",
+      "focused_test": "tests/test_deepswe_first_wave_replay_v2.py",
+      "docker": true,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 138.87665696400018,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_first_wave_replay_v2.py -k updo-policy-alerting"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "go-critic-doc-link-checker",
+      "task_id": "deep-swe/go-critic-doc-link-checker",
+      "focused_test": "tests/test_go_critic_conversion_v2.py",
+      "docker": true,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 107.49932267699978,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_go_critic_conversion_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "bandit-structured-nosec-directives",
+      "task_id": "deep-swe/bandit-structured-nosec-directives",
+      "focused_test": "tests/test_deepswe_bandit_structured_nosec_directives_v2.py",
+      "docker": true,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 326.65265935299976,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_bandit_structured_nosec_directives_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "dateutil-rfc5545-timezone-interop",
+      "task_id": "deep-swe/dateutil-rfc5545-timezone-interop",
+      "focused_test": "tests/test_deepswe_dateutil_rfc5545_timezone_interop_v2.py",
+      "docker": true,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 270.7698938220001,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_dateutil_rfc5545_timezone_interop_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "ink-grid-box-layout",
+      "task_id": "deep-swe/ink-grid-box-layout",
+      "focused_test": "tests/test_deepswe_ink_grid_box_layout_v2.py",
+      "docker": true,
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 341.04538751300015,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_ink_grid_box_layout_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "narwhals-rolling-window-suite",
+      "task_id": "deep-swe/narwhals-rolling-window-suite",
+      "focused_test": "tests/test_deepswe_narwhals_rolling_window_suite_v2.py",
+      "docker": true,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 285.4999761049994,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_narwhals_rolling_window_suite_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "task-task-graph-export",
+      "task_id": "deep-swe/task-task-graph-export",
+      "focused_test": "tests/test_deepswe_task_task_graph_export_v2.py",
+      "docker": true,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 301.1142444070001,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_task_task_graph_export_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "prometheus-typed-label-sorting",
+      "task_id": "deep-swe/prometheus-typed-label-sorting",
+      "focused_test": "tests/test_deepswe_prometheus_typed_label_sorting_v2.py",
+      "docker": true,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 292.2995442650008,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_prometheus_typed_label_sorting_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "termenv-preserve-ansi-resets",
+      "task_id": "deep-swe/termenv-preserve-ansi-resets",
+      "focused_test": "tests/test_deepswe_termenv_preserve_ansi_resets_v2.py",
+      "docker": true,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 350.1354358569997,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_termenv_preserve_ansi_resets_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "pest-character-class-coalescing",
+      "task_id": "deep-swe/pest-character-class-coalescing",
+      "focused_test": "tests/test_deepswe_pest_character_class_coalescing_v2.py",
+      "docker": true,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 110.99597957500009,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_pest_character_class_coalescing_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "etree-xml-diff-patch",
+      "task_id": "deep-swe/etree-xml-diff-patch",
+      "focused_test": "tests/test_deepswe_etree_xml_diff_patch_v2.py",
+      "docker": true,
+      "passed": 17,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 27.066981381000005,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_etree_xml_diff_patch_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "meriyah-explicit-resource-declarations",
+      "task_id": "deep-swe/meriyah-explicit-resource-declarations",
+      "focused_test": "tests/test_deepswe_meriyah_explicit_resource_declarations_v2.py",
+      "docker": true,
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 1752.1836055530002,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_meriyah_explicit_resource_declarations_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "happy-dom-deterministic-intersectionobserver",
+      "task_id": "deep-swe/happy-dom-deterministic-intersectionobserver",
+      "focused_test": "tests/test_deepswe_happy_dom_deterministic_intersectionobserver_v2.py",
+      "docker": true,
+      "passed": 27,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 979.2058583340004,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_happy_dom_deterministic_intersectionobserver_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "tengo-destructuring-bindings",
+      "task_id": "deep-swe/tengo-destructuring-bindings",
+      "focused_test": "tests/test_deepswe_tengo_destructuring_bindings_v2.py",
+      "docker": true,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 22.21118923799986,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_tengo_destructuring_bindings_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "returns-validated-error-accumulation",
+      "task_id": "deep-swe/returns-validated-error-accumulation",
+      "focused_test": "tests/test_deepswe_returns_validated_error_accumulation_v2.py",
+      "docker": true,
+      "passed": 15,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 508.04126257200005,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_returns_validated_error_accumulation_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "mashumaro-flattened-dataclass-fields",
+      "task_id": "deep-swe/mashumaro-flattened-dataclass-fields",
+      "focused_test": "tests/test_deepswe_mashumaro_flattened_dataclass_fields_v2.py",
+      "docker": true,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 118.17213616700064,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_mashumaro_flattened_dataclass_fields_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "ts-pattern-match-each",
+      "task_id": "deep-swe/ts-pattern-match-each",
+      "focused_test": "tests/test_deepswe_ts_pattern_match_each_v2.py",
+      "docker": true,
+      "passed": 29,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 924.6461171170013,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_ts_pattern_match_each_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "python-statemachine-state-data-scoping",
+      "task_id": "deep-swe/python-statemachine-state-data-scoping",
+      "focused_test": "tests/test_deepswe_python_statemachine_state_data_scoping_v2.py",
+      "docker": true,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 380.51692560000083,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_python_statemachine_state_data_scoping_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "true-myth-iterable-collection-combinators",
+      "task_id": "deep-swe/true-myth-iterable-collection-combinators",
+      "focused_test": "tests/test_deepswe_true_myth_iterable_collection_combinators_v2.py",
+      "docker": true,
+      "passed": 31,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 982.6229668530013,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_true_myth_iterable_collection_combinators_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "helm-unified-manifest-stream",
+      "task_id": "deep-swe/helm-unified-manifest-stream",
+      "focused_test": "tests/test_deepswe_helm_unified_manifest_stream_v2.py",
+      "docker": true,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 477.0594791120002,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_helm_unified_manifest_stream_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "skrub-duration-encoding",
+      "task_id": "deep-swe/skrub-duration-encoding",
+      "focused_test": "tests/test_deepswe_skrub_duration_encoding_v2.py",
+      "docker": true,
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 945.0637446309993,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_skrub_duration_encoding_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "sqlfmt-create-table-ddl-formatting",
+      "task_id": "deep-swe/sqlfmt-create-table-ddl-formatting",
+      "focused_test": "tests/test_deepswe_sqlfmt_create_table_ddl_formatting_v2.py",
+      "docker": true,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 510.54310721,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_sqlfmt_create_table_ddl_formatting_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "anko-default-function-arguments",
+      "task_id": "deep-swe/anko-default-function-arguments",
+      "focused_test": "tests/test_deepswe_anko_default_function_arguments_v2.py",
+      "docker": true,
+      "passed": 19,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 22.921320473000378,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_anko_default_function_arguments_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "csstree-shorthand-expansion-compression",
+      "task_id": "deep-swe/csstree-shorthand-expansion-compression",
+      "focused_test": "tests/test_deepswe_csstree_shorthand_expansion_compression_v2.py",
+      "docker": true,
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 55.95874909899976,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_csstree_shorthand_expansion_compression_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "tengo-callable-instance-isolation",
+      "task_id": "deep-swe/tengo-callable-instance-isolation",
+      "focused_test": "tests/test_deepswe_tengo_callable_instance_isolation_v2.py",
+      "docker": true,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 58.71069308400001,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_tengo_callable_instance_isolation_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "tomlkit-toml-table-converters",
+      "task_id": "deep-swe/tomlkit-toml-table-converters",
+      "focused_test": "tests/test_deepswe_tomlkit_toml_table_converters_v2.py",
+      "docker": true,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 487.1806443289988,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_tomlkit_toml_table_converters_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "obsidian-linter-scoped-ignore-markers",
+      "task_id": "deep-swe/obsidian-linter-scoped-ignore-markers",
+      "focused_test": "tests/test_deepswe_obsidian_linter_scoped_ignore_markers_v2.py",
+      "docker": true,
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 90.33852452000065,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_obsidian_linter_scoped_ignore_markers_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    },
+    {
+      "row": "helm-array-merge-strategies",
+      "task_id": "deep-swe/helm-array-merge-strategies",
+      "focused_test": "tests/test_deepswe_helm_array_merge_strategies_v2.py",
+      "docker": true,
+      "passed": 21,
+      "failed": 0,
+      "skipped": 0,
+      "errors": 0,
+      "duration_seconds": 265.69021631600117,
+      "commands": [
+        "/home/mfavrett/project/securebench/.venv/bin/python -m pytest -q -rs -p no:cacheprovider tests/test_deepswe_helm_array_merge_strategies_v2.py"
+      ],
+      "skipped_reasons": [],
+      "status": "complete",
+      "note": "All selected gates executed and passed. Admission remains a separate human decision recorded in the dossier."
+    }
+  ]
+}

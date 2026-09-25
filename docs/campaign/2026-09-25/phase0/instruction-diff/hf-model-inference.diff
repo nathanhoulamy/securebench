@@ -1,0 +1,9 @@
+--- upstream
++++ securebench
+@@ -25,4 +25,6 @@
+ - Error Response (JSON):
+   {
+     "error": string  // Error message describing what went wrong. Should return a 400 status code.
+-  }+  }
++
++For stopped replay, put the restartable Flask application in `/app/app.py`; it must run in the foreground when invoked with the system Python. Store any additional importable pure-Python dependencies below `/app/hf_service_dependencies`, and create that directory even when it is empty. The model directory must load fully offline. Do not rely on an already-running process or packages installed during the Agent session.
