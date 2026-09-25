@@ -2,6 +2,8 @@
 
 Native (A: upstream harness + verifier) vs SecureBench (B: split verification), Codex CLI 0.156.1, gpt-6-luna, reasoning effort max. See FREEZE.md for pins and ISSUES.md for known differences.
 
+Scope: the current admitted set (30 DeepSWE + 30 Terminal-Bench). returns-validated-error-accumulation was removed from the admitted set after the main campaign (guest-computed law verdict) and replaced by obsidian-linter-auto-table-of-contents, which was run separately on 2026-09-25 with the same pins and configs (ISSUES I-36); returns' runs stay on disk, excluded.
+
 Phase 4 records (reps 1, 2, 3; 60 tasks × 2 conditions × 3 reps planned = 360): 360. DeepSWE rows flagged by the F2P audit (Weaker or Missing > 0): 20; the `clean-f2p` scope drops them.
 
 ## Phase 4: pass rates
@@ -10,8 +12,8 @@ Phase 4 records (reps 1, 2, 3; 60 tasks × 2 conditions × 3 reps planned = 360)
 
 | benchmark | condition | tasks | runs | mean pass rate (task-averaged) | 95% bootstrap CI over tasks |
 |---|---|---:|---:|---:|---|
-| deep-swe | native | 30 | 90 | 0.489 | [0.344, 0.622] |
-| deep-swe | securebench | 30 | 89 | 0.500 | [0.378, 0.622] |
+| deep-swe | native | 30 | 90 | 0.456 | [0.311, 0.600] |
+| deep-swe | securebench | 30 | 89 | 0.467 | [0.344, 0.589] |
 | terminal-bench | native | 30 | 89 | 0.711 | [0.578, 0.844] |
 | terminal-bench | securebench | 30 | 90 | 0.633 | [0.478, 0.789] |
 
@@ -35,8 +37,8 @@ Per-task means, SDs and differences: `aggregate/per_task_all.csv`.
 
 | benchmark | condition | runs | wall s (median) | agent s (median) | verify s (median) | capture s (median) | input tok (mean) | output tok (mean) | reasoning tok (mean) | cost USD (mean) | cost USD (total) |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| deep-swe | native | 90 | 1019 | 753 | 53 | n/a | 5697977 | 82281 | 66979 | 0.1135 | 10.21 |
-| deep-swe | securebench | 90 | 924 | 795 | 81 | 1 | 4762257 | 80544 | 65889 | 0.1023 | 8.69 |
+| deep-swe | native | 90 | 1031 | 770 | 51 | n/a | 5713943 | 83070 | 67800 | 0.1141 | 10.27 |
+| deep-swe | securebench | 90 | 922 | 808 | 72 | 2 | 4837735 | 81036 | 66365 | 0.1033 | 8.78 |
 | terminal-bench | native | 90 | 466 | 156 | 9 | n/a | 577728 | 18313 | 14674 | 0.0189 | 1.63 |
 | terminal-bench | securebench | 90 | 192 | 176 | 0 | 0 | 781344 | 22776 | 18245 | 0.0234 | 1.94 |
 
@@ -48,8 +50,8 @@ SecureBench overhead = capture + evaluation (verify) time in B against native ve
 
 | benchmark | condition | tasks | runs | mean pass rate (task-averaged) | 95% bootstrap CI over tasks |
 |---|---|---:|---:|---:|---|
-| deep-swe | native | 10 | 30 | 0.500 | [0.333, 0.667] |
-| deep-swe | securebench | 10 | 29 | 0.667 | [0.467, 0.833] |
+| deep-swe | native | 11 | 33 | 0.455 | [0.273, 0.636] |
+| deep-swe | securebench | 11 | 32 | 0.606 | [0.394, 0.788] |
 | terminal-bench | native | 30 | 89 | 0.711 | [0.578, 0.844] |
 | terminal-bench | securebench | 30 | 90 | 0.633 | [0.478, 0.789] |
 
@@ -57,7 +59,7 @@ SecureBench overhead = capture + evaluation (verify) time in B against native ve
 
 | benchmark | paired tasks | mean diff | 95% bootstrap CI | sign-flip p | Wilcoxon W (n≠0) p |
 |---|---:|---:|---|---:|---|
-| deep-swe | 10 | 0.167 | [0.067, 0.267] | 0.0625 | 15.0 (5) 0.0533 |
+| deep-swe | 11 | 0.152 | [0.061, 0.242] | 0.0625 | 15.0 (5) 0.0533 |
 | terminal-bench | 30 | -0.078 | [-0.189, 0.022] | 0.2412 | 20.0 (11) 0.2607 |
 
 Per-task means, SDs and differences: `aggregate/per_task_clean-f2p.csv`.
@@ -73,8 +75,8 @@ Per-task means, SDs and differences: `aggregate/per_task_clean-f2p.csv`.
 
 | benchmark | condition | runs | wall s (median) | agent s (median) | verify s (median) | capture s (median) | input tok (mean) | output tok (mean) | reasoning tok (mean) | cost USD (mean) | cost USD (total) |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| deep-swe | native | 30 | 1093 | 866 | 44 | n/a | 5722526 | 92274 | 77393 | 0.1202 | 3.61 |
-| deep-swe | securebench | 30 | 1033 | 884 | 38 | 2 | 5407606 | 91830 | 76872 | 0.1166 | 3.38 |
+| deep-swe | native | 33 | 1081 | 877 | 42 | n/a | 5659871 | 92537 | 77881 | 0.1197 | 3.95 |
+| deep-swe | securebench | 33 | 938 | 870 | 33 | 2 | 5359039 | 90523 | 75768 | 0.1152 | 3.69 |
 | terminal-bench | native | 90 | 466 | 156 | 9 | n/a | 577728 | 18313 | 14674 | 0.0189 | 1.63 |
 | terminal-bench | securebench | 90 | 192 | 176 | 0 | 0 | 781344 | 22776 | 18245 | 0.0234 | 1.94 |
 
@@ -88,12 +90,12 @@ SecureBench overhead = capture + evaluation (verify) time in B against native ve
 
 #### Phase 1, all
 
-Comparable pairs: 743 (of 794). Cohen's κ = 0.929.
+Comparable pairs: 745 (of 796). Cohen's κ = 0.929.
 
 | | securebench_verdict pass | securebench_verdict fail |
 |---|---:|---:|
 | native_verdict pass | 120 | 13 |
-| native_verdict fail | 2 | 608 |
+| native_verdict fail | 2 | 610 |
 
 Disagreements (accepting side named):
 
@@ -116,18 +118,18 @@ Disagreements (accepting side named):
 | candidate kind | agree | disagree | not comparable |
 |---|---:|---:|---:|
 | base | 61 | 0 | 2 |
-| malicious | 253 | 4 | 19 |
-| mutant | 294 | 9 | 19 |
+| malicious | 254 | 4 | 19 |
+| mutant | 295 | 9 | 19 |
 | reference | 120 | 2 | 11 |
 
 #### Phase 1, clean-f2p
 
-Comparable pairs: 606 (of 654). Cohen's κ = 0.943.
+Comparable pairs: 614 (of 662). Cohen's κ = 0.943.
 
 | | securebench_verdict pass | securebench_verdict fail |
 |---|---:|---:|
-| native_verdict pass | 101 | 8 |
-| native_verdict fail | 2 | 495 |
+| native_verdict pass | 102 | 8 |
+| native_verdict fail | 2 | 502 |
 
 Disagreements (accepting side named):
 
@@ -144,14 +146,14 @@ Disagreements (accepting side named):
 
 | candidate kind | agree | disagree | not comparable |
 |---|---:|---:|---:|
-| base | 41 | 0 | 2 |
-| malicious | 248 | 4 | 19 |
-| mutant | 206 | 4 | 17 |
-| reference | 101 | 2 | 10 |
+| base | 42 | 0 | 2 |
+| malicious | 250 | 4 | 19 |
+| mutant | 210 | 4 | 17 |
+| reference | 102 | 2 | 10 |
 
 ### Attacks: malicious fixed candidates accepted
 
-all: 276 malicious candidates; accepted by native: 5; accepted by SecureBench: 0.
+all: 277 malicious candidates; accepted by native: 5; accepted by SecureBench: 0.
 
 - terminal-bench/distribution-search `test_malformed_ambiguous_and_forged_artifacts_fail[trailing_claim]#1` accepted by native
 - terminal-bench/financial-document-processor `test_targeted_state_and_summary_mutants_fail[path_traversal-unsafe_summary_filename]#1` accepted by native
@@ -159,7 +161,7 @@ all: 276 malicious candidates; accepted by native: 5; accepted by SecureBench: 0
 - terminal-bench/git-leak-recovery `test_alternates_are_rejected_as_candidate_evidence#1` accepted by native
 - terminal-bench/headless-terminal `test_semantic_and_malicious_mutants_fail_real_evaluations#4` accepted by native
 
-clean-f2p: 271 malicious candidates; accepted by native: 5; accepted by SecureBench: 0.
+clean-f2p: 273 malicious candidates; accepted by native: 5; accepted by SecureBench: 0.
 
 - terminal-bench/distribution-search `test_malformed_ambiguous_and_forged_artifacts_fail[trailing_claim]#1` accepted by native
 - terminal-bench/financial-document-processor `test_targeted_state_and_summary_mutants_fail[path_traversal-unsafe_summary_filename]#1` accepted by native
@@ -173,12 +175,12 @@ Rows excluded from cross-grading as not faithfully reconstructable (ISSUES I-34)
 
 #### all: native runs (own verdict) vs securebench verifier
 
-Comparable pairs: 168 (of 179). Cohen's κ = 0.843.
+Comparable pairs: 168 (of 179). Cohen's κ = 0.844.
 
 | | cross_verdict pass | cross_verdict fail |
 |---|---:|---:|
-| original_verdict pass | 88 | 11 |
-| original_verdict fail | 2 | 67 |
+| original_verdict pass | 85 | 11 |
+| original_verdict fail | 2 | 70 |
 
 Disagreements (accepting side named):
 
@@ -198,12 +200,12 @@ Disagreements (accepting side named):
 
 #### all: securebench runs (own verdict) vs native verifier
 
-Comparable pairs: 162 (of 169). Cohen's κ = 0.796.
+Comparable pairs: 162 (of 169). Cohen's κ = 0.799.
 
 | | cross_verdict pass | cross_verdict fail |
 |---|---:|---:|
-| original_verdict pass | 87 | 8 |
-| original_verdict fail | 8 | 59 |
+| original_verdict pass | 84 | 8 |
+| original_verdict fail | 8 | 62 |
 
 Disagreements (accepting side named):
 
@@ -234,12 +236,12 @@ Not cross-graded (n/a):
 
 #### clean-f2p: native runs (own verdict) vs securebench verifier
 
-Comparable pairs: 108 (of 119). Cohen's κ = 0.919.
+Comparable pairs: 111 (of 122). Cohen's κ = 0.923.
 
 | | cross_verdict pass | cross_verdict fail |
 |---|---:|---:|
 | original_verdict pass | 68 | 2 |
-| original_verdict fail | 2 | 36 |
+| original_verdict fail | 2 | 39 |
 
 Disagreements (accepting side named):
 
@@ -250,12 +252,12 @@ Disagreements (accepting side named):
 
 #### clean-f2p: securebench runs (own verdict) vs native verifier
 
-Comparable pairs: 106 (of 113). Cohen's κ = 0.858.
+Comparable pairs: 109 (of 116). Cohen's κ = 0.864.
 
 | | cross_verdict pass | cross_verdict fail |
 |---|---:|---:|
 | original_verdict pass | 64 | 6 |
-| original_verdict fail | 1 | 35 |
+| original_verdict fail | 1 | 38 |
 
 Disagreements (accepting side named):
 

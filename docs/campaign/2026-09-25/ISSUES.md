@@ -400,3 +400,29 @@ candidates accepted by upstream and 0 by SecureBench
 (distribution-search trailing claim, financial-document-processor path
 traversal, git-leak-recovery ×2, headless-terminal #4). Per-row evidence is in
 phase1-agreement.csv and phase5-crossgrade.csv.
+
+### I-36 Admitted set changed after the campaign; obsidian-linter-auto-table-of-contents slotted in (2026-09-25)
+An audit found three DeepSWE adapters that returned guest-computed verdicts:
+- **cattrs-partial-structuring-recovery and tomlkit-toml-table-converters:**
+  fixed so the adapters report raw observations and the Oracles compare. All
+  12 stored campaign outputs for these rows (3 SecureBench, 3 native each)
+  were re-graded with the new code, and every verdict is unchanged.
+- **returns-validated-error-accumulation:** its Hypothesis law check cannot
+  move host-side. The row is now qualification_pending (not admitted), and
+  obsidian-linter-auto-table-of-contents replaces it.
+
+Only the replacement row was run; the other 59 rows were not rerun. It used
+the same pins and per-task config as the rest (Codex 0.156.1, gpt-6-luna,
+effort max, upstream image digest, 5400 s, 8 GB, `prompt: instructions`):
+- 6 agent runs (3 reps × 2 conditions), 19:54–20:58 on 2026-09-25, all failed
+  in both conditions;
+- its 8 Phase 1 fixed candidates, all agree (the reference passes on both sides);
+- its Phase 5 cross-grades, 6/6 agree.
+
+The report now covers the current admitted set. returns' runs, fixed
+candidates and cross-grades stay on disk and in the raw CSVs, but are excluded
+from every statistic.
+
+Consequence: the replacement row ran about 16 hours after the other rows'
+rep 1 and on a quieter host, so its runs are not interleaved in time with the
+rest. Its instruction text is byte-identical to upstream.

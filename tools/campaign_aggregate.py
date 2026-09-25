@@ -64,11 +64,24 @@ def mark_structural(rows, table, task_key):
 
 # ------------------------------------------------------------------ inputs
 
+def admitted_tasks() -> set[tuple[str, str]]:
+    """The current admitted set: (benchmark, task) from the campaign task lists."""
+    admitted = set()
+    for pack, name in (("deep-swe", "ds-admitted-tasks-v2.jsonl"), ("terminal-bench", "tb-admitted-tasks-v2.jsonl")):
+        for line in (CAMPAIGN / name).read_text().splitlines():
+            admitted.add((pack, json.loads(line)["id"].split("/", 1)[1]))
+    return admitted
+
+
+ADMITTED = admitted_tasks()
+
+
 def load_records() -> list[dict]:
     path = CAMPAIGN / "records.jsonl"
     if not path.exists():
         return []
-    return [r for r in (json.loads(l) for l in path.read_text().splitlines() if l.strip()) if r["rep"] in REPS]
+    return [r for r in (json.loads(l) for l in path.read_text().splitlines() if l.strip())
+            if r["rep"] in REPS and (r["benchmark"], r["task"]) in ADMITTED]
 
 
 def f2p_flagged() -> set[str]:
@@ -298,6 +311,11 @@ def main() -> int:
              "Native (A: upstream harness + verifier) vs SecureBench (B: split verification), "
              "Codex CLI 0.156.1, gpt-6-luna, reasoning effort max. See FREEZE.md for pins "
              "and ISSUES.md for known differences.", "",
+             "Scope: the current admitted set (30 DeepSWE + 30 Terminal-Bench). "
+             "returns-validated-error-accumulation was removed from the admitted set after the "
+             "main campaign (guest-computed law verdict) and replaced by "
+             "obsidian-linter-auto-table-of-contents, which was run separately on 2026-09-25 "
+             "with the same pins and configs (ISSUES I-36); returns' runs stay on disk, excluded.", "",
              f"Phase 4 records (reps {', '.join(map(str, REPS))}; 60 tasks × 2 conditions × 3 reps planned = 360): "
              f"{len(records)}. DeepSWE rows flagged by the F2P audit "
              f"(Weaker or Missing > 0): {len(flagged)}; the `clean-f2p` scope drops them.", ""]
@@ -308,7 +326,8 @@ def main() -> int:
         analyse(records, scope_filter(scope, flagged), scope, lines, tables)
 
     lines += ["## Verifier agreement", ""]
-    phase1 = mark_structural(read_csv(CAMPAIGN / "phase1-agreement.csv"), STRUCTURAL_NA_PHASE1, lambda r: r["task"])
+    phase1 = [r for r in read_csv(CAMPAIGN / "phase1-agreement.csv") if tuple(r["task"].split("/", 1)) in ADMITTED]
+    phase1 = mark_structural(phase1, STRUCTURAL_NA_PHASE1, lambda r: r["task"])
     lines += ["### Phase 1: fixed candidates", ""]
     for scope in ("all", "clean-f2p"):
         keep = scope_filter(scope, flagged)
@@ -335,7 +354,9 @@ def main() -> int:
             lines.append(f"- {r['task']} `{r['candidate_id']}` accepted by {' and '.join(who)}")
         lines.append("")
 
-    phase5 = mark_structural(read_csv(CAMPAIGN / "phase5-crossgrade.csv"), STRUCTURAL_NA_PHASE5,
+    phase5 = [r for r in read_csv(CAMPAIGN / "phase5-crossgrade.csv")
+              if (r["benchmark"], r["task"]) in ADMITTED and int(r["rep"]) in REPS]
+    phase5 = mark_structural(phase5, STRUCTURAL_NA_PHASE5,
                              lambda r: f"{r['benchmark']}/{r['task']}")
     lines += ["Rows excluded from cross-grading as not faithfully reconstructable "
               "(ISSUES I-34): " + "; ".join(f"`{k}` ({v})" for k, v in STRUCTURAL_NA_PHASE5.items())

@@ -15,6 +15,7 @@ native,deep-swe,ink-grid-box-layout,1,committed,passed,pass,securebench,pass,yes
 native,deep-swe,mashumaro-flattened-dataclass-fields,1,committed,failed,fail,securebench,fail,yes,,False
 native,deep-swe,meriyah-explicit-resource-declarations,1,committed,passed,pass,securebench,infrastructure_error,n/a,,True
 native,deep-swe,narwhals-rolling-window-suite,1,committed,passed,pass,securebench,pass,yes,,True
+native,deep-swe,obsidian-linter-auto-table-of-contents,1,committed,failed,fail,securebench,fail,yes,,False
 native,deep-swe,obsidian-linter-scoped-ignore-markers,1,committed,passed,pass,securebench,pass,yes,,True
 native,deep-swe,pest-character-class-coalescing,1,committed,failed,fail,securebench,fail,yes,,False
 native,deep-swe,prometheus-typed-label-sorting,1,committed,passed,pass,securebench,fail,no,,True
@@ -46,6 +47,7 @@ native,deep-swe,ink-grid-box-layout,2,committed,failed,fail,securebench,fail,yes
 native,deep-swe,mashumaro-flattened-dataclass-fields,2,committed,passed,pass,securebench,pass,yes,,True
 native,deep-swe,meriyah-explicit-resource-declarations,2,committed,failed,fail,securebench,fail,yes,,False
 native,deep-swe,narwhals-rolling-window-suite,2,committed,passed,pass,securebench,pass,yes,,True
+native,deep-swe,obsidian-linter-auto-table-of-contents,2,committed,failed,fail,securebench,fail,yes,,False
 native,deep-swe,obsidian-linter-scoped-ignore-markers,2,committed,failed,fail,securebench,fail,yes,,False
 native,deep-swe,pest-character-class-coalescing,2,committed,failed,fail,securebench,fail,yes,,False
 native,deep-swe,prometheus-typed-label-sorting,2,committed,passed,pass,securebench,fail,no,,True
@@ -78,6 +80,7 @@ native,deep-swe,ink-grid-box-layout,3,committed,failed,fail,securebench,fail,yes
 native,deep-swe,mashumaro-flattened-dataclass-fields,3,committed,failed,fail,securebench,fail,yes,,False
 native,deep-swe,meriyah-explicit-resource-declarations,3,committed,failed,fail,securebench,fail,yes,,False
 native,deep-swe,narwhals-rolling-window-suite,3,committed,passed,pass,securebench,pass,yes,,True
+native,deep-swe,obsidian-linter-auto-table-of-contents,3,committed,failed,fail,securebench,fail,yes,,False
 native,deep-swe,obsidian-linter-scoped-ignore-markers,3,committed,failed,fail,securebench,fail,yes,,False
 native,deep-swe,pest-character-class-coalescing,3,committed,failed,fail,securebench,fail,yes,,False
 native,deep-swe,prometheus-typed-label-sorting,3,committed,passed,pass,securebench,fail,no,,True
@@ -199,6 +202,7 @@ securebench,deep-swe,ink-grid-box-layout,1,securebench-captured,failed,fail,nati
 securebench,deep-swe,mashumaro-flattened-dataclass-fields,1,securebench-captured,passed,pass,native,pass,yes,,True
 securebench,deep-swe,meriyah-explicit-resource-declarations,1,securebench-captured,passed,pass,native,fail,no,,True
 securebench,deep-swe,narwhals-rolling-window-suite,1,securebench-captured,passed,pass,native,pass,yes,,True
+securebench,deep-swe,obsidian-linter-auto-table-of-contents,1,securebench-captured,failed,fail,native,fail,yes,,False
 securebench,deep-swe,obsidian-linter-scoped-ignore-markers,1,securebench-captured,passed,pass,native,pass,yes,,True
 securebench,deep-swe,pest-character-class-coalescing,1,securebench-captured,passed,pass,native,fail,no,,True
 securebench,deep-swe,prometheus-typed-label-sorting,1,securebench-captured,passed,pass,native,pass,yes,,True
@@ -229,6 +233,7 @@ securebench,deep-swe,ink-grid-box-layout,2,securebench-captured,failed,fail,nati
 securebench,deep-swe,mashumaro-flattened-dataclass-fields,2,securebench-captured,passed,pass,native,pass,yes,,True
 securebench,deep-swe,meriyah-explicit-resource-declarations,2,securebench-captured,failed,fail,native,fail,yes,,False
 securebench,deep-swe,narwhals-rolling-window-suite,2,securebench-captured,failed,fail,native,fail,yes,,False
+securebench,deep-swe,obsidian-linter-auto-table-of-contents,2,securebench-captured,failed,fail,native,fail,yes,,False
 securebench,deep-swe,obsidian-linter-scoped-ignore-markers,2,securebench-captured,failed,fail,native,fail,yes,,False
 securebench,deep-swe,pest-character-class-coalescing,2,securebench-captured,failed,fail,native,fail,yes,,False
 securebench,deep-swe,prometheus-typed-label-sorting,2,securebench-captured,passed,pass,native,pass,yes,,True
@@ -259,6 +264,7 @@ securebench,deep-swe,ink-grid-box-layout,3,securebench-captured,passed,pass,nati
 securebench,deep-swe,mashumaro-flattened-dataclass-fields,3,securebench-captured,failed,fail,native,fail,yes,,False
 securebench,deep-swe,meriyah-explicit-resource-declarations,3,securebench-captured,passed,pass,native,fail,no,,True
 securebench,deep-swe,narwhals-rolling-window-suite,3,securebench-captured,passed,pass,native,pass,yes,,True
+securebench,deep-swe,obsidian-linter-auto-table-of-contents,3,securebench-captured,failed,fail,native,fail,yes,,False
 securebench,deep-swe,obsidian-linter-scoped-ignore-markers,3,securebench-captured,passed,pass,native,pass,yes,,True
 securebench,deep-swe,pest-character-class-coalescing,3,securebench-captured,failed,fail,native,fail,yes,,False
 securebench,deep-swe,prometheus-typed-label-sorting,3,securebench-captured,failed,fail,native,fail,yes,,False

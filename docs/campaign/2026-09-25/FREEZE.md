@@ -2649,3 +2649,37 @@ runs/campaign/native-venv/bin/pier run -p runs/campaign/upstream/deep-swe/tasks/
 runs/campaign/native-venv/bin/harbor run -p runs/campaign/upstream/tb2/chess-best-move -m openai/gpt-6-luna --ak version=0.156.1 --ak reasoning_effort=max -e docker -o <run dir> -n 1 -y -q --env-file .env --agent-import-path tools.native_baseline.codex_agents:HarborCodexCapture --ak capture_paths=/app/move.txt
 ```
 
+## Addendum: replacement row (2026-09-25, 19:54–20:58)
+
+`deep-swe/obsidian-linter-auto-table-of-contents` replaced
+`deep-swe/returns-validated-error-accumulation` in the admitted set (ISSUES
+I-36) and was run alone, with the pins above. Upstream image
+`public.ecr.aws/d3j8x8q7/swe-bench-202605:kh74j15mp1vrxx737y8b47tc8h832a37-v1.1`
+resolved to the pinned
+`sha256:56d3ffcde2ca373ffa0107f830b243d66191020f7021806acc8d609148518092`.
+Upstream limits: agent 5400 s, verifier 1800 s, 2 CPUs, 8192 MB, no network.
+
+```yaml
+schema_version: '1.0'
+run:
+  id: campaign-securebench-deep-swe-obsidian-linter-auto-table-of-contents
+  output_dir: /home/mfavrett/project/securebench/runs/campaign/securebench/deep-swe/unassigned/obsidian-linter-auto-table-of-contents
+  max_workers: 1
+benchmark:
+  manifest: /home/mfavrett/project/securebench/benchmarks/deep-swe/manifest-v2.yaml
+  tasks: /home/mfavrett/project/securebench/runs/campaign/configs/securebench/deep-swe/obsidian-linter-auto-table-of-contents/task.jsonl
+docker:
+  memory_limit: 8192m
+harness:
+  type: codex
+  config:
+    auth: api_key
+    model: gpt-6-luna
+    reasoning_effort: max
+    version: 0.156.1
+    task_file: task.json
+    prompt: instructions
+    timeout_seconds: 5400
+    allow_external_tools: false
+```
+
