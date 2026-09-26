@@ -31,6 +31,7 @@ from securebench.harnesses.codex import (
 )
 from securebench.harnesses.shared import (
     agent_prompt,
+    agent_prompt_mode,
     agent_workspace_git_env,
     agent_task_json,
     close_sandbox,
@@ -74,6 +75,8 @@ from securebench.workspaces.materialization import (
 CLAUDE_CODE_CONFIG_FIELDS = {
     "auth",
     "model",
+    "effort",
+    "prompt",
     "version",
     "task_file",
     "timeout_seconds",
@@ -87,6 +90,7 @@ CLAUDE_CODE_DEFAULT_MODEL = "sonnet"
 CLAUDE_CODE_DEFAULT_VERSION = "latest"
 CLAUDE_CODE_DEFAULT_TASK_FILE = "task.json"
 CLAUDE_CODE_DEFAULT_TIMEOUT_SECONDS = 900.0
+CLAUDE_CODE_EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 CLAUDE_CODE_RUNTIME_NODE_IMAGE = "node:22-bookworm"
 CLAUDE_CODE_PROVIDER = "anthropic"
 CLAUDE_CODE_PROVIDER_UPSTREAM_HOST = "api.anthropic.com"
@@ -101,6 +105,9 @@ CLAUDE_CODE_DUMMY_API_KEY = "securebench-dummy-anthropic-api-key"
 CLAUDE_CODE_DUMMY_OAUTH_TOKEN = "sk-ant-oat01-securebench-dummy-oauth-token"
 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"
 CLAUDE_CODE_DISABLE_AUTOUPDATER = "DISABLE_AUTOUPDATER"
+# Lets --dangerously-skip-permissions run as root inside the sandbox, as the
+# upstream Harbor/Pier Claude Code agents do.
+CLAUDE_CODE_IS_SANDBOX = "IS_SANDBOX"
 CLAUDE_CODE_PROVIDER_RELAY_SPEC = ProviderRelaySpec(
     provider=CLAUDE_CODE_PROVIDER,
     upstream_host=CLAUDE_CODE_PROVIDER_UPSTREAM_HOST,
@@ -136,6 +143,8 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
         *,
         auth: str = CLAUDE_CODE_DEFAULT_AUTH_MODE,
         model: str = CLAUDE_CODE_DEFAULT_MODEL,
+        effort: str | None = None,
+        prompt: str = "task_file",
         env_names: tuple[str, ...] = (),
         version: str = CLAUDE_CODE_DEFAULT_VERSION,
         task_file: str = CLAUDE_CODE_DEFAULT_TASK_FILE,
@@ -152,6 +161,8 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
             )
         self.auth = claude_code_auth_mode(auth)
         self.model = claude_code_model(model)
+        self.effort = claude_code_effort(effort)
+        self.prompt_mode = agent_prompt_mode(prompt)
         self.env_names = claude_code_env_names(env_names)
         self.version = claude_code_version(version)
         self.task_file = task_file
@@ -259,10 +270,11 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                     agent_workdir = task.environment.workdir
                     result = sandbox.run(
                         claude_code_shell_command(
-                            f"claude -p --model {shlex.quote(self.model)} "
-                            "--output-format json --dangerously-skip-permissions "
-                            "--no-session-persistence "
-                            f"{shlex.quote(agent_prompt(task, task_file_for_agent))}"
+                            claude_code_agent_command(
+                                self.model,
+                                self.effort,
+                                agent_prompt(task, task_file_for_agent, self.prompt_mode),
+                            )
                         ),
                         workdir=agent_workdir,
                         timeout=timeout,
@@ -286,6 +298,8 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
                             "benchmark_environment_image": image,
                             "claude_code_version": overlay.version,
                             "claude_code_model": self.model,
+                            "claude_code_effort": self.effort,
+                            "prompt_mode": self.prompt_mode,
                             "auth_mode": self.auth,
                             "overlay_platform": overlay.platform.docker_platform,
                             "overlay_cache_path": str(overlay.path),
@@ -357,10 +371,11 @@ class ClaudeCodeHarnessProducer(CandidateProducer):
             return run_filesystem_overlay_agent_capture(
                 image=image,
                 command=claude_code_overlay_shell_command(
-                    f"claude -p --model {shlex.quote(self.model)} "
-                    "--output-format json --dangerously-skip-permissions "
-                    "--no-session-persistence "
-                    f"{shlex.quote(agent_prompt(task, task_file_for_agent))}"
+                    claude_code_agent_command(
+                        self.model,
+                        self.effort,
+                        agent_prompt(task, task_file_for_agent, self.prompt_mode),
+                    )
                 ),
                 preflight_command=claude_code_overlay_shell_command("claude --version"),
                 workdir=task.environment.workdir,
@@ -406,6 +421,8 @@ def claude_code_config(config: dict[str, Any]) -> dict[str, Any]:
             config.get("auth", CLAUDE_CODE_DEFAULT_AUTH_MODE)
         ),
         "model": claude_code_model(config.get("model", CLAUDE_CODE_DEFAULT_MODEL)),
+        "effort": claude_code_effort(config.get("effort")),
+        "prompt": agent_prompt_mode(config.get("prompt", "task_file")),
         "version": claude_code_version(config.get("version", CLAUDE_CODE_DEFAULT_VERSION)),
         "task_file": workspace_path(
             config.get("task_file", CLAUDE_CODE_DEFAULT_TASK_FILE),
@@ -469,6 +486,29 @@ def claude_code_model(value: Any) -> str:
     if not re.fullmatch(r"[A-Za-z0-9._+-]+", model):
         raise ConfigError("harness.config.model contains unsupported characters")
     return model
+
+
+def claude_code_effort(value: Any) -> str | None:
+    if value is None:
+        return None
+    if value not in CLAUDE_CODE_EFFORT_LEVELS:
+        raise ConfigError(
+            f"harness.config.effort must be one of: {', '.join(CLAUDE_CODE_EFFORT_LEVELS)}"
+        )
+    return value
+
+
+def claude_code_agent_command(model: str, effort: str | None, prompt: str) -> str:
+    effort_flag = f"--effort {shlex.quote(effort)} " if effort is not None else ""
+    return (
+        f"claude -p --model {shlex.quote(model)} {effort_flag}"
+        # Streamed events, as the upstream Harbor/Pier agents run it: a run cut
+        # off by the timeout still leaves a record of what happened.
+        "--verbose --output-format stream-json --dangerously-skip-permissions "
+        "--no-session-persistence "
+        # "--" so a prompt that starts with "-" is not parsed as a flag.
+        f"-- {shlex.quote(prompt)}"
+    )
 
 
 def claude_code_overlay_for_image(image: str, version: str) -> ClaudeCodeOverlay:
@@ -554,6 +594,8 @@ def claude_code_agent_env(
         env[CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC] = "1"
     if CLAUDE_CODE_DISABLE_AUTOUPDATER not in env_names:
         env[CLAUDE_CODE_DISABLE_AUTOUPDATER] = "1"
+    if CLAUDE_CODE_IS_SANDBOX not in env_names:
+        env[CLAUDE_CODE_IS_SANDBOX] = "1"
     return env
 
 
@@ -561,9 +603,18 @@ def claude_code_shell_command(
     inner: str,
     *,
     home_target: str = CLAUDE_CODE_HOME_TARGET,
+    override_home: bool = False,
 ) -> str:
+    """Run the CLI with its state in ``home_target``.
+
+    The image's own HOME stays in place: benchmark images keep toolchains and
+    settings there (``~/.gitconfig``, ``~/go``, ``~/.rustup``, ...), and the
+    upstream harnesses leave it alone. Only a read-only root filesystem
+    (overlay capture) needs ``override_home``.
+    """
+    home = f"export HOME={shlex.quote(home_target)}; " if override_home else ""
     return (
-        f"export HOME={shlex.quote(home_target)}; "
+        f"{home}export CLAUDE_CONFIG_DIR={shlex.quote(home_target)}; "
         f"export PATH={shlex.quote(CLAUDE_CODE_OVERLAY_TARGET + '/bin')}:$PATH; "
         f"{inner}"
     )
@@ -577,5 +628,7 @@ def claude_code_overlay_shell_command(inner: str) -> str:
         + claude_code_shell_command(
             inner,
             home_target=CLAUDE_CODE_OVERLAY_AGENT_HOME_TARGET,
+            # The overlay Agent's root filesystem is read-only; HOME must be writable.
+            override_home=True,
         )
     )

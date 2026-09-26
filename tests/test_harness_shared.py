@@ -3,7 +3,14 @@ from types import SimpleNamespace
 import pytest
 
 from securebench.errors import ConfigError
-from securebench.harnesses.codex import codex_config
+from securebench.harnesses.claude_code import (
+    claude_code_agent_command,
+    claude_code_agent_env,
+    claude_code_config,
+    claude_code_overlay_shell_command,
+    claude_code_shell_command,
+)
+from securebench.harnesses.codex import codex_config, codex_overlay_shell_command, codex_shell_command
 from securebench.harnesses.shared import agent_prompt, agent_workspace_git_env
 
 
@@ -104,3 +111,51 @@ def test_codex_config_prompt_defaults_to_task_file_and_rejects_unknown_modes():
     assert codex_config({**base, "prompt": "instructions"})["prompt"] == "instructions"
     with pytest.raises(ConfigError, match="harness.config.prompt"):
         codex_config({**base, "prompt": "verbatim"})
+
+
+def test_claude_code_config_accepts_effort_and_prompt_modes():
+    base = {"model": "m"}
+
+    assert claude_code_config(base)["effort"] is None
+    assert claude_code_config(base)["prompt"] == "task_file"
+    config = claude_code_config({**base, "effort": "medium", "prompt": "instructions"})
+    assert (config["effort"], config["prompt"]) == ("medium", "instructions")
+    with pytest.raises(ConfigError, match="harness.config.effort"):
+        claude_code_config({**base, "effort": "extreme"})
+    with pytest.raises(ConfigError, match="harness.config.prompt"):
+        claude_code_config({**base, "prompt": "verbatim"})
+
+
+def test_claude_code_agent_command_passes_effort_and_separates_the_prompt():
+    command = claude_code_agent_command("claude-sonnet-5", "medium", "-x; rm -rf /")
+
+    assert "--model claude-sonnet-5 --effort medium " in command
+    assert command.endswith("-- '-x; rm -rf /'")
+    assert "--effort" not in claude_code_agent_command("m", None, "p")
+
+
+def test_claude_code_agent_env_marks_the_sandbox_and_keeps_only_dummy_credentials():
+    env = claude_code_agent_env({}, "http://relay:1", (), auth="subscription")
+
+    assert env["IS_SANDBOX"] == "1"
+    assert env["CLAUDE_CODE_OAUTH_TOKEN"].startswith("sk-ant-oat01-securebench-dummy")
+    assert "ANTHROPIC_API_KEY" not in env
+
+
+@pytest.mark.parametrize(
+    ("command", "state_env"),
+    [
+        (claude_code_shell_command("claude --version"), "CLAUDE_CONFIG_DIR"),
+        (codex_shell_command("codex --version"), "CODEX_HOME"),
+    ],
+)
+def test_agent_keeps_the_image_home_and_moves_only_its_own_state(command, state_env):
+    # Images keep git identity and toolchains in HOME (fix-git's ~/.gitconfig,
+    # DeepSWE's ~/go and ~/.rustup); upstream harnesses leave HOME alone.
+    assert "export HOME=" not in command
+    assert f"export {state_env}=/opt/securebench/" in command
+
+
+def test_overlay_agent_still_moves_home_off_the_read_only_root():
+    assert "export HOME=/tmp/securebench-claude-home;" in claude_code_overlay_shell_command("claude")
+    assert "export HOME=/tmp/securebench-codex-home;" in codex_overlay_shell_command("codex", auth_seed=None)

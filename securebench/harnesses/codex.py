@@ -842,9 +842,21 @@ def dummy_jwt(claims: dict[str, Any]) -> str:
     )
 
 
-def codex_shell_command(inner: str, *, home_target: str = CODEX_HOME_TARGET) -> str:
+def codex_shell_command(
+    inner: str,
+    *,
+    home_target: str = CODEX_HOME_TARGET,
+    override_home: bool = False,
+) -> str:
+    """Run the CLI with its state in ``CODEX_HOME``; the image's HOME stays in place.
+
+    Benchmark images keep toolchains and settings in HOME (``~/.gitconfig``,
+    ``~/go``, ``~/.rustup``, ...). Only a read-only root filesystem (overlay
+    capture) needs ``override_home``.
+    """
+    home = f"export HOME={shlex.quote(home_target)}; " if override_home else ""
     return (
-        f"export HOME={shlex.quote(home_target)}; "
+        f"{home}"
         f"export CODEX_HOME={shlex.quote(home_target)}; "
         f"export PATH={shlex.quote(CODEX_OVERLAY_TARGET + '/bin')}:$PATH; "
         'if [ -z "$OPENAI_API_KEY" ] && [ -n "$CODEX_API_KEY" ]; then export OPENAI_API_KEY="$CODEX_API_KEY"; fi; '
@@ -865,6 +877,8 @@ def codex_overlay_shell_command(inner: str, *, auth_seed: str | None) -> str:
     return setup + codex_shell_command(
         inner,
         home_target=CODEX_OVERLAY_AGENT_HOME_TARGET,
+        # The overlay Agent's root filesystem is read-only; HOME must be writable.
+        override_home=True,
     )
 
 

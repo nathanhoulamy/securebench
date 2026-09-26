@@ -690,3 +690,103 @@ def test_candidate_authored_absolute_or_escaping_symlinks_are_still_rejected(
             baseline_digest=BASELINE,
             base_commit=base_commit,
         )
+
+
+def _repository_with_ignore_rules(root: Path) -> tuple[Path, str]:
+    baseline = make_repository(root)
+    (baseline / ".gitignore").write_text("target/\n.venv/\n*.pyc\n")
+    (baseline / "src" / "keep.pyc").write_bytes(b"tracked despite the rule")
+    git(baseline, "add", "-f", ".")
+    git(baseline, "commit", "--quiet", "-m", "ignore rules")
+    return baseline, git(baseline, "rev-parse", "HEAD").strip()
+
+
+def test_stopped_workspace_capture_skips_untracked_paths_the_baseline_ignores(tmp_path):
+    # A cargo build or a virtualenv must not reject or bloat the submission;
+    # upstream grades commits, which never contain them.
+    baseline, base_commit = _repository_with_ignore_rules(tmp_path / "baseline")
+    workspace = tmp_path / "workspace"
+    git(tmp_path, "clone", "--quiet", str(baseline), str(workspace))
+    (workspace / "target" / "debug").mkdir(parents=True)
+    (workspace / "target" / "debug" / "app").write_bytes(b"\0" * 4096)
+    (workspace / ".venv" / "bin").mkdir(parents=True)
+    (workspace / ".venv" / "bin" / "python").symlink_to("/usr/local/bin/python3")
+    (workspace / "src" / "__cache.pyc").write_bytes(b"cache")
+    (workspace / "src" / "app.py").write_text("value = 2\n")
+    (workspace / "src" / "keep.pyc").write_bytes(b"tracked and changed")
+    store = CandidateStore(tmp_path / "store")
+
+    candidate = capture_git_patch_workspace(
+        workspace,
+        baseline,
+        git_patch_spec(max_changed_bytes=1024),
+        store,
+        baseline_digest=BASELINE,
+        base_commit=base_commit,
+    )
+
+    manifest = store.load_candidate(candidate.digest)
+    assert manifest.payload["changed_files"] == ["src/app.py", "src/keep.pyc"]
+
+
+def test_stopped_workspace_capture_honours_candidate_ignore_rules_only_to_drop_untracked_files(tmp_path):
+    # uv writes .venv/.gitignore ("*") into a virtualenv the baseline does not
+    # ignore; git never commits it, so capture skips it too. A candidate rule
+    # can only drop its own untracked files, never a baseline-tracked one.
+    baseline, base_commit = _repository_with_ignore_rules(tmp_path / "baseline")
+    workspace = tmp_path / "workspace"
+    git(tmp_path, "clone", "--quiet", str(baseline), str(workspace))
+    (workspace / "env" / "bin").mkdir(parents=True)
+    (workspace / "env" / ".gitignore").write_text("*\n")
+    (workspace / "env" / "bin" / "python").symlink_to("/usr/local/bin/python3")
+    (workspace / "src" / ".gitignore").write_text("hidden.py\napp.py\n")
+    (workspace / "src" / "hidden.py").write_text("dropped = True\n")
+    (workspace / "src" / "app.py").write_text("value = 3\n")
+    store = CandidateStore(tmp_path / "store")
+
+    candidate = capture_git_patch_workspace(
+        workspace,
+        baseline,
+        git_patch_spec(allow_paths=[]),
+        store,
+        baseline_digest=BASELINE,
+        base_commit=base_commit,
+    )
+
+    manifest = store.load_candidate(candidate.digest)
+    assert manifest.payload["changed_files"] == ["src/.gitignore", "src/app.py"]
+
+
+def test_stopped_workspace_capture_still_rejects_a_candidate_symlink_outside_ignored_paths(tmp_path):
+    baseline, base_commit = _repository_with_ignore_rules(tmp_path / "baseline")
+    workspace = tmp_path / "workspace"
+    git(tmp_path, "clone", "--quiet", str(baseline), str(workspace))
+    (workspace / "src" / "python").symlink_to("/usr/local/bin/python3")
+
+    with pytest.raises(CandidateCaptureError, match="symlink"):
+        capture_git_patch_workspace(
+            workspace,
+            baseline,
+            git_patch_spec(),
+            CandidateStore(tmp_path / "store"),
+            baseline_digest=BASELINE,
+            base_commit=base_commit,
+        )
+
+
+def test_worktree_ignore_never_uses_candidate_git_config_or_symlinked_ignore_files(tmp_path):
+    from securebench.candidates.capture import _WorktreeIgnore
+
+    baseline, _ = _repository_with_ignore_rules(tmp_path / "baseline")
+    workspace = tmp_path / "workspace"
+    git(tmp_path, "clone", "--quiet", str(baseline), str(workspace))
+    outside = tmp_path / "outside-rules"
+    outside.write_text("leak.txt\n")
+    (workspace / "src" / ".gitignore").symlink_to(outside)
+    marker = tmp_path / "hook-ran"
+    (workspace / ".git" / "config").write_text(f"[core]\n\tfsmonitor = touch {marker}\n")
+
+    ignored = _WorktreeIgnore(baseline, workspace).ignored([("src/leak.txt", False), ("target", True)])
+
+    assert ignored == {"target"}
+    assert not marker.exists()

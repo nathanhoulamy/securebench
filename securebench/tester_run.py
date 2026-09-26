@@ -491,7 +491,7 @@ def _execute_task(
                     ),
                     run_seed=run_seed,
                 )
-            except CandidateCaptureError:
+            except CandidateCaptureError as exc:
                 if isinstance(
                     task.verification.candidate,
                     FilesystemOverlayCandidate,
@@ -501,7 +501,13 @@ def _execute_task(
                         task_id=task.id,
                         candidate_type=task.verification.candidate.type,
                     )
-                emit_progress("candidate_capture_done", task_id=task.id, status="rejected")
+                emit_progress(
+                    "candidate_capture_done",
+                    task_id=task.id,
+                    status="rejected",
+                    # Host-side progress only; bounded, never an Oracle input.
+                    reason=str(exc)[:500],
+                )
                 result = engine.verify_candidate_error(
                     task,
                     code="candidate_capture_rejected",

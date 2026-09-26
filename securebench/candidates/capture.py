@@ -609,6 +609,7 @@ def _synchronize_stopped_worktree(
 ) -> None:
     baseline_entries = _tree_entry_count(baseline, protected_paths=protected_paths)
     maximum_entries = baseline_entries + max(1024, spec.max_changed_files * 8)
+    ignore = _WorktreeIgnore(baseline, source)
     seen: set[str] = set()
     pending: list[tuple[Path, PurePosixPath]] = [(source, PurePosixPath())]
     visited = 0
@@ -632,6 +633,21 @@ def _synchronize_stopped_worktree(
                             "stopped git_patch workspace exceeds its traversal bound"
                         )
                     children.append(entry)
+                # Untracked paths git ignores (build output, virtualenvs, caches)
+                # are never part of the submission: upstream grades commits,
+                # which cannot contain them. Skipping only drops untracked
+                # content; baseline-tracked paths are always captured, and every
+                # captured path still passes the path and symlink policy.
+                skipped = ignore.ignored(
+                    [
+                        ((relative_root / entry.name).as_posix(), entry.is_dir(follow_symlinks=False))
+                        for entry in children
+                    ]
+                )
+                children = [
+                    entry for entry in children
+                    if (relative_root / entry.name).as_posix() not in skipped
+                ]
                 children.sort(
                     key=lambda item: item.name.encode(
                         "utf-8", errors="surrogateescape"
@@ -716,6 +732,69 @@ def _synchronize_stopped_worktree(
                 f"stopped git_patch workspace contains unsupported file type: {path}"
             )
     _remove_absent_checkout_paths(checkout, seen, protected_paths=protected_paths)
+
+
+class _WorktreeIgnore:
+    """Answer "does git ignore this path, which the baseline does not track?".
+
+    Git runs with the trusted baseline's git directory (config, index,
+    info/exclude) and the stopped workspace as work tree, so the candidate's
+    ``.gitignore`` files are read as data and its ``.git`` is never used.
+    """
+
+    def __init__(self, baseline: Path, workspace: Path) -> None:
+        self.workspace = workspace
+        self.git_dir = _run_git(
+            ["rev-parse", "--absolute-git-dir"],
+            cwd=baseline,
+            context="locate baseline git directory",
+        ).strip()
+        listed = _run_git_bytes(
+            ["ls-files", "-z", "--cached"],
+            cwd=baseline,
+            context="list baseline tracked paths",
+        )
+        self.tracked: set[str] = set()
+        for raw in listed.split(b"\0"):
+            if not raw:
+                continue
+            parts = PurePosixPath(raw.decode("utf-8", errors="surrogateescape")).parts
+            for depth in range(1, len(parts) + 1):
+                self.tracked.add("/".join(parts[:depth]))
+
+    def ignored(self, entries: list[tuple[str, bool]]) -> set[str]:
+        """Return the entries (path, is_directory) git ignores and the baseline does not track."""
+        queries = {
+            path + ("/" if is_directory else ""): path
+            for path, is_directory in entries
+            if path not in self.tracked
+        }
+        if not queries:
+            return set()
+        completed = subprocess.run(
+            git_command(
+                [
+                    "--git-dir", self.git_dir,
+                    "--work-tree", str(self.workspace),
+                    "check-ignore", "--stdin", "-z",
+                ]
+            ),
+            cwd=self.workspace,
+            env=git_environment(),
+            input=b"".join(
+                query.encode("utf-8", errors="surrogateescape") + b"\0" for query in queries
+            ),
+            check=False,
+            capture_output=True,
+        )
+        # 0: some paths are ignored, 1: none are; anything else is an error.
+        if completed.returncode not in (0, 1):
+            raise CandidateCaptureError("failed to evaluate workspace ignore rules")
+        return {
+            queries[raw.decode("utf-8", errors="surrogateescape")]
+            for raw in completed.stdout.split(b"\0")
+            if raw and raw.decode("utf-8", errors="surrogateescape") in queries
+        }
 
 
 def _tree_entry_count(root: Path, *, protected_paths: tuple[str, ...]) -> int:

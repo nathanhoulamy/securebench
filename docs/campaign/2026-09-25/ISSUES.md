@@ -426,3 +426,46 @@ from every statistic.
 Consequence: the replacement row ran about 16 hours after the other rows'
 rep 1 and on a quieter host, so its runs are not interleaved in time with the
 rest. Its instruction text is byte-identical to upstream.
+
+### I-37 SecureBench agent ran with a replaced HOME (found 2026-09-26; fixed after the campaign)
+The Codex harness exported `HOME=/opt/securebench/codex-home` before running
+the agent, so in condition B the agent did not see the image's `/root`.
+Upstream (condition A) keeps the image's HOME. The Sonnet 5 smoke test found
+it: SecureBench fix-git failed because `git merge` had no committer identity
+(`/root/.gitconfig` sets it), while native passed the same task.
+
+A scan of the 60 admitted images (python-statemachine's image was not pulled
+locally, so not scanned) shows what the agent lost:
+- **All 30 DeepSWE images:** `~/.cargo`, `~/.rustup`, `~/.bun`, `~/.rye`,
+  `~/.local`, and on the 10 Go rows `~/go`. With HOME moved, `go env GOMODCACHE`
+  points at an empty directory (the prebuilt module cache is gone, and the
+  network is blocked), and `rustup` reports no default toolchain, so
+  `cargo` fails. Checked on prometheus, cattrs and pest.
+- **fix-git:** `~/.gitconfig` (git identity).
+- **Other TB images:** only `.bashrc`, `.profile`, and pip caches.
+
+Scope: only the agent phase of condition B (Phase 4 pass rates). Verifiers,
+Oracles, Phase 1 and Phase 5 do not run the agent harness, so they are
+unaffected. It is untested whether this explains any of I-35, but 4 of the 5
+"SecureBench stricter" rows (prometheus, task-graph, updo, termenv) are Go
+rows.
+
+Fix: the Codex and Claude Code harnesses keep the image's HOME and move only
+their own state (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`), as the upstream agents
+do. Overlay capture (read-only root filesystem, not used by any admitted row)
+still moves HOME to its tmpfs. The Luna runs were not rerun; that is a separate
+decision.
+
+### I-38 Silent capture rejections in condition B (found 2026-09-26; fixed after the campaign)
+The Sonnet 5 campaign (S-10 in `../2026-09-26-sonnet5/ISSUES.md`) found that
+stopped-worktree capture counted untracked files git ignores (cargo
+`target/`, uv `.venv` with an absolute `python` symlink), and that the
+rejection reason was never logged. In Luna these SecureBench runs graded no
+candidate:
+- python-statemachine-state-data-scoping reps 1–3 (all cases `candidate_error`);
+- fd-deterministic-multi-key-sorting rep 3;
+- hf-model-inference reps 2–3 (`candidate_capture_rejected`; cause not recorded).
+
+For these rows the B-vs-A difference came from capture, not verification.
+Capture now skips untracked paths git ignores (trusted git dir, workspace as
+data), and rejection reasons are logged. The Luna runs were not redone.
