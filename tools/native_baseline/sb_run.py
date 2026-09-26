@@ -6,7 +6,7 @@ with an observation-only hook on the progress reporter:
 
 * ``<output>/campaign-events.jsonl``: every progress event, host wall-clock
   timestamped (``producer_start``, ``candidate_capture_done``, ...).
-* ``<output>/campaign-agent-raw.jsonl``: every raw Codex stdout line.
+* ``<output>/campaign-agent-raw.jsonl``: every raw agent stdout line (Codex or Claude Code).
 
 It does not change execution beyond ``--show-agent-output`` (the switch that
 streams Codex output). Token counts parsed from the raw lines are reported by
@@ -50,7 +50,7 @@ def _install_hook() -> None:
             _append("events", {"t": now, "event": name,
                                **{k: v for k, v in fields.items() if k in {
                                    "task_id", "status", "passed", "score", "error",
-                                   "output_dir", "candidate_type", "exit_code"}}})
+                                   "output_dir", "candidate_type", "exit_code", "reason", "error_type"}}})
         return original_event(self, name, **fields)
 
     progress.StreamProgressReporter.event = event
@@ -62,7 +62,8 @@ def _install_hook() -> None:
     import re
     from securebench.sandboxes import docker as docker_sandbox
 
-    pattern = re.compile(r"\bcodex\b.*\bexec\b", re.DOTALL)
+    # Claude Code (claude -p) is never streamed either; recognise it the same way.
+    pattern = re.compile(r"\bcodex\b.*\bexec\b|\bclaude -p\b", re.DOTALL)
     docker_sandbox._is_codex_agent_command = lambda command: bool(pattern.search(" ".join(command)))
 
 

@@ -27,11 +27,41 @@ committed DeepSWE rows, and the 30 Terminal-Bench rows with
 `qualification_status=approved` in `docs/benchmark-conversions/inventory.csv`.
 `OPENAI_API_KEY` is read from `.env` by the child processes only.
 
+## Agent profiles
+
+`CAMPAIGN_PROFILE` (`profile.py`) selects the agent; the default `luna` is the
+Codex campaign above. `sonnet5` runs Claude Code 2.1.283, `claude-sonnet-5`,
+effort `medium`, on a Claude subscription, and writes to
+`runs/campaign-sonnet5/`. The native venv, upstream checkouts, task lists and
+Phase 1 are shared from `runs/campaign/`.
+
+- Put `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) in `.env`. The driver
+  drops any `ANTHROPIC_API_KEY` from the child env and sets `CLAUDE_FORCE_OAUTH=1`
+  so the runs cannot fall back to API billing.
+- Native passes the token into the agent container, as upstream does;
+  SecureBench keeps it in the host-side relay. Revoke the token afterwards.
+- A run that ends on a subscription usage limit is set aside
+  (`<task>.usage-limit-<t>`) and redone after the reset; it does not use one
+  of the two infrastructure retries, and no new run starts before the reset.
+
+```bash
+export CAMPAIGN_PROFILE=sonnet5
+python -m tools.native_baseline.campaign_configs
+python -m tools.native_baseline.freeze
+python -m tools.native_baseline.campaign run --rep 1 --workers 4 --memory-gb 40
+python -m tools.native_baseline.campaign repair && python -m tools.native_baseline.campaign records
+python -m tools.native_baseline.phase5 --reps 1 --workers 4
+python -m tools.native_baseline.key_scan --redact
+python -m tools.campaign_aggregate
+```
+
 ## Modules
 
 | module | role |
 |---|---|
 | `campaign_configs.py` | one SecureBench config + one-row task file per task with upstream timeout, memory and capture cap; `configs/resources.csv` parity table |
+| `profile.py` | agent profiles (`luna`, `sonnet5`): model, effort, version, native agents, results root |
+| `claude_agents.py` | Pier/Harbor `ClaudeCode` subclasses with the same post-run capture as `codex_agents.py` |
 | `codex_agents.py` | Pier/Harbor `Codex` subclasses that add a read-only post-run capture: DeepSWE working-tree diff, Terminal-Bench declared paths |
 | `sb_run.py` | runs `securebench.cli run` in-process, logging timestamped progress events and raw Codex events (tokens) |
 | `campaign.py` | Phase 3/4 driver: seeded task shuffle per rep, per-task random condition order, workers with memory budget, per-run pid locks, infrastructure retries (≤2), `repair`, `records` |

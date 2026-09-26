@@ -1,4 +1,7 @@
-"""Find (and optionally redact) the OpenAI API key anywhere under runs/campaign/.
+"""Find (and optionally redact) the campaign credential anywhere under the campaign root.
+
+The credential is the profile's (``profile.py``): the OpenAI API key for Luna,
+the Claude subscription OAuth token for Sonnet 5.
 
     python -m tools.native_baseline.key_scan [--redact]
 
@@ -12,19 +15,22 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from tools.native_baseline.profile import PROFILE
+
 ROOT = Path(__file__).resolve().parents[2]
-TARGET = ROOT / "runs" / "campaign"
+TARGET = PROFILE.root
+NAME = PROFILE.credential_env
 SKIP = {"native-venv", "upstream"}
 
 
 def load_key() -> bytes:
     for line in (ROOT / ".env").read_text().splitlines():
-        if line.startswith("OPENAI_API_KEY="):
+        if line.startswith(f"{NAME}="):
             value = line.split("=", 1)[1].strip().strip('"').strip("'")
             if len(value) < 20:
-                raise SystemExit("OPENAI_API_KEY in .env looks empty")
+                raise SystemExit(f"{NAME} in .env looks empty")
             return value.encode()
-    raise SystemExit("OPENAI_API_KEY not found in .env")
+    raise SystemExit(f"{NAME} not found in .env")
 
 
 def main() -> int:
@@ -48,7 +54,7 @@ def main() -> int:
                 except UnicodeDecodeError:
                     print(f"BINARY HIT (not rewritten): {path.relative_to(ROOT)}")
                     continue
-                path.write_bytes(data.replace(key, b"[REDACTED-OPENAI-KEY]"))
+                path.write_bytes(data.replace(key, f"[REDACTED-{NAME}]".encode()))
     for path in hits:
         print(f"{'redacted' if args.redact else 'HIT'}: {path.relative_to(ROOT)}")
     print(f"{len(hits)} file(s) contained the key")

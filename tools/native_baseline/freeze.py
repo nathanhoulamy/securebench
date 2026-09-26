@@ -1,4 +1,4 @@
-"""Write runs/campaign/FREEZE.md: everything needed to reproduce the campaign.
+"""Write <campaign>/FREEZE.md: everything needed to reproduce the campaign.
 
     python -m tools.native_baseline.freeze
 
@@ -16,10 +16,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from tools.native_baseline.campaign import PRICE
-from tools.native_baseline.campaign_configs import CODEX_VERSION, CONFIGS, MODEL, REASONING_EFFORT
+from tools.native_baseline.campaign_configs import AGENT_VERSION, CONFIGS, MODEL, REASONING_EFFORT
+from tools.native_baseline.profile import PROFILE, SHARED
 
 ROOT = Path(__file__).resolve().parents[2]
-CAMPAIGN = ROOT / "runs" / "campaign"
+CAMPAIGN = PROFILE.root
 
 
 def sh(*command: str, cwd: Path = ROOT) -> str:
@@ -32,7 +33,7 @@ def image_rows() -> list[dict]:
     with (CONFIGS / "resources.csv").open() as handle:
         resources = {r["task"]: r for r in csv.DictReader(handle)}
     upstream_digest = {}
-    digests = CAMPAIGN / "phase0" / "image-digests.tsv"
+    digests = SHARED / "phase0" / "image-digests.tsv"
     for line in digests.read_text().splitlines():
         task, _, resolved = line.split("\t")
         upstream_digest[task] = resolved
@@ -45,6 +46,28 @@ def image_rows() -> list[dict]:
     return rows
 
 
+def agent_lines(native_bin: Path) -> list[str]:
+    if PROFILE.agent == "codex":
+        return [
+            f"- Codex CLI `@openai/codex@{AGENT_VERSION}` (both conditions; pinned, not `latest`)",
+            f"- Model `{MODEL}`, reasoning effort `{REASONING_EFFORT}` (both conditions)",
+            "- Model id accepted by the API: `GET /v1/models/gpt-6-luna` returned 200 on 2026-09-24.",
+            f"- Cost is computed from Codex-reported token usage with litellm's `{MODEL}` prices "
+            f"(USD/token): input {PRICE['input']}, cached input {PRICE['cached_input']}, output {PRICE['output']} "
+            f"(litellm `{sh(str(native_bin / 'python'), '-c', 'import importlib.metadata as m; print(m.version(\"litellm\"))')}`).",
+        ]
+    return [
+        f"- Claude Code `@anthropic-ai/claude-code@{AGENT_VERSION}` (both conditions; pinned, not `latest`)",
+        f"- Model `{MODEL}`, effort `{REASONING_EFFORT}` (both conditions)",
+        "- Auth: Claude subscription OAuth token (`CLAUDE_CODE_OAUTH_TOKEN` from `.env`). Native passes it",
+        "  into the agent container (upstream behaviour); SecureBench keeps it in the host-side relay.",
+        "- Cost: none billed; `cost_usd` is Claude Code's own API-price estimate (`total_cost_usd`).",
+        f"- Both conditions set {', '.join(f'`{k}={v}`' for k, v in PROFILE.agent_env.items())} "
+        "(upstream agents set them; SecureBench via `harness.env`).",
+        "- Upstream image digests are from the Luna campaign's phase 0 (2026-09-24).",
+    ]
+
+
 def main() -> int:
     head = sh("git", "rev-parse", "HEAD")
     dirty = sh("git", "status", "--porcelain=v1")
@@ -52,7 +75,7 @@ def main() -> int:
                       if l.startswith("MemTotal")).split()[1])
     cpu = next((l.split(":", 1)[1].strip() for l in Path("/proc/cpuinfo").read_text().splitlines()
                 if l.startswith("model name")), platform.processor())
-    native_bin = CAMPAIGN / "native-venv" / "bin"
+    native_bin = SHARED / "native-venv" / "bin"
     lines = [
         "# Campaign freeze",
         "",
@@ -70,20 +93,15 @@ def main() -> int:
         "",
         "## Agent",
         "",
-        f"- Codex CLI `@openai/codex@{CODEX_VERSION}` (both conditions; pinned, not `latest`)",
-        f"- Model `{MODEL}`, reasoning effort `{REASONING_EFFORT}` (both conditions)",
-        "- Model id accepted by the API: `GET /v1/models/gpt-6-luna` returned 200 on 2026-09-24.",
-        f"- Cost is computed from Codex-reported token usage with litellm's `{MODEL}` prices "
-        f"(USD/token): input {PRICE['input']}, cached input {PRICE['cached_input']}, output {PRICE['output']} "
-        f"(litellm `{sh(str(native_bin / 'python'), '-c', 'import importlib.metadata as m; print(m.version(\"litellm\"))')}`).",
+        *agent_lines(native_bin),
         "",
         "## Native harnesses (condition A)",
         "",
         f"- Harbor `{sh(str(native_bin / 'python'), '-c', 'import importlib.metadata as m; print(m.version(\"harbor\"))')}` "
         "(Terminal-Bench 2.0), Pier "
         f"`{sh(str(native_bin / 'python'), '-c', 'import importlib.metadata as m; print(m.version(\"datacurve-pier\"))')}` (DeepSWE)",
-        f"- Terminal-Bench 2.0: `harbor-framework/terminal-bench-2` at `{sh('git', 'rev-parse', 'HEAD', cwd=CAMPAIGN / 'upstream' / 'tb2')}`",
-        f"- DeepSWE: `datacurve-ai/deep-swe` at `{sh('git', 'rev-parse', 'HEAD', cwd=CAMPAIGN / 'upstream' / 'deep-swe')}`",
+        f"- Terminal-Bench 2.0: `harbor-framework/terminal-bench-2` at `{sh('git', 'rev-parse', 'HEAD', cwd=SHARED / 'upstream' / 'tb2')}`",
+        f"- DeepSWE: `datacurve-ai/deep-swe` at `{sh('git', 'rev-parse', 'HEAD', cwd=SHARED / 'upstream' / 'deep-swe')}`",
         "",
         "## Host",
         "",

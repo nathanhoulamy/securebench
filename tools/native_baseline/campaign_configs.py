@@ -9,7 +9,9 @@ Usage::
 
     python -m tools.native_baseline.campaign_configs
 
-Writes ``runs/campaign/configs/`` and ``runs/campaign/configs/resources.csv``.
+Writes ``<campaign>/configs/`` and ``<campaign>/configs/resources.csv``, where
+``<campaign>`` is the profile's root (``runs/campaign`` for the default Luna
+profile; see ``profile.py``).
 """
 
 from __future__ import annotations
@@ -21,24 +23,27 @@ from pathlib import Path
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[2]
-CAMPAIGN = ROOT / "runs" / "campaign"
-CONFIGS = CAMPAIGN / "configs"
-UPSTREAM = CAMPAIGN / "upstream"
+from tools.native_baseline.profile import PROFILE, SHARED
 
-CODEX_VERSION = "0.156.1"
-MODEL = "gpt-6-luna"
-REASONING_EFFORT = "max"
+ROOT = Path(__file__).resolve().parents[2]
+CAMPAIGN = PROFILE.root
+CONFIGS = CAMPAIGN / "configs"
+UPSTREAM = SHARED / "upstream"
+
+AGENT_VERSION = PROFILE.version
+CODEX_VERSION = AGENT_VERSION  # name kept for the Luna tooling
+MODEL = PROFILE.model
+REASONING_EFFORT = PROFILE.effort
 
 PACKS = {
     "deep-swe": {
-        "tasks": CAMPAIGN / "ds-admitted-tasks-v2.jsonl",
+        "tasks": SHARED / "ds-admitted-tasks-v2.jsonl",
         "manifest": ROOT / "benchmarks" / "deep-swe" / "manifest-v2.yaml",
         "upstream": UPSTREAM / "deep-swe" / "tasks",
         "base_config": ROOT / "benchmarks" / "deep-swe" / "tester-linux.yaml",
     },
     "terminal-bench": {
-        "tasks": CAMPAIGN / "tb-admitted-tasks-v2.jsonl",
+        "tasks": SHARED / "tb-admitted-tasks-v2.jsonl",
         "manifest": ROOT / "benchmarks" / "terminal-bench" / "manifest-v2.yaml",
         "upstream": UPSTREAM / "tb2",
         "base_config": ROOT / "benchmarks" / "terminal-bench" / "tester-codex.yaml",
@@ -86,28 +91,36 @@ def securebench_config(pack: str, row: dict, limits: dict, rows_path: Path) -> d
     }
     if "network_policy" in base:
         config["network_policy"] = base["network_policy"]
-    config["harness"] = {
-        "type": "codex",
-        "config": {
-            "auth": "api_key",
-            "model": MODEL,
-            "reasoning_effort": REASONING_EFFORT,
-            "version": CODEX_VERSION,
-            "task_file": "task.json",
-            # Give Codex the row's public instructions verbatim (= upstream
-            # instruction.md), with no SecureBench wrapper and no task file.
-            "prompt": "instructions",
-            # A ceiling: the effective timeout is min(row, this).
-            "timeout_seconds": int(limits["agent_timeout_s"]),
-            "allow_external_tools": False,
-        },
-    }
+    config["harness"] = harness_section(limits)
     if pack == "terminal-bench":
         # Upstream has no candidate size cap, only per-task disk (storage_mb);
         # use that so the tester cap never binds before upstream's own limit.
         # Per-row declared max_bytes in the candidate spec still apply.
         config["capture"] = {"max_candidate_bytes": limits["storage_mb"] * 1024 * 1024}
     return config
+
+
+def harness_section(limits: dict) -> dict:
+    common = {
+        "model": MODEL,
+        "version": AGENT_VERSION,
+        "task_file": "task.json",
+        # Give the agent the row's public instructions verbatim (= upstream
+        # instruction.md), with no SecureBench wrapper and no task file.
+        "prompt": "instructions",
+        # A ceiling: the effective timeout is min(row, this).
+        "timeout_seconds": int(limits["agent_timeout_s"]),
+        "allow_external_tools": False,
+    }
+    if PROFILE.agent == "codex":
+        return {"type": "codex",
+                "config": {"auth": "api_key", "reasoning_effort": REASONING_EFFORT, **common}}
+    section = {"type": "claude_code",
+               "config": {"auth": "subscription", "effort": REASONING_EFFORT, **common}}
+    if PROFILE.agent_env:
+        # Values come from the sb_run process env (campaign.run_securebench).
+        section["env"] = sorted(PROFILE.agent_env)
+    return section
 
 
 def main() -> int:

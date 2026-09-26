@@ -28,9 +28,10 @@ from pathlib import Path
 
 from securebench.candidates.store import CandidateStore
 from tools.native_baseline.phase1 import native_grade, securebench_grade
+from tools.native_baseline.profile import PROFILE
 
 ROOT = Path(__file__).resolve().parents[2]
-CAMPAIGN = ROOT / "runs" / "campaign"
+CAMPAIGN = PROFILE.root
 OUT = CAMPAIGN / "phase5"
 
 

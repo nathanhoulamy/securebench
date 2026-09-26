@@ -2,8 +2,9 @@
 
     python -m tools.campaign_aggregate
 
-Inputs (all under runs/campaign/): records.jsonl (Phase 4, reps >= 1),
-phase1-agreement.csv, phase5-crossgrade.csv, retries.jsonl, and
+Inputs (under the profile's campaign root, see native_baseline/profile.py):
+records.jsonl (Phase 4, reps >= 1), phase5-crossgrade.csv, retries.jsonl;
+phase1-agreement.csv (model-independent, shared from runs/campaign/); and
 docs/benchmark-conversions/f2p-audit/README.md for the DeepSWE subset.
 
 Infrastructure errors are excluded from pass rates and counted separately.
@@ -24,15 +25,18 @@ from collections import Counter, defaultdict
 from itertools import product
 from pathlib import Path
 
+from tools.native_baseline.profile import PROFILE, SHARED
+
 ROOT = Path(__file__).resolve().parents[1]
-CAMPAIGN = ROOT / "runs" / "campaign"
+CAMPAIGN = PROFILE.root
 OUT = CAMPAIGN / "aggregate"
 SEED = 20260925
 BOOT = 10000
 CONDITIONS = ("native", "securebench")
 # The campaign was cut to 3 reps (360 runs) by user decision on 2026-09-25;
 # 27 rep-5 runs made before that stay on disk but are not analysed.
-REPS = (1, 2, 3)
+# Other profiles analyse every rep they have records for.
+REPS = (1, 2, 3) if PROFILE.name == "luna" else None
 # Rows whose upstream state cannot be rebuilt from the declared candidate files,
 # so a cross-grade measures the replay, not the verifier (ISSUES I-34):
 # upstream tests need a live service (kv-store-grpc gRPC on 5328, hf-model-inference
@@ -68,7 +72,7 @@ def admitted_tasks() -> set[tuple[str, str]]:
     """The current admitted set: (benchmark, task) from the campaign task lists."""
     admitted = set()
     for pack, name in (("deep-swe", "ds-admitted-tasks-v2.jsonl"), ("terminal-bench", "tb-admitted-tasks-v2.jsonl")):
-        for line in (CAMPAIGN / name).read_text().splitlines():
+        for line in (SHARED / name).read_text().splitlines():
             admitted.add((pack, json.loads(line)["id"].split("/", 1)[1]))
     return admitted
 
@@ -81,7 +85,7 @@ def load_records() -> list[dict]:
     if not path.exists():
         return []
     return [r for r in (json.loads(l) for l in path.read_text().splitlines() if l.strip())
-            if r["rep"] in REPS and (r["benchmark"], r["task"]) in ADMITTED]
+            if (REPS is None or r["rep"] in REPS) and (r["benchmark"], r["task"]) in ADMITTED]
 
 
 def f2p_flagged() -> set[str]:
@@ -271,10 +275,18 @@ def analyse(records, keep, label, lines, tables):
             lines.append(f"| {b} | {c} | {len(rs)} | {fmt(med('wall_time_s'), 0)} | {fmt(med('agent_time_s'), 0)} | "
                          f"{fmt(med('verify_time_s'), 0)} | {fmt(med('capture_time_s'), 0)} | {fmt(avg('input_tokens'), 0)} | "
                          f"{fmt(avg('output_tokens'), 0)} | {fmt(avg('reasoning_tokens'), 0)} | {fmt(avg('cost_usd'), 4)} | {fmt(total, 2)} |")
-    lines += ["", "Token and cost columns use only runs whose Codex session completed a turn "
-              "(usage is reported only on `turn.completed`); runs without it (timeouts, and SecureBench "
-              "runs whose bounded stdout dropped the final event, ISSUES I-28) are excluded, so totals are "
-              "lower bounds. Runs with unknown usage: "
+    usage_note = (
+        "Token and cost columns use only runs whose Codex session completed a turn "
+        "(usage is reported only on `turn.completed`); runs without it (timeouts, and SecureBench "
+        "runs whose bounded stdout dropped the final event, ISSUES I-28) are excluded, so totals are "
+        "lower bounds." if PROFILE.agent == "codex" else
+        "Tokens come from Claude Code's last `result` event. Runs without one are excluded as "
+        "unknown usage: timeouts, crashes, and SecureBench runs whose 1 MiB bounded stdout cut "
+        "the stream (ISSUES S-08), which are mostly the long DeepSWE runs, so B's DeepSWE means "
+        "cover the shorter sessions only and are not comparable to A's. Cost is Claude Code's "
+        "API-price estimate (`total_cost_usd`, final event only); the runs were billed to a "
+        "subscription, so it is notional.")
+    lines += ["", usage_note + " Runs with unknown usage: "
               + ", ".join(f"{b}/{c} {n}" for (b, c), n in sorted(unknown_usage.items())) + ".",
               "",
               "SecureBench overhead = capture + evaluation (verify) time in B against native "
@@ -303,20 +315,33 @@ def agreement(rows, left, right, label, lines, keep=None, kind_field=None):
         lines.append("")
 
 
+if PROFILE.agent == "codex":
+    AGENT_LABEL = "Codex CLI 0.156.1, gpt-6-luna, reasoning effort max"
+    SCOPE_NOTE = [
+        "Scope: the current admitted set (30 DeepSWE + 30 Terminal-Bench). "
+        "returns-validated-error-accumulation was removed from the admitted set after the "
+        "main campaign (guest-computed law verdict) and replaced by "
+        "obsidian-linter-auto-table-of-contents, which was run separately on 2026-09-25 "
+        "with the same pins and configs (ISSUES I-36); returns' runs stay on disk, excluded.", ""]
+else:
+    AGENT_LABEL = (f"Claude Code {PROFILE.version}, {PROFILE.model}, effort {PROFILE.effort}, "
+                   "Claude subscription")
+    SCOPE_NOTE = ["Scope: the current admitted set (30 DeepSWE + 30 Terminal-Bench). "
+                  "Phase 1 (fixed-candidate agreement) is model-independent and reused from the "
+                  "2026-09-25 Luna campaign.", ""]
+
+
 def main() -> int:
     OUT.mkdir(parents=True, exist_ok=True)
     records = load_records()
+    reps = REPS or tuple(sorted({r["rep"] for r in records}))
     flagged = f2p_flagged()
     lines = ["# Campaign report", "",
              "Native (A: upstream harness + verifier) vs SecureBench (B: split verification), "
-             "Codex CLI 0.156.1, gpt-6-luna, reasoning effort max. See FREEZE.md for pins "
-             "and ISSUES.md for known differences.", "",
-             "Scope: the current admitted set (30 DeepSWE + 30 Terminal-Bench). "
-             "returns-validated-error-accumulation was removed from the admitted set after the "
-             "main campaign (guest-computed law verdict) and replaced by "
-             "obsidian-linter-auto-table-of-contents, which was run separately on 2026-09-25 "
-             "with the same pins and configs (ISSUES I-36); returns' runs stay on disk, excluded.", "",
-             f"Phase 4 records (reps {', '.join(map(str, REPS))}; 60 tasks × 2 conditions × 3 reps planned = 360): "
+             f"{AGENT_LABEL}. See FREEZE.md for pins and ISSUES.md for known differences.", "",
+             *SCOPE_NOTE,
+             f"Phase 4 records (reps {', '.join(map(str, reps))}; 60 tasks × 2 conditions × "
+             f"{len(reps)} rep{'s' if len(reps) > 1 else ''} planned = {120 * len(reps)}): "
              f"{len(records)}. DeepSWE rows flagged by the F2P audit "
              f"(Weaker or Missing > 0): {len(flagged)}; the `clean-f2p` scope drops them.", ""]
     tables: dict[str, list[dict]] = {}
@@ -325,8 +350,25 @@ def main() -> int:
     for scope in ("all", "clean-f2p"):
         analyse(records, scope_filter(scope, flagged), scope, lines, tables)
 
+    if PROFILE.agent != "codex":
+        # S-09: B scores an empty submission when the agent exits non-zero or
+        # times out, or when capture rejects the stopped state; A grades what is left.
+        lines += ["### Runs where SecureBench graded no candidate", "",
+                  "| benchmark | task | producer | capture | reason | native verdict |", "|---|---|---|---|---|---|"]
+        native = {(r["benchmark"], r["task"], r["rep"]): r for r in records if r["condition"] == "native"}
+        empty = [r for r in records if r["condition"] == "securebench"
+                 and (r.get("producer_status") == "failed" or r.get("capture_status") == "rejected")]
+        for r in sorted(empty, key=lambda r: (r["benchmark"], r["task"])):
+            other = native.get((r["benchmark"], r["task"], r["rep"]), {})
+            lines.append(f"| {r['benchmark']} | {r['task']} | {r.get('producer_status', 'ok')} | "
+                         f"{r.get('capture_status') or '-'} | {(r.get('capture_reason') or '-')[:80]} | "
+                         f"{other.get('status', '-')} |")
+        if not empty:
+            lines.append("| - | - | - | - | - | - |")
+        lines.append("")
+
     lines += ["## Verifier agreement", ""]
-    phase1 = [r for r in read_csv(CAMPAIGN / "phase1-agreement.csv") if tuple(r["task"].split("/", 1)) in ADMITTED]
+    phase1 = [r for r in read_csv(SHARED / "phase1-agreement.csv") if tuple(r["task"].split("/", 1)) in ADMITTED]
     phase1 = mark_structural(phase1, STRUCTURAL_NA_PHASE1, lambda r: r["task"])
     lines += ["### Phase 1: fixed candidates", ""]
     for scope in ("all", "clean-f2p"):
@@ -355,7 +397,7 @@ def main() -> int:
         lines.append("")
 
     phase5 = [r for r in read_csv(CAMPAIGN / "phase5-crossgrade.csv")
-              if (r["benchmark"], r["task"]) in ADMITTED and int(r["rep"]) in REPS]
+              if (r["benchmark"], r["task"]) in ADMITTED and (REPS is None or int(r["rep"]) in REPS)]
     phase5 = mark_structural(phase5, STRUCTURAL_NA_PHASE5,
                              lambda r: f"{r['benchmark']}/{r['task']}")
     lines += ["Rows excluded from cross-grading as not faithfully reconstructable "

@@ -1,0 +1,5 @@
+scope,benchmark,condition,tasks,runs,mean,ci_low,ci_high
+all,deep-swe,native,30,30,0.26666666666666666,0.1,0.43333333333333335
+all,deep-swe,securebench,30,30,0.36666666666666664,0.2,0.5333333333333333
+all,terminal-bench,native,30,30,0.6666666666666666,0.5,0.8333333333333334
+all,terminal-bench,securebench,30,30,0.6666666666666666,0.5,0.8333333333333334

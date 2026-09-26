@@ -1,0 +1,5 @@
+scope,benchmark,condition,tasks,runs,mean,ci_low,ci_high
+clean-f2p,deep-swe,native,11,11,0.09090909090909091,0.0,0.2727272727272727
+clean-f2p,deep-swe,securebench,11,11,0.45454545454545453,0.18181818181818182,0.7272727272727273
+clean-f2p,terminal-bench,native,30,30,0.6666666666666666,0.5,0.8333333333333334
+clean-f2p,terminal-bench,securebench,30,30,0.6666666666666666,0.5,0.8333333333333334
